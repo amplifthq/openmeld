@@ -2,17 +2,24 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { daemonServiceUpdateJobSchema } from "@openmeld/schemas";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 vi.mock("../src/local-service/lifecycle/daemon-service-bundle", () => ({
   discardPreparedDaemonServiceBundle: vi.fn(),
   prepareDaemonServiceBundle: vi.fn(),
 }));
-vi.mock("../src/local-service/lifecycle/daemon-service-lifecycle", () => ({
-  runDaemonServiceLifecycle: vi.fn(),
-}));
+vi.mock(
+  "../src/local-service/lifecycle/daemon-service-lifecycle",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../src/local-service/lifecycle/daemon-service-lifecycle")
+    >()),
+    runDaemonServiceLifecycle: vi.fn(),
+  })
+);
 
 import { LocalDaemonControlPlaneClientError } from "../src/local-service/control-plane/client";
+import { DaemonServiceUpdateDeferredError } from "../src/local-service/lifecycle/daemon-service-lifecycle";
 import {
   runPendingDaemonServiceUpdate,
   scheduleDaemonServiceUpdate,
@@ -76,7 +83,8 @@ describe("daemon service background update coordinator", () => {
   it.each([
     "daemon.control.contract_mismatch",
     "daemon.control.endpoint_missing",
-  ])("delegates %s to guarded lifecycle instead of waiting forever", async (code) => {
+    "host.previous_work_unconfirmed",
+  ])("keeps accepted work safe when readiness fails with %s", async (code) => {
     const pending: DaemonServiceUpdateJob = {
       v: 2,
       schema: "openmeld-daemon-service-update-job-v2",
@@ -106,7 +114,7 @@ describe("daemon service background update coordinator", () => {
       )
     );
 
-    const result = await runPendingDaemonServiceUpdate({
+    const update = runPendingDaemonServiceUpdate({
       completePendingJob: (job) => {
         durableJob = job;
         return Promise.resolve();
@@ -127,6 +135,18 @@ describe("daemon service background update coordinator", () => {
       withReconcileLock: async (run) => await run(),
     });
 
+    if (code === "host.previous_work_unconfirmed") {
+      await expect(update).rejects.toThrow("Service cannot answer readiness");
+      expect(durableJob).toMatchObject({
+        phase: "needs_help",
+        jobId: pending.jobId,
+      });
+      expect(durableJob.errorMessage).toContain(code);
+      expect(runLifecycle).not.toHaveBeenCalled();
+      return;
+    }
+    const result = await update;
+
     expect(requestReadiness).toHaveBeenCalledOnce();
     expect(runLifecycle).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -138,6 +158,92 @@ describe("daemon service background update coordinator", () => {
       phase: "updated",
       targetVersion: PREPARED_BUNDLE.daemonVersion,
     });
+  });
+
+  it("yields a raced automatic update without consuming attempts or holding the lifecycle lock", async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const initial: DaemonServiceUpdateJob = {
+      v: 2,
+      schema: "openmeld-daemon-service-update-job-v2",
+      attempts: 4,
+      desiredState: "background",
+      errorMessage: null,
+      jobId: "idle-switch",
+      phase: "waiting_for_work",
+      preparedBundle: PREPARED_BUNDLE,
+      requestedAt: "2026-09-05T00:00:00.000Z",
+      requestSource: "automatic",
+      targetVersion: PREPARED_BUNDLE.daemonVersion,
+      updatedAt: "2026-09-05T00:00:00.000Z",
+      urgency: "available",
+    };
+    let job = initial;
+    let locked = false;
+    const waiting = Promise.withResolvers<void>();
+    const idle = Promise.withResolvers<void>();
+    const phases: string[] = [];
+    let calls = 0;
+    const result = runPendingDaemonServiceUpdate({
+      readPendingJob: async () => job,
+      now: () => initial.updatedAt,
+      persistPendingJob: (next) => {
+        job = next;
+        phases.push(next.phase);
+        return Promise.resolve();
+      },
+      completePendingJob: (next) => {
+        job = next;
+        return Promise.resolve();
+      },
+      withReconcileLock: async (run) => {
+        expect(locked).toBe(false);
+        locked = true;
+        try {
+          return await run();
+        } finally {
+          locked = false;
+        }
+      },
+      waitUntilSafeToSwitch: async () => {
+        expect(locked).toBe(false);
+        if (calls === 1) {
+          waiting.resolve();
+          await idle.promise;
+        }
+      },
+      runLifecycle: async (input) => {
+        expect(input.onlyIfIdle).toBe(true);
+        calls += 1;
+        if (calls === 1) {
+          throw new DaemonServiceUpdateDeferredError();
+        }
+        await input.onPhase?.("wait_stopped");
+        return { status: "aligned", errorMessage: null };
+      },
+    });
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(calls).toBe(1);
+    expect(locked).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await waiting.promise;
+    expect(locked).toBe(false);
+    expect(job).toMatchObject({
+      phase: "waiting_for_work",
+      attempts: 4,
+      errorMessage: null,
+      jobId: initial.jobId,
+    });
+    expect(phases).not.toContain("updating");
+    idle.resolve();
+    expect(await result).toMatchObject({
+      phase: "updated",
+      attempts: 5,
+      jobId: initial.jobId,
+    });
+    expect(phases).toContain("updating");
   });
 
   it("keeps waiting when the readiness fact is unavailable", async () => {
@@ -469,18 +575,21 @@ describe("daemon service background update coordinator", () => {
         return Promise.resolve();
       },
       waitUntilSafeToSwitch: async () => undefined,
-      runLifecycle: async () => ({
-        status: "aligned",
-        targetVersion: "0.3.98",
-        inventoryBefore: null,
-        inventoryAfter: null,
-        reasonCodes: [],
-        completedPhases: ["inspect", "prepare_bundle"],
-        desiredState: "background",
-        shouldStartAfterLifecycle: true,
-        backupDataPath: null,
-        errorMessage: null,
-      }),
+      runLifecycle: (input) => {
+        expect(input.onlyIfIdle).toBeUndefined();
+        return Promise.resolve({
+          status: "aligned",
+          targetVersion: "0.3.98",
+          inventoryBefore: null,
+          inventoryAfter: null,
+          reasonCodes: [],
+          completedPhases: ["inspect", "prepare_bundle"],
+          desiredState: "background",
+          shouldStartAfterLifecycle: true,
+          backupDataPath: null,
+          errorMessage: null,
+        });
+      },
     });
 
     expect(persisted).toHaveLength(2);
@@ -504,7 +613,7 @@ describe("daemon service background update coordinator", () => {
       targetVersion: "0.3.98",
       urgency: "required",
       phase: "waiting_for_work",
-      requestSource: "cli",
+      requestSource: "automatic",
       desiredState: "background",
       preparedBundle: PREPARED_BUNDLE,
       attempts: 0,
@@ -522,22 +631,25 @@ describe("daemon service background update coordinator", () => {
         return Promise.resolve();
       },
       waitUntilSafeToSwitch,
-      runLifecycle: async () => ({
-        status: "failed",
-        targetVersion: "0.3.98",
-        inventoryBefore: null,
-        inventoryAfter: null,
-        reasonCodes: ["replacement_start_failed"],
-        completedPhases: ["inspect", "stop_or_drain"],
-        desiredState: "background",
-        shouldStartAfterLifecycle: true,
-        backupDataPath: null,
-        failureStage: "verify_final_inventory",
-        evidencePath: "/tmp/evidence.jsonl",
-        recoveryStatus: "restored_verified_previous_state",
-        errorCode: "replacement_start_failed",
-        errorMessage: "replacement failed to start",
-      }),
+      runLifecycle: (input) => {
+        expect(input.onlyIfIdle).toBeUndefined();
+        return Promise.resolve({
+          status: "failed",
+          targetVersion: "0.3.98",
+          inventoryBefore: null,
+          inventoryAfter: null,
+          reasonCodes: ["replacement_start_failed"],
+          completedPhases: ["inspect", "stop_or_drain"],
+          desiredState: "background",
+          shouldStartAfterLifecycle: true,
+          backupDataPath: null,
+          failureStage: "verify_final_inventory",
+          evidencePath: "/tmp/evidence.jsonl",
+          recoveryStatus: "restored_verified_previous_state",
+          errorCode: "replacement_start_failed",
+          errorMessage: "replacement failed to start",
+        });
+      },
     });
 
     expect(completed[0]).toMatchObject({

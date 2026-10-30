@@ -19,6 +19,8 @@ import {
   openMeldDaemonControlPlaneResponseSchema,
 } from "@openmeld/schemas";
 
+const DEFAULT_SHUTDOWN_GRACE_PERIOD_MS = 5000;
+
 type OpenMeldDaemonInterruptResponsePayload = Extract<
   OpenMeldDaemonControlPlaneResponse,
   { code: "service.interrupt" }
@@ -97,6 +99,12 @@ export type OpenMeldDaemonControlPlaneContext = {
   serviceUpdateReadinessHandler?: () =>
     | OpenMeldDaemonServiceUpdateReadinessPayload
     | Promise<OpenMeldDaemonServiceUpdateReadinessPayload>;
+  shutdownIfIdleHandler?: (
+    payload: Pick<OpenMeldDaemonShutdownRequestPayload, "gracePeriodMs">,
+    lifecycle?: { onAdmitted: () => void }
+  ) =>
+    | OpenMeldDaemonShutdownResponsePayload
+    | Promise<OpenMeldDaemonShutdownResponsePayload>;
   statusPayload: OpenMeldDaemonStatusPayload;
 };
 
@@ -180,6 +188,13 @@ export async function buildControlPlaneResponse(input: {
       });
     case "shutdown":
       return await buildShutdownControlPlaneResponse({
+        context: input.context,
+        lifecycle: input.lifecycle,
+        payload: request.payload,
+        requestMeta,
+      });
+    case "shutdown_if_idle":
+      return await buildIdleShutdownControlPlaneResponse({
         context: input.context,
         lifecycle: input.lifecycle,
         payload: request.payload,
@@ -357,6 +372,39 @@ async function buildConversationExecutionStatusControlPlaneResponse(input: {
   });
 }
 
+async function buildIdleShutdownControlPlaneResponse(input: {
+  context: OpenMeldDaemonControlPlaneContext;
+  lifecycle?: { onShutdownAdmitted?: () => void };
+  payload: Extract<
+    OpenMeldDaemonControlPlaneRequest,
+    { command: "shutdown_if_idle" }
+  >["payload"];
+  requestMeta: Pick<OpenMeldDaemonControlPlaneRequest, "v" | "requestId">;
+}): Promise<OpenMeldDaemonControlPlaneResponse> {
+  if (!input.context.shutdownIfIdleHandler) {
+    return parseControlPlaneResponse({
+      ...input.requestMeta,
+      code: "service.error",
+      payload: {
+        errorCode: "daemon.control.contract_mismatch",
+        errorMessage:
+          "This Service does not support an idle-only update switch.",
+      },
+    });
+  }
+  const payload = await input.context.shutdownIfIdleHandler(
+    input.payload ?? { gracePeriodMs: DEFAULT_SHUTDOWN_GRACE_PERIOD_MS },
+    input.lifecycle?.onShutdownAdmitted
+      ? { onAdmitted: input.lifecycle.onShutdownAdmitted }
+      : undefined
+  );
+  return parseControlPlaneResponse({
+    ...input.requestMeta,
+    code: "service.shutdown",
+    payload,
+  });
+}
+
 async function buildShutdownControlPlaneResponse(input: {
   context: OpenMeldDaemonControlPlaneContext;
   lifecycle?: {
@@ -370,7 +418,7 @@ async function buildShutdownControlPlaneResponse(input: {
 }): Promise<OpenMeldDaemonControlPlaneResponse> {
   const resolvedShutdownPayload = input.payload ?? {
     mode: "graceful",
-    gracePeriodMs: 5000,
+    gracePeriodMs: DEFAULT_SHUTDOWN_GRACE_PERIOD_MS,
   };
   const payload = input.context.shutdownHandler
     ? await input.context.shutdownHandler(

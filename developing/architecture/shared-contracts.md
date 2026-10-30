@@ -46,6 +46,35 @@ actions, Service transport, and trace contracts do not change. No database or
 local-component contract floor changes are needed. Rolling Gateway back
 reintroduces the old-reader failure; use a forward correction for that boundary.
 
+## Automatic update idle-switch compatibility
+
+The authenticated local `shutdown_if_idle` command accepts only a grace period,
+never force mode or an account-transition admission ID. It reuses the existing
+`service.shutdown` response shape; `accepted: false` means the conditional
+switch did not start. The exact-bundle Host's `beginDrain` request carries
+`onlyIfIdle: true` and returns its existing snapshot. An open snapshot
+preserves admission; a draining snapshot confirms the atomic idle fence.
+
+Old CLI `shutdown` requests keep their current semantics. Old Services reject
+the distinct command, and new automatic updaters preserve that refusal instead of
+falling back to unconditional shutdown. Explicit manual update remains available.
+This changes no cloud Wake, result, readiness, or finalization contract and adds
+no new execution authority. CLI and Service are published together as available
+updates, with no minimum-version floor increase.
+
+## Permission-mode audit response compatibility
+
+The existing MemberAgent sensitive-operation audit accepts optional
+`responseVersion=2`. Core and Gateway validate the shared query schema. Only
+version 2 includes a stored `permissionModeChange` with before/after native modes,
+Binding identity, configuration revisions and request correlation. Missing
+details stay absent, including on historical rows. Unversioned and version 1
+requests omit the field entirely for installed strict readers. Updated API
+clients request version 2 and still accept legacy responses from older receivers.
+Owner and Organization authorization remain unchanged. The additive PostgreSQL
+column must exist before deploying the new Core writer/reader; see the recovery
+reliability audit in `developing/engineering/development-workflow.md`.
+
 ## Passive Codex conversation proof response compatibility
 
 The single and batch Agent Execution Readiness endpoints accept

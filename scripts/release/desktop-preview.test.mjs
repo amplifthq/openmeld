@@ -101,8 +101,8 @@ test("native candidate inspection preserves both streams and nonzero failure det
       assert.throws(
         () => inspectDesktopCandidateCommand(process.execPath, args),
         (error) => {
-          assert.ok(error.message.includes(process.execPath));
-          assert.ok(error.message.includes(script));
+          assert.ok(error.message.includes(JSON.stringify(process.execPath)));
+          assert.ok(error.message.includes(JSON.stringify(script)));
           assert.ok(error.message.includes(`Exit status: ${status}`));
           assert.ok(error.message.includes(`stdout:\n${stdout}`));
           if (stderr) {
@@ -124,7 +124,7 @@ test("native candidate inspection reports a failed process launch", () => {
     assert.throws(
       () => inspectDesktopCandidateCommand(command, ["validate"]),
       (error) => {
-        assert.ok(error.message.includes(command));
+        assert.ok(error.message.includes(JSON.stringify(command)));
         assert.ok(error.message.includes("validate"));
         assert.ok(error.message.includes("ENOENT"));
         assert.equal(error.cause.code, "ENOENT");

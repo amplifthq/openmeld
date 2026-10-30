@@ -1,11 +1,53 @@
 import type { DesktopLocalComputer } from "@openmeld/schemas";
-import type { CommandDeps } from "./cli/commands";
+import { type CommandDeps, serviceStatus } from "./cli/commands";
 import { resolveOpenMeldBin } from "./cli/resolve-openmeld";
 import {
   isComputerConnectionBootstrapError,
   readComputerConnection,
 } from "./computer-connection";
 import type { PilotAuth } from "./pilot-auth";
+import { toServiceView } from "./state/view-state";
+
+// Used only after the existing cloud observation says the local Computer is
+// disconnected. A missing heartbeat alone never establishes an auth failure.
+export function createLocalServiceAuthenticationReader(
+  auth: Pick<PilotAuth, "session">,
+  deps: CommandDeps
+) {
+  return async (expectedAccount: string): Promise<boolean> => {
+    if (
+      !hasLocalComputerEnvironment(deps) ||
+      (await auth.session()).user?.id !== expectedAccount
+    ) {
+      return false;
+    }
+    const review = await readComputerConnection(
+      resolveOpenMeldBin({ env: deps.env, override: deps.openMeldBin }),
+      deps
+    );
+    if (review.account?.id !== expectedAccount) {
+      return false;
+    }
+    const service = toServiceView(await serviceStatus(deps));
+    return (
+      (await auth.session()).user?.id === expectedAccount &&
+      service.running === true &&
+      !service.problem &&
+      service.attention?.code === "authentication_required"
+    );
+  };
+}
+
+function hasLocalComputerEnvironment(deps: CommandDeps): boolean {
+  return (
+    deps.env?.OPENMELD_ENV_PRESET === "prod" ||
+    Boolean(
+      deps.env?.OPENMELD_HOME &&
+        deps.env.OPENMELD_AUTH_URL &&
+        deps.env.OPENMELD_GATEWAY_URL
+    )
+  );
+}
 
 // Read the CLI's public identity projection. This never installs or starts a Service.
 export function createLocalComputerReader(
@@ -14,14 +56,7 @@ export function createLocalComputerReader(
 ) {
   return async (): Promise<DesktopLocalComputer> => {
     try {
-      if (
-        deps.env?.OPENMELD_ENV_PRESET !== "prod" &&
-        !(
-          deps.env?.OPENMELD_HOME &&
-          deps.env.OPENMELD_AUTH_URL &&
-          deps.env.OPENMELD_GATEWAY_URL
-        )
-      ) {
+      if (!hasLocalComputerEnvironment(deps)) {
         return {
           status: "unavailable",
           message:

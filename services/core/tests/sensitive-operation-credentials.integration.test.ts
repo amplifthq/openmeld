@@ -193,10 +193,10 @@ function runningTask(input: {
 }
 
 /** The permission-mode write, standing in for every §6 operation. */
-async function setPermissionMode(
+async function setPermissionMode<T>(
   f: Fixture,
   credential: RequestCredential,
-  change: () => Promise<string>,
+  change: () => Promise<T>,
   mode = "full_access"
 ) {
   return await runGatewaySensitiveOperation(
@@ -268,6 +268,18 @@ function cli(confirmationId?: string): RequestCredential {
 }
 
 describe("sensitive operation credentials", () => {
+  it.each([
+    "unchanged",
+    "conflict",
+  ])("does not audit an uncommitted permission-mode result as success (%s)", async (status) => {
+    const f = await seed();
+    const result = { status };
+    await expect(
+      setPermissionMode(f, interactive(), async () => result)
+    ).resolves.toEqual(result);
+    expect(await readAudit(f)).toEqual([]);
+  });
+
   it("turns a colleague-rooted task's CLI call into a confirmation card, not a change", async () => {
     const f = await seed();
     shard.riskWindow = runningTask({
@@ -618,6 +630,18 @@ describe("sensitive operation credentials", () => {
     const f = await seed();
     const change = vi.fn(async () => "changed");
     await setPermissionMode(f, interactive(), change);
+    const permissionModeChange = {
+      bindingId: "binding-a",
+      previousMode: "claude-code:auto",
+      mode: "claude-code:dontAsk",
+      previousRevision: 4,
+      revision: 5,
+      requestId: "request-a",
+    };
+    await getPostgresDatabase(env).query({
+      text: `UPDATE "openmeld"."sensitive_operation_audit_events" SET permission_mode_change_json = $1 WHERE organization_id = $2`,
+      values: [JSON.stringify(permissionModeChange), f.organizationId],
+    });
     const audit = await rpcListMemberAgentSensitiveOperationAudit(coreEnv, {
       context: contextFor(f, f.felix),
       memberAgentId: f.memberAgentId,
@@ -631,6 +655,15 @@ describe("sensitive operation credentials", () => {
         sourceKind: "web_session",
       }),
     ]);
+    expect(audit.events[0]).not.toHaveProperty("permissionModeChange");
+    const detailed = await rpcListMemberAgentSensitiveOperationAudit(coreEnv, {
+      context: contextFor(f, f.felix),
+      memberAgentId: f.memberAgentId,
+      responseVersion: 2,
+    });
+    expect(detailed.events[0]?.permissionModeChange).toEqual(
+      permissionModeChange
+    );
     await expect(
       rpcListMemberAgentSensitiveOperationAudit(coreEnv, {
         context: contextFor(f, f.tali),

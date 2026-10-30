@@ -28,6 +28,7 @@ import type {
   AdapterInteractionCallback,
   AdapterPreviewCallback,
   AdapterRuntimeEventCallback,
+  AdapterRuntimeProcessCallback,
   AdapterStreamingMode,
   AgentControllerPermissionMode,
   ConversationPolicy,
@@ -49,13 +50,13 @@ import { resolveClaudeConversationPolicyOptions } from "./claude-conversation-po
 import { createClaudeLiveInput } from "./claude-live-input.js";
 import { resolveClaudePermissionMode } from "./claude-permission-policy.js";
 import { createClaudePreviewEmitter } from "./claude-preview-emitter.js";
+import { createClaudeSdkProcessLauncher } from "./claude-sdk-process.js";
 import {
   buildClaudeSpaceToolOptions,
   createClaudeDispatchConnectionObserver,
   isClaudeDeliveryOnly,
   verifyClaudeDeliveryReport,
 } from "./claude-space-action-tools.js";
-import { createClaudeWindowsProcessLauncher } from "./claude-windows-process.js";
 
 function claudeDeliveryPolicyError(
   code: "claude_delivery_policy.invalid" | "claude_delivery_policy.unavailable",
@@ -313,6 +314,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
   instructionPrompt?: AdapterInstructionPrompt;
   onInteractionRequest?: AdapterInteractionCallback;
   onPreview?: AdapterPreviewCallback;
+  onProcessControlEvent?: AdapterRuntimeProcessCallback;
   onRuntimeEvent?: AdapterRuntimeEventCallback;
   prompt: string;
   registerQuery?: ClaudeAgentSdkQueryRegistration;
@@ -334,6 +336,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
 
   const resources = await createClaudeAgentSdkInvocationResources({
     launchContract: input.launchContract,
+    onProcessControlEvent: input.onProcessControlEvent,
     needsPlanCapture: input.onInteractionRequest !== undefined,
   });
   const abortController = new AbortController();
@@ -729,6 +732,7 @@ type ClaudePlanCapture = {
 
 async function createClaudeAgentSdkInvocationResources(input: {
   launchContract: RuntimeAgentControllerLaunchContract;
+  onProcessControlEvent?: AdapterRuntimeProcessCallback;
   needsPlanCapture: boolean;
 }): Promise<{
   cleanup: () => Promise<void>;
@@ -737,6 +741,7 @@ async function createClaudeAgentSdkInvocationResources(input: {
 }> {
   const executable = await resolveClaudeAgentSdkExecutable({
     launchContract: input.launchContract,
+    onProcessControlEvent: input.onProcessControlEvent,
   });
   let planCapture: ClaudePlanCapture;
   try {
@@ -780,10 +785,11 @@ async function createClaudePlanCapture(
 
 export async function resolveClaudeAgentSdkExecutable(input: {
   launchContract: RuntimeAgentControllerLaunchContract;
+  onProcessControlEvent?: AdapterRuntimeProcessCallback;
 }): Promise<{
   cleanup: () => Promise<void>;
   pathToClaudeCodeExecutable: string;
-  spawnProcess?: ReturnType<typeof createClaudeWindowsProcessLauncher>["spawn"];
+  spawnProcess: ReturnType<typeof createClaudeSdkProcessLauncher>["spawn"];
 }> {
   const launchCommand = materializeCliLaunchCommand({
     launchContract: input.launchContract,
@@ -798,7 +804,10 @@ export async function resolveClaudeAgentSdkExecutable(input: {
     const selected = invocation.windowsVerbatimArguments
       ? launchCommand
       : { bin: invocation.bin, argsPrefix: invocation.args };
-    const launcher = createClaudeWindowsProcessLauncher(selected);
+    const launcher = createClaudeSdkProcessLauncher(
+      selected,
+      input.onProcessControlEvent
+    );
     return {
       cleanup: launcher.cleanup,
       pathToClaudeCodeExecutable: selected.bin,
@@ -806,9 +815,14 @@ export async function resolveClaudeAgentSdkExecutable(input: {
     };
   }
   if (launchCommand.argsPrefix.length === 0 && launchCommand.shell !== true) {
+    const launcher = createClaudeSdkProcessLauncher(
+      launchCommand,
+      input.onProcessControlEvent
+    );
     return {
-      cleanup: async () => undefined,
+      cleanup: launcher.cleanup,
       pathToClaudeCodeExecutable: launchCommand.bin,
+      spawnProcess: launcher.spawn,
     };
   }
 
@@ -824,11 +838,21 @@ export async function resolveClaudeAgentSdkExecutable(input: {
   );
   await chmod(wrapperPath, 0o755);
 
+  const launcher = createClaudeSdkProcessLauncher(
+    { bin: wrapperPath, argsPrefix: [] },
+    input.onProcessControlEvent
+  );
+
   return {
     cleanup: async () => {
-      await rm(wrapperDir, { force: true, recursive: true });
+      try {
+        await launcher.cleanup();
+      } finally {
+        await rm(wrapperDir, { force: true, recursive: true });
+      }
     },
     pathToClaudeCodeExecutable: wrapperPath,
+    spawnProcess: launcher.spawn,
   };
 }
 
@@ -848,7 +872,7 @@ function buildClaudeAgentSdkOptions(input: {
   onStderr: (chunk: string) => void;
   pathToClaudeCodeExecutable: string;
   planDirectory: string | null;
-  spawnProcess?: ReturnType<typeof createClaudeWindowsProcessLauncher>["spawn"];
+  spawnProcess: ReturnType<typeof createClaudeSdkProcessLauncher>["spawn"];
   sessionId: string | null;
   streamingMode?: AdapterStreamingMode;
 }): ClaudeAgentOptions {

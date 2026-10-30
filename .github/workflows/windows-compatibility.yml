@@ -142,20 +142,20 @@ jobs:
       - name: Exercise generated setup in Windows PowerShell 5.1
         run: pnpm --dir clients/web exec vitest run src/lib/setup-bootstrap-script.windows.test.ts src/lib/setup-bootstrap-script.windows-binary.test.ts --maxWorkers=1
       - name: Exercise native argv, Job ownership, SDK streams, and physical probe rejection
-        run: node --test --test-concurrency=1 runtime/adapters/core/test/process-launch.test.js runtime/adapters/core/test/process-environment.test.js runtime/adapters/core/test/windows-system.test.js runtime/adapters/core/test/windows-process-job.test.js runtime/adapters/codex/test/workspace-access-probe.test.js runtime/adapters/claude-code/test/windows-process.test.js
+        run: node --test --test-concurrency=1 runtime/adapters/core/test/process-launch.test.js runtime/adapters/core/test/process-environment.test.js runtime/adapters/core/test/windows-system.test.js runtime/adapters/core/test/windows-process-job.test.js runtime/adapters/codex/test/workspace-access-probe.test.js runtime/adapters/claude-code/test/sdk-process.test.js
       - name: Verify Service identity and read-only capability admission
-        run: pnpm --dir clients/openmeld-cli exec vitest run tests/process-identity.test.ts tests/service-control-capabilities.test.ts tests/windows-task-admission.test.ts tests/local-service-manager-command-match.test.ts tests/local-service-legacy-shared.test.ts --maxWorkers=1 --minWorkers=1
+        run: pnpm --dir clients/openmeld-cli exec vitest run tests/process-identity.test.ts tests/service-control-capabilities.test.ts tests/windows-task-admission.test.ts tests/local-service-manager-command-match.test.ts tests/local-service-legacy-shared.test.ts --maxWorkers=1
       - name: Verify console-free task hosting and stopped-task migration
-        run: pnpm --dir clients/openmeld-cli exec vitest run tests/windows-task-host.native.test.ts --maxWorkers=1 --minWorkers=1
+        run: pnpm --dir clients/openmeld-cli exec vitest run tests/windows-task-host.native.test.ts --maxWorkers=1
       - name: Verify Windows Desktop tool acquisition boundaries
         if: ${{ !cancelled() && steps.contracts-build.outcome == 'success' }}
-        run: pnpm --dir clients/desktop exec vitest run tests/windows-command-environment.test.ts tests/managed-computer-tools.test.ts --maxWorkers=1 --minWorkers=1
+        run: pnpm --dir clients/desktop exec vitest run tests/windows-command-environment.test.ts tests/managed-computer-tools.test.ts --maxWorkers=1
       - name: Verify per-user package plans and Windows signing boundary
         if: ${{ !cancelled() && steps.contracts-build.outcome == 'success' }}
         run: node --test scripts/desktop/installed-platform.test.mjs scripts/desktop/windows-artifact.test.mjs scripts/release/desktop-preview.test.mjs
       - name: Verify updater configuration and native Authenticode
         if: ${{ !cancelled() && steps.contracts-build.outcome == 'success' }}
-        run: pnpm --dir clients/desktop exec vitest run tests/windows-updater.test.ts tests/windows-signature.native.test.ts --maxWorkers=1 --minWorkers=1
+        run: pnpm --dir clients/desktop exec vitest run tests/windows-updater.test.ts tests/windows-signature.native.test.ts --maxWorkers=1
       # Tests own disposable processes and uniquely named temporary registrations;
       # no production Service or provider login is used. Interactive task launch,
       # reboot, visual no-flash and real Codex sandbox remain user smoke.

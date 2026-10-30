@@ -98,6 +98,7 @@ import {
   buildDispatchPromptWithBootstrap as buildDispatchPromptWithBootstrapInternal,
 } from "../dispatch/parse-dispatch-task";
 import { createExecutionHostCatalogClient } from "../execution-host/catalog-client";
+import { ExecutionHostError } from "../execution-host/channel";
 import { launchExecutionHost } from "../execution-host/launch";
 import { resolveComputerFileAccessStorePath } from "../file-access/computer-file-access-store";
 import { resolveSystemLocalFolderPickerHelper } from "../folder-picker/local-folder-picker-helper-process";
@@ -437,6 +438,7 @@ export function createControlledShutdownCoordinator(input: {
   // Drain closes admission for this Host's lifetime. Reconnects observe the
   // same operation instead of accumulating unbounded pending Host RPCs.
   let hostDrain: Promise<void> | null = null;
+  let idleAdmission: Promise<boolean> | null = null;
   let shutdownAttempt:
     | (PromiseWithResolvers<void> & { stopCause: RuntimeTransportStopCause })
     | null = null;
@@ -459,7 +461,86 @@ export function createControlledShutdownCoordinator(input: {
     throw error;
   };
 
+  const createShutdownAttempt = (stopCause: RuntimeTransportStopCause) => {
+    const attempt = { ...Promise.withResolvers<void>(), stopCause };
+    const clear = () => {
+      if (shutdownAttempt === attempt) {
+        shutdownAttempt = null;
+      }
+    };
+    attempt.promise.then(clear, clear);
+    return attempt;
+  };
+
   return {
+    async requestIfIdle(payload: {
+      gracePeriodMs: number;
+      tryBeginDrain: () => Promise<boolean>;
+      onAdmitted?: () => void;
+    }) {
+      const stopCause = await resolveRecentDaemonSignalStopCause();
+      if (shutdownAttempt || input.isStopRequested()) {
+        return {
+          accepted: false,
+          mode: "graceful" as const,
+          gracePeriodMs: payload.gracePeriodMs,
+        };
+      }
+      const concurrentAdmission = idleAdmission;
+      const admission = payload.tryBeginDrain().catch((error: unknown) => {
+        if (
+          !(error instanceof ExecutionHostError) ||
+          error.code !== "host.draining" ||
+          !concurrentAdmission
+        ) {
+          throw error;
+        }
+        // The Host's refusal may arrive before the first admission reply.
+        // Share that actual result; host.draining alone proves no acceptance.
+        return concurrentAdmission;
+      });
+      idleAdmission ??= admission;
+      let admitted: boolean;
+      try {
+        admitted = await admission;
+      } finally {
+        if (idleAdmission === admission) {
+          idleAdmission = null;
+        }
+      }
+      if (!admitted) {
+        return {
+          accepted: false,
+          mode: "graceful" as const,
+          gracePeriodMs: payload.gracePeriodMs,
+        };
+      }
+      if (input.isStopRequested()) {
+        payload.onAdmitted?.();
+        return {
+          accepted: true,
+          mode: "graceful" as const,
+          gracePeriodMs: payload.gracePeriodMs,
+        };
+      }
+      // Host admission is now closed. A reconnect during the Host call must
+      // carry this stop forward, not reject it and leave an orphaned fence.
+      const attempt = shutdownAttempt ?? createShutdownAttempt(stopCause);
+      shutdownAttempt = attempt;
+      if (activeSessionShutdownResolver) {
+        activeSessionShutdownResolver(attempt.stopCause);
+      } else {
+        requestServiceStop(attempt.stopCause);
+        attempt.resolve();
+      }
+      payload.onAdmitted?.();
+      await attempt.promise;
+      return {
+        accepted: true,
+        mode: "graceful" as const,
+        gracePeriodMs: payload.gracePeriodMs,
+      };
+    },
     failHostShutdown,
     isDraining: () => shutdownAttempt !== null || input.isStopRequested(),
     async completeQuiescentStop(): Promise<boolean> {
@@ -533,18 +614,9 @@ export function createControlledShutdownCoordinator(input: {
             await payload.onAdmission?.(() => undefined);
             await existingAttempt.promise;
           } else if (activeSessionShutdownResolver) {
-            const currentAttempt = {
-              ...Promise.withResolvers<void>(),
-              stopCause,
-            };
-            const clearAttempt = () => {
-              if (shutdownAttempt === currentAttempt) {
-                shutdownAttempt = null;
-              }
-            };
+            const currentAttempt = createShutdownAttempt(stopCause);
             // Admission acknowledgement can fail after commit. The original
             // drain still owns completion and must retain its rejection handler.
-            currentAttempt.promise.then(clearAttempt, clearAttempt);
             const resolver = activeSessionShutdownResolver;
             const commit = () => {
               if (
@@ -984,6 +1056,18 @@ const runAccountBoundDaemonServiceLoop = async (
         }),
       setLocalAgentEnabledHandler: async (payload) =>
         await executionHost.call("setEnabled", payload),
+      shutdownIfIdleHandler: async (payload, lifecycle) => {
+        return await controlledShutdown.requestIfIdle({
+          gracePeriodMs: payload.gracePeriodMs,
+          onAdmitted: lifecycle?.onAdmitted,
+          tryBeginDrain: async () => {
+            const state = await executionHost.call("beginDrain", {
+              onlyIfIdle: true,
+            });
+            return state.admission === "draining";
+          },
+        });
+      },
       shutdownHandler: async (payload, lifecycle) => {
         // Read local work through its owner, not a network session's registry.
         // This observation grants no admission; the existing account-checked
@@ -1016,7 +1100,10 @@ const runAccountBoundDaemonServiceLoop = async (
         return {
           acceptedWakeCount: observed.activeCount + observed.pendingCount,
           safeToSwitch:
-            observed.localQuiescent && observed.unacknowledgedResultCount === 0,
+            observed.admission === "open" &&
+            !observed.startupReplayPending &&
+            observed.localQuiescent &&
+            observed.unacknowledgedResultCount === 0,
           unacknowledgedResultCount: observed.unacknowledgedResultCount,
         };
       },

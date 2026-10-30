@@ -42,7 +42,10 @@ import {
 } from "./desktop-environment";
 import { applyDesktopDevelopmentContext } from "./development-context";
 import { installedCommandEnvironment } from "./installed-environment";
-import { createLocalComputerReader } from "./local-computer";
+import {
+  createLocalComputerReader,
+  createLocalServiceAuthenticationReader,
+} from "./local-computer";
 import { createPilotAccountStreams } from "./pilot-account-stream";
 import { resolvePilotAssets } from "./pilot-assets";
 import { createPilotAuth } from "./pilot-auth";
@@ -200,6 +203,9 @@ export function initializeDesktopPilot(
     installed: Boolean(installedTarget),
     ensureCompatible,
   });
+  const commandDeps = installedTarget
+    ? installedCommandEnvironment(installedTarget, app.getPath("userData"))
+    : { env: process.env, openMeldBin: process.env.OPENMELD_BIN };
   const notifications = createPilotNotifications({
     auth,
     setInboxAttention,
@@ -211,10 +217,9 @@ export function initializeDesktopPilot(
     webBuild: platform.webBuild,
     installed: Boolean(installedTarget),
     ensureCompatible,
+    readLocalServiceAuthenticationRequired:
+      createLocalServiceAuthenticationReader(auth, commandDeps),
   });
-  const commandDeps = installedTarget
-    ? installedCommandEnvironment(installedTarget, app.getPath("userData"))
-    : { env: process.env, openMeldBin: process.env.OPENMELD_BIN };
   const readLocalComputer = createLocalComputerReader(auth, commandDeps);
   let transportSession: Session | undefined;
   let disposeTransport: (() => void) | undefined;

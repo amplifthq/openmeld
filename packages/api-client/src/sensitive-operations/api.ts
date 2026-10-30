@@ -48,8 +48,8 @@ export const createSensitiveOperationsApi: CreateSensitiveOperationsApi = (
       method: "GET",
       operation: "sensitive_operation.list_audit",
       schema: listSensitiveOperationAuditResponseSchema,
-      url: fill(MEMBER_AGENT_SENSITIVE_OPERATION_AUDIT_ROUTE, {
+      url: `${fill(MEMBER_AGENT_SENSITIVE_OPERATION_AUDIT_ROUTE, {
         memberAgentId,
-      }),
+      })}?responseVersion=2`,
     }),
 });

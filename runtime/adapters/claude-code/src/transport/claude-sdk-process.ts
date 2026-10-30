@@ -3,13 +3,19 @@ import type {
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+  type AdapterRuntimeProcessCallback,
   type CliLaunchCommand,
   type SpawnedAgentControllerProcess,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
 
+const PROCESS_EXIT_GRACE_MS = 2000;
+
 /** Use the SDK's public spawn contract; its forwarded abort follows stdin-EOF grace. */
-export function createClaudeWindowsProcessLauncher(command: CliLaunchCommand) {
+export function createClaudeSdkProcessLauncher(
+  command: CliLaunchCommand,
+  onProcessControlEvent?: AdapterRuntimeProcessCallback
+) {
   const active = new Map<SpawnedAgentControllerProcess, Promise<void>>();
   return {
     spawn(
@@ -49,6 +55,16 @@ export function createClaudeWindowsProcessLauncher(command: CliLaunchCommand) {
         });
       });
       active.set(runtime, closed);
+      try {
+        onProcessControlEvent?.({
+          phase: "process_spawned",
+          processId: runtime.processId,
+          signalTarget: runtime.signalTarget,
+        });
+      } catch (error) {
+        runtime.terminate("SIGKILL");
+        throw error;
+      }
       child.stderr.setEncoding("utf8");
       child.stderr.on("data", onStderr);
       options.signal.addEventListener("abort", abort, { once: true });
@@ -64,6 +80,9 @@ export function createClaudeWindowsProcessLauncher(command: CliLaunchCommand) {
         get exitCode() {
           return child.exitCode;
         },
+        get signalCode() {
+          return child.signalCode;
+        },
         kill,
         on: child.on.bind(child),
         once: child.once.bind(child),
@@ -73,13 +92,34 @@ export function createClaudeWindowsProcessLauncher(command: CliLaunchCommand) {
     async cleanup(): Promise<void> {
       await Promise.all(
         [...active].map(async ([runtime, closed]) => {
-          runtime.terminate("SIGKILL");
+          if (
+            !(
+              runtime.child.stdin.destroyed || runtime.child.stdin.writableEnded
+            )
+          ) {
+            runtime.child.stdin.end();
+          }
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const exited = await Promise.race([
+            closed.then(() => true),
+            new Promise<false>((resolve) => {
+              timer = setTimeout(() => resolve(false), PROCESS_EXIT_GRACE_MS);
+            }),
+          ]).finally(() => clearTimeout(timer));
+          if (!exited) {
+            runtime.terminate("SIGKILL");
+          }
           const result = await runtime.terminateRemainingDescendants();
           if (!result.ok) {
             throw result.error;
           }
           await closed;
           active.delete(runtime);
+          onProcessControlEvent?.({
+            phase: "process_exit",
+            processId: runtime.processId,
+            signalTarget: runtime.signalTarget,
+          });
         })
       );
     },

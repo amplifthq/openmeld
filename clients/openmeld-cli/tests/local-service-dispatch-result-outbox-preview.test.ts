@@ -242,7 +242,10 @@ function createLedgerPaths(): LedgerPaths {
 }
 
 function createDeliveryExecutionIdentity(
-  agentControllerRef: "builtin:codex" | "builtin:opencode" = "builtin:codex"
+  agentControllerRef:
+    | "builtin:codex"
+    | "builtin:opencode"
+    | "builtin:claude-code" = "builtin:codex"
 ) {
   return {
     authority: "core_runtime_registry_binding_route" as const,
@@ -263,7 +266,10 @@ function createDeliveryExecutionIdentity(
 
 function createCurrentRouteByProfileId(
   workspacePath = process.cwd(),
-  agentControllerRef: "builtin:codex" | "builtin:opencode" = "builtin:codex"
+  agentControllerRef:
+    | "builtin:codex"
+    | "builtin:opencode"
+    | "builtin:claude-code" = "builtin:codex"
 ): Map<string, DaemonProfileRouteConfig> {
   return new Map([
     [
@@ -374,7 +380,10 @@ function readOutboxFile(ledgerPaths: LedgerPaths): {
 }
 
 function createDeliverRequest(
-  agentControllerRef: "builtin:codex" | "builtin:opencode" = "builtin:codex"
+  agentControllerRef:
+    | "builtin:codex"
+    | "builtin:opencode"
+    | "builtin:claude-code" = "builtin:codex"
 ): RuntimeTransportDeliverDispatchRequest {
   return {
     v: 1,
@@ -618,7 +627,7 @@ describe("dispatch result outbox around preview teardown", () => {
       const slots = createLocalExecutionSlots({
         limits: { globalConcurrency: 1, queueMax: 4 },
       });
-      const deliver = createDeliverRequest();
+      const deliver = createDeliverRequest("builtin:claude-code");
       const request = {
         computerFileAccessStorePath: join(
           ledgerPaths.rootDirPath,
@@ -640,7 +649,8 @@ describe("dispatch result outbox around preview teardown", () => {
         profileOwnerUserId: "user-1",
         presenter,
         routeByProfileId: createCurrentRouteByProfileId(
-          ledgerPaths.rootDirPath
+          ledgerPaths.rootDirPath,
+          "builtin:claude-code"
         ),
         socket,
       };
@@ -750,6 +760,13 @@ describe("dispatch result outbox around preview teardown", () => {
       expect(readOutboxFile(ledgerPaths).records).toEqual([]);
       expect(slots.getDrainState().activeGlobal).toBe(0);
       expect(runRuntimeTaskMock).toHaveBeenCalledTimes(reviewRequired ? 2 : 1);
+      if (reviewRequired) {
+        const tools = runRuntimeTaskMock.mock.calls[1]?.[0].spaceActionTools;
+        expect(tools?.deliveryOnly).toBe(true);
+        expect(
+          tools?.tools.map((tool: { name: string }) => tool.name)
+        ).not.toContain("project_shell");
+      }
     });
   });
 
@@ -923,6 +940,9 @@ describe("dispatch result outbox around preview teardown", () => {
       });
       expect(result.result).toBe("success");
       expect(runRuntimeTaskMock).toHaveBeenCalledTimes(3);
+      const reviewTools =
+        runRuntimeTaskMock.mock.calls[2]?.[0].spaceActionTools;
+      expect(reviewTools?.deliveryOnly).not.toBe(true);
       expect(proposals).toHaveLength(2);
       expect(proposals[0]).toMatchObject({
         executionContextCompletion: {

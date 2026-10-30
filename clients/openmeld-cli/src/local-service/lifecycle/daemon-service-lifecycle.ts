@@ -254,6 +254,13 @@ export class DaemonServiceLifecycleDrainTimeoutError extends Error {
   }
 }
 
+export class DaemonServiceUpdateDeferredError extends Error {
+  constructor() {
+    super("New local work arrived before the update could switch the Service.");
+    this.name = "DaemonServiceUpdateDeferredError";
+  }
+}
+
 class DaemonServiceLifecycleControlledDrainError extends Error {
   override readonly cause: unknown;
 
@@ -350,6 +357,7 @@ export async function runDaemonServiceLifecycle(input: {
   forceReinstall?: boolean;
   drainWaitMs?: number;
   forceKillAfterDrainTimeout?: boolean;
+  onlyIfIdle?: true;
   preparedBundle?: DaemonActiveBundleState;
   onPhase?: (phase: DaemonServiceLifecyclePhase) => Promise<void> | void;
 }): Promise<DaemonServiceLifecycleOutcome> {
@@ -384,6 +392,9 @@ export async function runDaemonServiceLifecycle(input: {
   };
 
   try {
+    if (input.onlyIfIdle && input.forceKillAfterDrainTimeout) {
+      throw new Error("An idle update switch cannot force-stop the Service.");
+    }
     await emitPhase("inspect");
     state.inventoryBefore = await inspectDaemonServiceInventory({
       expectedVersion: input.expectedVersion,
@@ -480,9 +491,13 @@ export async function runDaemonServiceLifecycle(input: {
       preparedBundle,
       drainWaitMs: input.drainWaitMs ?? PROCESS_STOP_WAIT_MS,
       forceKillAfterDrainTimeout: input.forceKillAfterDrainTimeout === true,
+      onlyIfIdle: input.onlyIfIdle,
     });
   } catch (error) {
-    if (error instanceof DaemonServiceLifecycleDrainTimeoutError) {
+    if (
+      error instanceof DaemonServiceLifecycleDrainTimeoutError ||
+      error instanceof DaemonServiceUpdateDeferredError
+    ) {
       throw error;
     }
     state.evidencePath =
@@ -596,6 +611,7 @@ async function executeDaemonServiceLifecycle(input: {
   restorePoint: DaemonServiceLifecycleRestorePoint;
   drainWaitMs: number;
   forceKillAfterDrainTimeout: boolean;
+  onlyIfIdle?: true;
 }): Promise<DaemonServiceLifecycleOutcome> {
   try {
     input.state.failureStage = "stop_or_drain";
@@ -603,6 +619,7 @@ async function executeDaemonServiceLifecycle(input: {
     await stopLifecycleRuntime({
       drainWaitMs: input.drainWaitMs,
       forceKillAfterDrainTimeout: input.forceKillAfterDrainTimeout,
+      onlyIfIdle: input.onlyIfIdle,
       inventory: input.inventoryBefore,
       operation: input.operation,
       serviceManager: input.context.serviceManager,
@@ -622,13 +639,19 @@ async function executeDaemonServiceLifecycle(input: {
       serviceManager: input.context.serviceManager,
     });
 
-    input.state.failureStage = "backup";
-    await input.emitPhase("backup");
-    input.state.runtimeDataBackup = await backupDaemonRuntimeDataForReinstall();
-    input.state.backupRootPath =
-      input.state.runtimeDataBackup?.backupRootPath ?? null;
-    input.state.backupDataPath =
-      input.state.runtimeDataBackup?.backupDataPath ?? null;
+    // Replacing the program and its OS registration leaves runtime data in
+    // place. Only legacy cleanup removes a runtime root; ordinary updates must
+    // not traverse or overwrite task workspaces as part of program maintenance.
+    if (input.inventoryBefore.legacySharedService?.present) {
+      input.state.failureStage = "backup";
+      await input.emitPhase("backup");
+      input.state.runtimeDataBackup =
+        await backupDaemonRuntimeDataForReinstall();
+      input.state.backupRootPath =
+        input.state.runtimeDataBackup?.backupRootPath ?? null;
+      input.state.backupDataPath =
+        input.state.runtimeDataBackup?.backupDataPath ?? null;
+    }
 
     input.state.failureStage = "unregister";
     await input.emitPhase("unregister");
@@ -759,8 +782,11 @@ async function executeDaemonServiceLifecycle(input: {
   } catch (error) {
     if (
       error instanceof DaemonServiceLifecycleDrainTimeoutError ||
-      error instanceof DaemonServiceLifecycleControlledDrainError
+      error instanceof DaemonServiceUpdateDeferredError ||
+      error instanceof DaemonServiceLifecycleControlledDrainError ||
+      (input.onlyIfIdle && input.state.failureStage === "stop_or_drain")
     ) {
+      // A pre-admission failure cannot enter replacement/rollback teardown.
       throw error;
     }
     input.state.evidencePath =
@@ -853,6 +879,38 @@ async function recoverLifecycleFailure(input: {
   const recoveryErrorMessage = verifiedRollbackError
     ? `${originalErrorMessage}; verified previous Service recovery failed: ${toErrorMessage(verifiedRollbackError)}`
     : originalErrorMessage;
+
+  if (originalFailureStage === "backup") {
+    let backupRecoveryErrorMessage = recoveryErrorMessage;
+    if (input.inventoryBefore.serviceManagerStatus?.enabled === true) {
+      await input.serviceManager.enableAutostart().catch((error: unknown) => {
+        backupRecoveryErrorMessage += `; failed to restore service autostart: ${toErrorMessage(error)}`;
+      });
+    }
+    if (input.restorePoint.shouldStartAfterLifecycle) {
+      await input.serviceManager.start().catch((error: unknown) => {
+        backupRecoveryErrorMessage += `; failed to restart previous Service: ${toErrorMessage(error)}`;
+      });
+    }
+    // The old installation and its data have not changed. A failed backup is
+    // not permission to uninstall it or try a second, unprepared replacement.
+    return {
+      status: "failed",
+      targetVersion: input.expectedVersion,
+      inventoryBefore: input.inventoryBefore,
+      inventoryAfter: null,
+      reasonCodes: originalReasonCodes,
+      completedPhases: input.state.completedPhases,
+      desiredState: input.restorePoint.desiredState,
+      shouldStartAfterLifecycle: input.restorePoint.shouldStartAfterLifecycle,
+      backupDataPath: input.state.backupDataPath,
+      failureStage: originalFailureStage,
+      evidencePath: input.state.evidencePath,
+      recoveryStatus: "failed_before_safe_state",
+      errorCode: originalErrorCode,
+      errorMessage: backupRecoveryErrorMessage,
+    };
+  }
 
   const stoppedSafe = await transitionLifecycleToStoppedSafeCurrentVersion({
     commandOptions: input.commandOptions,
@@ -1153,6 +1211,7 @@ async function stopLifecycleRuntime(input: {
   stopCause: RuntimeTransportStopCause;
   drainWaitMs: number;
   forceKillAfterDrainTimeout: boolean;
+  onlyIfIdle?: true;
   inventory: DaemonServiceInventory;
   operation: DaemonServiceLifecycleOperation;
   serviceManager: DaemonServiceManager;
@@ -1183,6 +1242,10 @@ async function stopLifecycleRuntime(input: {
   }
   const runtimeStatus = input.inventory.runtimeStatus;
   if (runtimeStatus.status !== "running") {
+    return;
+  }
+  if (input.onlyIfIdle) {
+    await requestControlledSystemServiceDrain({ ...input, lifecycleIntent });
     return;
   }
   if (!Number.isInteger(runtimeStatus.pid) || runtimeStatus.pid === null) {
@@ -1219,6 +1282,7 @@ async function stopLifecycleSystemServiceRuntime(input: {
   stopCause: RuntimeTransportStopCause;
   drainWaitMs: number;
   forceKillAfterDrainTimeout: boolean;
+  onlyIfIdle?: true;
   inventory: DaemonServiceInventory;
   lifecycleIntent: "startup_check" | "reinstall" | "upgrade_reconcile";
   operation: DaemonServiceLifecycleOperation;
@@ -1235,6 +1299,7 @@ async function stopLifecycleSystemServiceRuntime(input: {
       hasActiveLifecycleRuntimeEvidence(input.inventory) &&
       !input.forceKillAfterDrainTimeout &&
       (await requestControlledSystemServiceDrain({
+        onlyIfIdle: input.onlyIfIdle,
         drainWaitMs: input.drainWaitMs,
         inventory: input.inventory,
         lifecycleIntent: input.lifecycleIntent,
@@ -1246,11 +1311,11 @@ async function stopLifecycleSystemServiceRuntime(input: {
       try {
         await input.serviceManager.enableAutostart();
       } catch (restoreError) {
-        throw new DaemonServiceLifecycleStageError({
-          cause: restoreError,
-          message: `${toErrorMessage(drainError)}; failed to restore service autostart: ${toErrorMessage(restoreError)}`,
-          stage: "stop_or_drain",
-        });
+        throw new DaemonServiceLifecycleControlledDrainError(
+          new Error(
+            `${toErrorMessage(drainError)}; failed to restore service autostart: ${toErrorMessage(restoreError)}`
+          )
+        );
       }
     }
     throw drainError;
@@ -1276,6 +1341,7 @@ function hasActiveLifecycleRuntimeEvidence(
 }
 
 async function requestControlledSystemServiceDrain(input: {
+  onlyIfIdle?: true;
   stopCause: RuntimeTransportStopCause;
   drainWaitMs: number;
   inventory: DaemonServiceInventory;
@@ -1284,16 +1350,18 @@ async function requestControlledSystemServiceDrain(input: {
 }): Promise<boolean> {
   try {
     const shutdown = await requestLocalDaemonShutdown({
+      ...(input.onlyIfIdle ? { onlyIfIdle: true } : {}),
       payload: {
         gracePeriodMs: input.drainWaitMs,
         mode: "graceful",
       },
       // New Services bound their post-work result-receipt and socket-close
       // waits. Bound this request too so an older Service cannot hold setup
-      // forever; the compatibility path below still preserves the guarded
-      // stale-heartbeat force-kill boundary.
+      // forever. Missing acknowledgement never proves that accepted work has
+      // drained, even when the requested version is newer.
       timeoutMs: CONTROLLED_SHUTDOWN_REQUEST_TIMEOUT_MS,
     });
+    const refusedResult = input.onlyIfIdle ? "deferred" : "unsupported";
     await emitDaemonLifecycleEvent({
       command: `openmeld service ${input.operation.replaceAll("_", "-")}`,
       intent: input.lifecycleIntent,
@@ -1302,39 +1370,29 @@ async function requestControlledSystemServiceDrain(input: {
         gracePeriodMs: shutdown.gracePeriodMs,
         mode: shutdown.mode,
       },
-      result: shutdown.accepted ? "completed" : "unsupported",
+      result: shutdown.accepted ? "completed" : refusedResult,
       stopCause: input.stopCause,
       type: "stop.controlled_drain",
     });
+    if (input.onlyIfIdle && !shutdown.accepted) {
+      throw new DaemonServiceUpdateDeferredError();
+    }
     return shutdown.accepted;
   } catch (error) {
-    const isLegacyShutdownContract =
-      error instanceof LocalDaemonControlPlaneClientError &&
-      error.code === "daemon.control.contract_mismatch";
-    const isManagerRunningWithoutRuntime =
-      error instanceof LocalDaemonControlPlaneClientError &&
-      error.code === "daemon.control.endpoint_missing" &&
-      input.inventory.runtimeStatus.status !== "running" &&
-      input.inventory.ownedProcesses.length === 0;
-    const isLegacyMissingCloseReason =
-      isLegacyMissingControlledShutdownCloseReason({
-        error,
-        inventory: input.inventory,
-      });
-    const isLegacyControlledShutdownTimeout =
-      isOlderServiceControlledShutdownTimeout({
-        error,
-        inventory: input.inventory,
-      });
-    const isCompatibilityFallback =
-      isLegacyShutdownContract ||
-      isLegacyMissingCloseReason ||
-      isLegacyControlledShutdownTimeout ||
-      isManagerRunningWithoutRuntime;
-    const observedDaemonVersion =
-      isLegacyMissingCloseReason || isLegacyControlledShutdownTimeout
-        ? resolveObservedDaemonVersion(input.inventory)
-        : null;
+    if (error instanceof DaemonServiceUpdateDeferredError) {
+      throw error;
+    }
+    const {
+      isLegacyShutdownContract,
+      isManagerRunningWithoutRuntime,
+      isLegacyMissingCloseReason,
+      observedDaemonVersion,
+      isCompatibilityFallback,
+    } = classifyControlledShutdownFailure(
+      error,
+      input.inventory,
+      input.onlyIfIdle === true
+    );
     await emitDaemonLifecycleEvent({
       command: `openmeld service ${input.operation.replaceAll("_", "-")}`,
       intent: input.lifecycleIntent,
@@ -1344,13 +1402,6 @@ async function requestControlledSystemServiceDrain(input: {
           ? {
               compatibilityReason: "legacy_missing_close_reason",
               observedDaemonVersion,
-            }
-          : {}),
-        ...(isLegacyControlledShutdownTimeout
-          ? {
-              compatibilityReason: "legacy_controlled_shutdown_timeout",
-              observedDaemonVersion,
-              reasonCode: "socket_close_timeout",
             }
           : {}),
         ...(isManagerRunningWithoutRuntime
@@ -1367,34 +1418,43 @@ async function requestControlledSystemServiceDrain(input: {
     if (isCompatibilityFallback) {
       return false;
     }
+    if (input.onlyIfIdle && isLegacyShutdownContract) {
+      throw new DaemonServiceLifecycleControlledDrainError(
+        new Error(
+          "This Service cannot confirm an atomic idle update switch. Update OpenMeld manually when current work finishes."
+        )
+      );
+    }
     throw new DaemonServiceLifecycleControlledDrainError(error);
   }
 }
 
-function isOlderServiceControlledShutdownTimeout(input: {
-  error: unknown;
-  inventory: DaemonServiceInventory;
-}): boolean {
-  if (
-    !(input.error instanceof LocalDaemonControlPlaneClientError) ||
-    input.error.code !== "daemon.control.timeout"
-  ) {
-    return false;
-  }
-  const observedDaemonVersion = resolveObservedDaemonVersion(input.inventory);
-  if (!observedDaemonVersion) {
-    return false;
-  }
-  try {
-    return (
-      resolveVersionChangeDirection({
-        fromVersion: observedDaemonVersion,
-        toVersion: input.inventory.expectedVersion,
-      }) === "upgrade"
-    );
-  } catch {
-    return false;
-  }
+function classifyControlledShutdownFailure(
+  error: unknown,
+  inventory: DaemonServiceInventory,
+  onlyIfIdle: boolean
+) {
+  const isLegacyShutdownContract =
+    error instanceof LocalDaemonControlPlaneClientError &&
+    error.code === "daemon.control.contract_mismatch";
+  const isManagerRunningWithoutRuntime =
+    error instanceof LocalDaemonControlPlaneClientError &&
+    error.code === "daemon.control.endpoint_missing" &&
+    inventory.runtimeStatus.status !== "running" &&
+    inventory.ownedProcesses.length === 0;
+  const isLegacyMissingCloseReason =
+    isLegacyMissingControlledShutdownCloseReason({ error, inventory });
+  return {
+    isLegacyShutdownContract,
+    isManagerRunningWithoutRuntime,
+    isLegacyMissingCloseReason,
+    isCompatibilityFallback:
+      isManagerRunningWithoutRuntime ||
+      (!onlyIfIdle && (isLegacyShutdownContract || isLegacyMissingCloseReason)),
+    observedDaemonVersion: isLegacyMissingCloseReason
+      ? resolveObservedDaemonVersion(inventory)
+      : null,
+  };
 }
 
 function isLegacyMissingControlledShutdownCloseReason(input: {

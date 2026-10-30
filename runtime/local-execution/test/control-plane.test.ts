@@ -124,6 +124,53 @@ describe("local execution control-plane helper", () => {
     }
   });
 
+  it.each([
+    true,
+    false,
+  ])("never falls back to ordinary shutdown for an idle-only request (supported: %s)", async (supported) => {
+    let idleHandled = false;
+    let ordinaryHandled = false;
+    const response = await buildControlPlaneResponse({
+      request: { v: 1, command: "shutdown_if_idle" },
+      context: {
+        ...BASE_CONTEXT,
+        shutdownHandler: (payload) => {
+          ordinaryHandled = true;
+          return {
+            accepted: true,
+            mode: payload.mode,
+            gracePeriodMs: payload.gracePeriodMs,
+          };
+        },
+        ...(supported
+          ? {
+              shutdownIfIdleHandler: (payload: { gracePeriodMs: number }) => {
+                idleHandled = true;
+                return {
+                  accepted: false,
+                  mode: "graceful" as const,
+                  gracePeriodMs: payload.gracePeriodMs,
+                };
+              },
+            }
+          : {}),
+      },
+    });
+    expect(ordinaryHandled).toBe(false);
+    expect(idleHandled).toBe(supported);
+    expect(response).toMatchObject(
+      supported
+        ? {
+            code: "service.shutdown",
+            payload: { accepted: false, mode: "graceful" },
+          }
+        : {
+            code: "service.error",
+            payload: { errorCode: "daemon.control.contract_mismatch" },
+          }
+    );
+  });
+
   it("reports whether every accepted Wake and result receipt is safe before an update switch", async () => {
     const response = await buildControlPlaneResponse({
       request: {

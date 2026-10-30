@@ -1333,6 +1333,7 @@ import {
   resolveRemovableFolder,
 } from "../runtime-transport/application/profile-folder-projection-store";
 import { listActiveRuntimeCoordinatorExecutionTargetsBySpaceIds } from "../runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
+import { withPermissionModeAuditAttribution } from "../sensitive-operations/application/permission-mode-audit-context";
 import { recordSensitiveOperationOutcome } from "../sensitive-operations/application/sensitive-operation-gate";
 import {
   parseRpcErrorPayload,
@@ -13911,6 +13912,24 @@ function buildCenterAgentProductOperationDeps(
   const representedContext = preferenceOwner?.representedContext ?? null;
   const representedUserId = preferenceOwner?.representedUserId ?? null;
   const ownerContext = representedContext ?? context;
+  const auditPermissionChange = <T>(run: () => Promise<T>) => {
+    const actorUserId = ownerContext.actorContext.callerPrincipalId;
+    if (!actorUserId) {
+      throw new Error("agent_profile_binding.audit_actor_missing");
+    }
+    return withPermissionModeAuditAttribution(
+      {
+        actorUserId,
+        organizationId,
+        requestId: context.actorContext.requestId,
+        sourceKind: "center_agent",
+        chainRootProfileId: ownerContext.actorContext.openMeldProfileId,
+        taskExecutionId: null,
+        confirmationId: null,
+      },
+      run
+    );
+  };
   return {
     addAgentProfileToSpace: async ({ agentProfileId, onBehalfOf, spaceId }) => {
       await rpcCenterAgentAddAgentProfilesToSpace(env, {
@@ -13969,36 +13988,38 @@ function buildCenterAgentProductOperationDeps(
       candidate,
       settings,
     }) =>
-      await rpcEnsureAgentProfilePrimaryBinding(env, {
-        agentControllerRef: candidate.agentControllerRef,
-        agentProfileId,
-        context: ownerContext,
-        deviceId: candidate.deviceId,
-        lane: candidate.runtimeLane,
-        openMeldServiceRuntimeId: candidate.openMeldServiceRuntimeId,
-        writeMode: "reconnect",
-        ...(settings.agentControllerCollaborationMode === undefined
-          ? {}
-          : {
-              agentControllerCollaborationMode:
-                settings.agentControllerCollaborationMode,
-            }),
-        ...(settings.agentControllerPermissionMode === undefined
-          ? {}
-          : {
-              agentControllerPermissionMode:
-                settings.agentControllerPermissionMode,
-            }),
-        ...(settings.modelId === undefined
-          ? {}
-          : { modelId: settings.modelId }),
-        ...(settings.openCodePermission === undefined
-          ? {}
-          : { openCodePermission: settings.openCodePermission }),
-        ...(settings.reasoningLevel === undefined
-          ? {}
-          : { reasoningLevel: settings.reasoningLevel }),
-      }),
+      await auditPermissionChange(() =>
+        rpcEnsureAgentProfilePrimaryBinding(env, {
+          agentControllerRef: candidate.agentControllerRef,
+          agentProfileId,
+          context: ownerContext,
+          deviceId: candidate.deviceId,
+          lane: candidate.runtimeLane,
+          openMeldServiceRuntimeId: candidate.openMeldServiceRuntimeId,
+          writeMode: "reconnect",
+          ...(settings.agentControllerCollaborationMode === undefined
+            ? {}
+            : {
+                agentControllerCollaborationMode:
+                  settings.agentControllerCollaborationMode,
+              }),
+          ...(settings.agentControllerPermissionMode === undefined
+            ? {}
+            : {
+                agentControllerPermissionMode:
+                  settings.agentControllerPermissionMode,
+              }),
+          ...(settings.modelId === undefined
+            ? {}
+            : { modelId: settings.modelId }),
+          ...(settings.openCodePermission === undefined
+            ? {}
+            : { openCodePermission: settings.openCodePermission }),
+          ...(settings.reasoningLevel === undefined
+            ? {}
+            : { reasoningLevel: settings.reasoningLevel }),
+        })
+      ),
     listLocalAgentConnectionCandidates: async () => {
       const peopleComputers = await rpcListPeopleComputers(env, {
         context: ownerContext,
@@ -14094,13 +14115,12 @@ function buildCenterAgentProductOperationDeps(
       agentControllerPermissionMode,
       agentProfileId,
     }) =>
-      await rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode(
-        env,
-        {
+      await auditPermissionChange(() =>
+        rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode(env, {
           agentControllerPermissionMode,
           agentProfileId,
           context: ownerContext,
-        }
+        })
       ),
     updateAgentControllerCollaborationMode: async ({
       agentControllerCollaborationMode,
