@@ -6204,7 +6204,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
-  it("round-trips Computer power through the exact capable Service", async () => {
+  it.each([
+    "responds",
+    "times out",
+  ])("settles Computer power when the exact capable Service %s", async (scenario) => {
     const { hub, sentFrames, socket, state } = await createHarness();
     configureCompatibleRoute({ socket, state });
     const session = state.sessionsById.get("daemon-session-1");
@@ -6215,6 +6218,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     state.sessionIdBySocket.set(socket, "daemon-session-1");
     Object.defineProperty(hub, "currentDeviceOperationWaiters", {
       value: new Map(),
+    });
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
     });
     const request = { operation: "update", enabled: true, expectedRevision: 0 };
     const result = {
@@ -6231,6 +6238,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       requestId: "power-1",
       request,
     });
+    const settled = responsePromise.catch((error: unknown) => error);
     await vi.waitFor(() =>
       expect(sentFrames).toContainEqual(
         expect.objectContaining({
@@ -6239,16 +6247,35 @@ describe("runtime transport runtime coordinator transport contract", () => {
         })
       )
     );
-    RuntimeTransportHub.prototype.webSocketMessage.call(
-      hub,
-      socket,
-      JSON.stringify({
-        v: 1,
-        code: "daemon.computer_power.request_result",
-        payload: { requestId: "power-1", result },
-      })
+    if (scenario === "responds") {
+      RuntimeTransportHub.prototype.webSocketMessage.call(
+        hub,
+        socket,
+        JSON.stringify({
+          v: 1,
+          code: "daemon.computer_power.request_result",
+          payload: { requestId: "power-1", result },
+        })
+      );
+    } else {
+      await vi.advanceTimersByTimeAsync(30_000);
+    }
+    const response = await settled;
+    expect(response).toBeInstanceOf(Response);
+    if (!(response instanceof Response)) {
+      throw response;
+    }
+    expect(response.status).toBe(scenario === "responds" ? 200 : 504);
+    await expect(response.json()).resolves.toEqual(
+      scenario === "responds"
+        ? result
+        : {
+            status: "rejected",
+            code: "computer.power.timeout",
+            message:
+              "Timed out waiting for the local OpenMeld Service response.",
+          }
     );
-    await expect((await responsePromise).json()).resolves.toEqual(result);
   });
 
   it.each([

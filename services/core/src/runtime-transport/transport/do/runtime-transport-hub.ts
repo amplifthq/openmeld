@@ -21569,21 +21569,45 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 409 }
       );
     }
-    const result = await this.sendCurrentDeviceOperationAndWait({
-      code: "daemon.computer_power.request",
-      expectedResponseCode: "daemon.computer_power.request_result",
-      isExpectedPayload: (value) =>
-        computerPowerResultSchema.safeParse(value).success,
-      payload: {
-        deviceId: input.deviceId,
+    try {
+      const result = await this.sendCurrentDeviceOperationAndWait({
+        code: "daemon.computer_power.request",
+        expectedResponseCode: "daemon.computer_power.request_result",
+        isExpectedPayload: (value) =>
+          computerPowerResultSchema.safeParse(value).success,
+        payload: {
+          deviceId: input.deviceId,
+          requestId: input.requestId,
+          request: input.request,
+        },
         requestId: input.requestId,
-        request: input.request,
-      },
-      requestId: input.requestId,
-      session: session as typeof session & { socket: WebSocket },
-      timeoutMs: CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS,
-    });
-    return Response.json(result);
+        session: session as typeof session & { socket: WebSocket },
+        timeoutMs: CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS,
+      });
+      return Response.json(result);
+    } catch (error) {
+      const kind =
+        error instanceof CurrentDeviceOperationError
+          ? error.kind
+          : "internal_error";
+      let status = 502;
+      if (kind === "timeout") {
+        status = 504;
+      } else if (kind === "send_failed") {
+        status = 503;
+      }
+      return Response.json(
+        {
+          status: "rejected",
+          code: `computer.power.${kind === "send_failed" ? "offline" : kind}`,
+          message:
+            error instanceof Error
+              ? error.message
+              : "The sleep-prevention request failed unexpectedly.",
+        },
+        { status }
+      );
+    }
   }
   private async handleComputerFileAccessRequest(
     request: Request,

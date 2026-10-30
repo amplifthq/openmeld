@@ -796,6 +796,8 @@ describe("organization Core RPC", () => {
       env,
       ownerUserId: "user-a",
       profileIds: [AGENT_PROFILE_ID, SECOND_AGENT_PROFILE_ID],
+      readTimeoutMs: 5000,
+      requestId: "request-org-rpc-test",
     });
     expect(lookupOwnerService).toHaveBeenCalledOnce();
     expect(resolveProfileById).not.toHaveBeenCalled();
@@ -906,7 +908,10 @@ describe("organization Core RPC", () => {
     expect(readUsage).toHaveBeenCalledOnce();
   });
 
-  it("does not reload the runtime catalog to check Organization Agent readiness", async () => {
+  it.each([
+    "available",
+    "unavailable",
+  ])("keeps Organization Agent readiness bounded when batch lookups are %s", async (scenario) => {
     const profiles = [
       {
         organizationId: "org-a",
@@ -961,41 +966,55 @@ describe("organization Core RPC", () => {
         status: "ready" as const,
       })),
     };
-    vi.spyOn(
-      runtimeTransportClient,
-      "lookupRuntimeTransportRoutesBatch"
-    ).mockResolvedValue({
-      routes: Object.fromEntries(
-        profiles.map((profile) => [
-          profile.profileId,
-          {
-            capabilities: {},
-            connectionGeneration: 1,
-            daemonSessionId: "daemon-session-1",
-            deviceId: "device-1",
-            executionCompatibility: {
-              expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-              observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-              reasonCode: "daemon.runtime_contract.compatible" as const,
-              status: "compatible" as const,
+    const lookupRoutes = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportRoutesBatch")
+      .mockResolvedValue({
+        routes: Object.fromEntries(
+          profiles.map((profile) => [
+            profile.profileId,
+            {
+              capabilities: {},
+              connectionGeneration: 1,
+              daemonSessionId: "daemon-session-1",
+              deviceId: "device-1",
+              executionCompatibility: {
+                expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+                observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+                reasonCode: "daemon.runtime_contract.compatible" as const,
+                status: "compatible" as const,
+              },
+              lane: "dev-local" as const,
+              lastHeartbeatMs: Date.parse("2026-07-08T00:00:00.000Z"),
+              leaseEpoch: 1,
+              localWakeRouteReport,
+              online: true as const,
+              serviceVersion: "999.0.0",
             },
-            lane: "dev-local" as const,
-            lastHeartbeatMs: Date.parse("2026-07-08T00:00:00.000Z"),
-            leaseEpoch: 1,
-            localWakeRouteReport,
-            online: true as const,
-            serviceVersion: "999.0.0",
-          },
-        ])
-      ),
-    });
-    vi.spyOn(
+          ])
+        ),
+      });
+    const lookupOwnerService = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportOwnerService")
+      .mockResolvedValue({
+        online: false,
+        reasonCode: "daemon.session.not_found",
+      });
+    const lookupRoute = vi.spyOn(
       runtimeTransportClient,
-      "lookupRuntimeTransportOwnerService"
-    ).mockResolvedValue({
-      online: false,
-      reasonCode: "daemon.session.not_found",
-    });
+      "lookupRuntimeTransportRoute"
+    );
+    if (scenario === "unavailable") {
+      lookupRoutes.mockRejectedValueOnce(
+        new Error(
+          "Runtime Transport read /lookup-routes-batch exceeded its 38000ms budget."
+        )
+      );
+      lookupOwnerService.mockRejectedValueOnce(
+        new Error(
+          "Runtime Transport read /lookup-owner-service exceeded its 5000ms budget."
+        )
+      );
+    }
     vi.spyOn(
       runtimeTransportClient,
       "readRuntimeTransportAgentProfileOperationalContexts"
@@ -1013,6 +1032,16 @@ describe("organization Core RPC", () => {
     });
 
     expect(response.agentProfiles).toHaveLength(2);
+    if (scenario === "unavailable") {
+      for (const profile of response.agentProfiles) {
+        expect(profile.readiness.agentWakeAvailability.category).toBe(
+          "unavailable"
+        );
+      }
+    }
+    expect(lookupRoutes).toHaveBeenCalledOnce();
+    expect(lookupOwnerService).toHaveBeenCalledOnce();
+    expect(lookupRoute).not.toHaveBeenCalled();
     expect(readExpectedRoutes).not.toHaveBeenCalled();
   });
 

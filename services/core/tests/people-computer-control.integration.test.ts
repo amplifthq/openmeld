@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { rpcCreateProject } from "../src/projects/project-rpc";
 import {
+  rpcComputerPowerSettings,
   rpcConnectPeopleComputerProjectPath,
   rpcDiscoverPeopleComputerProjects,
   rpcReadPeopleComputerFileAccessPolicy,
@@ -26,6 +27,63 @@ import {
 import { env } from "../test-support/worker-env";
 
 describe("PeopleComputer explicit control RPC", () => {
+  it.each([
+    { failure: "timeout", status: 504, code: "computer.power.timeout" },
+    { failure: "transport", status: 503, code: "computer.power.unavailable" },
+    {
+      failure: "invalid-response",
+      status: 502,
+      code: "computer.power.invalid_response",
+    },
+  ])("preserves Computer power $failure as an actionable failure", async ({
+    failure,
+    status,
+    code,
+  }) => {
+    const f = await fixture();
+    const originalFetch = f.fetch.getMockImplementation();
+    if (!originalFetch) {
+      throw new Error("Expected transport fixture");
+    }
+    f.fetch.mockImplementation((url, init) => {
+      if (new URL(url).pathname !== "/computer-power") {
+        return originalFetch(url, init);
+      }
+      if (failure === "transport") {
+        return Promise.reject(
+          new Error(
+            "Connection closed: this Durable Object instance is no longer active. Reconnect or retry the request."
+          )
+        );
+      }
+      return Promise.resolve(
+        Response.json(
+          failure === "timeout"
+            ? {
+                status: "rejected",
+                code,
+                message:
+                  "Timed out waiting for the local OpenMeld Service response.",
+              }
+            : { online: false, reasonCode: "daemon.delivery.timeout" },
+          { status: failure === "timeout" ? 504 : 502 }
+        )
+      );
+    });
+    await expect(
+      rpcComputerPowerSettings(f.coreEnv, {
+        ...f.target,
+        context: f.context,
+        request: { operation: "update", enabled: true, expectedRevision: 0 },
+      })
+    ).rejects.toMatchObject({ cause: { status, code } });
+    expect(
+      f.fetch.mock.calls.filter(
+        ([url]) => new URL(url).pathname === "/computer-power"
+      )
+    ).toHaveLength(1);
+  });
+
   it("discovers Projects only for the authenticated member's exact Computer and Organization", async () => {
     const f = await fixture();
     const organizationId = crypto.randomUUID();
