@@ -134,7 +134,9 @@ import {
   createRuntimeTransportMutableState,
   type PendingDispatchState,
   type RuntimeTransportMutableState,
+  type WaitDispatchResultResponse,
 } from "../src/runtime-transport/application/runtime-transport-state";
+import { failPendingDispatchResultWaitersForConnectionGeneration } from "../src/runtime-transport/application/runtime-transport-wait-service";
 import { listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace } from "../src/runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
 import { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
 import {
@@ -1332,6 +1334,23 @@ const createHarness = async (input?: {
   Object.defineProperty(hub, "resolvePendingResultWaiters", {
     value: vi.fn(),
   });
+  Object.defineProperty(
+    hub,
+    "failPendingDispatchResultWaitersForConnectionGeneration",
+    {
+      value: (
+        daemonSessionId: string,
+        connectionGeneration: number,
+        response: WaitDispatchResultResponse
+      ) =>
+        failPendingDispatchResultWaitersForConnectionGeneration(
+          state,
+          daemonSessionId,
+          connectionGeneration,
+          response
+        ),
+    }
+  );
 
   onTestFinished(async () => {
     if (vi.isFakeTimers()) {
@@ -6208,8 +6227,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
     "responds",
     "times out",
     "returns a malformed frame",
+    "reconnects before a close event",
+    "refreshes registration",
   ])("settles Computer power when the exact capable Service %s", async (scenario) => {
-    const { hub, sentFrames, socket, state } = await createHarness();
+    const { hub, sentFrames, socket, state, waitUntilTasks } =
+      await createHarness();
     configureCompatibleRoute({ socket, state });
     const session = state.sessionsById.get("daemon-session-1");
     if (!session) {
@@ -6220,9 +6242,23 @@ describe("runtime transport runtime coordinator transport contract", () => {
     Object.defineProperty(hub, "currentDeviceOperationWaiters", {
       value: new Map(),
     });
-    vi.useFakeTimers();
+    const changesRegistration =
+      scenario === "reconnects before a close event" ||
+      scenario === "refreshes registration";
+    if (!changesRegistration) {
+      vi.useFakeTimers();
+    }
     onTestFinished(() => {
       vi.useRealTimers();
+      if (changesRegistration) {
+        RuntimeTransportHub.prototype.webSocketClose.call(
+          hub,
+          socket,
+          1006,
+          "test cleanup",
+          false
+        );
+      }
     });
     const request = { operation: "update", enabled: true, expectedRevision: 0 };
     const result = {
@@ -6239,7 +6275,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
       requestId: "power-1",
       request,
     });
-    const settled = responsePromise.catch((error: unknown) => error);
+    let completedResponse: unknown;
+    const settled = responsePromise
+      .catch((error: unknown) => error)
+      .then((value) => {
+        completedResponse = value;
+        return value;
+      });
     await vi.waitFor(() =>
       expect(sentFrames).toContainEqual(
         expect.objectContaining({
@@ -6248,7 +6290,52 @@ describe("runtime transport runtime coordinator transport contract", () => {
         })
       )
     );
-    if (scenario !== "times out") {
+    if (changesRegistration) {
+      const registrationSocket =
+        scenario === "refreshes registration"
+          ? socket
+          : ({
+              deserializeAttachment: () => ({ verifiedOwnerUserId: "owner-1" }),
+              serializeAttachment: vi.fn(),
+              send: (message: string) => sentFrames.push(JSON.parse(message)),
+            } as unknown as WebSocket);
+      RuntimeTransportHub.prototype.webSocketMessage.call(
+        hub,
+        registrationSocket,
+        JSON.stringify({
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          code: "daemon.session.register",
+          payload: {
+            v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+            ownerUserId: "owner-1",
+            deviceId: session.deviceId,
+            lane: session.lane,
+            daemonSessionId: session.daemonSessionId,
+            connectionGeneration: session.connectionGeneration + 1,
+            connectedAtMs: Date.now(),
+            profileIds: [],
+            capabilities: {},
+            runtimeContract: { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+            serviceVersion: PUBLISHED_SERVICE_VERSION,
+          },
+        })
+      );
+      await vi.waitFor(() =>
+        expect(state.sessionsById.get(session.daemonSessionId)?.socket).toBe(
+          registrationSocket
+        )
+      );
+      await Promise.all(waitUntilTasks);
+      if (scenario === "reconnects before a close event") {
+        await vi.waitFor(() =>
+          expect(completedResponse).toBeInstanceOf(Response)
+        );
+      }
+    }
+    if (
+      scenario !== "times out" &&
+      scenario !== "reconnects before a close event"
+    ) {
       const frame = {
         v: 1,
         code: "daemon.computer_power.request_result",
@@ -6279,31 +6366,39 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
     // Advance the existing deadline as well: a malformed response must still
     // win immediately instead of being reclassified as a timeout.
-    await vi.advanceTimersByTimeAsync(30_000);
+    if (!changesRegistration) {
+      await vi.advanceTimersByTimeAsync(30_000);
+    }
+    await Promise.all(waitUntilTasks);
     const response = await settled;
     expect(response).toBeInstanceOf(Response);
     if (!(response instanceof Response)) {
       throw response;
     }
-    const expectedStatus = scenario === "times out" ? 504 : 502;
-    expect(response.status).toBe(
-      scenario === "responds" ? 200 : expectedStatus
-    );
+    const successful =
+      scenario === "responds" || scenario === "refreshes registration";
+    let expectedStatus = 502;
+    let code = "computer.power.invalid_response";
+    let message = "Invalid computer power response.";
+    if (scenario === "times out") {
+      expectedStatus = 504;
+      code = "computer.power.timeout";
+      message = "Timed out waiting for the local OpenMeld Service response.";
+    } else if (scenario === "reconnects before a close event") {
+      expectedStatus = 503;
+      code = "computer.power.offline";
+      message = "The local OpenMeld Service disconnected before it responded.";
+    }
+    expect(response.status).toBe(successful ? 200 : expectedStatus);
     await expect(response.json()).resolves.toEqual(
-      scenario === "responds"
-        ? result
-        : {
-            status: "rejected",
-            code:
-              scenario === "times out"
-                ? "computer.power.timeout"
-                : "computer.power.invalid_response",
-            message:
-              scenario === "times out"
-                ? "Timed out waiting for the local OpenMeld Service response."
-                : "Invalid computer power response.",
-          }
+      successful ? result : { status: "rejected", code, message }
     );
+    expect(
+      sentFrames.filter(
+        (frame) =>
+          (frame as { code: string }).code === "daemon.computer_power.request"
+      )
+    ).toHaveLength(1);
   });
 
   it.each([
