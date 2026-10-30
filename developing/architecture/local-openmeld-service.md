@@ -3854,7 +3854,10 @@ behavior, without force-killing accepted work. Startup-policy maintenance also
 identifies itself as automatic.
 
 The existing stop coordinator owns an admitted idle shutdown across connector
-replacement or loss. No updater-owned task counter, second drain, or execution
+replacement or loss. Overlapping idle requests share the first in-flight Host
+admission result when a later request reports `host.draining`; that error alone
+does not prove acceptance, and a failed first admission remains a failure.
+No updater-owned task counter, second drain, or execution
 ledger is introduced. Older receivers reject the unknown `shutdown_if_idle` command; the
 automatic operation then reports that manual update is needed while preserving
 the running Service. It must not retry through the ordinary shutdown fallback.

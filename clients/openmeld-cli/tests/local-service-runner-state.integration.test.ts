@@ -24,6 +24,7 @@ import {
 } from "../src/local-service/carrier/service-runner";
 import { DAEMON_STREAM_CONNECT_TIMEOUT_MS } from "../src/local-service/core/constants";
 import type { RouteCatalog } from "../src/local-service/core/types";
+import { ExecutionHostError } from "../src/local-service/execution-host/channel";
 import type { launchExecutionHost } from "../src/local-service/execution-host/launch";
 import type {
   ExecutionHostEvent,
@@ -924,12 +925,14 @@ describe("local service runner dual-write", () => {
     expect(admitted).toHaveBeenCalledTimes(state === "busy" ? 0 : 1);
   });
 
-  it("settles concurrent idle requests through the same admitted stop", async () => {
+  it.each([
+    "accepted",
+    "failed",
+  ])("shares the %s admission result when a concurrent idle request sees host.draining", async (outcome) => {
     const entered = Promise.withResolvers<void>();
     const decision = Promise.withResolvers<boolean>();
     const admitted = Promise.withResolvers<void>();
     let enteredCount = 0;
-    let admittedCount = 0;
     let stopped = false;
     const markStopping = vi.fn(() => {
       stopped = true;
@@ -941,32 +944,82 @@ describe("local service runner dual-write", () => {
       markStopping,
     });
     coordinator.attachSession(() => undefined);
-    const requests = [0, 1].map(() =>
-      coordinator.requestIfIdle({
-        gracePeriodMs: 2000,
-        tryBeginDrain: async () => {
-          if (++enteredCount === 2) {
-            entered.resolve();
-          }
-          return await decision.promise;
-        },
-        onAdmitted: () => {
-          if (++admittedCount === 2) {
-            admitted.resolve();
-          }
-        },
-      })
+    const onAdmitted = vi.fn(() => admitted.resolve());
+    const results = Promise.allSettled(
+      [0, 1].map(() =>
+        coordinator.requestIfIdle({
+          gracePeriodMs: 2000,
+          tryBeginDrain: async () => {
+            if (++enteredCount === 2) {
+              entered.resolve();
+              throw new ExecutionHostError(
+                "host.draining",
+                "The Host already has an admitted stop."
+              );
+            }
+            return await decision.promise;
+          },
+          onAdmitted,
+        })
+      )
     );
     await entered.promise;
+    if (outcome === "failed") {
+      const error = new ExecutionHostError(
+        "host.channel_closed",
+        "Host reply lost"
+      );
+      decision.reject(error);
+      expect(await results).toEqual([
+        { status: "rejected", reason: error },
+        { status: "rejected", reason: error },
+      ]);
+      expect(onAdmitted).not.toHaveBeenCalled();
+      expect(markStopping).not.toHaveBeenCalled();
+      expect(coordinator.isDraining()).toBe(false);
+      return;
+    }
     decision.resolve(true);
     await admitted.promise;
     expect(coordinator.isDraining()).toBe(true);
     coordinator.handleSessionCompleted();
-    expect(await Promise.all(requests)).toEqual([
-      { accepted: true, gracePeriodMs: 2000, mode: "graceful" },
-      { accepted: true, gracePeriodMs: 2000, mode: "graceful" },
+    expect(await results).toEqual([
+      {
+        status: "fulfilled",
+        value: { accepted: true, gracePeriodMs: 2000, mode: "graceful" },
+      },
+      {
+        status: "fulfilled",
+        value: { accepted: true, gracePeriodMs: 2000, mode: "graceful" },
+      },
     ]);
+    expect(onAdmitted).toHaveBeenCalledTimes(2);
     expect(markStopping).toHaveBeenCalledOnce();
+  });
+
+  it("does not accept host.draining without an overlapping idle admission", async () => {
+    const error = new ExecutionHostError(
+      "host.draining",
+      "Host already draining"
+    );
+    const markStopping = vi.fn();
+    const onAdmitted = vi.fn();
+    const coordinator = createControlledShutdownCoordinator({
+      drainHost: async () => undefined,
+      hasUndrainedWork: () => false,
+      isStopRequested: () => false,
+      markStopping,
+    });
+    await expect(
+      coordinator.requestIfIdle({
+        gracePeriodMs: 2000,
+        tryBeginDrain: () => Promise.reject(error),
+        onAdmitted,
+      })
+    ).rejects.toBe(error);
+    expect(onAdmitted).not.toHaveBeenCalled();
+    expect(markStopping).not.toHaveBeenCalled();
+    expect(coordinator.isDraining()).toBe(false);
   });
 
   it("ends a disconnected stop only after the Host has no local work", async () => {

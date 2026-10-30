@@ -98,6 +98,7 @@ import {
   buildDispatchPromptWithBootstrap as buildDispatchPromptWithBootstrapInternal,
 } from "../dispatch/parse-dispatch-task";
 import { createExecutionHostCatalogClient } from "../execution-host/catalog-client";
+import { ExecutionHostError } from "../execution-host/channel";
 import { launchExecutionHost } from "../execution-host/launch";
 import { resolveComputerFileAccessStorePath } from "../file-access/computer-file-access-store";
 import { resolveSystemLocalFolderPickerHelper } from "../folder-picker/local-folder-picker-helper-process";
@@ -437,6 +438,7 @@ export function createControlledShutdownCoordinator(input: {
   // Drain closes admission for this Host's lifetime. Reconnects observe the
   // same operation instead of accumulating unbounded pending Host RPCs.
   let hostDrain: Promise<void> | null = null;
+  let idleAdmission: Promise<boolean> | null = null;
   let shutdownAttempt:
     | (PromiseWithResolvers<void> & { stopCause: RuntimeTransportStopCause })
     | null = null;
@@ -477,11 +479,36 @@ export function createControlledShutdownCoordinator(input: {
       onAdmitted?: () => void;
     }) {
       const stopCause = await resolveRecentDaemonSignalStopCause();
-      if (
-        shutdownAttempt ||
-        input.isStopRequested() ||
-        !(await payload.tryBeginDrain())
-      ) {
+      if (shutdownAttempt || input.isStopRequested()) {
+        return {
+          accepted: false,
+          mode: "graceful" as const,
+          gracePeriodMs: payload.gracePeriodMs,
+        };
+      }
+      const concurrentAdmission = idleAdmission;
+      const admission = payload.tryBeginDrain().catch((error: unknown) => {
+        if (
+          !(error instanceof ExecutionHostError) ||
+          error.code !== "host.draining" ||
+          !concurrentAdmission
+        ) {
+          throw error;
+        }
+        // The Host's refusal may arrive before the first admission reply.
+        // Share that actual result; host.draining alone proves no acceptance.
+        return concurrentAdmission;
+      });
+      idleAdmission ??= admission;
+      let admitted: boolean;
+      try {
+        admitted = await admission;
+      } finally {
+        if (idleAdmission === admission) {
+          idleAdmission = null;
+        }
+      }
+      if (!admitted) {
         return {
           accepted: false,
           mode: "graceful" as const,
