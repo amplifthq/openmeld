@@ -638,7 +638,7 @@ export async function submitRemoteAgentConversationTurn(
         storage: input.storage,
       });
       if (repeated.status === "finalized") {
-        await cleanupFinalizedRemoteAgentSubmissionAttachments({
+        await cleanupRemoteAgentSubmissionAttachments({
           env: input.env,
           attachmentBucket: input.attachmentBucket,
           request,
@@ -771,7 +771,7 @@ async function readSubmissionBeforePreparation(
     throw new RemoteAgentAdmissionRejectedError(existing.rejection);
   }
   if (existing?.status === "finalized") {
-    await cleanupFinalizedRemoteAgentSubmissionAttachments({
+    await cleanupRemoteAgentSubmissionAttachments({
       env: input.env,
       attachmentBucket: input.attachmentBucket,
       request,
@@ -1188,7 +1188,7 @@ async function deleteTransientRemoteAgentAttachments(input: {
   }
 }
 
-export async function cleanupFinalizedRemoteAgentSubmissionAttachments(input: {
+export async function cleanupRemoteAgentSubmissionAttachments(input: {
   env?: RemoteAgentDiagnosticsEnv;
   attachmentBucket?: Pick<R2Bucket, "delete">;
   request: RemoteAgentWorkerSubmitTurnRequest;

@@ -1,5 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
-import type { CloudComputerInvocationState } from "@openmeld/schemas";
+import {
+  buildSpaceAttachmentObjectKey,
+  type CloudComputerInvocationState,
+} from "@openmeld/schemas";
 import type { AiUsageRecord } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { cloudflare } from "../.flue/agents/center-agent";
@@ -46,6 +49,7 @@ import { createRemoteAgentSqlStorage } from "../flue-adapter/storage";
 import {
   createRoutineTurnEnvelope,
   createSubmitTurnRequest,
+  createSubmitTurnRequestV2,
   TEST_NOW_MS,
 } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
@@ -105,13 +109,44 @@ describe("Flue Cloudflare entrypoints", () => {
     const database = new DatabaseSync(":memory:");
     const sql = createCloudflareSqlHarness(database);
     const storage = createRemoteAgentSqlStorage(sql);
-    const request = createSubmitTurnRequest();
+    const request = createSubmitTurnRequestV2({
+      messages: [
+        {
+          role: "user",
+          content: "Inspect the attached images.",
+          attachments: [
+            {
+              id: "transient-channel-image",
+              mimeType: "image/png",
+              sizeBytes: 3,
+              removeAfterAdmission: true,
+            },
+            {
+              id: "canonical-image",
+              objectKey: "space-files/canonical-image/revision-1",
+              mimeType: "image/png",
+              sizeBytes: 3,
+            },
+          ],
+        },
+      ],
+    });
+    const attachmentBucket = {
+      get: vi.fn(() =>
+        Promise.resolve({
+          size: 3,
+          body: new Response(new Uint8Array([1, 2, 3])).body,
+        })
+      ),
+      delete: vi.fn(() => Promise.resolve()),
+    } as unknown as Pick<R2Bucket, "get" | "delete">;
     try {
       await expect(
         submitRemoteAgentConversationTurn({
           agentName: buildRemoteAgentName(request),
           input: request,
           storage,
+          attachmentBucket,
           host: {
             prepareConversationTurn: () =>
               Promise.reject(new RemoteAgentImageTransformQuotaError("9422")),
@@ -126,7 +161,7 @@ describe("Flue Cloudflare entrypoints", () => {
       const onRequest = vi.fn();
       const runtime = Object.assign(Object.create(Runtime.prototype), {
         ctx: { storage: { sql, get: () => Promise.resolve(undefined) } },
-        env: {},
+        env: { OPENMELD_SPACE_ATTACHMENTS: attachmentBucket },
         name: buildRemoteAgentName(request),
         onRequest,
       }) as { submitConversationTurn(input: typeof request): Promise<unknown> };
@@ -138,6 +173,17 @@ describe("Flue Cloudflare entrypoints", () => {
         idempotencyKey: request.idempotencyKey,
         reasonCode: "remote_agent.image_transform_quota_exceeded",
       });
+      await expect(
+        runtime.submitConversationTurn(request)
+      ).resolves.toMatchObject({ outcome: "rejected" });
+      const transientKey = buildSpaceAttachmentObjectKey({
+        id: "transient-channel-image",
+        organizationId: request.organizationId,
+        spaceId: request.spaceId,
+      });
+      expect(attachmentBucket.delete).toHaveBeenCalledTimes(2);
+      expect(attachmentBucket.delete).toHaveBeenNthCalledWith(1, transientKey);
+      expect(attachmentBucket.delete).toHaveBeenNthCalledWith(2, transientKey);
       expect(onRequest).not.toHaveBeenCalled();
       expect(
         await readRemoteAgentCallbackContext(storage, request.dispatchId)

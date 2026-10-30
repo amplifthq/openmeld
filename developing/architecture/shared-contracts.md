@@ -6186,6 +6186,9 @@ containing the exact request digest and the shared rejection. Its atomic insert
 competes with the existing version-3 execution claim: only one can win. A
 rejection cannot overwrite a claimed/finalized receipt. Replays return the same
 rejection before doing image work; admission reads report no native submission.
+Before returning the rejection, the Durable Object admission boundary deletes
+only attachments explicitly marked `removeAfterAdmission`, including on replay;
+canonical Space File revisions remain retained.
 Older Remote Agent readers fail closed on these rejected receipts during rollback.
 Version-2/3 claimed and finalized receipts remain readable and retain their
 existing semantics; no database migration or local-component update is needed.
