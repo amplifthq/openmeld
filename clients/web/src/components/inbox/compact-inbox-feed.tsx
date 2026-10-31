@@ -60,6 +60,8 @@ export function CompactInboxFeed(input: { onOpenItem: () => void }) {
 		}
 	);
 	const loadMoreState = resolveInboxFeedLoadMoreState(feed, snapshotExpired);
+	const refreshWarningShown =
+		(feed.isRefetchError && !feed.isFetchNextPageError) || snapshotExpired;
 	const markSelectionRead = (body: MutateInboxFeedBody) => {
 		selection.mutate(body, {
 			onSuccess: (response) =>
@@ -83,8 +85,7 @@ export function CompactInboxFeed(input: { onOpenItem: () => void }) {
 			<span aria-live="polite" className="sr-only">
 				{announcement}
 			</span>
-			{(feed.isRefetchError && !feed.isFetchNextPageError) ||
-			snapshotExpired ? (
+			{refreshWarningShown ? (
 				<InboxRefreshWarning onRetry={() => feed.refetch()} />
 			) : null}
 			{firstPage && rows.length > 0 ? (
@@ -102,6 +103,7 @@ export function CompactInboxFeed(input: { onOpenItem: () => void }) {
 					onSetRead={setRead}
 					organizationId={currentOrganization.id}
 					organizationSlug={currentOrganization.slug}
+					refreshWarningShown={refreshWarningShown}
 					rows={rows}
 					sectionAction={null}
 					snapshotId={firstPage.snapshotId}
