@@ -186,6 +186,24 @@ export function InboxRefreshWarning(input: {
 	);
 }
 
+export function InboxGroupLoadWarning(input: {
+	onRetry: () => Promise<unknown>;
+}) {
+	return (
+		<output
+			className={cn(
+				"flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm",
+				resolveStatusToneSurfaceClassName("warning", "subtle")
+			)}
+		>
+			<p>Couldn’t load the updates in this group.</p>
+			<Button onClick={() => input.onRetry()} size="sm" variant="outline">
+				Try again
+			</Button>
+		</output>
+	);
+}
+
 export function InboxItemLookupWarning(input: {
 	onRetry: () => Promise<unknown>;
 }) {
