@@ -315,9 +315,12 @@ describe("SpaceGuidePanel", () => {
 	});
 
 	it("waits for older overlapping saves before submitting the final draft", async () => {
-		const older = Promise.withResolvers<SpaceMeta>();
+		let finishOlderSave: (meta: SpaceMeta) => void = () => undefined;
+		const older = new Promise<SpaceMeta>((resolve) => {
+			finishOlderSave = resolve;
+		});
 		updateMetaMock
-			.mockReturnValueOnce(older.promise)
+			.mockReturnValueOnce(older)
 			.mockResolvedValueOnce(spaceMeta("B"))
 			.mockResolvedValueOnce(spaceMeta("Final"));
 		const { result } = renderHook(
@@ -341,7 +344,7 @@ describe("SpaceGuidePanel", () => {
 			["A", "B"]
 		);
 		await act(async () => {
-			older.resolve(spaceMeta("A"));
+			finishOlderSave(spaceMeta("A"));
 			await firstSave;
 			expect(await leaving).toBe(true);
 		});
