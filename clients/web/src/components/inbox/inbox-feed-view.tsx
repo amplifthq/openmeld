@@ -40,6 +40,7 @@ import {
 import { useInboxAvatar } from "./inbox-avatars";
 import { InboxItemRow, InboxTimestamp } from "./inbox-list";
 import {
+	InboxGroupLoadWarning,
 	InboxListSkeleton,
 	InboxRefreshWarning,
 } from "./inbox-page-presentation";
@@ -60,6 +61,8 @@ type FeedViewProps = {
 	onDismiss?: (item: InboxItem) => void;
 	onSelection: (selection: MutateInboxFeedBody) => void;
 	isMutating: boolean;
+	/** The page already shows the Inbox refresh warning, so groups stay quiet. */
+	refreshWarningShown?: boolean;
 };
 
 export function InboxFeedView(input: FeedViewProps) {
@@ -332,7 +335,10 @@ function InboxCollectionContents(
 	return (
 		<div className="border-border/50 border-t" id={input.panelId}>
 			{members.isPending ? <InboxListSkeleton /> : null}
-			{members.isError ? (
+			{members.isError && !members.data ? (
+				<InboxGroupLoadWarning onRetry={() => members.refetch()} />
+			) : null}
+			{members.isRefetchError && !input.refreshWarningShown ? (
 				<InboxRefreshWarning onRetry={() => members.refetch()} />
 			) : null}
 			<ul
