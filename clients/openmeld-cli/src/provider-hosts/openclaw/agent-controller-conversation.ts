@@ -1,10 +1,7 @@
-import {
-  normalizeOpenClawSpaceIdPrefix,
-  slugifyOpenClawNamePart,
-} from "./naming";
+import { normalizeOpenClawSpaceId, slugifyOpenClawNamePart } from "./naming";
 
 const OPENCLAW_SPACE_SESSION_KEY_RE =
-  /^agent:(?<agentId>[a-z0-9-]+):openmeld-space:(?<spaceSlug>[a-z0-9-]+)--(?<spaceIdPrefix>[a-z0-9]{8})$/u;
+  /^agent:(?<agentId>[a-z0-9-]+):openmeld-space:(?<spaceSlug>[a-z0-9-]+)--(?<spaceId>[a-z0-9]+)$/u;
 
 export type OpenClawAgentControllerConversationClassification =
   | "missing"
@@ -14,7 +11,7 @@ export type OpenClawAgentControllerConversationClassification =
 
 export type ParsedOpenClawSpaceSessionKey = {
   agentId: string;
-  spaceIdPrefix: string;
+  spaceId: string;
   spaceSlug: string;
 };
 
@@ -26,14 +23,14 @@ export function parseOpenClawSpaceSessionKey(
     return null;
   }
   const agentId = normalizeOptionalText(match.groups.agentId);
-  const spaceIdPrefix = normalizeOptionalText(match.groups.spaceIdPrefix);
+  const spaceId = normalizeOptionalText(match.groups.spaceId);
   const spaceSlug = normalizeOptionalText(match.groups.spaceSlug);
-  if (!(agentId && spaceIdPrefix && spaceSlug)) {
+  if (!(agentId && spaceId && spaceSlug)) {
     return null;
   }
   return {
     agentId,
-    spaceIdPrefix,
+    spaceId,
     spaceSlug,
   };
 }
@@ -55,7 +52,7 @@ export function matchesOwnedOpenClawSpaceSessionKey(input: {
   }
   return (
     parsed.agentId === slugifyOpenClawNamePart(normalizedAgentId, "agent") &&
-    parsed.spaceIdPrefix === normalizeOpenClawSpaceIdPrefix(input.spaceId)
+    parsed.spaceId === normalizeOpenClawSpaceId(input.spaceId)
   );
 }
 

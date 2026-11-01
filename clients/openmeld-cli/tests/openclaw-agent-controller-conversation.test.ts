@@ -9,11 +9,11 @@ describe("openclaw agent controller conversation helpers", () => {
   it("parses canonical session keys into ownership fields", () => {
     expect(
       parseOpenClawSpaceSessionKey(
-        "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345"
+        "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345deadbeef"
       )
     ).toEqual({
       agentId: "openmeld-openclaw-phase-one",
-      spaceIdPrefix: "abc12345",
+      spaceId: "abc12345deadbeef",
       spaceSlug: "ops-room",
     });
   });
@@ -23,7 +23,7 @@ describe("openclaw agent controller conversation helpers", () => {
       matchesOwnedOpenClawSpaceSessionKey({
         openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
         sessionKey:
-          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345",
+          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345deadbeef",
         spaceId: "abc12345deadbeef",
       })
     ).toBe(true);
@@ -31,8 +31,46 @@ describe("openclaw agent controller conversation helpers", () => {
       matchesOwnedOpenClawSpaceSessionKey({
         openClawBootstrapAgentId: "openmeld-other-agent",
         sessionKey:
-          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345",
+          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345deadbeef",
         spaceId: "abc12345deadbeef",
+      })
+    ).toBe(false);
+  });
+
+  it("does not match a session key minted for a space whose id shares only an eight-character prefix", () => {
+    expect(
+      matchesOwnedOpenClawSpaceSessionKey({
+        openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
+        sessionKey:
+          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--d3adb33f11111111",
+        spaceId: "d3ad_b33f_2222_2222",
+      })
+    ).toBe(false);
+    expect(
+      classifyOpenClawAgentControllerConversation({
+        agentControllerConversationId:
+          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--d3adb33f11111111",
+        openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
+        spaceId: "d3ad_b33f_2222_2222",
+      })
+    ).toBe("legacy");
+  });
+
+  it("matches short space ids by their complete id, not a shared placeholder", () => {
+    expect(
+      matchesOwnedOpenClawSpaceSessionKey({
+        openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
+        sessionKey:
+          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc",
+        spaceId: "abc",
+      })
+    ).toBe(true);
+    expect(
+      matchesOwnedOpenClawSpaceSessionKey({
+        openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
+        sessionKey:
+          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc",
+        spaceId: "abd",
       })
     ).toBe(false);
   });
@@ -61,7 +99,7 @@ describe("openclaw agent controller conversation helpers", () => {
     expect(
       classifyOpenClawAgentControllerConversation({
         agentControllerConversationId:
-          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345",
+          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345deadbeef",
         openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
         spaceId: "abc12345deadbeef",
       })
@@ -72,18 +110,29 @@ describe("openclaw agent controller conversation helpers", () => {
     expect(
       classifyOpenClawAgentControllerConversation({
         agentControllerConversationId:
-          "agent:openmeld-other-agent:openmeld-space:ops-room--abc12345",
+          "agent:openmeld-other-agent:openmeld-space:ops-room--abc12345deadbeef",
         openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
         spaceId: "abc12345deadbeef",
       })
     ).toBe("legacy");
   });
 
-  it("classifies a canonical-looking controller conversation with the wrong space prefix as legacy", () => {
+  it("classifies a canonical-looking controller conversation with the wrong space id as legacy", () => {
     expect(
       classifyOpenClawAgentControllerConversation({
         agentControllerConversationId:
-          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--ffffffff",
+          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--ffffffffffffffff",
+        openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
+        spaceId: "abc12345deadbeef",
+      })
+    ).toBe("legacy");
+  });
+
+  it("classifies a prefix-era session key as legacy, so the space derives its own key", () => {
+    expect(
+      classifyOpenClawAgentControllerConversation({
+        agentControllerConversationId:
+          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345",
         openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
         spaceId: "abc12345deadbeef",
       })

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 const CANONICAL_OPENCLAW_SPACE_SESSION_KEY_RE =
-  /^agent:[a-z0-9-]+:openmeld-space:[a-z0-9-]+--[a-z0-9]{8}$/u;
+  /^agent:[a-z0-9-]+:openmeld-space:[a-z0-9-]+--[a-z0-9]+$/u;
 
 export function buildOpenClawBootstrapAgentId(input: {
   openMeldProfileId: string;
@@ -68,8 +68,8 @@ export function buildOpenClawSpaceSessionKey(input: {
     input.spaceNameSnapshot ?? "space",
     "space"
   );
-  const spaceIdPrefix = normalizeOpenClawSpaceIdPrefix(input.spaceId);
-  return `agent:${normalizedAgentId}:openmeld-space:${spaceSlug}--${spaceIdPrefix}`;
+  const spaceId = normalizeOpenClawSpaceId(input.spaceId);
+  return `agent:${normalizedAgentId}:openmeld-space:${spaceSlug}--${spaceId}`;
 }
 
 export function isCanonicalOpenClawSpaceSessionKey(value: string): boolean {
@@ -92,12 +92,15 @@ export function slugifyOpenClawNamePart(
   return normalized || fallback;
 }
 
-export function normalizeOpenClawSpaceIdPrefix(spaceId: string): string {
+export function normalizeOpenClawSpaceId(spaceId: string): string {
+  // The complete normalized id, never a prefix: ownership of a stored Space
+  // session is decided against this value, so two distinct Space ids must
+  // never normalize to the same key. The placeholder covers only an id with
+  // no alphanumeric characters at all, which carries no identity to embed.
   const normalized = normalizeOptionalText(spaceId)
     ?.toLowerCase()
     .replace(/[^a-z0-9]+/gu, "");
-  const prefix = normalized?.slice(0, 8);
-  return prefix && prefix.length === 8 ? prefix : "00000000";
+  return normalized && normalized.length > 0 ? normalized : "00000000";
 }
 
 function normalizeProfileName(profileName: string): string {
