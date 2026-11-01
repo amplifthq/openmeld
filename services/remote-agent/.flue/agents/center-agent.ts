@@ -46,8 +46,9 @@ import { buildRemoteAgentSystemPrompt } from "../../agent-core/prompt";
 import {
   buildRemoteAgentName,
   cleanupExpiredRemoteAgentSubmissionReceipts,
-  cleanupFinalizedRemoteAgentSubmissionAttachments,
+  cleanupRemoteAgentSubmissionAttachments,
   parseRemoteAgentSubmitTurnRequest,
+  RemoteAgentAdmissionRejectedError,
   readExistingRemoteAgentSubmission,
   readRemoteAgentAdmission,
   readRemoteAgentAdmissionStop,
@@ -136,6 +137,7 @@ import {
   REMOTE_AGENT_TOOL_CALLING_CONTRACT,
 } from "../../flue-adapter/tool-presentation";
 import { getRemoteAgentFlueTools } from "../../flue-adapter/tools";
+import { useCenterAgentWorkTargetFacts } from "../../flue-adapter/work-target";
 
 installRemoteAgentExecutionInstrumentation();
 
@@ -340,7 +342,7 @@ async function prepareCenterAgentRender() {
       executionContext && runtimeContextPlan.includeOrganizationDocuments
         ? await resolveCurrentOrganizationDocumentPromptContext({
             organizationId: executionContext.organizationId,
-            read: async () =>
+            read: async (includeSourceReferences) =>
               await callCoreRpc(
                 coreWorker,
                 "readOrganizationDocumentPromptContext",
@@ -350,6 +352,9 @@ async function prepareCenterAgentRender() {
                     `remote-agent-prompt:${executionContext.submissionId}`
                   ),
                   includeOrganizationProtectedInformation: true as const,
+                  ...(includeSourceReferences
+                    ? { includeSourceReferences: true as const }
+                    : {}),
                 },
                 (binding, rpcInput) =>
                   binding.readOrganizationDocumentPromptContext?.(rpcInput)
@@ -398,6 +403,12 @@ async function prepareCenterAgentRender() {
     ? createRemoteAgentSteeringSource({ context: executionContext, storage })
     : null;
   return {
+    workTargetContext: {
+      coreWorker,
+      storage,
+      context: executionContext,
+      personalAgent,
+    },
     getAcceptedResponseInputId: executionContext
       ? await remoteAgentStreamPublisher.prepareResponseProjection({
           context: executionContext,
@@ -462,6 +473,7 @@ async function prepareCenterAgentRender() {
           executionContext?.modelRoute
         ),
         organizationBrief: materialization.documents?.briefContent,
+        organizationBriefSource: materialization.documents?.briefSource,
         organizationDocumentTitles: materialization.documents?.documentTitles,
         organizationProtectedInformation:
           materialization.documents?.organizationProtectedInformation,
@@ -483,6 +495,7 @@ export function CenterAgentV2() {
     requireRemoteAgentExecutionResources<
       Awaited<ReturnType<typeof prepareCenterAgentRender>>
     >();
+  useCenterAgentWorkTargetFacts(resources.workTargetContext);
   if (resources.checkFinish) {
     useRemoteAgentExecutionFinish(resources.checkFinish);
   }
@@ -708,7 +721,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
                 this.ctx.storage.sql
               ),
             cleanupFinalizedSubmissionReplay: async () =>
-              await cleanupFinalizedRemoteAgentSubmissionAttachments({
+              await cleanupRemoteAgentSubmissionAttachments({
                 env,
                 attachmentBucket: env.OPENMELD_SPACE_ATTACHMENTS,
                 request,
@@ -849,6 +862,17 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
           }
           outcome = "acknowledged";
           return ack;
+        } catch (error) {
+          if (error instanceof RemoteAgentAdmissionRejectedError) {
+            await cleanupRemoteAgentSubmissionAttachments({
+              env,
+              attachmentBucket: env.OPENMELD_SPACE_ATTACHMENTS,
+              request,
+            });
+            outcome = "rejected";
+            return error.rejection;
+          }
+          throw error;
         } finally {
           emitRemoteAgentAdmissionStageEvidence(env, {
             ...evidenceContext,

@@ -4239,7 +4239,13 @@ async function coordinateConcurrentAgentReply(input: {
           prompt,
           routeConfig: input.routeConfig,
           runtimeContext: input.runtimeContext,
-          runtimeEnvOverrides: input.runtimeEnvOverrides,
+          runtimeEnvOverrides: {
+            ...input.runtimeEnvOverrides,
+            ...(input.runtimeControllerSupport.runtimeAdapterMatch.adapterId ===
+            "claude-code"
+              ? { [DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV]: "1" }
+              : {}),
+          },
           runtimeControllerSupport: input.runtimeControllerSupport,
           streamingModeOverride: "final",
         });

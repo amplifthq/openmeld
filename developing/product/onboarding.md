@@ -719,7 +719,10 @@ Standalone Setup uses the same registration reconciliation as the Web handoff
 and background discovery. Its observed runnable list is not a replacement for
 the saved Local agents switches: only an explicit selection may turn unselected
 controllers off. A registered controller excluded from automatic selection
-keeps its saved state. When all selectable controllers were deliberately turned
+keeps its saved state. If an enabled controller has no saved launch contract,
+Setup saves a verified installation only while the controller remains enabled
+and still has no saved contract. An installation that cannot be verified stays
+visible as needing attention. When all selectable controllers were deliberately turned
 off, completion explains that choice instead of showing an installation guide.
 
 The ordinary Web handoff represents that background catalog refresh with an

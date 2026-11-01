@@ -68,8 +68,8 @@ const requireManager = (
   );
 };
 
-const requireRequesterOrOwner = (
-  task: SpaceTask,
+export const requireSpaceTaskRequesterOrOwner = (
+  task: Pick<SpaceTask, "requestedBy">,
   context: SpaceTaskMutationContext
 ): void => {
   if (
@@ -154,7 +154,7 @@ function assertSpaceTaskActionAllowed(
       requireActiveTask(task);
       return;
     case "set_reviewer":
-      requireRequesterOrOwner(task, context);
+      requireSpaceTaskRequesterOrOwner(task, context);
       requireActiveTask(task);
       if (task.phase === "in_review") {
         fail(
@@ -191,7 +191,7 @@ function assertSpaceTaskActionAllowed(
       }
       return;
     case "reopen":
-      requireRequesterOrOwner(task, context);
+      requireSpaceTaskRequesterOrOwner(task, context);
       if (task.phase !== "done" && task.phase !== "canceled") {
         fail(
           "space_task.invalid_transition",
@@ -200,7 +200,7 @@ function assertSpaceTaskActionAllowed(
       }
       return;
     case "continue_rework":
-      requireRequesterOrOwner(task, context);
+      requireSpaceTaskRequesterOrOwner(task, context);
       if (context.actor.profileKind !== "human") {
         fail(
           "space_task.human_decision_required",
@@ -297,7 +297,7 @@ function resolveAssignmentReviewer(
     return task.reviewer;
   }
   if (command.reviewerProfileId !== (task.reviewer?.profileId ?? null)) {
-    requireRequesterOrOwner(task, context);
+    requireSpaceTaskRequesterOrOwner(task, context);
     if (task.phase === "in_review") {
       fail(
         "space_task.review_in_progress",
@@ -753,7 +753,6 @@ export function applyGitHubIssueProviderObservation(input: {
   };
   task: SpaceTask;
 }): {
-  settle: SpaceTaskMutationResult | null;
   observe: SpaceTaskMutationResult | null;
   skipReason: "not_linked" | "stale" | null;
 } {
@@ -765,14 +764,14 @@ export function applyGitHubIssueProviderObservation(input: {
     }
   );
   if (existingIndex < 0) {
-    return { settle: null, observe: null, skipReason: "not_linked" };
+    return { observe: null, skipReason: "not_linked" };
   }
   const current = input.task.externalWorkItems[existingIndex];
   if (!current || current.provider !== "github") {
-    return { settle: null, observe: null, skipReason: "not_linked" };
+    return { observe: null, skipReason: "not_linked" };
   }
   if (current.lastObservedAt && current.lastObservedAt > input.observedAt) {
-    return { settle: null, observe: null, skipReason: "stale" };
+    return { observe: null, skipReason: "stale" };
   }
   const now = input.now ?? input.observedAt;
   const needsObserve =
@@ -798,54 +797,9 @@ export function applyGitHubIssueProviderObservation(input: {
         now,
       })
     : null;
-  const observedTask = observe?.task ?? input.task;
-  if (
-    input.observedState !== "closed" ||
-    observedTask.phase === "done" ||
-    observedTask.phase === "canceled"
-  ) {
-    return { settle: null, observe, skipReason: null };
-  }
-  const completed = input.observedStateReason === "completed";
-  // Provider synchronization must not replace a result already under review.
-  if (completed && observedTask.phase === "in_review") {
-    return { settle: null, observe, skipReason: null };
-  }
-  if (
-    !completed &&
-    input.observedStateReason !== "not_planned" &&
-    input.observedStateReason !== "duplicate"
-  ) {
-    return { settle: null, observe, skipReason: null };
-  }
-  const detail = `GitHub issue ${formatSpaceTaskGitHubIssueLabel(current)} was closed as ${input.observedStateReason}.`;
-  const completionPhase = observedTask.reviewer ? "in_review" : "done";
-  return {
-    settle: finishMutation({
-      current: observedTask,
-      next: {
-        ...observedTask,
-        needsHumanDecision: false,
-        phase: completed ? completionPhase : "canceled",
-        ...(completed
-          ? {
-              result: {
-                resultRevision: observedTask.revision + 1,
-                summary: detail,
-                submittedAt: now,
-                submittedBy: { provider: "github" },
-              },
-              review: null,
-            }
-          : {}),
-      },
-      eventType: completed ? "result_submitted" : "canceled",
-      detail,
-      now,
-    }),
-    observe,
-    skipReason: null,
-  };
+  // Provider closure is evidence about that issue, never a Task result or
+  // cancellation. Migration, duplication, and implementation are distinct.
+  return { observe, skipReason: null };
 }
 
 function continueTaskRework({

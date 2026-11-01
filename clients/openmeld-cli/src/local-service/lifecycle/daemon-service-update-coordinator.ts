@@ -18,9 +18,13 @@ import type { DaemonActiveBundleState } from "./daemon-service-bundle";
 import { prepareDaemonServiceBundle } from "./daemon-service-bundle";
 import type {
   DaemonServiceLifecycleOutcome,
+  DaemonServiceLifecyclePhase,
   DaemonServiceLifecycleRecoveryStatus,
 } from "./daemon-service-lifecycle";
-import { runDaemonServiceLifecycle } from "./daemon-service-lifecycle";
+import {
+  DaemonServiceUpdateDeferredError,
+  runDaemonServiceLifecycle,
+} from "./daemon-service-lifecycle";
 import { assertDaemonMaintenanceInstallationOwnership } from "./daemon-service-manager-command-match";
 import { readCurrentObservedDaemonRuntimeStatus } from "./daemon-service-runtime";
 import {
@@ -39,6 +43,7 @@ import {
 } from "./daemon-service-update-worker-manager";
 
 const MAX_BACKGROUND_UPDATE_ATTEMPTS = 5;
+const SAFE_SWITCH_POLL_INTERVAL_MS = 2000;
 
 type DaemonServiceUpdateReconcileLock = <T>(
   run: () => Promise<T>
@@ -92,6 +97,8 @@ type RunPendingDaemonServiceUpdateDependencies = {
     forceReinstall: true;
     forceKillAfterDrainTimeout: false;
     preparedBundle: DaemonActiveBundleState;
+    onlyIfIdle?: true;
+    onPhase?: (phase: DaemonServiceLifecyclePhase) => Promise<void>;
   }) => Promise<
     Pick<DaemonServiceLifecycleOutcome, "errorMessage" | "status"> & {
       recoveryStatus?: DaemonServiceLifecycleRecoveryStatus;
@@ -263,36 +270,44 @@ export async function runPendingDaemonServiceUpdate(
   const deps = resolveRunDependencies(overrides, {
     useDefaultLock: Object.keys(overrides).length === 0,
   });
-  const pending = await deps.withReconcileLock(
-    async () => await preparePendingUpdateForSwitch(deps)
-  );
-  if (!pending) {
-    return null;
-  }
-  if (pending.phase === "updated") {
-    return pending;
-  }
-  if (pending.urgency === "available") {
-    try {
-      await deps.waitUntilSafeToSwitch(pending);
-    } catch (waitError) {
-      try {
-        await deps.withReconcileLock(
-          async () =>
-            await recordSafeSwitchWaitFailure(deps, pending, waitError)
-        );
-      } catch (recordError) {
-        throw new AggregateError(
-          [waitError, recordError],
-          "OpenMeld could not safely switch the Service or record the failure."
-        );
-      }
-      throw waitError;
+  while (true) {
+    const pending = await deps.withReconcileLock(
+      async () => await preparePendingUpdateForSwitch(deps)
+    );
+    if (!pending) {
+      return null;
     }
+    if (pending.phase === "updated") {
+      return pending;
+    }
+    if (pending.urgency === "available") {
+      try {
+        await deps.waitUntilSafeToSwitch(pending);
+      } catch (waitError) {
+        try {
+          await deps.withReconcileLock(
+            async () =>
+              await recordSafeSwitchWaitFailure(deps, pending, waitError)
+          );
+        } catch (recordError) {
+          throw new AggregateError(
+            [waitError, recordError],
+            "OpenMeld could not safely switch the Service or record the failure."
+          );
+        }
+        throw waitError;
+      }
+    }
+    const result = await deps.withReconcileLock(
+      async () => await runPreparedPendingUpdate(deps)
+    );
+    if (result?.phase !== "waiting_for_work") {
+      return result;
+    }
+    // An idle switch lost to new work. Release the lifecycle lock before
+    // waiting again; this is not a failed update attempt.
+    await sleep(SAFE_SWITCH_POLL_INTERVAL_MS);
   }
-  return await deps.withReconcileLock(
-    async () => await runPreparedPendingUpdate(deps)
-  );
 }
 
 async function preparePendingUpdateForSwitch(
@@ -327,6 +342,16 @@ async function recordSafeSwitchWaitFailure(
   if (!(current && isSameWaitingUpdate(current, waiting))) {
     return;
   }
+  if (isPreviousHostWorkUnconfirmed(error)) {
+    await deps.completePendingJob(
+      finishJob(current, {
+        errorMessage: `${error.code}: ${toErrorMessage(error)}`,
+        now: deps.now(),
+        phase: "needs_help",
+      })
+    );
+    return;
+  }
   await deps.persistPendingJob({
     ...current,
     errorMessage: toErrorMessage(error),
@@ -359,11 +384,13 @@ async function runPreparedPendingUpdate(
     return pending;
   }
 
+  const onlyIfIdle =
+    pending.urgency === "available" && pending.requestSource === "automatic";
   const running: DaemonServiceUpdateJob = {
     ...pending,
     attempts: pending.attempts + 1,
     errorMessage: null,
-    phase: "updating",
+    phase: onlyIfIdle ? "waiting_for_work" : "updating",
     updatedAt: deps.now(),
   };
   await deps.persistPendingJob(running);
@@ -378,6 +405,20 @@ async function runPreparedPendingUpdate(
       operation: "upgrade_reconcile",
       preparedBundle: running.preparedBundle,
       shouldStartAfterLifecycle: running.desiredState === "background",
+      ...(onlyIfIdle
+        ? {
+            onlyIfIdle: true as const,
+            onPhase: async (phase: DaemonServiceLifecyclePhase) => {
+              if (phase === "wait_stopped") {
+                await deps.persistPendingJob({
+                  ...running,
+                  phase: "updating",
+                  updatedAt: deps.now(),
+                });
+              }
+            },
+          }
+        : {}),
     });
     if (
       lifecycle.status !== "aligned" &&
@@ -405,6 +446,16 @@ async function runPreparedPendingUpdate(
     await deps.completePendingJob(completed);
     return completed;
   } catch (error) {
+    if (error instanceof DaemonServiceUpdateDeferredError && onlyIfIdle) {
+      const waiting: DaemonServiceUpdateJob = {
+        ...pending,
+        phase: "waiting_for_work",
+        errorMessage: null,
+        updatedAt: deps.now(),
+      };
+      await deps.persistPendingJob(waiting);
+      return waiting;
+    }
     const errorMessage = toErrorMessage(error);
     if (running.attempts < MAX_BACKGROUND_UPDATE_ATTEMPTS) {
       const retry: DaemonServiceUpdateJob = {
@@ -576,6 +627,11 @@ export async function waitUntilDaemonServiceSafeSwitch(
         return;
       }
     } catch (error) {
+      if (isPreviousHostWorkUnconfirmed(error)) {
+        // Waiting cannot supply missing execution evidence. Preserve the old
+        // installation and surface this operation's existing recovery outcome.
+        throw error;
+      }
       if (
         error instanceof LocalDaemonControlPlaneClientError &&
         (error.code === "daemon.control.contract_mismatch" ||
@@ -593,7 +649,7 @@ export async function waitUntilDaemonServiceSafeSwitch(
       // Keep this available update pending until the Service supplies the
       // positive readiness fact or the durable job changes.
     }
-    await wait(2000);
+    await wait(SAFE_SWITCH_POLL_INTERVAL_MS);
   }
 }
 
@@ -608,6 +664,15 @@ async function resolveCurrentDaemonDesiredState(): Promise<
   return runtime.status === "running" && runtime.mode === "background"
     ? "background"
     : "stopped";
+}
+
+function isPreviousHostWorkUnconfirmed(
+  error: unknown
+): error is LocalDaemonControlPlaneClientError {
+  return (
+    error instanceof LocalDaemonControlPlaneClientError &&
+    error.code === "host.previous_work_unconfirmed"
+  );
 }
 
 function finishJob(

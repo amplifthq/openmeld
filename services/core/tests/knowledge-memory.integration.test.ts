@@ -28,17 +28,20 @@ describe("automatic memory recall with persisted subject state", () => {
       search: async () => {
         providerStarted();
         await released;
-        return [
-          {
-            text: "Cedar Kite reports use a table.",
-            captureMethod: "explicit_save",
-            source: "ca_dm",
-            occurredAtMs: 1000,
-            sourceConversationId: "synthetic-conversation",
-            sourceMessageId: "synthetic-message",
-            subject: "organization",
-          },
-        ];
+        return {
+          status: "complete",
+          items: [
+            {
+              text: "Cedar Kite reports use a table.",
+              captureMethod: "explicit_save",
+              source: "ca_dm",
+              occurredAtMs: 1000,
+              sourceConversationId: "synthetic-conversation",
+              sourceMessageId: "synthetic-message",
+              subject: "organization",
+            },
+          ],
+        };
       },
     };
     const service = createCenterAgentMemoryService({

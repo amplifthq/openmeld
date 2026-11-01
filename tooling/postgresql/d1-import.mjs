@@ -330,6 +330,8 @@ function newNullableIntegerColumns(table) {
 function nativeColumns(table, targetColumns) {
   const newNullableColumns = {
     plugin_action_requests: ["continuation_json"],
+    // Historical member and Organization subjects have no Space owner (0053).
+    center_agent_memory_subjects: ["space_id"],
     center_agent_connector_action_operations: [
       "linear_issue_receipt_json",
       "github_issue_observation_json",

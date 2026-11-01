@@ -1210,6 +1210,33 @@ additive database constraint and existing rows. Do not lower published mandatory
 version floors; ship a forward corrective release. This audit authorizes no
 production migration, publication, or deployment.
 
+### Local Agent Recovery Reliability Contract Impact Audit
+
+The disconnect-recovery correction changes local Service installation, Claude
+SDK process supervision, Codex RPC failure handling, and Claude reply-review tool scope.
+It reuses the current Host receipt and delivery-only contracts. Authenticated
+local control adds `shutdown_if_idle`, backed by the Host's conditional
+`beginDrain` input. Ordinary automatic updates must not fall back when an old
+Service rejects the distinct command. Manual updates retain their existing graceful path. No cloud Runtime
+Transport, Wake, result receipt, Prepare or user CLI JSON output changes. Old and
+new cloud/local components can still perform setup, Wake, Space actions and
+diagnostics. Ordinary updates preserve workspaces in place, and a timed-out
+controlled stop cannot authorize automatic termination. Existing incomplete
+process receipts remain fenced; the change does not replay unknown work.
+
+Permission audit details require additive PostgreSQL migration 0052 before the
+new Core writer. Audit readers opt in with `responseVersion=2`; requests without
+it retain the strict legacy response shape. New readers accept omitted details
+from old receivers. Deploy the migration, Core, Gateway, then Web/packaged Desktop
+for this feature. Rollback retains the nullable column. Desktop authentication
+notifications require a Desktop release; a Web deployment does not install them.
+
+The candidate is version 0.3.282 with explicit `available` decisions for CLI and
+Service in `release/local-components-policy.json`. It does not require a contract
+floor increase. Publish the updated CLI/update worker with the Service. Do not force an old
+updater through a live Wake to deliver this fix. This implementation does not
+authorize a production migration, release, or production smoke.
+
 ### Trusted Delegation Contract Impact Audit
 
 The Local task permission correction also adds an optional Core-owned requester

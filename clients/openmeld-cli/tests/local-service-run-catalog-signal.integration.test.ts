@@ -2322,6 +2322,109 @@ describe("local service run catalog signal", () => {
   });
 
   it.each([
+    "control",
+    "result",
+  ])("defers an idle switch when %s arrives after the idle observation", async (work) => {
+    await withTempHome(async () => {
+      const input = buildKeepaliveSessionInput(createMockSocket(), []);
+      const ledgerPaths = createLedgerPaths();
+      const host = await createInProcessExecutionHost({
+        stateRoot: ledgerPaths.rootDirPath,
+        daemonSessionId: input.daemonSessionId,
+        deviceId: input.deviceId,
+        ownerUserId: input.ownerUserId,
+        profileOwnerName: input.profileOwnerName,
+        presenter: input.presenter,
+        resources: {
+          ...input,
+          ledgerPaths,
+          initialCatalog: input.routeCatalogState,
+        },
+      });
+      const report = Promise.withResolvers<{
+        failedCount: number;
+        reasonCodes: string[];
+        reportCount: number;
+        status: "submitted";
+        submittedCount: number;
+      }>();
+      const registration = vi
+        .spyOn(agentRegistry, "setAgentRegistrationEnabled")
+        .mockResolvedValue({
+          agentControllerRef: "builtin:codex",
+          agentId: "codex",
+          changed: true,
+          displayName: "Codex",
+          enabled: true,
+          status: "updated",
+        });
+      let mutation: Promise<unknown> | undefined;
+      try {
+        expect(await host.port.call("health", {})).toMatchObject({
+          localQuiescent: true,
+          admission: "open",
+        });
+        if (work === "control") {
+          syncLocalServiceRuntimeAgentControllerReportsMock.mockReturnValueOnce(
+            report.promise
+          );
+          mutation = host.port.call("setEnabled", {
+            agentId: "codex",
+            enabled: true,
+          });
+          await flushMicrotasks(() => registration.mock.calls.length > 0);
+        } else {
+          enqueuePendingResult({
+            currentSocketRef: { connectionGeneration: null, socket: null },
+            ledgerPaths,
+          });
+        }
+        expect(
+          await host.port.call("beginDrain", { onlyIfIdle: true })
+        ).toMatchObject({ admission: "open" });
+        report.resolve({
+          failedCount: 0,
+          reasonCodes: [],
+          reportCount: 1,
+          status: "submitted",
+          submittedCount: 1,
+        });
+        await mutation;
+        if (work === "result") {
+          acknowledgeDispatchResultOutboxRecord({
+            attemptId: "attempt-drain-1",
+            dispatchId: "dispatch-drain-1",
+            ledgerPaths,
+            ok: true,
+            presenter: input.presenter,
+          });
+        }
+        expect(
+          await host.port.call("beginDrain", { onlyIfIdle: true })
+        ).toMatchObject({
+          admission: "draining",
+          localQuiescent: true,
+          unacknowledgedResultCount: 0,
+        });
+        await expect(
+          host.port.call("setEnabled", { agentId: "codex", enabled: true })
+        ).rejects.toMatchObject({ code: "host.draining" });
+      } finally {
+        report.resolve({
+          failedCount: 0,
+          reasonCodes: [],
+          reportCount: 1,
+          status: "submitted",
+          submittedCount: 1,
+        });
+        await mutation;
+        registration.mockRestore();
+        await host.close();
+      }
+    });
+  });
+
+  it.each([
     "success",
     "failure",
   ])("collects new evidence after a control mutation when an earlier fresh report ends in %s", async (outcome) => {

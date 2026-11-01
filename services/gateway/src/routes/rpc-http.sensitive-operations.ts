@@ -8,6 +8,7 @@ import {
   listSensitiveOperationAuditResponseSchema,
   MEMBER_AGENT_SENSITIVE_OPERATION_AUDIT_ROUTE,
   memberAgentSensitiveOperationAuditRouteParamsSchema,
+  sensitiveOperationAuditQuerySchema,
 } from "@openmeld/schemas";
 import type { Context, Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
@@ -95,11 +96,14 @@ export function registerSensitiveOperationRoutes(
   });
 
   app.get(MEMBER_AGENT_SENSITIVE_OPERATION_AUDIT_ROUTE, noStore(), (c) => {
+    const query = sensitiveOperationAuditQuerySchema.safeParse({
+      responseVersion: c.req.query("responseVersion"),
+    });
     const params =
       memberAgentSensitiveOperationAuditRouteParamsSchema.safeParse({
         memberAgentId: c.req.param("memberAgentId"),
       });
-    if (!params.success) {
+    if (!(params.success && query.success)) {
       return respondBadRequest({
         c,
         route: MEMBER_AGENT_SENSITIVE_OPERATION_AUDIT_ROUTE,
@@ -117,6 +121,9 @@ export function registerSensitiveOperationRoutes(
         c.var.coreRpc.listMemberAgentSensitiveOperationAudit({
           context: buildCoreRpcContext(c),
           memberAgentId: params.data.memberAgentId,
+          ...(query.data.responseVersion === 2
+            ? { responseVersion: 2 as const }
+            : {}),
         }),
     });
   });

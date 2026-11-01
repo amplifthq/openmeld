@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildCenterAgentMemberMemoryRef,
   buildCenterAgentOrganizationMemoryRef,
+  buildCenterAgentSpaceMemoryRef,
   CENTER_AGENT_MEMORY_SEARCH_QUERY_MAX_CHARS,
   type CenterAgentMemoryAdapter,
   type CenterAgentMemoryNativeDeliveryLedger,
@@ -18,11 +19,12 @@ import { createCenterAgentMemoryService } from "../src/center-agent-memory/memor
 
 describe("Center Agent memory service", () => {
   it.each([
-    40, 1200,
+    40, 320,
   ])("keeps both scopes in the final envelope with %i-character candidates", async (size) => {
     const adapter = createAdapter({
-      search: vi.fn(async ({ ref }) =>
-        Array.from({ length: 6 }, (_, rank) => ({
+      search: vi.fn(async ({ ref }) => ({
+        status: "complete" as const,
+        items: Array.from({ length: 6 }, (_, rank) => ({
           captureMethod: "automatic_turn" as const,
           occurredAtMs: 900,
           source: "space_conversation" as const,
@@ -30,8 +32,8 @@ describe("Center Agent memory service", () => {
           sourceMessageId: `message_${rank}`,
           subject: ref.subject.kind,
           text: `${ref.subject.kind === "member" ? "I plan to investigate" : "Approved team rule"} ${rank}: ${"x".repeat(size)}`,
-        }))
-      ),
+        })),
+      })),
     });
     const repository = createRepository({ organizationMemoryOptIn: true });
     const service = createCenterAgentMemoryService({ adapter, repository });
@@ -60,17 +62,20 @@ describe("Center Agent memory service", () => {
     const adapter = createAdapter({
       search: vi.fn(async ({ ref }) => {
         await pending;
-        return [
-          {
-            captureMethod: "explicit_save" as const,
-            occurredAtMs: 900,
-            source: "space_conversation" as const,
-            sourceConversationId: "space_1",
-            sourceMessageId: "message_1",
-            subject: ref.subject.kind,
-            text: "Team rule",
-          },
-        ];
+        return {
+          status: "complete" as const,
+          items: [
+            {
+              captureMethod: "explicit_save" as const,
+              occurredAtMs: 900,
+              source: "space_conversation" as const,
+              sourceConversationId: "space_1",
+              sourceMessageId: "message_1",
+              subject: ref.subject.kind,
+              text: "Team rule",
+            },
+          ],
+        };
       }),
     });
     const service = createCenterAgentMemoryService({ adapter, repository });
@@ -495,17 +500,20 @@ describe("Center Agent memory service", () => {
       const adapter = createAdapter({
         search: vi.fn(async (input) => {
           await new Promise((resolve) => setTimeout(resolve, 1600));
-          return [
-            {
-              captureMethod: "automatic_turn" as const,
-              occurredAtMs: 900,
-              source: "ca_dm" as const,
-              sourceConversationId: "dm_1",
-              sourceMessageId: "message_1",
-              subject: input.ref.subject.kind,
-              text: "The member's private launch color is indigo-47.",
-            },
-          ];
+          return {
+            status: "complete" as const,
+            items: [
+              {
+                captureMethod: "automatic_turn" as const,
+                occurredAtMs: 900,
+                source: "ca_dm" as const,
+                sourceConversationId: "dm_1",
+                sourceMessageId: "message_1",
+                subject: input.ref.subject.kind,
+                text: "The member's private launch color is indigo-47.",
+              },
+            ],
+          };
         }),
       });
       const service = createCenterAgentMemoryService({
@@ -532,22 +540,34 @@ describe("Center Agent memory service", () => {
     }
   });
 
-  it("projects oversized memory items into worker-valid turn envelopes", async () => {
+  it("omits oversized facts whole and keeps a later complete fact in a worker-valid envelope", async () => {
     const oversizedMemoryText = "x".repeat(
       REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS + 200
     );
     const adapter = createAdapter({
-      search: vi.fn(async (input) => [
-        {
-          captureMethod: "automatic_turn" as const,
-          occurredAtMs: 900,
-          source: "ca_dm" as const,
-          sourceConversationId: "dm_1",
-          sourceMessageId: "message_1",
-          subject: input.ref.subject.kind,
-          text: oversizedMemoryText,
-        },
-      ]),
+      search: vi.fn(async (input) => ({
+        status: "complete" as const,
+        items: [
+          {
+            captureMethod: "automatic_turn" as const,
+            occurredAtMs: 900,
+            source: "ca_dm" as const,
+            sourceConversationId: "dm_1",
+            sourceMessageId: "message_1",
+            subject: input.ref.subject.kind,
+            text: oversizedMemoryText,
+          },
+          {
+            captureMethod: "automatic_turn" as const,
+            occurredAtMs: 900,
+            source: "ca_dm" as const,
+            sourceConversationId: "dm_1",
+            sourceMessageId: "message_2",
+            subject: input.ref.subject.kind,
+            text: "Build only after an explicit request; never merge your own PR.",
+          },
+        ],
+      })),
     });
     const service = createCenterAgentMemoryService({
       adapter,
@@ -559,10 +579,14 @@ describe("Center Agent memory service", () => {
 
     expect(memory.truncated).toBe(true);
     expect(memory.items).toHaveLength(1);
-    expect(memory.items[0]?.text).toHaveLength(
-      REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS
+    expect(
+      memory.items[0]?.text.endsWith(
+        "Build only after an explicit request; never merge your own PR."
+      )
+    ).toBe(true);
+    expect(memory.items[0]?.text).not.toContain(
+      oversizedMemoryText.slice(0, 20)
     );
-    expect(memory.items[0]?.text.endsWith("...")).toBe(true);
     expect(() =>
       remoteAgentWorkerSubmitTurnRequestSchema.parse(
         createWorkerSubmitRequest(memory)
@@ -573,18 +597,21 @@ describe("Center Agent memory service", () => {
   it("projects Message Channel memory with its exact provider", async () => {
     const service = createCenterAgentMemoryService({
       adapter: createAdapter({
-        search: vi.fn(async (input) => [
-          {
-            captureMethod: "automatic_turn" as const,
-            messageChannelProvider: "lark" as const,
-            occurredAtMs: 900,
-            source: "message_channel_conversation" as const,
-            sourceConversationId: "lark:connection_1:chat_1:message_1",
-            sourceMessageId: "message_1",
-            subject: input.ref.subject.kind,
-            text: `${input.ref.subject.kind} memory`,
-          },
-        ]),
+        search: vi.fn(async (input) => ({
+          status: "complete" as const,
+          items: [
+            {
+              captureMethod: "automatic_turn" as const,
+              messageChannelProvider: "lark" as const,
+              occurredAtMs: 900,
+              source: "message_channel_conversation" as const,
+              sourceConversationId: "lark:connection_1:chat_1:message_1",
+              sourceMessageId: "message_1",
+              subject: input.ref.subject.kind,
+              text: `${input.ref.subject.kind} memory`,
+            },
+          ],
+        })),
       }),
       nowMs: () => 1000,
       repository: createRepository({ organizationMemoryOptIn: false }),
@@ -611,17 +638,20 @@ describe("Center Agent memory service", () => {
   it("fails closed when Message Channel memory has no provider", async () => {
     const service = createCenterAgentMemoryService({
       adapter: createAdapter({
-        search: vi.fn(async (input) => [
-          {
-            captureMethod: "automatic_turn" as const,
-            occurredAtMs: 900,
-            source: "message_channel_conversation" as const,
-            sourceConversationId: "lark:connection_1:chat_1:message_1",
-            sourceMessageId: "message_1",
-            subject: input.ref.subject.kind,
-            text: `${input.ref.subject.kind} memory`,
-          },
-        ]),
+        search: vi.fn(async (input) => ({
+          status: "complete" as const,
+          items: [
+            {
+              captureMethod: "automatic_turn" as const,
+              occurredAtMs: 900,
+              source: "message_channel_conversation" as const,
+              sourceConversationId: "lark:connection_1:chat_1:message_1",
+              sourceMessageId: "message_1",
+              subject: input.ref.subject.kind,
+              text: `${input.ref.subject.kind} memory`,
+            },
+          ],
+        })),
       }),
       nowMs: () => 1000,
       repository: createRepository({ organizationMemoryOptIn: false }),
@@ -635,17 +665,20 @@ describe("Center Agent memory service", () => {
   it("tells the model when a fact was explicitly saved without replacing its source", async () => {
     const service = createCenterAgentMemoryService({
       adapter: createAdapter({
-        search: vi.fn(async (input) => [
-          {
-            captureMethod: "explicit_save" as const,
-            occurredAtMs: 900,
-            source: "space_conversation" as const,
-            sourceConversationId: "space_1",
-            sourceMessageId: "message_1",
-            subject: input.ref.subject.kind,
-            text: "The launch owner is Maya.",
-          },
-        ]),
+        search: vi.fn(async (input) => ({
+          status: "complete" as const,
+          items: [
+            {
+              captureMethod: "explicit_save" as const,
+              occurredAtMs: 900,
+              source: "space_conversation" as const,
+              sourceConversationId: "space_1",
+              sourceMessageId: "message_1",
+              subject: input.ref.subject.kind,
+              text: "The launch owner is Maya.",
+            },
+          ],
+        })),
       }),
       nowMs: () => 1000,
       repository: createRepository({ organizationMemoryOptIn: false }),
@@ -675,17 +708,20 @@ function createAdapter(
     deleteOrganizationGraph: vi.fn(async () => "deleted" as const),
     ensureMemberUser: vi.fn(async () => undefined),
     ensureOrganizationGraph: vi.fn(async () => undefined),
-    search: vi.fn(async (input) => [
-      {
-        captureMethod: "automatic_turn" as const,
-        occurredAtMs: 900,
-        source: "ca_dm" as const,
-        sourceConversationId: "dm_1",
-        sourceMessageId: "message_1",
-        subject: input.ref.subject.kind,
-        text: `${input.ref.subject.kind} memory`,
-      },
-    ]),
+    search: vi.fn(async (input) => ({
+      status: "complete" as const,
+      items: [
+        {
+          captureMethod: "automatic_turn" as const,
+          occurredAtMs: 900,
+          source: "ca_dm" as const,
+          sourceConversationId: "dm_1",
+          sourceMessageId: "message_1",
+          subject: input.ref.subject.kind,
+          text: `${input.ref.subject.kind} memory`,
+        },
+      ],
+    })),
     ...overrides,
   };
 }
@@ -701,6 +737,13 @@ function createRepository(input: {
   organizationMemoryOptIn: boolean;
 }): CenterAgentMemoryRepository {
   return {
+    upsertSpaceSubject: vi.fn(async (value) =>
+      buildCenterAgentSpaceMemoryRef(value)
+    ),
+    beginSpaceDeletion: vi.fn(async () => undefined),
+    isSpaceSubjectActive: vi.fn(async () => false),
+    markSpaceDeleted: vi.fn(async () => false),
+    markSpaceDeleteFailed: vi.fn(async () => undefined),
     readActiveSubjects: vi.fn(async (readInput) => [
       ...(readInput.speakerMember
         ? [

@@ -2295,12 +2295,18 @@ class CodexAppServerSession {
         pending.timeout.unref?.();
       }
     }
-    this.#write({
-      id,
-      jsonrpc: "2.0",
-      method,
-      params,
-    });
+    try {
+      this.#write({
+        id,
+        jsonrpc: "2.0",
+        method,
+        params,
+      });
+    } catch (error) {
+      // Settle through the registered request even when writing throws
+      // synchronously. Throwing here would orphan its rejected promise.
+      this.#failAll(error);
+    }
     return await requestPromise;
   }
 

@@ -12,7 +12,7 @@ import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences"
 import { CenterAgentDirectMessageIntro } from "#/components/spaces/center-agent-direct-message-intro";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import type { SpaceTaskDraft } from "#/components/spaces/space-task-draft-fields";
-import type { SpaceView } from "#/components/spaces/space-view";
+import type { CenterAgentSpaceView } from "#/components/spaces/space-view";
 import {
 	ComposerFileDiscoveryError,
 	useSpaceComposerFiles,
@@ -64,7 +64,7 @@ export function CenterAgentNewChat({
 	view = "messages",
 }: {
 	group?: string;
-	view?: SpaceView;
+	view?: CenterAgentSpaceView;
 }) {
 	const { currentOrganization: organization } = useAppOrganization();
 	const { storageScope } = useStartFlowState();

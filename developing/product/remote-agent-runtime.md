@@ -2463,10 +2463,20 @@ Space, or a Routine whose frozen destination is an OpenMeld Space, Core reads
 `SpaceMeta.guide` from the owning Space Durable Object immediately before every
 native-delivery submission. A non-empty guide is attached as
 `turnEnvelope.space.guide`; an empty guide is omitted. The Remote Agent renders
-that value in the turn message, while the approved Organization Brief remains a
+that value as a content-versioned admission snapshot in the turn message. The
+Center Agent can read the current owning Guide through its scoped native tool;
+an empty result does not stand in for a failed read. The approved Organization Brief remains a
 separate organization-level system-prompt input. Center Agent DMs, Slack turns,
 and Slack-destination Routines do not read or carry a Space guide. Neither Core
 nor the Remote Agent caches this projection between turns.
+Brief context and explicit document reads also identify the returned current
+content by document ID and version. Drafts are not valid current Brief sources.
+Retained memory remains labeled historical instead of becoming a current rule
+through repetition in a summary.
+Source-reference opt-in negotiates the freshly authorized legacy prompt
+projection only when an older Core rejects that new request shape. This keeps
+current Brief and information-protection hints during the receiver-first Guide
+limit rollout; permission failures and invalid responses do not downgrade.
 
 Every hosted Center Agent materialization also renders the shared built-in
 information-protection guidance in its system prompt. Core may attach the
@@ -2818,6 +2828,14 @@ still carry all ten canonical Space File references. This is deliberately not
 one 4 MiB turn budget divided by image count: adding screenshots must not make
 each screenshot unreadable. Only the bounded textual observations survive the
 auxiliary calls.
+
+Image preparation runs before claiming a new primary-model submission or
+initializing its callback/execution context. Cloudflare Images error 9422 is a
+deterministic preparation rejection (`remote_agent.image_transform_quota_exceeded`).
+Core publishes the quota failure immediately and acknowledges the delivery;
+it does not retry it until the admission watchdog expires. Restoring image
+processing capacity requires a new user request. An already claimed or
+acknowledged submission retains its existing execution/recovery semantics.
 
 The registered provider route measures the complete serialized provider input
 after tools, routing, affinity, history, and current-turn context are composed.
@@ -3331,8 +3349,9 @@ surface adopts official features where they are free**:
   obligations; assignment, start, submission, review, and cancellation remain
   distinct. GitHub issues created from that shared Space record a linked Task
   with mutual references when the Task list can confirm the association;
-  closing the issue through GitHub tools closes
-  still-active linked Tasks, while completing a Task prompts the Agent to close
+  closing the issue through GitHub tools updates only its provider observation.
+  Task completion and cancellation require the Task's own workflow and stated
+  conditions. Completing a Task prompts the Agent to close
   still-open linked issues instead of silently writing GitHub. Task review
   handoffs use the existing Space Wake path and stop after
   two automatic rework rounds for a human decision. This Task surface does not
@@ -3983,6 +4002,40 @@ configured Flue capability:
 | ---------- | -------------------- | -------- | ------ | ---- | ------------- |
 
 ### Conversation Identity And Result Surface
+
+For verified interactive Space work, the model-facing direct and Code Mode
+catalogs share the same Space-owned work-target check. Each Human input selects
+or inherits its current goal and destinations before repository operations.
+Explicit corrections and independent requests are separate choices. A saved
+source-to-goal receipt fences callbacks from later defaults in the same Thread;
+the default index is scoped by author. An explicitly named earlier source is a
+context reference, never another requester or permission grant. Actual Space Task
+handoffs resolve at the Task owner; execution `taskId` attribution stays unchanged.
+GitHub search qualifiers are provider syntax, not task classification; global or
+ambiguous searches require an explicit bounded repository query. Native Plugin
+Git connections and publication of an existing checkout check the same target.
+Arbitrary Computer command text is not parsed as an alternative target authority.
+An approved Plugin continuation replays its original immutable operation through
+the normal action owner, independently of a new model-selected target.
+Personal Agents, Routines, and external Message Channels keep their current paths.
+
+Work-target refresh uses Flue's delivered-input start hook, after canonical input
+application and before the first model call. It does not perform a fallible Core
+read while the Agent function is being initialized. If that read fails, execution
+still fails closed, but the original Human input remains in canonical history for
+the next continuation. Each repository operation independently rechecks Space;
+the start-hook Signal is context, not another goal or execution owner.
+
+Contract impact: the new Core/Space work-target receiver and schemas are additive;
+no existing request, public read projection, or workstation contract changes.
+Deploy Core before Remote Agent; old Remote Agent does not call the receiver,
+while new Remote Agent fails closed against an older Core. Rolling Remote Agent
+back leaves the Space record retained. CLI/Service 0.3.279 package the added
+schemas as available updates without a minimum-version change. Existing CLI,
+Service, Skills, Gateway, and Web continue setup, Wake, Space actions, and
+diagnostics through their existing contracts. Desktop has no new payload or
+renderer dependency. The SQLite addition is local to each Space; no PostgreSQL
+migration or Cloudflare binding is added.
 
 Ordinary Space Center Agent requests use
 `center-space:{spaceId}:root:{rootSignalId}` as their logical conversation.
@@ -4677,11 +4730,15 @@ contract in Core, with Zep Cloud behind a provider adapter:
 
 - Core recalls the current member's organization-scoped member memory for a
   turn. When organization memory is enabled, it may also recall the shared
-  organization subject.
+  organization subject. In an authorized ordinary Space it may additionally
+  recall that Space's isolated subject. That context must not be treated as
+  Organization-wide knowledge.
 - Completed requester-private Center Agent turns write only the verified
   member's memory across OpenMeld, Slack, Lark, and Feishu DMs. Completed shared
-  Space and Organization-shared Channel turns may write Organization memory
-  while it is enabled. Externally shared Channels write neither automatically.
+  Space turns capture the owning source message into that Space's memory while
+  the Organization policy is enabled. The generated reply is not reattributed
+  to the human. Organization-shared Channels still require explicit saves;
+  externally shared Channels write neither automatically.
 - Core reads automatic-write scope from the completed delivery's frozen
   `interactionEnvironment`, revalidates its verified sender against current
   Organization membership, and fails closed when those facts are missing,
@@ -4692,6 +4749,11 @@ contract in Core, with Zep Cloud behind a provider adapter:
   the call only while organization memory is enabled; it rejects stale or
   forged calls from requester-private and externally shared environments even
   if an old or compromised worker attempts the RPC.
+- An explicit OpenMeld save supplies a message evidence reference and its complete
+  message text. Core reopens the current source, checks its version and text, and
+  retains its author and version time. A recalled or changed message returns a
+  conflict; the worker must read the source again. Memory is still historical
+  reference data, not an adopted rule or action authority.
 - Core projects bounded memory items into the shared turn envelope before
   worker submission. The worker and Flue session must not query Zep, infer the
   enabled state, or create a parallel memory policy.

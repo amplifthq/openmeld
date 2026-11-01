@@ -6114,7 +6114,7 @@ describe("OpenMeld Core", () => {
     expect(payload.error?.code).toBe("invalid_create_payload");
     expect(payload.error?.message).toContain("Invalid guide");
   });
-  it("rejects Space guide updates longer than 4,000 characters", async () => {
+  it("rejects Space guide updates longer than 100,000 characters", async () => {
     const spaceId = await createSpace({ name: "guide-limit" });
     const response = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/meta`,
@@ -6124,7 +6124,7 @@ describe("OpenMeld Core", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          guide: "g".repeat(4001),
+          guide: "g".repeat(100_001),
         }),
       }
     );

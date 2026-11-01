@@ -6304,6 +6304,15 @@ request-backed card for context and decision history. Approving or declining
 invalidates the pending projection. Main messages that have a reply Thread stay
 in the main tray; only actual Thread replies belong to that Thread's tray.
 
+Issue-creation cards opt into recipient-only original-content previews. They
+show the frozen account, verified destination names with exact IDs, and the
+saved title and description as inert, wrapping text inside the shared scroll
+area. Missing names or old requests without retained content are explicit;
+the UI never reconstructs content from the conversation. Approval is still a
+permission decision, not proof of an issue or a running execution. Recoverable
+issue continuations show a short approval acknowledgement; the private binding
+and original operation remain responsible for execution.
+
 Agent access requests in a Space use two presentations of one Core request
 state. For the Agent owner, a pending request appears at the end of the
 conversation as a request preview: it reads like a message from the requested
@@ -6316,7 +6325,9 @@ requester and leaves the request pending. The preview uses the Agent message
 avatar and the message bubble radius with a dashed border. A one-line Agent
 requests bar above the Composer repeats the summary and the same actions; while the latest messages are shown, its text
 scrolls to the preview. The requester
-sees only the bar, with `Withdraw` while the request is pending. Composer trays
+sees only the bar, with `Withdraw` while the request is pending. A completed
+Space join request does not override the sidebar's latest-message preview;
+its outcome remains available in the request details. Composer trays
 stack top to bottom as Agent requests, pending Agent actions, then queued
 messages, each tucked under the next with the same inset, and an answer from
 either presentation disables both.

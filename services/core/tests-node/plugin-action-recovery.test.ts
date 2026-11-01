@@ -1,3 +1,4 @@
+import { projectPluginActionRequestView } from "@openmeld/schemas";
 import type { CenterAgentRecordConnectorActionOperationBody } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -5,6 +6,7 @@ import {
   expirePluginActionRecoveryInputs,
   readApprovedPluginAction,
   retryApprovedPluginActionRequests,
+  rpcPluginActionRequest,
 } from "../src/connectors/plugin-action-requests";
 import type { CoreBindings } from "../src/lib/bindings";
 import { prepareProjectIssueActionAdmission } from "../src/projects/project-issue-action-admission";
@@ -202,6 +204,107 @@ async function approve(id: string) {
 }
 
 describe("Private approved action recovery", () => {
+  it("shows original issue content only in opted-in recipient detail, without broad input or Inbox disclosure", async () => {
+    const { row, input } = await pending();
+    // Vendor contract: oomol-lab/open-connector @9da975b, Linear run_query
+    // returns { data: GraphQL data }; team fields come from Linear's Team type.
+    const runtime = vi.fn().mockResolvedValue({
+      status: "completed",
+      data: { data: { team: { id: "team-1", name: "Product engineering" } } },
+      outputSchema: {},
+      providerExecutionId: "preview-read",
+    });
+    env.OPENMELD_REMOTE_AGENT_WORKER = { pluginRuntime: runtime } as never;
+    const read = {
+      expectedOrganizationId: "org-1",
+      context: {
+        activeOrganizationId: "org-1",
+        actorContext: {
+          requestId: "preview-read",
+          profileKind: "human" as const,
+          openMeldProfileId: "00000000-0000-4000-8000-000000000002",
+          callerPrincipalId: "user-1",
+        },
+      },
+      command: { operation: "read" as const, requestId: row.id },
+    };
+    const legacy = await rpcPluginActionRequest(env, read);
+    expect(legacy).not.toHaveProperty("issuePreview");
+    expect(runtime).not.toHaveBeenCalled();
+    const detail = await rpcPluginActionRequest(env, {
+      ...read,
+      includeIssuePreview: true,
+    });
+    expect(detail.issuePreview).toEqual({
+      title: input.title,
+      description: input.description,
+      targets: [{ label: "Team", id: "team-1", name: "Product engineering" }],
+      additionalFieldCount: 0,
+    });
+    expect(runtime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionName: connection.connectionName,
+        actionId: "linear.run_query",
+        authorizedEffect: "read",
+      })
+    );
+    expect(projectPluginActionRequestView(detail, true)).not.toHaveProperty(
+      "issuePreview"
+    );
+    expect(
+      projectPluginActionRequestView(detail, true, true).issuePreview
+    ).toEqual(detail.issuePreview);
+    const agent = await rpcPluginActionRequest(env, {
+      ...read,
+      includeIssuePreview: true,
+      context: {
+        ...read.context,
+        actorContext: { ...read.context.actorContext, profileKind: "agent" },
+      },
+    });
+    expect(agent).not.toHaveProperty("issuePreview");
+    const inbox = await harness.query<{ preview: string }>({
+      text: "SELECT preview FROM openmeld.inbox_items WHERE recipient_user_id='user-1'",
+      values: [],
+    });
+    expect(JSON.stringify(inbox.rows)).not.toContain(input.title);
+    expect(JSON.stringify(inbox.rows)).not.toContain(input.description);
+  });
+
+  it("withholds issue content if account access changes during the provider read", async () => {
+    const { row } = await pending();
+    env.OPENMELD_REMOTE_AGENT_WORKER = {
+      pluginRuntime: async () => {
+        await harness.query({
+          text: "UPDATE openmeld.connector_connections SET access_revision=2 WHERE connection_name=$1",
+          values: [connection.connectionName],
+        });
+        return {
+          status: "completed",
+          data: { data: { team: { id: "team-1", name: "Product" } } },
+          outputSchema: {},
+          providerExecutionId: "read",
+        };
+      },
+    } as never;
+    const detail = await rpcPluginActionRequest(env, {
+      expectedOrganizationId: "org-1",
+      includeIssuePreview: true,
+      context: {
+        activeOrganizationId: "org-1",
+        actorContext: {
+          requestId: "preview-revocation",
+          profileKind: "human",
+          callerPrincipalId: "user-1",
+          openMeldProfileId: "00000000-0000-4000-8000-000000000002",
+        },
+      },
+      command: { operation: "read", requestId: row.id },
+    });
+    expect(detail.state).toBe("revoked");
+    expect(detail).not.toHaveProperty("issuePreview");
+  });
+
   it("keeps recovery pending until a compatible executor is available and sends one continuation", async () => {
     const { row } = await pending();
     await approve(row.id);

@@ -115,6 +115,17 @@ startup. Reading a missing background preference defaults to off; unreadable
 preferences show a problem, and startup keeps the window visible.
 
 The hidden window still loads the shared application for native notifications.
+
+The existing native notification refresh may check a disconnected local Computer
+for a confirmed Service authentication failure, at most once per minute with one
+check in flight. It uses the public CLI connection review and status, verifies
+the signed-in account before and after the read, and never infers authentication
+failure from a missing cloud heartbeat. Respect notification preferences and
+notify once per incident; a confirmed reconnection rearms the notice. Activation
+opens the existing Computer connection flow without changing credentials or
+starting maintenance. Healthy Computers require no extra local probe. This
+notification requires Desktop to be running and OS notifications to be available.
+
 This page explains that closing keeps notifications available and quitting stops
 desktop notifications, while Service and accepted local work remain independent.
 Global shortcuts and Service lifecycle controls remain separate. The Desktop

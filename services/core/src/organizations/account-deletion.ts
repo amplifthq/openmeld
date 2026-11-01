@@ -236,8 +236,9 @@ export async function cleanupDeletedAccount(
         organization_id: string;
         subject_kind: string;
         member_user_id: string;
+        space_id: string | null;
       }>({
-        text: `SELECT organization_id, subject_kind, member_user_id FROM "openmeld"."center_agent_memory_subjects" WHERE status <> 'deleted' AND (member_user_id = $1 OR organization_id = ANY($2::text[]))`,
+        text: `SELECT organization_id, subject_kind, member_user_id, space_id FROM "openmeld"."center_agent_memory_subjects" WHERE status <> 'deleted' AND (member_user_id = $1 OR organization_id = ANY($2::text[]))`,
         values: [input.userId, plan.deleteOrganizationIds],
       })
     ).rows;
@@ -249,6 +250,11 @@ export async function cleanupDeletedAccount(
       if (subject.subject_kind === "organization") {
         await memory.deleteOrganizationMemory({
           organizationId: subject.organization_id,
+        });
+      } else if (subject.subject_kind === "space" && subject.space_id) {
+        await memory.deleteSpaceMemory({
+          organizationId: subject.organization_id,
+          spaceId: subject.space_id,
         });
       } else {
         await memory.deleteMemberMemory({

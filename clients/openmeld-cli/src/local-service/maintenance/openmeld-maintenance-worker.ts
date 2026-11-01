@@ -141,6 +141,7 @@ async function reconcileCurrentServiceStartupPolicy(
     await scheduleDaemonServiceUpdate({
       targetVersion: contract.daemonVersion,
       urgency: "available",
+      requestSource: "automatic",
     });
   }
 }

@@ -1,6 +1,5 @@
 import {
 	ApprovalCard,
-	ApprovalCardBody,
 	ApprovalCardFooter,
 	ApprovalCardHeader,
 } from "@openmeld/ui/components/approval-card";
@@ -14,6 +13,7 @@ import {
 	ApprovalRequestOutcome,
 	ApprovalRequestUnavailable,
 } from "./approval-request-states";
+import { PluginActionRequestDetails } from "./plugin-action-request-details";
 
 const STATE_COPY = {
 	approved:
@@ -25,11 +25,10 @@ const STATE_COPY = {
 	revoked:
 		"This account or its permissions changed. Review the connection in Plugins before requesting another action.",
 } as const;
-const EFFECT_COPY = {
-	destructive: "Deletes or irreversibly changes data",
-	write: "Creates or changes data",
-	unspecified: "May change data",
-} as const;
+const ISSUE_PROVIDERS: Readonly<Record<string, string>> = {
+	"linear.create_linear_issue": "Linear",
+	"github.create_issue": "GitHub",
+};
 
 export function PluginActionRequest({
 	requestId,
@@ -41,6 +40,7 @@ export function PluginActionRequest({
 	const { query, mutation } = usePluginActionRequest(requestId);
 	const [error, setError] = useState<string | null>(null);
 	const request = query.data;
+	const issueProvider = ISSUE_PROVIDERS[request?.actionId ?? ""] ?? null;
 	const disabled = mutation.isPending || query.isRefetchError;
 	async function respond(operation: "approve" | "reject") {
 		setError(null);
@@ -74,55 +74,22 @@ export function PluginActionRequest({
 			}
 		>
 			<ApprovalCardHeader
-				description="Review the account and action before continuing."
+				description={
+					issueProvider
+						? "Review the destination and issue before continuing."
+						: "Review the account and action before continuing."
+				}
 				icon={<ShieldCheckIcon />}
-				title="Confirm a Plugin action"
+				title={
+					issueProvider
+						? `Create ${issueProvider} issue`
+						: "Confirm a Plugin action"
+				}
 			/>
-			<ApprovalCardBody>
-				<dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
-					<div>
-						<dt className="text-muted-foreground">Plugin</dt>
-						<dd className="break-words">{request.service}</dd>
-					</div>
-					<div>
-						<dt className="text-muted-foreground">Account</dt>
-						<dd className="break-words">
-							{request.accountName} ·{" "}
-							{request.accountScope === "shared" ? "Shared" : "Personal"}
-						</dd>
-					</div>
-					<div>
-						<dt className="text-muted-foreground">Action</dt>
-						<dd className="break-all">{request.actionId}</dd>
-					</div>
-					<div>
-						<dt className="text-muted-foreground">Effect</dt>
-						<dd>{EFFECT_COPY[request.effect]}</dd>
-					</div>
-					{request.targets.map((target) => (
-						<div key={target.label}>
-							<dt className="text-muted-foreground">{target.label}</dt>
-							<dd className="break-all">{target.value}</dd>
-						</div>
-					))}
-				</dl>
-				<p className="text-muted-foreground text-xs">
-					This approval applies to the exact account and submitted input.
-					{request.inputFieldCount > request.targets.length
-						? " Some input is not shown. This summary does not verify omitted content."
-						: " Review the details before approving."}
-				</p>
-				{request.state === "pending" ? (
-					<p className="text-muted-foreground text-sm">
-						Only your signed-in account can approve this request. It expires at{" "}
-						{new Date(request.expiresAtMs).toLocaleTimeString([], {
-							hour: "numeric",
-							minute: "2-digit",
-						})}
-						.
-					</p>
-				) : null}
-			</ApprovalCardBody>
+			<PluginActionRequestDetails
+				issueProvider={issueProvider}
+				request={request}
+			/>
 			{request.state === "pending" ? (
 				<ApprovalCardFooter>
 					<Button

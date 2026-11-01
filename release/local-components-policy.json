@@ -1,15 +1,15 @@
 {
-  "version": "0.3.279",
+  "version": "0.3.285",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Corrects standalone Setup to reuse the existing automatic registration contract and preserve saved agent switches. CLI arguments, structured responses, cloud APIs, and Wake transport remain compatible; existing sessions can continue without a forced update."
+    "reason": "Automatic Setup preserves saved controller switches and repairs missing launch contracts for enabled agents. Existing CLI commands and cloud APIs remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Packages the standalone Setup switch-preservation fix without changing Service startup, reconnect, transport, or execution contracts. Existing Services and cloud components remain interoperable and active Wake work can continue."
+    "reason": "Updates the bundled Setup registration logic without changing Service transport or Wake execution contracts."
   },
   "skills": {
     "updatePolicy": "available",
-    "reason": "Guidance clarifies existing command prefixes, addressing, and Computer operations without adding runtime authority."
+    "reason": "No managed Skills source changes; existing Skills remain compatible."
   }
 }

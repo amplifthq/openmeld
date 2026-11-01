@@ -539,6 +539,8 @@ waiting for that refresh. Cold or expired policy reads wait only for required
 policy, never for the optional channels. A slow first R2 policy read can therefore
 still delay a cold request.
 
+RuntimeTransportHub route, batch-route and owner-Service reads use only the
+current snapshot so a cold R2 read cannot delay a liveness query.
 RuntimeTransportHub constructor and registration gates are snapshot consumers:
 they start background refresh before entering the gate and never await it there.
 They use only unexpired validated policy, or a missing-policy snapshot while R2

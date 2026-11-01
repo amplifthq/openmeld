@@ -1,10 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildRemoteAgentSubmissionMetadata } from "../agent-core/submission";
+import {
+  buildRemoteAgentSubmissionMetadata,
+  type RemoteAgentAdmissionHost,
+} from "../agent-core/submission";
 import {
   abortFlueCenterAgentSubmission,
   createFlueCenterAgentAdmissionHost,
 } from "../flue-adapter/center-agent-admission";
 import { createSubmitTurnRequest, createSubmitTurnRequestV2 } from "./fixtures";
+
+async function admitPreparedTurn(
+  host: RemoteAgentAdmissionHost,
+  input: Parameters<RemoteAgentAdmissionHost["admitConversationTurn"]>[0]
+) {
+  if (!host.prepareConversationTurn) {
+    throw new Error("Expected Flue image preparation");
+  }
+  const prepared = await host.prepareConversationTurn(input);
+  return host.admitConversationTurn({ ...input, ...prepared });
+}
 
 describe("Flue Center Agent submission cancellation", () => {
   it("reports every provider and in-process Flue routing boundary", async () => {
@@ -30,7 +44,7 @@ describe("Flue Center Agent submission cancellation", () => {
     });
 
     await expect(
-      host.admitConversationTurn({
+      admitPreparedTurn(host, {
         images: [],
         message: "Test",
         metadata: {
@@ -83,7 +97,7 @@ describe("Flue Center Agent submission cancellation", () => {
     });
 
     await expect(
-      host.admitConversationTurn({
+      admitPreparedTurn(host, {
         images: [],
         message: "Research this in its own Task.",
         metadata: buildRemoteAgentSubmissionMetadata({
@@ -129,7 +143,7 @@ describe("Flue Center Agent submission cancellation", () => {
       understandImages,
     });
 
-    await host.admitConversationTurn({
+    await admitPreparedTurn(host, {
       images: [
         {
           data: "cG5n",
@@ -209,7 +223,7 @@ describe("Flue Center Agent submission cancellation", () => {
       understandImages,
     });
 
-    await host.admitConversationTurn({
+    await admitPreparedTurn(host, {
       images: [
         {
           data: "raw-image-base64",
@@ -253,7 +267,7 @@ describe("Flue Center Agent submission cancellation", () => {
     });
 
     await expect(
-      host.admitConversationTurn({
+      admitPreparedTurn(host, {
         images: [
           {
             data: "cG5n",
