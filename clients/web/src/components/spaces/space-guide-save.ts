@@ -12,8 +12,8 @@ export function isSpaceGuideTooLong(text: string) {
 
 /**
  * One save path for a Space's guide, shared by the editor's Save button and
- * "Save and leave". It remembers the request in flight so a later save can
- * wait for it; otherwise an older write could land after a newer one.
+ * "Save and leave". The final draft waits for outstanding saves so an older
+ * write cannot land after the user leaves.
  */
 export type SpaceGuideSaver = {
 	error: Error | null;
@@ -73,22 +73,20 @@ export function useSpaceGuideSaver(input: {
 		},
 	});
 	const { mutateAsync } = mutation;
-	const inFlight = useRef<Promise<unknown> | null>(null);
+	const inFlight = useRef(new Set<Promise<unknown>>());
 	const save = useCallback(
 		(guide: string) => {
 			const tracked: Promise<unknown> = mutateAsync(guide).finally(() => {
-				if (inFlight.current === tracked) {
-					inFlight.current = null;
-				}
+				inFlight.current.delete(tracked);
 			});
-			inFlight.current = tracked;
+			inFlight.current.add(tracked);
 			return tracked;
 		},
 		[mutateAsync]
 	);
 	const settle = useCallback(async () => {
-		while (inFlight.current) {
-			await inFlight.current.catch(() => undefined);
+		while (inFlight.current.size > 0) {
+			await Promise.allSettled(inFlight.current);
 		}
 	}, []);
 	return {

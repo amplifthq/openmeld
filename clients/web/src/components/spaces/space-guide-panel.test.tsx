@@ -14,6 +14,7 @@ import {
 	cleanup,
 	fireEvent,
 	render,
+	renderHook,
 	screen,
 	waitFor,
 } from "@testing-library/react";
@@ -311,6 +312,40 @@ describe("SpaceGuidePanel", () => {
 			["Version A.", "Version B."]
 		);
 		expect(router.state.location.pathname).toBe("/privacy");
+	});
+
+	it("waits for older overlapping saves before submitting the final draft", async () => {
+		const older = Promise.withResolvers<SpaceMeta>();
+		updateMetaMock
+			.mockReturnValueOnce(older.promise)
+			.mockResolvedValueOnce(spaceMeta("B"))
+			.mockResolvedValueOnce(spaceMeta("Final"));
+		const { result } = renderHook(
+			() =>
+				useSpaceGuideSaver({
+					onSaved: vi.fn(),
+					openMeldProfileId: "profile-1",
+					spaceId: "space-1",
+				}),
+			{ wrapper: TestQueryClientProvider }
+		);
+		let firstSave: Promise<unknown> | undefined;
+		let leaving: Promise<boolean> | undefined;
+		await act(async () => {
+			const saver = result.current;
+			firstSave = saver.save("A");
+			await saver.save("B");
+			leaving = saveSpaceGuideBeforeLeaving("Final", saver);
+		});
+		expect(updateMetaMock.mock.calls.map(([request]) => request.guide)).toEqual(
+			["A", "B"]
+		);
+		await act(async () => {
+			older.resolve(spaceMeta("A"));
+			await firstSave;
+			expect(await leaving).toBe(true);
+		});
+		expect(updateMetaMock.mock.lastCall?.[0].guide).toBe("Final");
 	});
 
 	it("stays on the Space when saving before leaving fails", async () => {
