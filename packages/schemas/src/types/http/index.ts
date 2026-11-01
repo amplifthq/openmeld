@@ -358,6 +358,10 @@ export type {
   GetCenterAgentDirectMessageSpaceProjectionResponse,
 } from "./center-agent-direct-message-space";
 export type {
+  CenterAgentReadSpaceGuideRequest,
+  CenterAgentReadSpaceGuideResponse,
+} from "./center-agent-knowledge";
+export type {
   CenterAgentMemberResearchBatch,
   CenterAgentMemberResearchBatchStatus,
   CenterAgentMemberResearchCoverage,
@@ -717,6 +721,7 @@ export type {
   OrganizationDocumentKind,
   OrganizationDocumentPromptContextResponse,
   OrganizationDocumentPromptContextRpcInput,
+  OrganizationDocumentSourceReference,
   OrganizationDocumentSummary,
   ProfileReportType,
   RecordCenterAgentMemberResearchComputerFileResponse,
@@ -1297,6 +1302,7 @@ export type {
   SpaceTaskId,
   SpaceTaskMutationReceipt,
   SpaceTaskPhase,
+  SpaceTaskRequesterRepresentation,
   SpaceTaskResponse,
   SpaceTaskResult,
   SpaceTaskReview,

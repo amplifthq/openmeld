@@ -73,6 +73,7 @@ import type {
   RuntimeTransportSubmitTaskResultRequest,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, type Mock, onTestFinished, vi } from "vitest";
+import { writeAgentExecutionReadinessImpact } from "../src/agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
 import { handleDispatchQueueBatch } from "../src/dispatch/transport/queue/dispatch-queue-consumer";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
@@ -134,7 +135,9 @@ import {
   createRuntimeTransportMutableState,
   type PendingDispatchState,
   type RuntimeTransportMutableState,
+  type WaitDispatchResultResponse,
 } from "../src/runtime-transport/application/runtime-transport-state";
+import { failPendingDispatchResultWaitersForConnectionGeneration } from "../src/runtime-transport/application/runtime-transport-wait-service";
 import { listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace } from "../src/runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
 import { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
 import {
@@ -1332,6 +1335,23 @@ const createHarness = async (input?: {
   Object.defineProperty(hub, "resolvePendingResultWaiters", {
     value: vi.fn(),
   });
+  Object.defineProperty(
+    hub,
+    "failPendingDispatchResultWaitersForConnectionGeneration",
+    {
+      value: (
+        daemonSessionId: string,
+        connectionGeneration: number,
+        response: WaitDispatchResultResponse
+      ) =>
+        failPendingDispatchResultWaitersForConnectionGeneration(
+          state,
+          daemonSessionId,
+          connectionGeneration,
+          response
+        ),
+    }
+  );
 
   onTestFinished(async () => {
     if (vi.isFakeTimers()) {
@@ -1864,6 +1884,20 @@ const buildRuntimeCoordinatorHeadAcceptRequest = (
   overrides: Partial<RuntimeTransportRuntimeCoordinatorHeadAcceptRequest> = {}
 ): RuntimeTransportRuntimeCoordinatorHeadAcceptRequest => {
   const dispatchId = overrides.dispatchId ?? "dispatch-1";
+  let acceptedDispatchSnapshot = overrides.acceptedDispatchSnapshot;
+  const contextRequest = acceptedDispatchSnapshot?.contextRequest;
+  if (acceptedDispatchSnapshot && contextRequest) {
+    acceptedDispatchSnapshot = {
+      ...acceptedDispatchSnapshot,
+      contextRequest: {
+        ...contextRequest,
+        requestChain: contextRequest.requestChain ?? [
+          { kind: "human", profileId: contextRequest.scope.requesterProfileId },
+          { kind: "agent", profileId: contextRequest.scope.targetProfileId },
+        ],
+      },
+    };
+  }
   const targetWakeLifecycleIdentity =
     overrides.targetWakeLifecycleIdentity ??
     projectTargetWakeLifecycleIdentity({
@@ -1875,9 +1909,7 @@ const buildRuntimeCoordinatorHeadAcceptRequest = (
     });
   return {
     v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
-    ...(overrides.acceptedDispatchSnapshot
-      ? { acceptedDispatchSnapshot: overrides.acceptedDispatchSnapshot }
-      : {}),
+    ...(acceptedDispatchSnapshot ? { acceptedDispatchSnapshot } : {}),
     dispatchId,
     idempotencyKey: overrides.idempotencyKey ?? "idempotency-1",
     ownerUserId: overrides.ownerUserId ?? "owner-1",
@@ -5608,7 +5640,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
     );
   });
-  it("finishes constructor and registration gates while required policy remains unreadable", async () => {
+  it("finishes constructor, registration and route lookups while required policy remains unreadable", async () => {
     const transport = (env as unknown as CoreBindings)
       .OPENMELD_RUNTIME_TRANSPORT;
     if (!transport) {
@@ -5714,6 +5746,42 @@ describe("runtime transport runtime coordinator transport contract", () => {
             })
           );
           expect(r2CallsInsideGate).not.toContain(true);
+          // The session has registered, but the required policy read is still
+          // blocked. Observe all three HTTP results before releasing that read.
+          const lookupInput = {
+            v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+            ownerUserId: "owner-policy-gate",
+          };
+          const lookups = Promise.all([
+            fetchRuntimeTransportJson(
+              hub,
+              "/lookup-owner-service",
+              lookupInput
+            ),
+            fetchRuntimeTransportJson(hub, "/lookup-route", {
+              ...lookupInput,
+              profileId: TARGET_AGENT_PROFILE_ID,
+            }),
+            fetchRuntimeTransportJson(hub, "/lookup-routes-batch", {
+              ...lookupInput,
+              profileIds: [TARGET_AGENT_PROFILE_ID],
+            }),
+          ]);
+          await vi.waitFor(async () => {
+            const responses = await lookups;
+            expect(responses.map((response) => response.status)).toEqual([
+              200, 404, 200,
+            ]);
+          });
+          const [owner] = await lookups;
+          await expect(owner.json()).resolves.toMatchObject({
+            online: true,
+            sessions: [
+              expect.objectContaining({
+                daemonSessionId: "session-policy-gate",
+              }),
+            ],
+          });
           expect(
             resolveLocalComponentUpdateProjection({
               generatedAt: new Date().toISOString(),
@@ -6204,8 +6272,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
-  it("round-trips Computer power through the exact capable Service", async () => {
-    const { hub, sentFrames, socket, state } = await createHarness();
+  it.each([
+    "responds",
+    "times out",
+    "returns a malformed frame",
+    "reconnects before a close event",
+    "refreshes registration",
+  ])("settles Computer power when the exact capable Service %s", async (scenario) => {
+    const { hub, sentFrames, socket, state, waitUntilTasks } =
+      await createHarness();
     configureCompatibleRoute({ socket, state });
     const session = state.sessionsById.get("daemon-session-1");
     if (!session) {
@@ -6215,6 +6290,24 @@ describe("runtime transport runtime coordinator transport contract", () => {
     state.sessionIdBySocket.set(socket, "daemon-session-1");
     Object.defineProperty(hub, "currentDeviceOperationWaiters", {
       value: new Map(),
+    });
+    const changesRegistration =
+      scenario === "reconnects before a close event" ||
+      scenario === "refreshes registration";
+    if (!changesRegistration) {
+      vi.useFakeTimers();
+    }
+    onTestFinished(() => {
+      vi.useRealTimers();
+      if (changesRegistration) {
+        RuntimeTransportHub.prototype.webSocketClose.call(
+          hub,
+          socket,
+          1006,
+          "test cleanup",
+          false
+        );
+      }
     });
     const request = { operation: "update", enabled: true, expectedRevision: 0 };
     const result = {
@@ -6231,6 +6324,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
       requestId: "power-1",
       request,
     });
+    let completedResponse: unknown;
+    const settled = responsePromise
+      .catch((error: unknown) => error)
+      .then((value) => {
+        completedResponse = value;
+        return value;
+      });
     await vi.waitFor(() =>
       expect(sentFrames).toContainEqual(
         expect.objectContaining({
@@ -6239,16 +6339,115 @@ describe("runtime transport runtime coordinator transport contract", () => {
         })
       )
     );
-    RuntimeTransportHub.prototype.webSocketMessage.call(
-      hub,
-      socket,
-      JSON.stringify({
+    if (changesRegistration) {
+      const registrationSocket =
+        scenario === "refreshes registration"
+          ? socket
+          : ({
+              deserializeAttachment: () => ({ verifiedOwnerUserId: "owner-1" }),
+              serializeAttachment: vi.fn(),
+              send: (message: string) => sentFrames.push(JSON.parse(message)),
+            } as unknown as WebSocket);
+      RuntimeTransportHub.prototype.webSocketMessage.call(
+        hub,
+        registrationSocket,
+        JSON.stringify({
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          code: "daemon.session.register",
+          payload: {
+            v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+            ownerUserId: "owner-1",
+            deviceId: session.deviceId,
+            lane: session.lane,
+            daemonSessionId: session.daemonSessionId,
+            connectionGeneration: session.connectionGeneration + 1,
+            connectedAtMs: Date.now(),
+            profileIds: [],
+            capabilities: {},
+            runtimeContract: { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+            serviceVersion: PUBLISHED_SERVICE_VERSION,
+          },
+        })
+      );
+      await vi.waitFor(() =>
+        expect(state.sessionsById.get(session.daemonSessionId)?.socket).toBe(
+          registrationSocket
+        )
+      );
+      await Promise.all(waitUntilTasks);
+      if (scenario === "reconnects before a close event") {
+        await vi.waitFor(() =>
+          expect(completedResponse).toBeInstanceOf(Response)
+        );
+      }
+    }
+    if (
+      scenario !== "times out" &&
+      scenario !== "reconnects before a close event"
+    ) {
+      const frame = {
         v: 1,
         code: "daemon.computer_power.request_result",
         payload: { requestId: "power-1", result },
-      })
+        ...(scenario === "returns a malformed frame"
+          ? { unexpected: true }
+          : {}),
+      };
+      if (scenario === "returns a malformed frame") {
+        let finished = false;
+        settled.then(() => {
+          finished = true;
+        });
+        const otherSocket = { send: vi.fn() } as unknown as WebSocket;
+        RuntimeTransportHub.prototype.webSocketMessage.call(
+          hub,
+          otherSocket,
+          JSON.stringify(frame)
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(finished).toBe(false);
+      }
+      RuntimeTransportHub.prototype.webSocketMessage.call(
+        hub,
+        socket,
+        JSON.stringify(frame)
+      );
+    }
+    // Advance the existing deadline as well: a malformed response must still
+    // win immediately instead of being reclassified as a timeout.
+    if (!changesRegistration) {
+      await vi.advanceTimersByTimeAsync(30_000);
+    }
+    await Promise.all(waitUntilTasks);
+    const response = await settled;
+    expect(response).toBeInstanceOf(Response);
+    if (!(response instanceof Response)) {
+      throw response;
+    }
+    const successful =
+      scenario === "responds" || scenario === "refreshes registration";
+    let expectedStatus = 502;
+    let code = "computer.power.invalid_response";
+    let message = "Invalid computer power response.";
+    if (scenario === "times out") {
+      expectedStatus = 504;
+      code = "computer.power.timeout";
+      message = "Timed out waiting for the local OpenMeld Service response.";
+    } else if (scenario === "reconnects before a close event") {
+      expectedStatus = 503;
+      code = "computer.power.offline";
+      message = "The local OpenMeld Service disconnected before it responded.";
+    }
+    expect(response.status).toBe(successful ? 200 : expectedStatus);
+    await expect(response.json()).resolves.toEqual(
+      successful ? result : { status: "rejected", code, message }
     );
-    await expect((await responsePromise).json()).resolves.toEqual(result);
+    expect(
+      sentFrames.filter(
+        (frame) =>
+          (frame as { code: string }).code === "daemon.computer_power.request"
+      )
+    ).toHaveLength(1);
   });
 
   it.each([
@@ -17820,6 +18019,19 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
     expect(authorityBefore?.runsById[executionToken.runId]).toMatchObject({
       tokenStatus: "active",
+    });
+    await writeAgentExecutionReadinessImpact({
+      agentProfileId: TARGET_AGENT_PROFILE_ID,
+      db: recordingPostgres.db,
+      executionIdentity: {
+        bindingId: "binding-1",
+        agentControllerRef: "builtin:codex",
+        openMeldServiceRuntimeId: "runtime-1",
+      },
+      observedAtMs: executionToken.issuedAtMs - 1,
+      reasonCode: "controller.launch.needs_repair",
+      sourceAttemptId: "attempt-failed",
+      sourceDispatchId: "dispatch-failed",
     });
     recordingPostgres.calls.length = 0;
     sentFrames.length = 0;

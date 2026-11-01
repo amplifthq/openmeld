@@ -116,12 +116,6 @@ export async function processGitHubAppWebhookQueueMessage(input: {
         continue;
       }
       await stub.rpcApplyGitHubIssueObservation({
-        settleOperationId: spaceTaskGitHubIssueOperationId(
-          "settle",
-          input.message.issue,
-          link.taskId,
-          input.message.deliveryId
-        ),
         identity: {
           number: input.message.issue.number,
           owner: input.message.issue.owner,

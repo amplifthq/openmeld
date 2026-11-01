@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { deleteCoreCenterAgentSpaceMemory } from "../../../center-agent-memory/core-memory-service";
 import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   resolveWakeStopEligibility,
@@ -47,6 +48,7 @@ import {
   CENTER_AGENT_SESSION_TITLE_INPUT_MAX_LENGTH,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   centerAgentWorkTargetSourceInputSchema,
+  spaceTaskRequesterRepresentationSchema,
   clearSpaceReasoningReplaySchema,
   commitSpaceFileWriteInputSchema,
   copyOwnMessageExcerptBodySchema,
@@ -1740,6 +1742,7 @@ const requiresPreparedWakeHandoff = (
   signalContext: SignalPublishContext | undefined
 ): boolean =>
   isUserAuthoredSignalContext(signalContext) ||
+  Boolean(signalContext?.spaceTaskDeliveryId) ||
   (signalContext?.authoringPolicy === "system_emitted" &&
     signalContext.finalOutcomeAuthority !== undefined);
 const readWakeActivationTargetProfileIds = (
@@ -9679,10 +9682,29 @@ export class Space extends DurableObject<CoreBindings> {
                   input.body.sourceSignalId ?? null,
                   input.body.threadId ?? null
                 );
-                const createContext = this.buildSpaceTaskCreateContext(
+                let createContext = this.buildSpaceTaskCreateContext(
                   taskContext,
                   normalizedBody.sourceSignalId ?? null
                 );
+                const representation =
+                  spaceTaskRequesterRepresentationSchema.parse({
+                    representedRequester: input.representedRequester,
+                  });
+                if (
+                  normalizedBody.wakeAssignee &&
+                  representation.representedRequester
+                ) {
+                  const represented = this.buildSpaceTaskMemberContext(
+                    representation.representedRequester.profileId,
+                    representation.representedRequester.ownerUserId
+                  );
+                  if (represented.actor.profileKind === "human") {
+                    createContext = {
+                      ...createContext,
+                      representedRequester: represented.actor,
+                    };
+                  }
+                }
                 await this.armSpaceTaskRecovery();
                 const receipt = this.createSpaceTaskService(context).create(
                   normalizedBody,
@@ -9790,8 +9812,11 @@ export class Space extends DurableObject<CoreBindings> {
           receipt,
           previous,
           authorizedActor: Boolean(context),
-          wakeAssignee:
-            command?.action === "assign" && command.wakeAssignee === true,
+          wakeAssignee: Boolean(
+            command &&
+              "wakeAssignee" in command &&
+              command.wakeAssignee === true
+          ),
           ...(context
             ? {
                 sourceDispatchChainContext:
@@ -9831,13 +9856,24 @@ export class Space extends DurableObject<CoreBindings> {
       pendingActions: context
         ? new SpaceTaskDeliveryRepository(this.ctx.storage.sql)
             .status(taskId)
-            .filter(
-              (
-                action
-              ): action is NonNullable<
-                SpaceTaskResponse["pendingActions"]
-              >[number] => action.kind !== "inbox_projection"
-            )
+            .flatMap((action) => {
+              if (action.kind === "inbox_projection") {
+                return [];
+              }
+              if (
+                action.delivery &&
+                !isSpaceTaskDeliveryCurrent(
+                  action.delivery,
+                  detail.task,
+                  new SpaceTaskRepository(this.ctx.storage.sql)
+                )
+              ) {
+                return [];
+              }
+              return [
+                { kind: action.kind, state: action.state, error: action.error },
+              ];
+            })
         : [],
     };
   }
@@ -10232,7 +10268,10 @@ export class Space extends DurableObject<CoreBindings> {
       sourceDispatchChainContext,
       id: deliveryId,
     } = delivery;
-    if (receipt.event.type === "assigned" && receipt.task.assignee) {
+    if (
+      (receipt.event.type === "created" || receipt.event.type === "assigned") &&
+      receipt.task.assignee
+    ) {
       await this.publishSpaceTaskDirectedNotice({
         actor,
         eventId: receipt.event.eventId,
@@ -10391,6 +10430,14 @@ export class Space extends DurableObject<CoreBindings> {
       ...(threadContext
         ? { threadContext, threadPlacement: "thread" as const }
         : {}),
+    }).catch((error: unknown) => {
+      if (error instanceof SpaceSignalAuthoringError) {
+        throw new SpaceTaskDeliveryError(
+          error.message,
+          error.code === SPACE_WAKE_TARGET_INVALID_ERROR_CODE
+        );
+      }
+      throw error;
     });
   }
   private async handleSpaceTaskOperation<T>(
@@ -21003,6 +21050,12 @@ export class Space extends DurableObject<CoreBindings> {
       profileName?: string | null;
     }
   ): Promise<void> {
+    if (existing.organizationId) {
+      await deleteCoreCenterAgentSpaceMemory(this.bindings, {
+        organizationId: existing.organizationId,
+        spaceId: this.spaceId,
+      });
+    }
     await this.projectDeletedSpaceIndexSnapshot({
       deletedAt: new Date().toISOString(),
       deletedByOwnerUserId: actor.ownerUserId,

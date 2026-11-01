@@ -123,7 +123,8 @@ export function createServiceConnectionEvidenceRecorder(input: {
           (item.incident.outcome === "recovered" ||
             item.incident.serviceSessionId !== input.identity.serviceSessionId)
       );
-      if (!entry) {
+      // A socket can close while the journal write is pending.
+      if (!(entry && online) || disposed) {
         return;
       }
       const receipt = await send({

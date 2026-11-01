@@ -23,12 +23,12 @@ import type { SpaceTaskRepository } from "../infrastructure/sql/space-task-repo"
 import {
   applyGitHubIssueProviderObservation,
   mutateSpaceTask,
+  requireSpaceTaskRequesterOrOwner,
   type SpaceTaskMutationContext,
   SpaceTaskWorkflowError,
 } from "./space-task-workflow";
 
 export type ApplyGitHubIssueObservationInput = {
-  settleOperationId: string;
   identity: {
     number: number;
     owner: string;
@@ -70,7 +70,7 @@ export class SpaceTaskService {
     onMutation?: (
       receipt: SpaceTaskMutationReceipt,
       previous: SpaceTask | null,
-      command?: MutateSpaceTaskBody
+      command?: MutateSpaceTaskBody | CreateSpaceTaskBody
     ) => void;
     repository: SpaceTaskRepositoryPort;
     runTransaction: <T>(callback: () => T) => T;
@@ -81,7 +81,7 @@ export class SpaceTaskService {
     onMutation?: (
       receipt: SpaceTaskMutationReceipt,
       previous: SpaceTask | null,
-      command?: MutateSpaceTaskBody
+      command?: MutateSpaceTaskBody | CreateSpaceTaskBody
     ) => void;
     repository: SpaceTaskRepositoryPort;
     runTransaction: <T>(callback: () => T) => T;
@@ -129,6 +129,13 @@ export class SpaceTaskService {
     const reviewer = body.reviewerProfileId
       ? this.requireActiveMember(context, body.reviewerProfileId)
       : null;
+    if (body.wakeAssignee && assignee?.profileKind !== "agent") {
+      throw new SpaceTaskWorkflowError({
+        code: "space_task.agent_assignee_required",
+        message: "Choose an Agent assignee before requesting a Task handoff.",
+        status: 400,
+      });
+    }
     if (assignee && reviewer?.profileId === assignee.profileId) {
       throw new SpaceTaskWorkflowError({
         code: "space_task.reviewer_must_be_independent",
@@ -160,6 +167,9 @@ export class SpaceTaskService {
       createdAt: now,
       updatedAt: now,
     });
+    if (body.wakeAssignee) {
+      requireSpaceTaskRequesterOrOwner(task, context);
+    }
     const event = this.buildEvent({
       task,
       operationId: body.operationId,
@@ -167,6 +177,7 @@ export class SpaceTaskService {
       actor: context.actor,
       fromPhase: null,
       detail: task.title,
+      representedRequester: context.representedRequester,
     });
     const receipt = spaceTaskMutationReceiptSchema.parse({
       task,
@@ -188,7 +199,7 @@ export class SpaceTaskService {
         requestJson,
         receipt,
       });
-      this.input.onMutation?.(receipt, null);
+      this.input.onMutation?.(receipt, null, body);
       return receipt;
     });
   }
@@ -231,9 +242,8 @@ export class SpaceTaskService {
         type: transition.eventType,
         actor: context.actor,
         fromPhase: current.phase,
-        detail: context.representedRequester
-          ? `On behalf of ${context.representedRequester.profileName} (${context.representedRequester.profileId}).${transition.detail ? ` ${transition.detail}` : ""}`
-          : transition.detail,
+        detail: transition.detail,
+        representedRequester: context.representedRequester,
       });
       const receipt = spaceTaskMutationReceiptSchema.parse({
         task: transition.task,
@@ -326,66 +336,11 @@ export class SpaceTaskService {
         observedTask = planned.observe.task;
       }
 
-      if (!planned.settle) {
-        return {
-          canceled: false,
-          observed: Boolean(planned.observe || previousObserve),
-          skipReason: null,
-          task: observedTask,
-        };
-      }
-
-      const settleRequestJson = JSON.stringify({
-        body: {
-          number: input.identity.number,
-          owner: input.identity.owner,
-          reason: planned.settle.detail,
-          repo: input.identity.repo,
-        },
-        kind: "github_issue_settle",
-        taskId: input.taskId,
-      });
-      const previousSettlement = this.readIdempotentReceipt(
-        input.settleOperationId,
-        settleRequestJson
-      );
-      if (previousSettlement) {
-        return {
-          canceled: previousSettlement.task.phase === "canceled",
-          observed: true,
-          skipReason: null,
-          task: previousSettlement.task,
-        };
-      }
-      const settleEvent = this.buildEvent({
-        actor: { provider: "github" },
-        detail: planned.settle.detail,
-        fromPhase: observedTask.phase,
-        operationId: input.settleOperationId,
-        task: planned.settle.task,
-        type: planned.settle.eventType,
-      });
-      const settleReceipt = spaceTaskMutationReceiptSchema.parse({
-        applied: true,
-        event: settleEvent,
-        task: planned.settle.task,
-      });
-      this.input.repository.updateTask(
-        planned.settle.task,
-        observedTask.revision
-      );
-      this.input.repository.appendEvent(settleEvent);
-      this.input.repository.recordOperation({
-        operationId: input.settleOperationId,
-        receipt: settleReceipt,
-        requestJson: settleRequestJson,
-      });
-      this.input.onMutation?.(settleReceipt, observedTask);
       return {
-        canceled: planned.settle.task.phase === "canceled",
-        observed: true,
+        canceled: false,
+        observed: Boolean(planned.observe || previousObserve),
         skipReason: null,
-        task: planned.settle.task,
+        task: observedTask,
       };
     });
   }
@@ -433,6 +388,7 @@ export class SpaceTaskService {
     actor: SpaceTaskEvent["actor"];
     fromPhase: SpaceTaskPhase | null;
     detail: string | null;
+    representedRequester?: SpaceTaskActor;
   }): SpaceTaskEvent {
     return spaceTaskEventSchema.parse({
       eventId: `tse_${crypto.randomUUID()}`,
@@ -443,7 +399,9 @@ export class SpaceTaskService {
       fromPhase: input.fromPhase,
       toPhase: input.task.phase,
       taskRevision: input.task.revision,
-      detail: input.detail,
+      detail: input.representedRequester
+        ? `On behalf of ${input.representedRequester.profileName} (${input.representedRequester.profileId}).${input.detail ? ` ${input.detail}` : ""}`
+        : input.detail,
       createdAt: input.task.updatedAt,
     });
   }

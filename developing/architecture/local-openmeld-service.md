@@ -251,6 +251,14 @@ restart evidence is the fallback. This receipt contains no task results or
 approvals and does not authorize replay. It is not a second execution ledger.
 There is no automatic hot adoption or restart of unknown work.
 
+Claude Agent SDK invocations use its public custom-spawn contract on every
+platform through the existing supervised process launcher. The adapter reports
+the actual process/group before returning its streams to the SDK and reports
+exit only after descendant cleanup. SDK-owned spawning without these receipts
+cannot establish complete Host process evidence. Cleanup allows stdin-EOF
+shutdown before bounded termination. Legacy incomplete receipts still require
+their existing safe recovery evidence, never an edited completeness flag.
+
 Cloud-result acknowledgment is separate from local quiescence. Stop and update
 readiness query the Host; they do not inspect another socket's private execution
 maps. Long accepted work retains its existing no-total-timeout drain. The current
@@ -2535,6 +2543,11 @@ They may reap local expired leases because that is part of route lookup
 semantics, but they must not synchronously run RuntimeCoordinator or other
 background housekeeping scans.
 
+The three HTTP lookups answer from Hub session and lease state. They use the
+source reader's currently valid release snapshot for compatibility projection.
+Constructor, registration and heartbeat refresh the policy in the background.
+New Wake admission checks it separately.
+
 Required local-component policy and optional binary-channel availability use
 independent R2 reads and pending refreshes. The source reader owns their bounded
 validity; RuntimeTransportHub must not retain an unchecked per-instance policy.
@@ -3829,6 +3842,40 @@ durable result still awaits Core's acceptance receipt; process exit alone is
 not sufficient evidence. Each accepted Wake stays on the Service version that
 accepted it, and an update must never retry or silently replay it.
 
+For an ordinary automatic update (`requestSource=automatic`, `urgency=available`),
+the readiness read is only a scheduling hint. The authenticated
+`shutdown_if_idle` command asks the Host's `beginDrain` with `onlyIfIdle=true`.
+The Host checks local execution slots, active controls,
+startup replay, and unacknowledged results synchronously with closing its existing
+admission fence. Work admitted first makes the switch return `accepted=false`
+without beginning a drain. The worker restores autostart, releases its lifecycle
+lock, and keeps the same prepared operation waiting without consuming a failure
+attempt. A raced switch waits the existing readiness polling interval before
+trying again, so short tasks cannot turn deferral into a busy loop. It reports
+`updating` only after switch admission succeeds. Transient
+or unsupported pre-admission requests cannot enter replacement/rollback teardown.
+Required updates and explicit user maintenance retain their controlled-drain
+behavior, without force-killing accepted work. Startup-policy maintenance also
+identifies itself as automatic.
+
+The existing stop coordinator owns an admitted idle shutdown across connector
+replacement or loss. Overlapping idle requests share the first in-flight Host
+admission result when a later request reports `host.draining`; that error alone
+does not prove acceptance, and a failed first admission remains a failure.
+No updater-owned task counter, second drain, or execution
+ledger is introduced. Older receivers reject the unknown `shutdown_if_idle` command; the
+automatic operation then reports that manual update is needed while preserving
+the running Service. It must not retry through the ordinary shutdown fallback.
+
+Ordinary installation replacement retains runtime data in place. It must not
+recursively copy and restore task workspaces as part of an upgrade. Only legacy
+shared-root removal retains the backup step. If that backup fails before
+replacement, preserve the old installation and data and report the failure;
+restore its previously enabled autostart and requested running state, retaining
+any restoration errors alongside the backup failure. Previously disabled
+autostart stays disabled. Do not uninstall it in recovery or attempt an
+unprepared replacement.
+
 Waiting for that safe-switch fact must not hold the Service lifecycle lock.
 The worker uses one short lock transaction to normalize the pending job before
 waiting, then re-reads that job under the lock before the switch and
@@ -3838,6 +3885,11 @@ This allows a newer request to replace an older prepared target or a required
 request to escalate an available one without a stale worker restoring the old
 state. Requests coalesce into the existing operation; they never create
 parallel Service update lifecycles.
+
+A safe-switch read that explicitly reports `host.previous_work_unconfirmed`
+ends the same waiting operation as `needs_help`, retaining its original error
+and leaving installation state untouched. A transient transport/read failure
+still waits for positive readiness; elapsed time never clears the Host fence.
 
 After the safe switch begins, RuntimeCoordinator remains the in-flight Wake
 authority. New Wake work may wait for the replacement route and resume after
@@ -3993,9 +4045,10 @@ live. Once active work has drained, result-receipt and WebSocket-close waits are
 bounded: an unacknowledged durable result remains available for replay, and a
 half-open socket is terminated after its close deadline. The calling lifecycle
 also bounds the control request so a new CLI cannot wait forever on an older
-Service. That timeout is a compatibility fallback only during an actual version
-upgrade; the existing OpenMeld-owned-process and long-stalled-heartbeat checks
-remain mandatory before any automatic force kill.
+Service. That timeout aborts the update and restores the old Service's autostart
+setting; a newer target version never proves that accepted work has drained.
+An explicit forced stop retains the existing owned-process safety checks and
+must not be presented as a successful controlled drain.
 
 The final stopping heartbeat must receive a successful Core acknowledgement.
 A rejected or timed-out heartbeat cannot be reported as a completed controlled
@@ -4032,7 +4085,10 @@ days on load/write. Repeated adjacent observations are aggregated; truncation
 is explicit. Pending event writes are capped at 128 so a stalled filesystem
 cannot accumulate unbounded work. Writes and uploads never block registration
 or heartbeat.
-Completed incidents upload after registration, and an interrupted incident from
+Only the current connection's acknowledgement enables incident uploads. A close
+or the next connection attempt pauses uploads, including those still preparing
+the journal. Recheck this condition before sending. Completed incidents upload
+after registration, and an interrupted incident from
 a previous Service process uploads on its next connection. Receipt replay is
 idempotent. Upload retries have their own bounded backoff, retry promptly on
 reconnection, and cannot reconnect the carrier; an account change prevents uploading old evidence with new account
@@ -4157,7 +4213,13 @@ follow-ups to the current task within existing permissions and execution mode.
 This guidance creates no Wake, queue entry, automatic rerun, or guarantee of
 model behavior. A final-action review cannot perform new implementation work;
 its reply should identify unfinished requests without implying that an
-acknowledgement started or queued them.
+acknowledgement started or queued them. Claude concurrent reply review uses the existing
+delivery-only tool scope, including bounded context reads and the final Space
+action. It must not expose business shell tools or planning transitions that
+create a new plan-approval wait. The selected native permission intent and its
+deny/ask rules remain authoritative. Other controllers retain their existing
+review isolation policy; this Claude correction does not require a new
+delivery-only capability from them.
 
 Every local adapter repair turn must preserve the validated canonical
 conversation identity and the Binding's controller-native permission intent.
@@ -4170,8 +4232,9 @@ saved Binding permission mode or OpenCode permission JSON.
 
 Codex exact-controller recovery copies the canonical conversation into an
 ephemeral App Server fork and applies the conservative repair approval and
-sandbox policy only to that fork. Claude Code repair resumes through an Agent
-SDK or CLI fork and applies its temporary Plan mode only there. OpenCode 1 repair
+sandbox policy only to that fork. Claude Code delivery-only recovery uses an Agent
+SDK or CLI fork and retains the Binding's native permission mode within its
+restricted tool scope, rather than forcing Plan mode. OpenCode 1 repair
 uses the official Server session fork and passes the Binding's unchanged
 `OPENCODE_PERMISSION` JSON to the child. Each adapter continues to report the
 validated canonical conversation identity. If the installed controller cannot
@@ -4392,6 +4455,19 @@ Computer page use the same owner-authorized, explicit device/lane API and UI.
 They never save another preference in Desktop, the browser, or an Agent Profile.
 Writes carry the last observed revision; stale writes fail rather than overwrite.
 Disconnected and unsupported Services are unavailable, not unchecked.
+
+Power-control waiter failures retain the shared rejected-result envelope:
+timeouts use `computer.power.timeout` / HTTP 504, a disconnected Service uses
+`computer.power.offline` / HTTP 503, and invalid replies use
+`computer.power.invalid_response` / HTTP 502. Core maps a missing transport
+response to `computer.power.unavailable` / HTTP 503 rather than parsing it as a
+successful power state. Other Service rejections retain HTTP 409. A timeout or
+lost reply does not prove that an update was never applied; no layer replays
+the update, and the user must check the current preference before retrying.
+When registration replaces a socket, the Hub immediately rejects pending
+current-device controls on that socket as disconnected. It must not wait for a
+close callback that may never arrive. A catalog refresh on the same socket
+preserves its pending controls; replacement never replays them on the new socket.
 
 The execution host reconciles the preference with the canonical active execution
 slot count after ownership changes, including release. Queued tasks, observed

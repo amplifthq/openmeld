@@ -3,7 +3,10 @@ import {
   renderWorkingLanguagePrompt,
   TASK_KNOWLEDGE_GUIDANCE,
 } from "@openmeld/agent-runtime";
-import type { RemoteAgentTurnEnvelope } from "@openmeld/schemas/types";
+import type {
+  OrganizationDocumentSourceReference,
+  RemoteAgentTurnEnvelope,
+} from "@openmeld/schemas/types";
 import { SPACE_COLLABORATION_CONTEXT_RULE } from "@openmeld/space-mesh";
 import { formatMessageChannelProviderName } from "../message-channel";
 import { REMOTE_AGENT_MODEL_DISPLAY_NAME } from "../model";
@@ -28,6 +31,7 @@ export type RemoteAgentSystemPromptInput = {
   taskKnowledgeIndex?: string | null;
   personalAgent?: boolean;
   organizationBrief?: string | null;
+  organizationBriefSource?: OrganizationDocumentSourceReference | null;
   organizationDocumentTitles?: readonly string[] | null;
   organizationProtectedInformation?: string | null;
   turnEnvelope?: RemoteAgentTurnEnvelope | null;
@@ -92,7 +96,10 @@ export function buildRemoteAgentSystemPrompt(
       organizationProtectedInformation:
         input.organizationProtectedInformation ?? null,
     }),
-    renderOrganizationBrief(input.organizationBrief),
+    renderOrganizationBrief(
+      input.organizationBrief,
+      input.organizationBriefSource
+    ),
     REMOTE_AGENT_TASK_COORDINATION_PROMPT,
     REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT,
     input.taskKnowledgeIndex

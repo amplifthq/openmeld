@@ -1,15 +1,15 @@
 {
-  "version": "0.3.280",
+  "version": "0.3.284",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Packages opt-in issue approval preview schemas. Existing CLI commands and default approval responses are unchanged; supported clients remain compatible."
+    "reason": "Refreshes the CLI bundle for the shared Space-memory schema. Existing workstation commands and Wake contracts remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Packages opt-in issue approval preview schemas without changing workstation execution, setup, Wake or diagnostics. Existing supported Services remain compatible."
+    "reason": "Refreshes the bundled shared schema. The hosted memory change does not raise the workstation protocol floor."
   },
   "skills": {
     "updatePolicy": "available",
-    "reason": "Guidance clarifies existing command prefixes, addressing, and Computer operations without adding runtime authority."
+    "reason": "No managed Skills source changes; existing Skills remain compatible."
   }
 }

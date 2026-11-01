@@ -46,8 +46,9 @@ import { buildRemoteAgentSystemPrompt } from "../../agent-core/prompt";
 import {
   buildRemoteAgentName,
   cleanupExpiredRemoteAgentSubmissionReceipts,
-  cleanupFinalizedRemoteAgentSubmissionAttachments,
+  cleanupRemoteAgentSubmissionAttachments,
   parseRemoteAgentSubmitTurnRequest,
+  RemoteAgentAdmissionRejectedError,
   readExistingRemoteAgentSubmission,
   readRemoteAgentAdmission,
   readRemoteAgentAdmissionStop,
@@ -341,7 +342,7 @@ async function prepareCenterAgentRender() {
       executionContext && runtimeContextPlan.includeOrganizationDocuments
         ? await resolveCurrentOrganizationDocumentPromptContext({
             organizationId: executionContext.organizationId,
-            read: async () =>
+            read: async (includeSourceReferences) =>
               await callCoreRpc(
                 coreWorker,
                 "readOrganizationDocumentPromptContext",
@@ -351,6 +352,9 @@ async function prepareCenterAgentRender() {
                     `remote-agent-prompt:${executionContext.submissionId}`
                   ),
                   includeOrganizationProtectedInformation: true as const,
+                  ...(includeSourceReferences
+                    ? { includeSourceReferences: true as const }
+                    : {}),
                 },
                 (binding, rpcInput) =>
                   binding.readOrganizationDocumentPromptContext?.(rpcInput)
@@ -469,6 +473,7 @@ async function prepareCenterAgentRender() {
           executionContext?.modelRoute
         ),
         organizationBrief: materialization.documents?.briefContent,
+        organizationBriefSource: materialization.documents?.briefSource,
         organizationDocumentTitles: materialization.documents?.documentTitles,
         organizationProtectedInformation:
           materialization.documents?.organizationProtectedInformation,
@@ -716,7 +721,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
                 this.ctx.storage.sql
               ),
             cleanupFinalizedSubmissionReplay: async () =>
-              await cleanupFinalizedRemoteAgentSubmissionAttachments({
+              await cleanupRemoteAgentSubmissionAttachments({
                 env,
                 attachmentBucket: env.OPENMELD_SPACE_ATTACHMENTS,
                 request,
@@ -857,6 +862,17 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
           }
           outcome = "acknowledged";
           return ack;
+        } catch (error) {
+          if (error instanceof RemoteAgentAdmissionRejectedError) {
+            await cleanupRemoteAgentSubmissionAttachments({
+              env,
+              attachmentBucket: env.OPENMELD_SPACE_ATTACHMENTS,
+              request,
+            });
+            outcome = "rejected";
+            return error.rejection;
+          }
+          throw error;
         } finally {
           emitRemoteAgentAdmissionStageEvidence(env, {
             ...evidenceContext,

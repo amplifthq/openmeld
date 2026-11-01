@@ -3698,15 +3698,28 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       webSocket.send(DAEMON_STREAM_KEEPALIVE_PONG);
       return;
     }
-    const frame = parseDaemonStreamFrame(rawMessage);
-    if (!frame) {
+    const rawFrame = parseDaemonStreamJson(rawMessage);
+    const frame = daemonStreamFrameSchema.safeParse(rawFrame);
+    if (!frame.success) {
+      if (
+        rawFrame &&
+        typeof rawFrame === "object" &&
+        "code" in rawFrame &&
+        rawFrame.code === "daemon.computer_power.request_result"
+      ) {
+        this.rejectInvalidCurrentDeviceOperationResultFrame({
+          frame: rawFrame,
+          message: "Invalid computer power response.",
+          webSocket,
+        });
+      }
       this.sendErrorFrame(webSocket, {
         code: "schema.invalid",
         message: "invalid daemon stream frame",
       });
       return;
     }
-    this.handleParsedStreamFrame(webSocket, frame);
+    this.handleParsedStreamFrame(webSocket, frame.data);
   }
   private handleParsedStreamFrame(
     webSocket: WebSocket,
@@ -4161,7 +4174,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
         failPendingDispatchResultWaitersForConnectionGeneration:
           this.failPendingDispatchResultWaitersForConnectionGeneration,
-        closeSocket: safeCloseSocket,
+        closeSocket: (socket, code, reason) => {
+          // Replacement is authoritative even if the old socket never emits
+          // a close event. Never leave its control requests waiting or replay them.
+          this.failCurrentDeviceOperationWaitersForSocket(socket);
+          safeCloseSocket(socket, code, reason);
+        },
         localComponentsManifest: localComponentsRelease.manifest,
       }
     );
@@ -11336,12 +11354,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-    const { manifest } = await this.refreshLocalComponentsRelease();
     const response = lookupRoute(this.state, parsed.data, {
       persistRuntimeRecords: this.persistRuntimeRecords,
       cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
       recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
-      localComponentsManifest: manifest,
+      localComponentsManifest: getCachedCoreLocalComponentsRelease().manifest,
     });
     const status = response.online ? 200 : 404;
     return Response.json(response, { status });
@@ -11355,12 +11372,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!parsed.success) {
       return Response.json({ routes: {} }, { status: 400 });
     }
-    const { manifest } = await this.refreshLocalComponentsRelease();
     const response = lookupRoutesBatch(this.state, parsed.data, {
       persistRuntimeRecords: this.persistRuntimeRecords,
       cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
       recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
-      localComponentsManifest: manifest,
+      localComponentsManifest: getCachedCoreLocalComponentsRelease().manifest,
     });
     return Response.json(response, { status: 200 });
   }
@@ -11379,12 +11395,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-    const { manifest } = await this.refreshLocalComponentsRelease();
     const response = lookupOwnerService(this.state, parsed.data, {
       persistRuntimeRecords: this.persistRuntimeRecords,
       cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
       recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
-      localComponentsManifest: manifest,
+      localComponentsManifest: getCachedCoreLocalComponentsRelease().manifest,
     });
     const validated =
       runtimeTransportLookupOwnerServiceResponseSchema.safeParse(response);
@@ -21569,21 +21584,45 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 409 }
       );
     }
-    const result = await this.sendCurrentDeviceOperationAndWait({
-      code: "daemon.computer_power.request",
-      expectedResponseCode: "daemon.computer_power.request_result",
-      isExpectedPayload: (value) =>
-        computerPowerResultSchema.safeParse(value).success,
-      payload: {
-        deviceId: input.deviceId,
+    try {
+      const result = await this.sendCurrentDeviceOperationAndWait({
+        code: "daemon.computer_power.request",
+        expectedResponseCode: "daemon.computer_power.request_result",
+        isExpectedPayload: (value) =>
+          computerPowerResultSchema.safeParse(value).success,
+        payload: {
+          deviceId: input.deviceId,
+          requestId: input.requestId,
+          request: input.request,
+        },
         requestId: input.requestId,
-        request: input.request,
-      },
-      requestId: input.requestId,
-      session: session as typeof session & { socket: WebSocket },
-      timeoutMs: CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS,
-    });
-    return Response.json(result);
+        session: session as typeof session & { socket: WebSocket },
+        timeoutMs: CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS,
+      });
+      return Response.json(result);
+    } catch (error) {
+      const kind =
+        error instanceof CurrentDeviceOperationError
+          ? error.kind
+          : "internal_error";
+      let status = 502;
+      if (kind === "timeout") {
+        status = 504;
+      } else if (kind === "send_failed") {
+        status = 503;
+      }
+      return Response.json(
+        {
+          status: "rejected",
+          code: `computer.power.${kind === "send_failed" ? "offline" : kind}`,
+          message:
+            error instanceof Error
+              ? error.message
+              : "The sleep-prevention request failed unexpectedly.",
+        },
+        { status }
+      );
+    }
   }
   private async handleComputerFileAccessRequest(
     request: Request,
@@ -23367,18 +23406,13 @@ const isCompletedInteractionReplay = (
   !state.pendingInteraction &&
   Object.hasOwn(state.interactionResponseReceipts ?? {}, interactionId);
 
-const parseDaemonStreamFrame = (
-  rawMessage: string | ArrayBuffer
-): DaemonStreamFrame | null => {
+const parseDaemonStreamJson = (rawMessage: string | ArrayBuffer): unknown => {
   const text = decodeWebSocketMessage(rawMessage);
-  let rawFrame: unknown;
   try {
-    rawFrame = JSON.parse(text);
+    return JSON.parse(text);
   } catch {
     return null;
   }
-  const parsedFrame = daemonStreamFrameSchema.safeParse(rawFrame);
-  return parsedFrame.success ? parsedFrame.data : null;
 };
 const parseWaitDispatchResultRequest = (
   value: unknown

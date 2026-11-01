@@ -105,12 +105,16 @@ function createSqlHarness(previousOutboxSchema = false) {
           receipt,
           previous,
           authorizedActor: true,
-          wakeAssignee:
-            command?.action === "assign" && command.wakeAssignee === true,
+          wakeAssignee: Boolean(
+            command &&
+              "wakeAssignee" in command &&
+              command.wakeAssignee === true
+          ),
         });
         if (
           failAfterEnqueue &&
-          (receipt.event.type === "result_submitted" ||
+          (receipt.event.type === "created" ||
+            receipt.event.type === "result_submitted" ||
             receipt.event.type === "assigned")
         ) {
           throw new Error("interrupted before commit");
@@ -135,9 +139,11 @@ afterEach(() => vi.useRealTimers());
 
 describe("Space Task durable delivery", () => {
   it.each([
-    "reassignment",
-    "reopen",
-  ] as const)("keeps a pending assignment across metadata updates but fences a later %s", (reset) => {
+    ["reassignment", false],
+    ["reopen", false],
+    ["reassignment", true],
+    ["reopen", true],
+  ] as const)("keeps a pending handoff across metadata updates but fences a later %s (delegate on create: %s)", (reset, delegateOnCreate) => {
     const harness = createSqlHarness();
     const context = {
       actor: requester,
@@ -148,26 +154,46 @@ describe("Space Task durable delivery", () => {
         ) ?? null,
     };
     try {
-      const created = harness.service().create(
-        {
-          operationId: "create-pending",
-          title: "Retry the same assignment",
-          assigneeProfileId: assignee.profileId,
-          reviewerProfileId: reviewer.profileId,
-        },
-        { ...context, requestedBy: requester }
-      );
-      const assigned = harness.service().mutate(
-        created.task.taskId,
-        {
-          action: "assign",
-          operationId: "assign-pending",
-          expectedRevision: created.task.revision,
-          assigneeProfileId: assignee.profileId,
-          wakeAssignee: true,
-        },
-        context
-      );
+      const creation = {
+        operationId: "create-pending",
+        title: "Retry the same assignment",
+        assigneeProfileId: assignee.profileId,
+        reviewerProfileId: reviewer.profileId,
+        ...(delegateOnCreate ? { wakeAssignee: true } : {}),
+      };
+      const created = harness
+        .service()
+        .create(creation, { ...context, requestedBy: requester });
+      if (delegateOnCreate) {
+        expect(
+          harness
+            .service()
+            .create(creation, { ...context, requestedBy: requester })
+        ).toMatchObject({
+          applied: false,
+          task: created.task,
+          event: created.event,
+        });
+        expect(harness.tasks.listTasks()).toHaveLength(1);
+        expect(
+          harness
+            .pendingActions(Date.now())
+            .filter((delivery) => delivery.kind === "handoff")
+        ).toHaveLength(1);
+      }
+      const assigned = delegateOnCreate
+        ? created
+        : harness.service().mutate(
+            created.task.taskId,
+            {
+              action: "assign",
+              operationId: "assign-pending",
+              expectedRevision: created.task.revision,
+              assigneeProfileId: assignee.profileId,
+              wakeAssignee: true,
+            },
+            context
+          );
       const delivery = harness.deliveries.read(
         `${assigned.event.eventId}:handoff`
       );
@@ -290,6 +316,36 @@ describe("Space Task durable delivery", () => {
         harness.service().mutate(id, command, context(coordinator))
       ).toThrow("Only the requester");
       expect(harness.tasks.readTask(id)?.revision).toBe(1);
+      expect(harness.pendingActions(Date.now())).toEqual([]);
+      expect(() =>
+        harness.service().create(
+          {
+            operationId: "unrepresented-create-delegation",
+            title: "Deliver the Guide feature",
+            assigneeProfileId: assignee.profileId,
+            reviewerProfileId: reviewer.profileId,
+            wakeAssignee: true,
+          },
+          { ...context(coordinator), requestedBy: requester }
+        )
+      ).toThrow("Only the requester");
+      expect(() =>
+        harness.service(true).create(
+          {
+            operationId: "create-and-delegate-atomic",
+            title: "Deliver the Guide feature",
+            assigneeProfileId: assignee.profileId,
+            reviewerProfileId: reviewer.profileId,
+            wakeAssignee: true,
+          },
+          {
+            ...context(coordinator),
+            requestedBy: requester,
+            representedRequester: requester,
+          }
+        )
+      ).toThrow("interrupted before commit");
+      expect(harness.tasks.listTasks()).toHaveLength(1);
       expect(harness.pendingActions(Date.now())).toEqual([]);
       for (const reviewerProfileId of [
         assignee.profileId,

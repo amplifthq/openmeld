@@ -38,6 +38,10 @@ export {
   centerAgentReadAuditJournalRpcInputSchema,
 } from "./http/center-agent-evidence";
 export {
+  centerAgentReadSpaceGuideRequestSchema,
+  centerAgentReadSpaceGuideResponseSchema,
+} from "./http/center-agent-knowledge";
+export {
   CENTER_AGENT_RETAINED_MEMORY_MAX_ITEMS,
   CENTER_AGENT_RETAINED_MEMORY_MAX_SOURCES,
   CENTER_AGENT_RETAINED_MEMORY_MAX_TEXT_CHARS,
@@ -2069,6 +2073,7 @@ export {
   organizationDocumentPromptContextRpcInputSchema,
   organizationDocumentRouteParamsSchema,
   organizationDocumentSchema,
+  organizationDocumentSourceReferenceSchema,
   organizationDocumentSummarySchema,
   profileReportTypeSchema,
   recordCenterAgentMemberResearchComputerFileResponseSchema,
@@ -2494,6 +2499,7 @@ export {
   listSensitiveOperationAuditResponseSchema,
   MEMBER_AGENT_SENSITIVE_OPERATION_AUDIT_ROUTE,
   memberAgentSensitiveOperationAuditRouteParamsSchema,
+  permissionModeAuditChangeSchema,
   type RequestCredential,
   type RequestCredentialKind,
   RISK_WINDOW_EXECUTION_LIMIT,
@@ -2507,6 +2513,7 @@ export {
   SENSITIVE_OPERATION_SOURCE_REQUIRED_CODE,
   type SensitiveOperation,
   type SensitiveOperationAuditEvent,
+  type SensitiveOperationAuditQuery,
   type SensitiveOperationAuthorization,
   type SensitiveOperationAuthorizationInput,
   type SensitiveOperationDecision,
@@ -2514,6 +2521,7 @@ export {
   type SensitiveOperationOutcomeInput,
   type SensitiveOperationSourceKind,
   sensitiveOperationAuditEventSchema,
+  sensitiveOperationAuditQuerySchema,
   sensitiveOperationAuthorizationInputSchema,
   sensitiveOperationAuthorizationSchema,
   sensitiveOperationDecisionSchema,
@@ -2967,6 +2975,7 @@ export {
   spaceTaskIdSchema,
   spaceTaskMutationReceiptSchema,
   spaceTaskPhaseSchema,
+  spaceTaskRequesterRepresentationSchema,
   spaceTaskResponseSchema,
   spaceTaskResultSchema,
   spaceTaskReviewSchema,

@@ -1010,7 +1010,7 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
     githubToolDefinition({
       actionId: "github.update_issue",
       description: githubWriteToolDescription(
-        "Update an issue's title, body, state, assignees, labels, or milestone. A confirmed closure can complete linked Space Tasks, submit them for review, or cancel them according to GitHub's closure reason. Read githubTaskSync and spaceTask before claiming a Task is closed. Pending synchronization does not mean the GitHub write failed."
+        "Update an issue's title, body, state, assignees, labels, or milestone. A confirmed state change updates linked Space Tasks' external issue observation. Closing an issue does not complete, submit, review, or cancel the Task; use its own workflow against the requested completion conditions. Read githubTaskSync and spaceTask for synchronization results. Pending synchronization does not mean the GitHub write failed."
       ),
       input: object({
         assignees: optional(array(string())),

@@ -76,7 +76,8 @@ export function enqueueSpaceTaskDeliveries(input: {
     enqueue("project_projection");
   }
   if (
-    (event.type === "assigned" && input.wakeAssignee) ||
+    ((event.type === "created" || event.type === "assigned") &&
+      input.wakeAssignee) ||
     (event.type === "result_submitted" && task.phase === "in_review") ||
     event.type === "changes_requested" ||
     event.type === "rework_continued"
@@ -134,12 +135,14 @@ export function isSpaceTaskDeliveryCurrent(
       current.phase === "in_review"
     );
   }
-  if (event.type === "assigned") {
+  if (event.type === "created" || event.type === "assigned") {
     const latestAssignment = repository
       .listEvents(task.taskId)
       .findLast(
         (candidate) =>
-          candidate.type === "assigned" || candidate.type === "reopened"
+          candidate.type === "created" ||
+          candidate.type === "assigned" ||
+          candidate.type === "reopened"
       );
     return (
       latestAssignment?.eventId === event.eventId &&

@@ -1,14 +1,15 @@
 ---
 id: space-guide-tab
-title: Set standing rules for a Space in the Guide tab
+title: Read and edit your Space guide in its own tab
 kind: new
-areas: ["spaces", "web", "center-agent", "agents"]
-audiences: ["members"]
+areas: ["spaces", "web", "desktop"]
+audiences: ["members", "admins"]
+publishedAt: 2026-10-30
+evidence: ["pr:330", "pr:342", "workflow:41045368474", "workflow:41049043954"]
 ---
 
-Spaces now have a Guide tab next to Messages, Tasks, and Files. Space owners
-can write and edit the Space's working rules right on the page, and every
-member can read them. Agents, including the Center Agent, read the guide each
-time they are woken in the Space and follow it, with OpenMeld's own rules and
-safety boundaries taking precedence. Guides can be up to 100,000 characters,
-and unsaved edits are kept until you save or choose to discard them.
+Ordinary Spaces now have a Guide tab after Files. Members can read the Space's
+standing rules, and Space owners can edit and save them in place. Drafts survive
+switching tabs and warn before leaving with unsaved changes. Guides support up
+to 100,000 characters and provide shared instructions for Agents working in the
+Space.

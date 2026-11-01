@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   isPostgresCheckViolation,
   isPostgresUniqueViolation,
@@ -18,6 +19,7 @@ import type {
   OrganizationDocument,
   OrganizationDocumentFolder,
   OrganizationDocumentKind,
+  OrganizationDocumentPromptContextResponse,
   OrganizationDocumentSummary,
   UpdateOrganizationDocumentBody,
 } from "@openmeld/schemas/types";
@@ -701,15 +703,20 @@ export function createOrganizationDocumentService(
       });
       return (result.rows ?? []).map((row) => toSummary(row, actor));
     },
-    async readPromptContext(organizationId: string): Promise<{
-      briefContent: string | null;
-      documentTitles: string[];
-    }> {
+    async readPromptContext(
+      organizationId: string,
+      includeSourceReferences = false
+    ): Promise<
+      Omit<
+        OrganizationDocumentPromptContextResponse,
+        "organizationId" | "organizationProtectedInformation"
+      >
+    > {
       const result = await dependencies.db.query<
-        Pick<OrganizationDocumentRow, "content" | "kind" | "title">
+        Pick<OrganizationDocumentRow, "id" | "content" | "kind" | "title">
       >({
         text: `
-            SELECT kind, title, content
+            SELECT id, kind, title, content
             FROM "openmeld"."organization_documents"
             WHERE organization_id = $1
             ORDER BY
@@ -720,9 +727,24 @@ export function createOrganizationDocumentService(
         values: [organizationId],
       });
       const rows = result.rows ?? [];
-      const briefContent = rows.find((row) => row.kind === "brief")?.content;
+      const brief = rows.find((row) => row.kind === "brief");
+      const briefContent = brief?.content;
       return {
         briefContent: briefContent?.trim() ? briefContent : null,
+        ...(includeSourceReferences
+          ? {
+              briefSource: brief?.content.trim()
+                ? {
+                    kind: "organization_document" as const,
+                    documentId: brief.id,
+                    state: "current" as const,
+                    version: createHash("sha256")
+                      .update(brief.content, "utf8")
+                      .digest("hex"),
+                  }
+                : null,
+            }
+          : {}),
         documentTitles: rows
           .filter((row) => row.content.trim().length > 0)
           .map((row) => row.title),

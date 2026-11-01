@@ -42,10 +42,10 @@ Requirements, from the OpenMeld Space chat:
 - **Center Agent end to end.** Not tested locally, because the Remote Agent's AI binding needs Cloudflare. Check on staging or prod after merge: write a Guide, wake the Center Agent, and confirm it follows the Guide.
 - **New-Space screen.** The temporary "just created" screen (`space-creation-conversation.tsx`) has no Guide tab. The normal Space page does. Decide whether to add it.
 - **PRs.**
-  - Guide: #330 is merged. Follow-up draft PR on `space-guide-save-and-leave` adds Save and leave, the alignment fix and the Changelog entry.
+  - Guide: #330 is merged. Follow-up PR #332 adds Save and leave and aligns the Guide with the Space header.
   - My push re-created the deleted remote branch `space-guide-tab` after the merge. It holds only merged commits; the user decides whether to delete it.
   - Message-time hover tooltip: separate draft PR #331, on branch `message-time-tooltip`.
-  - Changelog: both PRs have a draft entry, `changelog/entries/space-guide-tab.md` and `message-time-hover-date.md`. Publish them only after delivery is proven.
+  - Changelog: #352 published the original Guide tab entry with its October 30 delivery evidence. Save and leave has a separate draft, `changelog/entries/space-guide-save-and-leave.md`, pending its own delivery.
   - Open question: the screen shown right after creating a Space still has no Guide tab. The user hasn't decided yet.
 - **Local dev gotcha.** Switching branches while the dev stack runs breaks the workers with "No matching export ... packages/schemas/dist". Run `pnpm dev:stop`, then restart.
 - **Old test failures.** These fail on `main` too, so they weren't caused by this branch:
