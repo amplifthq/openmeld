@@ -43,7 +43,9 @@ export function createComputerPower(input: {
         revision = parsed.expectedRevision;
       }
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        enabled = true;
+      } else {
         loadError = new Error(
           "Could not read sleep prevention settings. Update or repair OpenMeld Service."
         );

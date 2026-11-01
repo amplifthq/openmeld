@@ -1,12 +1,12 @@
 {
-  "version": "0.3.285",
+  "version": "0.3.286",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Automatic Setup preserves saved controller switches and repairs missing launch contracts for enabled agents. Existing CLI commands and cloud APIs remain compatible."
+    "reason": "Packages the task sleep-prevention default with the existing Setup registration fixes. Existing CLI commands and cloud APIs remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Updates the bundled Setup registration logic without changing Service transport or Wake execution contracts."
+    "reason": "Enables sleep prevention during active local tasks when no preference exists. Explicit Off survives updates. Existing Services can continue working without a forced update."
   },
   "skills": {
     "updatePolicy": "available",
