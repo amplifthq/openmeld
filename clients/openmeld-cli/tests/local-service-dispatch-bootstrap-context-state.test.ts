@@ -40,7 +40,7 @@ const OPENCLAW_SESSION_KEY: AgentControllerConversationRef = {
   agentControllerRef: "builtin:openclaw",
   agentControllerConversationKind: "session",
   agentControllerConversationId:
-    "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345deadbeef",
+    "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v261626331323334356465616462656566",
 };
 
 const OPENCLAW_PREPARATION_DETAILS = {
@@ -277,7 +277,7 @@ describe("dispatch bootstrap execution state", () => {
       agentControllerRef: "builtin:openclaw",
       agentControllerConversationKind: "session",
       agentControllerConversationId:
-        "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345deadbeef",
+        "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v261626331323334356465616462656566",
     });
   });
 
@@ -301,7 +301,7 @@ describe("dispatch bootstrap execution state", () => {
   it("does not trust canonical-looking OpenClaw bindings owned by another agent", () => {
     const result = resolveProviderRuntimeDispatchContinuation({
       agentControllerConversationId:
-        "agent:openmeld-other-agent:openmeld-space:ops-room--abc12345deadbeef",
+        "agent:openmeld-other-agent:openmeld-space:ops-room--v261626331323334356465616462656566",
       agentControllerRef: "builtin:openclaw",
       currentPolicy: {},
       existingContextId: null,
@@ -325,7 +325,7 @@ describe("dispatch bootstrap execution state", () => {
       agentControllerRef: "builtin:openclaw",
       agentControllerConversationKind: "session",
       agentControllerConversationId:
-        "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345deadbeef",
+        "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v261626331323334356465616462656566",
     });
   });
 
@@ -355,7 +355,7 @@ describe("dispatch bootstrap execution state", () => {
     expect(
       resolveProviderRuntimeDispatchContinuation({
         agentControllerConversationId:
-          "agent:openmeld-other-agent:openmeld-space:ops-room--abc12345deadbeef",
+          "agent:openmeld-other-agent:openmeld-space:ops-room--v261626331323334356465616462656566",
         agentControllerRef: "builtin:openclaw",
         currentPolicy: {},
         existingContextId: "ctx-openclaw",
@@ -376,7 +376,7 @@ describe("dispatch bootstrap execution state", () => {
       agentControllerRef: "builtin:openclaw",
       agentControllerConversationKind: "session",
       agentControllerConversationId:
-        "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345deadbeef",
+        "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v261626331323334356465616462656566",
     });
   });
 

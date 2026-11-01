@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
 
+const OPENCLAW_SPACE_ID_SEGMENT_RE = /^v2(?:[0-9a-f]{2})+$/u;
+
 const CANONICAL_OPENCLAW_SPACE_SESSION_KEY_RE =
-  /^agent:[a-z0-9-]+:openmeld-space:[a-z0-9-]+--[a-z0-9]+$/u;
+  /^agent:[a-z0-9-]+:openmeld-space:[a-z0-9-]+--v2(?:[0-9a-f]{2})+$/u;
+
+// Segment for an id that carries no identity at all. It sits outside the
+// canonical format, so a stored key carrying it never classifies as owned;
+// it only keeps key derivation total for unidentifiable inputs.
+const UNIDENTIFIED_OPENCLAW_SPACE_ID_SEGMENT = "unidentified";
 
 export function buildOpenClawBootstrapAgentId(input: {
   openMeldProfileId: string;
@@ -68,8 +75,10 @@ export function buildOpenClawSpaceSessionKey(input: {
     input.spaceNameSnapshot ?? "space",
     "space"
   );
-  const spaceId = normalizeOpenClawSpaceId(input.spaceId);
-  return `agent:${normalizedAgentId}:openmeld-space:${spaceSlug}--${spaceId}`;
+  const spaceIdSegment =
+    encodeOpenClawSpaceId(input.spaceId) ??
+    UNIDENTIFIED_OPENCLAW_SPACE_ID_SEGMENT;
+  return `agent:${normalizedAgentId}:openmeld-space:${spaceSlug}--${spaceIdSegment}`;
 }
 
 export function isCanonicalOpenClawSpaceSessionKey(value: string): boolean {
@@ -92,15 +101,29 @@ export function slugifyOpenClawNamePart(
   return normalized || fallback;
 }
 
-export function normalizeOpenClawSpaceId(spaceId: string): string {
-  // The complete normalized id, never a prefix: ownership of a stored Space
-  // session is decided against this value, so two distinct Space ids must
-  // never normalize to the same key. The placeholder covers only an id with
-  // no alphanumeric characters at all, which carries no identity to embed.
-  const normalized = normalizeOptionalText(spaceId)
-    ?.toLowerCase()
-    .replace(/[^a-z0-9]+/gu, "");
-  return normalized && normalized.length > 0 ? normalized : "00000000";
+export function encodeOpenClawSpaceId(spaceId: string): string | null {
+  // Lossless hex encoding of the complete id, marked as format v2. Case,
+  // separators, and every other character survive, so two distinct Space
+  // ids never encode to the same segment; and because the segment is
+  // marked, a prefix-era segment (bare normalized text) can never be
+  // mistaken for this format. Ownership of a stored Space session is
+  // decided against this value. Only an id with no text at all carries
+  // no identity to encode, and returns null.
+  const normalized = normalizeOptionalText(spaceId);
+  if (!normalized) {
+    return null;
+  }
+  return `v2${Buffer.from(normalized, "utf8").toString("hex")}`;
+}
+
+export function decodeOpenClawSpaceId(segment: string): string | null {
+  if (!OPENCLAW_SPACE_ID_SEGMENT_RE.test(segment)) {
+    return null;
+  }
+  const decoded = Buffer.from(segment.slice(2), "hex").toString("utf8");
+  // Reject byte sequences that are not the encoding of a real id (invalid
+  // UTF-8 decodes with replacement characters and cannot round-trip).
+  return encodeOpenClawSpaceId(decoded) === segment ? decoded : null;
 }
 
 function normalizeProfileName(profileName: string): string {

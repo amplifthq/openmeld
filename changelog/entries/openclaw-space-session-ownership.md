@@ -7,8 +7,8 @@ audiences: ["members", "operators"]
 ---
 
 OpenClaw-backed Spaces now key and recognize their Agent Controller sessions
-by the complete Space id instead of an eight-character prefix, so a Wake can
-no longer resume a different Space's session when two Space ids begin alike,
-and short Space ids no longer collapse onto one shared placeholder key. A
-session stored under the earlier prefix form is treated as legacy, so each
+by a lossless encoding of the complete Space id instead of an eight-character
+prefix, so a Wake can no longer resume a different Space's session when two
+Space ids begin alike, differ only in separators or letter case, or are short.
+A session stored under an earlier key form is treated as legacy, so each
 Space derives its own session key on its next Wake.

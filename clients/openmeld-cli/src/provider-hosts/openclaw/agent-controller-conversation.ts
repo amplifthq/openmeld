@@ -1,7 +1,11 @@
-import { normalizeOpenClawSpaceId, slugifyOpenClawNamePart } from "./naming";
+import { decodeOpenClawSpaceId, slugifyOpenClawNamePart } from "./naming";
 
+// Only the current key format parses: the Space id segment must be the
+// marked lossless encoding from naming.ts. Prefix-era segments and the
+// unidentified segment do not parse, so a stored key carrying one can
+// never classify as owned.
 const OPENCLAW_SPACE_SESSION_KEY_RE =
-  /^agent:(?<agentId>[a-z0-9-]+):openmeld-space:(?<spaceSlug>[a-z0-9-]+)--(?<spaceId>[a-z0-9]+)$/u;
+  /^agent:(?<agentId>[a-z0-9-]+):openmeld-space:(?<spaceSlug>[a-z0-9-]+)--(?<spaceIdSegment>v2(?:[0-9a-f]{2})+)$/u;
 
 export type OpenClawAgentControllerConversationClassification =
   | "missing"
@@ -23,7 +27,9 @@ export function parseOpenClawSpaceSessionKey(
     return null;
   }
   const agentId = normalizeOptionalText(match.groups.agentId);
-  const spaceId = normalizeOptionalText(match.groups.spaceId);
+  const spaceId = match.groups.spaceIdSegment
+    ? decodeOpenClawSpaceId(match.groups.spaceIdSegment)
+    : null;
   const spaceSlug = normalizeOptionalText(match.groups.spaceSlug);
   if (!(agentId && spaceId && spaceSlug)) {
     return null;
@@ -50,9 +56,13 @@ export function matchesOwnedOpenClawSpaceSessionKey(input: {
   if (!normalizedAgentId) {
     return false;
   }
+  const normalizedSpaceId = normalizeOptionalText(input.spaceId);
+  if (!normalizedSpaceId) {
+    return false;
+  }
   return (
     parsed.agentId === slugifyOpenClawNamePart(normalizedAgentId, "agent") &&
-    parsed.spaceId === normalizeOpenClawSpaceId(input.spaceId)
+    parsed.spaceId === normalizedSpaceId
   );
 }
 

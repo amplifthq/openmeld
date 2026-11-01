@@ -73,9 +73,36 @@ describe("openclaw naming helpers", () => {
     });
 
     expect(sessionKey).toBe(
-      "agent:openmeld-openclaw-phase-one:openmeld-space:yc-agent-lab--f03030a4427eeda5cbcb6220dc9f3e07084d084fd8b2ea6eb7dcaecaab7d82ef"
+      "agent:openmeld-openclaw-phase-one:openmeld-space:yc-agent-lab--v266303330333061343432376565646135636263623632323064633966336530373038346430383466643862326561366562376463616563616162376438326566"
     );
     expect(isCanonicalOpenClawSpaceSessionKey(sessionKey)).toBe(true);
+  });
+
+  it("builds distinct session keys for space ids that differ only in separator placement or case", () => {
+    const first = buildOpenClawSpaceSessionKey({
+      agentId: "openmeld-openclaw-phase-one",
+      spaceId: "ab-c",
+      spaceNameSnapshot: "Ops Room",
+    });
+    const second = buildOpenClawSpaceSessionKey({
+      agentId: "openmeld-openclaw-phase-one",
+      spaceId: "a-bc",
+      spaceNameSnapshot: "Ops Room",
+    });
+    const upper = buildOpenClawSpaceSessionKey({
+      agentId: "openmeld-openclaw-phase-one",
+      spaceId: "AB-C",
+      spaceNameSnapshot: "Ops Room",
+    });
+
+    expect(first).toBe(
+      "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v261622d63"
+    );
+    expect(second).toBe(
+      "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v2612d6263"
+    );
+    expect(first).not.toBe(second);
+    expect(upper).not.toBe(first);
   });
 
   it("builds distinct session keys for space ids that share an eight-character prefix", () => {
@@ -106,8 +133,36 @@ describe("openclaw naming helpers", () => {
     });
 
     expect(first).not.toBe(second);
-    expect(first).not.toContain("00000000");
-    expect(second).not.toContain("00000000");
+    expect(first).not.toContain("unidentified");
+    expect(second).not.toContain("unidentified");
+  });
+
+  it("marks keys for unidentifiable space ids as unidentified instead of a shared placeholder", () => {
+    for (const spaceId of ["", "   "]) {
+      const sessionKey = buildOpenClawSpaceSessionKey({
+        agentId: "openmeld-openclaw-phase-one",
+        spaceId,
+        spaceNameSnapshot: "Ops Room",
+      });
+
+      expect(sessionKey).toBe(
+        "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--unidentified"
+      );
+      expect(isCanonicalOpenClawSpaceSessionKey(sessionKey)).toBe(false);
+    }
+  });
+
+  it("does not treat prefix-era or unmarked full-id session keys as canonical", () => {
+    expect(
+      isCanonicalOpenClawSpaceSessionKey(
+        "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345"
+      )
+    ).toBe(false);
+    expect(
+      isCanonicalOpenClawSpaceSessionKey(
+        "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345deadbeef"
+      )
+    ).toBe(false);
   });
 
   it("falls back to a safe default slug when the space name is missing", () => {
@@ -118,7 +173,7 @@ describe("openclaw naming helpers", () => {
         spaceNameSnapshot: null,
       })
     ).toBe(
-      "agent:openmeld-openclaw-phase-one:openmeld-space:space--abc12345deadbeef"
+      "agent:openmeld-openclaw-phase-one:openmeld-space:space--v261626331323334356465616462656566"
     );
   });
 });
