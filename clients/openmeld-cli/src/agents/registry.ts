@@ -705,7 +705,48 @@ export async function registerUnselectedBuiltinAgentsTurnedOff(input: {
 export async function reconcileNewRunnableBuiltinAgentsForSetup(
   input: { states?: readonly AgentTargetState[] } = {}
 ): Promise<SetupLocalAgentRegistrationReconciliation> {
-  return await reconcileNewRunnableBuiltinAgentRegistrations(input);
+  const states = input.states ?? (await listAgentTargetStates());
+  const result = await reconcileNewRunnableBuiltinAgentRegistrations({
+    states,
+  });
+  const repairs = new Map<string, RuntimeAgentControllerLaunchContract>();
+  for (const state of states) {
+    if (
+      state.targetKind !== "builtin" ||
+      state.lifecycleStatus !== "active" ||
+      !state.selectable ||
+      !state.registration?.enabled ||
+      state.registration.launchContract ||
+      state.launchStatus !== "needs_repair"
+    ) {
+      continue;
+    }
+    const install = await resolveBuiltinControllerInstallResolution(state);
+    if (install.status === "ready" && install.launchContract) {
+      repairs.set(state.agentId, install.launchContract);
+    }
+  }
+  if (repairs.size > 0) {
+    await updateAgentRegistrations((current) =>
+      current.map((registration) => {
+        const launchContract = repairs.get(registration.agentId);
+        // The owner can disable the controller or choose an install during discovery.
+        if (
+          !(launchContract && registration.enabled) ||
+          registration.launchContract
+        ) {
+          return registration;
+        }
+        result.preservedEnabledAgentIds.push(registration.agentId);
+        return {
+          ...registration,
+          launchContract,
+          updatedAt: new Date().toISOString(),
+        };
+      })
+    );
+  }
+  return result;
 }
 
 export async function listAgentCustomTargets(): Promise<AgentCustomTarget[]> {

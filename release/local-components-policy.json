@@ -1,12 +1,12 @@
 {
-  "version": "0.3.284",
+  "version": "0.3.285",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Refreshes the CLI bundle for the shared Space-memory schema. Existing workstation commands and Wake contracts remain compatible."
+    "reason": "Automatic Setup preserves saved controller switches and repairs missing launch contracts for enabled agents. Existing CLI commands and cloud APIs remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Refreshes the bundled shared schema. The hosted memory change does not raise the workstation protocol floor."
+    "reason": "Updates the bundled Setup registration logic without changing Service transport or Wake execution contracts."
   },
   "skills": {
     "updatePolicy": "available",
