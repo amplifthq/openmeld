@@ -1,4 +1,5 @@
 import {
+  getSpaceMetaResponseSchema,
   patchSpaceMetaBodySchema,
   patchSpaceMetaResponseSchema,
 } from "@openmeld/schemas";
@@ -6,7 +7,7 @@ import type { SpaceMeta } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
 import { currentSpaceAccessHeaders } from "./access-version";
 import { buildSpaceMetaPath } from "./routes";
-import type { UpdateSpaceMetaInput } from "./types";
+import type { SpaceRequestInput, UpdateSpaceMetaInput } from "./types";
 
 export async function updateSpaceMeta(
   client: OpenMeldApiClientFoundation,
@@ -46,6 +47,25 @@ export async function updateSpaceMeta(
       ? {}
       : { spacePassword: input.spacePassword }),
     schema: patchSpaceMetaResponseSchema,
+    invalidMessage: "invalid Space metadata response",
+  });
+}
+
+export async function getSpaceMeta(
+  client: OpenMeldApiClientFoundation,
+  input: SpaceRequestInput
+): Promise<SpaceMeta> {
+  return await client.requestJson({
+    url: buildSpaceMetaPath(input.spaceId),
+    operation: "space.meta.read",
+    headers: currentSpaceAccessHeaders(),
+    requestContext: input.requestContext,
+    signal: input.signal,
+    timeoutMs: input.timeoutMs,
+    ...(input.spacePassword === undefined
+      ? {}
+      : { spacePassword: input.spacePassword }),
+    schema: getSpaceMetaResponseSchema,
     invalidMessage: "invalid Space metadata response",
   });
 }

@@ -1984,6 +1984,44 @@ describe("OpenMeldServiceCard", () => {
 		expect(screen.queryByText("hash-next")).toBeNull();
 	});
 
+	it("keeps saved connection reports open through loading and status reconciliation", () => {
+		const computer = buildComputer();
+		const target = computer.executionTargets[0];
+		if (!target) {
+			throw new Error(
+				"Expected the test computer to have a saved execution target"
+			);
+		}
+		computer.executionTargets.push({ ...target, runtimeLane: "canary" });
+		const { rerender } = renderOpenMeldServiceCard({
+			computer,
+			currentLocalRuntimeReplyReadiness: null,
+			replyReadiness: null,
+		});
+		expect(screen.getByText("Loading OpenMeld status...")).toBeTruthy();
+		const details = screen.getByRole("button", { name: "Technical details" });
+		expect(details.getAttribute("aria-expanded")).toBe("false");
+		fireEvent.click(details);
+		fireEvent.click(screen.getByText("Connection reports"));
+		expect(screen.queryByText("Connection history")).toBeNull();
+
+		rerender(
+			buildOpenMeldServiceCard({
+				computer,
+				currentLocalRuntimeReplyReadiness:
+					buildCurrentLocalRuntimeReplyReadiness(),
+				isReconcilingStatus: true,
+				replyReadiness: READY_REPLY_READINESS,
+			})
+		);
+		expect(screen.getByText("Checking OpenMeld status...")).toBeTruthy();
+		expect(
+			screen.getByText("Connection reports").closest("details")?.open
+		).toBe(true);
+		expect(screen.getByText("Connection history")).toBeTruthy();
+		expect(screen.queryByText("Connected")).toBeNull();
+	});
+
 	it("does not present cached component updates as current while status is reconciling", () => {
 		renderOpenMeldServiceCard({
 			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
@@ -2348,7 +2386,7 @@ function renderOpenMeldServiceCard(input: {
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	hasSelectedEnvironment?: boolean;
 	isReconcilingStatus?: boolean;
-	replyReadiness: ComputerReplyReadiness;
+	replyReadiness: ComputerReplyReadiness | null;
 }) {
 	return render(buildOpenMeldServiceCard(input), {
 		wrapper: TestQueryClientProvider,
@@ -2362,7 +2400,7 @@ function buildOpenMeldServiceCard(input: {
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	hasSelectedEnvironment?: boolean;
 	isReconcilingStatus?: boolean;
-	replyReadiness: ComputerReplyReadiness;
+	replyReadiness: ComputerReplyReadiness | null;
 }) {
 	return (
 		<TooltipProvider>

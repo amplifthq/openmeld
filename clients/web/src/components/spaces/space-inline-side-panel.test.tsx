@@ -5,7 +5,7 @@ import {
 	render,
 	screen,
 } from "@testing-library/react";
-import { useState } from "react";
+import { cloneElement, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { notifyResizeObservers } from "#/test-support/dom-observers.setup";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
@@ -169,25 +169,44 @@ describe("SpaceInlineSidePanel", () => {
 		expect(screen.getByRole("complementary", { name: "Thread" })).toBeTruthy();
 	});
 
-	it("removes content and the resize rail from focus order while closed", () => {
-		render(
+	it("preserves child state while hiding closed content and its resize rail", () => {
+		const panel = (
 			<SpaceInlineSidePanel
 				ariaLabel="Members"
 				id="space-members-panel"
 				maxWidth="32rem"
 				minWidth="20rem"
 				onWidthChange={() => undefined}
-				open={false}
+				open
 				resizeHandleLabel="Resize Members panel"
 				width="22rem"
 			>
+				<input aria-label="Member note" defaultValue="" />
 				<button type="button">Member action</button>
 			</SpaceInlineSidePanel>
 		);
+		const view = render(panel);
+		const note = screen.getByRole("textbox", { name: "Member note" });
+		fireEvent.change(note, { target: { value: "Keep this note." } });
+		expect(
+			screen.getByRole("separator", { name: "Resize Members panel" })
+		).toBeTruthy();
+
+		view.rerender(cloneElement(panel, { open: false }));
 
 		expect(
 			screen.queryByRole("separator", { name: "Resize Members panel" })
 		).toBeNull();
 		expect(screen.queryByRole("button", { name: "Member action" })).toBeNull();
+		expect(screen.queryByRole("textbox", { name: "Member note" })).toBeNull();
+		expect(note.isConnected).toBe(true);
+
+		view.rerender(panel);
+		expect(screen.getByRole("textbox", { name: "Member note" })).toBe(note);
+		expect((note as HTMLInputElement).value).toBe("Keep this note.");
+		expect(screen.getByRole("button", { name: "Member action" })).toBeTruthy();
+		expect(
+			screen.getByRole("separator", { name: "Resize Members panel" })
+		).toBeTruthy();
 	});
 });

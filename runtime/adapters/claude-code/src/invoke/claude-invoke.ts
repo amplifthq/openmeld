@@ -280,6 +280,9 @@ function invokeClaudeOnceWithAgentSdk(
       ? { onInteractionRequest: input.onInteractionRequest }
       : {}),
     ...(input.onPreview ? { onPreview: input.onPreview } : {}),
+    ...(input.onProcessControlEvent
+      ? { onProcessControlEvent: input.onProcessControlEvent }
+      : {}),
     ...(input.onRuntimeEvent ? { onRuntimeEvent: input.onRuntimeEvent } : {}),
     prompt: input.prompt,
     ...(input.registerAgentSdkQuery

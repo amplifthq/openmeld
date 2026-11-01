@@ -9,6 +9,7 @@ import {
 export function SpaceViewTabs(input: {
 	activeView: SpaceView;
 	className?: string;
+	guideEnabled?: boolean;
 	idPrefix: string;
 	onViewChange: (view: SpaceView) => void;
 	tasksEnabled?: boolean;
@@ -32,6 +33,9 @@ export function SpaceViewTabs(input: {
 			<TabsSubtleItem index={1} label="Graph" labelClassName="text-sm" />
 			*/}
 			<TabsSubtleItem index={2} label="Files" labelClassName="text-sm" />
+			{input.guideEnabled ? (
+				<TabsSubtleItem index={4} label="Guide" labelClassName="text-sm" />
+			) : null}
 		</TabsSubtle>
 	);
 }

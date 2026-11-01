@@ -49,6 +49,7 @@ import {
   type GitWorkingCopyLocation,
 } from "./github-working-copy-computer";
 import { advanceGitPackTransfer } from "./github-working-copy-transfer";
+import { requireCenterAgentCodeTarget } from "./work-target";
 export const REMOTE_AGENT_GIT_STORAGE_PREFIX = "github-working-copy:v2:";
 // Code Mode stops its script after 60 seconds. Leave time to import the blobs
 // already transferred and return a truthful preparing result.
@@ -1070,6 +1071,7 @@ export async function publishCheckout(
   if (!record) {
     throw new Error("github.publish.checkout_required");
   }
+  await requireCenterAgentCodeTarget(input, record.intent);
   await authorizeCheckout(input, record, "write");
   const remote = provider(input, record, signal);
   if ((await remote.repository()).id !== record.repositoryId) {

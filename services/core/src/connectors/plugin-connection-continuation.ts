@@ -626,6 +626,13 @@ function buildContinuationText(
   >,
   approvedAction?: { requestId: string; intent: PluginActionRequestIntent }
 ) {
+  if (approvedAction?.intent.recovery) {
+    const provider =
+      approvedAction.intent.service === "linear" ? "Linear" : "GitHub";
+    // The private, source-bound approval is replayed before the model runs.
+    // The human's visible receipt carries neither executable input nor IDs.
+    return `Approved creating the ${provider} issue. Continue the original request.`;
+  }
   return [
     approvedAction
       ? "Continue my original request."

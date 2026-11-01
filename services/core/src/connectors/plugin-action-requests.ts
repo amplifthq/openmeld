@@ -42,6 +42,7 @@ import { readConnectorConnectionForExecution } from "./connector-connection-repo
 import { pluginPermissionAllows, readPluginAccess } from "./plugin-access";
 import { continuePluginConnection } from "./plugin-connection-continuation";
 import { readPluginConnectionExecutionBinding } from "./plugin-connection-execution-binding";
+import { readPluginIssuePreview } from "./plugin-issue-preview";
 
 const REQUEST_LIFETIME_MS = 60 * 60 * 1000;
 const TARGET_FIELD =
@@ -434,7 +435,34 @@ export async function rpcPluginActionRequest(
       status: 404,
     });
   }
-  const current = await projectRequest(db, row);
+  const projectDetail = async (detailRow: RequestRow) => {
+    const view = await projectRequest(db, detailRow);
+    if (
+      parsed.data.includeIssuePreview &&
+      context.actorContext.profileKind === "human" &&
+      context.actorContext.callerPrincipalId === member.userId &&
+      (view.state === "pending" || view.state === "approved")
+    ) {
+      const intent = pluginActionRequestIntentSchema.parse(
+        JSON.parse(detailRow.request_json)
+      );
+      const issuePreview = await readPluginIssuePreview(env, intent);
+      // A provider read cannot retain disclosure after access changes or expiry.
+      const latest = await requireRequest(db, detailRow.id);
+      const state = await currentState(db, latest, intent);
+      if (state !== view.state) {
+        return projectRequest(db, latest);
+      }
+      if (issuePreview) {
+        return { ...view, issuePreview };
+      }
+    }
+    return view;
+  };
+  const current =
+    command.operation === "read"
+      ? await projectDetail(row)
+      : await projectRequest(db, row);
   if (command.operation === "read") {
     return current;
   }
@@ -463,7 +491,7 @@ export async function rpcPluginActionRequest(
     throw denied("request_not_found", "This request is no longer available.");
   }
   await continueApprovedRequest(env, db, updated);
-  return projectRequest(db, (await readRequest(db, row.id)) ?? updated);
+  return projectDetail((await readRequest(db, row.id)) ?? updated);
 }
 
 export async function listPluginActionRequests(

@@ -24,6 +24,7 @@ import {
 } from "../src/local-service/carrier/service-runner";
 import { DAEMON_STREAM_CONNECT_TIMEOUT_MS } from "../src/local-service/core/constants";
 import type { RouteCatalog } from "../src/local-service/core/types";
+import { ExecutionHostError } from "../src/local-service/execution-host/channel";
 import type { launchExecutionHost } from "../src/local-service/execution-host/launch";
 import type {
   ExecutionHostEvent,
@@ -823,7 +824,10 @@ describe("local service runner dual-write", () => {
     );
   });
 
-  it("acknowledges a controlled shutdown only after the active socket session drains", async () => {
+  it.each([
+    "shutdownHandler",
+    "shutdownIfIdleHandler",
+  ])("acknowledges a controlled shutdown only after the active socket session drains (%s)", async (handler) => {
     const socketSessionStarted = Promise.withResolvers<void>();
     let observedStopCause: string | null = null;
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
@@ -852,9 +856,9 @@ describe("local service runner dual-write", () => {
       safeToSwitch: true,
       unacknowledgedResultCount: 0,
     });
-    const shutdownResult = await context.shutdownHandler({
+    const shutdownResult = await context[handler]({
       gracePeriodMs: 5000,
-      mode: "graceful",
+      ...(handler === "shutdownHandler" ? { mode: "graceful" } : {}),
     });
     await loop;
 
@@ -865,6 +869,157 @@ describe("local service runner dual-write", () => {
       mode: "graceful",
     });
     expect(clearDaemonServiceRuntimeStateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    "busy",
+    "reconnect",
+    "disconnected",
+    "stopping",
+  ])("keeps idle-stop admission with its Host through %s", async (state) => {
+    const entered = Promise.withResolvers<void>();
+    const decision = Promise.withResolvers<boolean>();
+    let stopped = false;
+    const markStopping = vi.fn(() => {
+      stopped = true;
+    });
+    const oldSession = vi.fn();
+    const replacementSession = vi.fn();
+    const admitted = vi.fn();
+    const coordinator = createControlledShutdownCoordinator({
+      drainHost: async () => undefined,
+      hasUndrainedWork: () => false,
+      isStopRequested: () => stopped,
+      markStopping,
+    });
+    coordinator.attachSession(oldSession);
+    const request = coordinator.requestIfIdle({
+      gracePeriodMs: 2000,
+      onAdmitted: admitted,
+      tryBeginDrain: async () => {
+        entered.resolve();
+        return await decision.promise;
+      },
+    });
+    await entered.promise;
+    expect(coordinator.isDraining()).toBe(false);
+    if (state !== "busy") {
+      coordinator.detachSession(oldSession);
+    }
+    if (state === "reconnect") {
+      coordinator.attachSession(replacementSession);
+    }
+    if (state === "stopping") {
+      stopped = true;
+    }
+    decision.resolve(state !== "busy");
+    if (state === "reconnect") {
+      await vi.waitFor(() => expect(replacementSession).toHaveBeenCalledOnce());
+      coordinator.handleSessionCompleted();
+    }
+    expect(await request).toMatchObject({ accepted: state !== "busy" });
+    expect(oldSession).not.toHaveBeenCalled();
+    expect(markStopping).toHaveBeenCalledTimes(
+      state === "busy" || state === "stopping" ? 0 : 1
+    );
+    expect(admitted).toHaveBeenCalledTimes(state === "busy" ? 0 : 1);
+  });
+
+  it.each([
+    "accepted",
+    "failed",
+  ])("shares the %s admission result when a concurrent idle request sees host.draining", async (outcome) => {
+    const entered = Promise.withResolvers<void>();
+    const decision = Promise.withResolvers<boolean>();
+    const admitted = Promise.withResolvers<void>();
+    let enteredCount = 0;
+    let stopped = false;
+    const markStopping = vi.fn(() => {
+      stopped = true;
+    });
+    const coordinator = createControlledShutdownCoordinator({
+      drainHost: async () => undefined,
+      hasUndrainedWork: () => false,
+      isStopRequested: () => stopped,
+      markStopping,
+    });
+    coordinator.attachSession(() => undefined);
+    const onAdmitted = vi.fn(() => admitted.resolve());
+    const results = Promise.allSettled(
+      [0, 1].map(() =>
+        coordinator.requestIfIdle({
+          gracePeriodMs: 2000,
+          tryBeginDrain: async () => {
+            if (++enteredCount === 2) {
+              entered.resolve();
+              throw new ExecutionHostError(
+                "host.draining",
+                "The Host already has an admitted stop."
+              );
+            }
+            return await decision.promise;
+          },
+          onAdmitted,
+        })
+      )
+    );
+    await entered.promise;
+    if (outcome === "failed") {
+      const error = new ExecutionHostError(
+        "host.channel_closed",
+        "Host reply lost"
+      );
+      decision.reject(error);
+      expect(await results).toEqual([
+        { status: "rejected", reason: error },
+        { status: "rejected", reason: error },
+      ]);
+      expect(onAdmitted).not.toHaveBeenCalled();
+      expect(markStopping).not.toHaveBeenCalled();
+      expect(coordinator.isDraining()).toBe(false);
+      return;
+    }
+    decision.resolve(true);
+    await admitted.promise;
+    expect(coordinator.isDraining()).toBe(true);
+    coordinator.handleSessionCompleted();
+    expect(await results).toEqual([
+      {
+        status: "fulfilled",
+        value: { accepted: true, gracePeriodMs: 2000, mode: "graceful" },
+      },
+      {
+        status: "fulfilled",
+        value: { accepted: true, gracePeriodMs: 2000, mode: "graceful" },
+      },
+    ]);
+    expect(onAdmitted).toHaveBeenCalledTimes(2);
+    expect(markStopping).toHaveBeenCalledOnce();
+  });
+
+  it("does not accept host.draining without an overlapping idle admission", async () => {
+    const error = new ExecutionHostError(
+      "host.draining",
+      "Host already draining"
+    );
+    const markStopping = vi.fn();
+    const onAdmitted = vi.fn();
+    const coordinator = createControlledShutdownCoordinator({
+      drainHost: async () => undefined,
+      hasUndrainedWork: () => false,
+      isStopRequested: () => false,
+      markStopping,
+    });
+    await expect(
+      coordinator.requestIfIdle({
+        gracePeriodMs: 2000,
+        tryBeginDrain: () => Promise.reject(error),
+        onAdmitted,
+      })
+    ).rejects.toBe(error);
+    expect(onAdmitted).not.toHaveBeenCalled();
+    expect(markStopping).not.toHaveBeenCalled();
+    expect(coordinator.isDraining()).toBe(false);
   });
 
   it("ends a disconnected stop only after the Host has no local work", async () => {

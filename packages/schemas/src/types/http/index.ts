@@ -7,6 +7,14 @@ export type {
   SpaceAgentWorkloadInput,
 } from "../../schemas/http/agent-workload";
 export type {
+  CenterAgentWorkTarget,
+  CenterAgentWorkTargetRecord,
+  CenterAgentWorkTargetRequest,
+  CenterAgentWorkTargetResponse,
+  CenterAgentWorkTargetSelection,
+  CenterAgentWorkTargetSourceInput,
+} from "../../schemas/http/center-agent-work-target";
+export type {
   PluginActionRecoveryInput,
   ReadApprovedPluginActionInput,
   ReadApprovedPluginActionResponse,
@@ -349,6 +357,10 @@ export type {
   CenterAgentDirectMessageSpaceProjection,
   GetCenterAgentDirectMessageSpaceProjectionResponse,
 } from "./center-agent-direct-message-space";
+export type {
+  CenterAgentReadSpaceGuideRequest,
+  CenterAgentReadSpaceGuideResponse,
+} from "./center-agent-knowledge";
 export type {
   CenterAgentMemberResearchBatch,
   CenterAgentMemberResearchBatchStatus,
@@ -709,6 +721,7 @@ export type {
   OrganizationDocumentKind,
   OrganizationDocumentPromptContextResponse,
   OrganizationDocumentPromptContextRpcInput,
+  OrganizationDocumentSourceReference,
   OrganizationDocumentSummary,
   ProfileReportType,
   RecordCenterAgentMemberResearchComputerFileResponse,
@@ -1289,6 +1302,7 @@ export type {
   SpaceTaskId,
   SpaceTaskMutationReceipt,
   SpaceTaskPhase,
+  SpaceTaskRequesterRepresentation,
   SpaceTaskResponse,
   SpaceTaskResult,
   SpaceTaskReview,

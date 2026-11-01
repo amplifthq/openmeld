@@ -16,6 +16,25 @@ describe("daemon control-plane schema", () => {
     expect(result.success).toBe(true);
   });
 
+  it.each([
+    [{}, true],
+    [{ mode: "force" }, false],
+    [
+      {
+        accountAdmissionId: "45fa0c3e-188b-4bd8-b709-1dd5075bed7c",
+      },
+      false,
+    ],
+  ])("validates an idle-only shutdown without force or account handoff: %j", (payload, accepted) => {
+    expect(
+      openMeldDaemonControlPlaneRequestSchema.safeParse({
+        v: 1,
+        command: "shutdown_if_idle",
+        payload,
+      }).success
+    ).toBe(accepted);
+  });
+
   it("accepts a strict Service update readiness request and response", () => {
     expect(
       openMeldDaemonControlPlaneRequestSchema.safeParse({

@@ -46,7 +46,7 @@ it.skipIf(process.env.OPENMELD_LIVE_MEMORY_EVAL !== "dev-synthetic")(
       let attempts = 0;
       while (Date.now() - started < 120_000) {
         attempts++;
-        const results = await adapter.search({
+        const { items: results } = await adapter.search({
           ref,
           limit: 6,
           query: "Cedar Kite weekly progress report format preference",

@@ -69,6 +69,17 @@ describe("SensitiveOperationAuditSection", () => {
 					operation: "default_project_write",
 					outcome: "failed",
 				}),
+				event("c", NOW - 3 * HOUR_MS, {
+					operation: "binding_permission_mode",
+					permissionModeChange: {
+						bindingId: "binding-a",
+						previousMode: "claude-code:auto",
+						mode: "claude-code:dontAsk",
+						previousRevision: 1,
+						revision: 2,
+						requestId: "request-a",
+					},
+				}),
 			],
 			isPending: false,
 			isError: false,
@@ -82,6 +93,7 @@ describe("SensitiveOperationAuditSection", () => {
 		expect(screen.getByText("Working folder changed")).toBeTruthy();
 		expect(screen.getByText("Default Project changed")).toBeTruthy();
 		expect(screen.getByText("Failed")).toBeTruthy();
+		expect(screen.getByText("Auto mode → Don't ask")).toBeTruthy();
 		expect(screen.queryByText("Done")).toBeNull();
 		expect(screen.getAllByText("1h ago").length).toBe(1);
 		vi.useRealTimers();

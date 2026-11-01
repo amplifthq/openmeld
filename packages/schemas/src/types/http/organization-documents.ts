@@ -129,3 +129,6 @@ export type OrganizationDocumentPromptContextRpcInput = z.infer<
 export type OrganizationDocumentPromptContextResponse = z.infer<
   Schemas["organizationDocumentPromptContextResponseSchema"]
 >;
+export type OrganizationDocumentSourceReference = z.infer<
+  Schemas["organizationDocumentSourceReferenceSchema"]
+>;

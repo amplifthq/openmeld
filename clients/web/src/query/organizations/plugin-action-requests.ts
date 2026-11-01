@@ -31,6 +31,7 @@ export function usePluginActionRequest(requestId: string) {
 		queryFn: () =>
 			api.requestAuthorization({
 				organizationId,
+				includeIssuePreview: true,
 				command: { operation: "read", requestId },
 			}),
 		retry: false,
@@ -42,7 +43,11 @@ export function usePluginActionRequest(requestId: string) {
 	});
 	const mutation = useMutation({
 		mutationFn: (command: PluginActionRequestCommand) =>
-			api.requestAuthorization({ organizationId, command }),
+			api.requestAuthorization({
+				organizationId,
+				command,
+				includeIssuePreview: true,
+			}),
 		retry: false,
 		gcTime: 0,
 		onSuccess: (request) => client.setQueryData(queryKey, request),

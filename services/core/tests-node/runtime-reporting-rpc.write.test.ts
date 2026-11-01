@@ -1049,6 +1049,7 @@ function createAvailableUsageInterface() {
     schemaVersion: 1 as const,
     skills: [],
     status: "ready" as const,
+    usageAdmission: { blocksNewWork: false, observedAt },
     usageLimits: [
       {
         key: "five_hour",

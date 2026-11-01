@@ -460,6 +460,8 @@ import {
 import { app } from "./app";
 import { rpcCenterAgentAuthorizeAnonymousMemberTool } from "./center-agent/application/anonymous-member-request";
 import { rpcCenterAgentRequestMemberAttention } from "./center-agent/application/center-agent-attention-rpc";
+import { centerAgentReadSpaceGuide } from "./center-agent/application/space-guide";
+import { centerAgentWorkTarget } from "./center-agent/application/work-target";
 import {
   getCenterAgentMemberResearchStatus,
   runCenterAgentMemberResearchTick,
@@ -3433,6 +3435,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       readApprovedPluginAction(this.env, input)
     );
   }
+  centerAgentWorkTarget(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      centerAgentWorkTarget(this.env, input)
+    );
+  }
+  centerAgentReadSpaceGuide(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      centerAgentReadSpaceGuide(this.env, input)
+    );
+  }
   suggestPermissionMode(input: unknown) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcSuggestPermissionMode(this.env, input)
@@ -4462,8 +4474,17 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   submitRuntimeAgentControllerReports(
     input: SubmitRuntimeAgentControllerReportsInput
   ): Promise<SubmitRuntimeAgentControllerReportsResponse> {
-    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
-      rpcSubmitRuntimeAgentControllerReportsWithMemberAgents(this.env, input)
+    return tracing.enterSpan("core.controller-reports.submit", (span) =>
+      withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+        const response =
+          await rpcSubmitRuntimeAgentControllerReportsWithMemberAgents(
+            this.env,
+            input,
+            (stage) => span.setAttribute("openmeld.stage", stage)
+          );
+        span.setAttribute("openmeld.stage", "postgres_cleanup");
+        return response;
+      })
     );
   }
   syncMemberAgents(

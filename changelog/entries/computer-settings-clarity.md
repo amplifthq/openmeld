@@ -11,7 +11,8 @@ when no preference has been saved, keeps the computer awake only during local
 tasks, and preserves an explicit choice to turn it off.
 
 Update records, software versions, and connection history sit together under
-Technical details. Current connection status and update failures remain visible
+Technical details. Saved connection reports remain available while the current
+status loads or refreshes. Current connection status and update failures remain visible
 without the diagnostic identifiers and internal explanations.
 
 Local agents appear before token usage, keeping agent availability and controls

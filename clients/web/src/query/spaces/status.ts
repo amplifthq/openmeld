@@ -25,6 +25,8 @@ export const spaceQueryKeys = {
 		[...allSpaceBootstrapQueryKey, spaceId, openMeldProfileId ?? null] as const,
 	status: (spaceId: string, openMeldProfileId?: string | null) =>
 		["spaces", "status", spaceId, openMeldProfileId ?? null] as const,
+	meta: (spaceId: string, openMeldProfileId?: string | null) =>
+		["spaces", "meta", spaceId, openMeldProfileId ?? null] as const,
 	memberDirectoryDisplay: (
 		spaceId: string,
 		openMeldProfileId?: string | null

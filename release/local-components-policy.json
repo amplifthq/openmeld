@@ -1,15 +1,15 @@
 {
-  "version": "0.3.279",
+  "version": "0.3.286",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Packages default-on task sleep prevention without changing CLI commands or public contracts. Existing clients remain compatible."
+    "reason": "Packages the task sleep-prevention default with the existing Setup registration fixes. Existing CLI commands and cloud APIs remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Enables task sleep prevention only when no preference has been saved and preserves explicit off choices. This optional behavior change does not block existing Services."
+    "reason": "Enables sleep prevention during active local tasks when no preference exists. Explicit Off survives updates. Existing Services can continue working without a forced update."
   },
   "skills": {
     "updatePolicy": "available",
-    "reason": "Guidance clarifies existing command prefixes, addressing, and Computer operations without adding runtime authority."
+    "reason": "No managed Skills source changes; existing Skills remain compatible."
   }
 }

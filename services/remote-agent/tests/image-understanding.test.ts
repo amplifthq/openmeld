@@ -10,6 +10,7 @@ import {
   REMOTE_AGENT_CONTEXT_IMAGE_MIN_DIMENSION,
   REMOTE_AGENT_CONTEXT_IMAGE_OUTPUT_MIME_TYPE,
   REMOTE_AGENT_CONTEXT_IMAGE_OUTPUT_QUALITY,
+  RemoteAgentImageTransformQuotaError,
   transformRemoteAgentImageForContext,
   understandRemoteAgentImages,
 } from "../agent-core/image-understanding";
@@ -62,6 +63,37 @@ async function transformTestImagesForContext(input: {
 }
 
 describe("Remote Agent image understanding", () => {
+  it("classifies the captured Cloudflare Images 9422 failure before model submission", async () => {
+    // Error text captured from the production Images binding on 2026-10-30.
+    const failure = Object.assign(
+      new Error(
+        "IMAGES_TRANSFORM_ERROR 9422: Free unique transformations by account has been exhausted"
+      ),
+      { code: 9422 }
+    );
+    const output = vi.fn(() => Promise.reject(failure));
+    const imagesBinding = {
+      info: vi.fn(async () => ({
+        width: 2100,
+        height: 1464,
+        fileSize: 3,
+        format: "image/jpeg",
+      })),
+      input: vi.fn(() => ({ transform: () => ({ output }) })),
+    } as unknown as Pick<ImagesBinding, "info" | "input">;
+    await expect(
+      transformRemoteAgentImageForContext({
+        image: {
+          data: "AQID",
+          filename: "incident-screen.png",
+          mimeType: "image/png",
+          type: "image",
+        },
+        imagesBinding,
+      })
+    ).rejects.toBeInstanceOf(RemoteAgentImageTransformQuotaError);
+    expect(output).toHaveBeenCalledOnce();
+  });
   it("keeps a readable derivative budget when one turn contains ten images", async () => {
     const readableBytes = new Uint8Array(600_000);
     const outputImage = vi.fn(async () => ({

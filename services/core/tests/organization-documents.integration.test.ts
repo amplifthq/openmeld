@@ -589,6 +589,24 @@ describe("Organization documents", () => {
       content: "Published brief",
       draftContent: "Proposed replacement",
     });
+    const sourced = await service.readPromptContext(
+      fixture.organizationId,
+      true
+    );
+    expect(sourced).toMatchObject({
+      briefContent: "Published brief",
+      briefSource: {
+        kind: "organization_document",
+        documentId: brief.id,
+        state: "current",
+        version:
+          "e93e36cb4433ef02ad945126222ad2e166ebec155196f4c7b333db0cc5cfd4eb",
+      },
+    });
+    expect(JSON.stringify(sourced)).not.toContain("Proposed replacement");
+    expect(
+      await service.readPromptContext(fixture.organizationId)
+    ).not.toHaveProperty("briefSource");
     await expect(
       service.readPromptContext(fixture.organizationId)
     ).resolves.toMatchObject({ briefContent: "Published brief" });
@@ -601,6 +619,10 @@ describe("Organization documents", () => {
     await expect(
       service.readPromptContext(fixture.organizationId)
     ).resolves.toMatchObject({ briefContent: "Proposed replacement" });
+    expect(
+      (await service.readPromptContext(fixture.organizationId, true))
+        .briefSource?.version
+    ).toBe("095d6736a7e46d5e2f8caa07294d0109c6a741493ef24bc20bf92a5692ce628b");
   });
   it("versions only approved organization content for the Center Agent Computer", async () => {
     const fixture = await seedFixture();
@@ -753,21 +775,34 @@ describe("Organization documents", () => {
       draftReplaced: false,
     });
   });
-  it("does not advertise a draft-only document title in the system prompt", async () => {
+  it.each([
+    "knowledge",
+    "brief",
+  ] as const)("does not advertise draft-only %s content or source identity in the system prompt", async (kind) => {
     const fixture = await seedFixture();
     const service = createService();
     const draft = await service.draft(
       fixture.organizationId,
       {
         draftContent: "Pending knowledge",
-        kind: "knowledge",
-        title: "Pending runbook",
+        kind,
+        ...(kind === "knowledge" ? { title: "Pending runbook" } : {}),
       },
       documentReviewerUserIds(fixture)
     );
     await expect(
       service.readPromptContext(fixture.organizationId)
     ).resolves.toEqual({ briefContent: null, documentTitles: [] });
+    const sourced = await service.readPromptContext(
+      fixture.organizationId,
+      true
+    );
+    expect(sourced).toEqual({
+      briefContent: null,
+      documentTitles: [],
+      briefSource: null,
+    });
+    expect(JSON.stringify(sourced)).not.toContain(draft.document.id);
     const pending = await service.get(fixture.owner, draft.document.id);
     await service.approveDraft(
       fixture.owner,
@@ -777,8 +812,10 @@ describe("Organization documents", () => {
     await expect(
       service.readPromptContext(fixture.organizationId)
     ).resolves.toEqual({
-      briefContent: null,
-      documentTitles: ["Pending runbook"],
+      briefContent: kind === "brief" ? "Pending knowledge" : null,
+      documentTitles: [
+        kind === "brief" ? "Organization Brief" : "Pending runbook",
+      ],
     });
   });
   it("lets a member edit only their own member profile content", async () => {

@@ -421,6 +421,10 @@ function SpaceInfoDeleteSection(input: {
 							Members can still read and search past messages. No one can send
 							new messages or wake Agents in this Space.
 						</p>
+						<p className="text-muted-foreground text-xs">
+							This Space will remain in members’ lists as Deleted. Members can
+							remove it from their own list afterward.
+						</p>
 					</div>
 					<label
 						className="block space-y-1.5"

@@ -1,3 +1,5 @@
+import type { CenterAgentMemoryRead } from "./contract";
+
 /** Preserve rank within each scope without treating provider scores as comparable. */
 export function interleaveMemoryScopes<T>(
   scopes: readonly (readonly T[])[]
@@ -13,4 +15,15 @@ export function interleaveMemoryScopes<T>(
     }
   }
   return result;
+}
+
+export function combineMemoryReadStatus(
+  statuses: CenterAgentMemoryRead<unknown>["status"][]
+): CenterAgentMemoryRead<unknown>["status"] {
+  if (statuses.every((status) => status === "complete")) {
+    return "complete";
+  }
+  return statuses.every((status) => status === "unavailable")
+    ? "unavailable"
+    : "partial";
 }

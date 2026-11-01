@@ -278,6 +278,28 @@ ownership is checked synchronously before deletion in the owning Space.
 
 ## Space Task ownership
 
+The Space owns `space_work_targets` (SQLite schema version 55), the single private
+writer and read model for goal and destination constraints. Its source receipt
+index, `space_work_target_sources`, stores only source revision, logical identity,
+goal reference, and a selection fingerprint. `space_work_target_conversations`
+indexes the default reference per source author and logical conversation. Neither
+index copies goal content or owns execution. Bound callbacks use their immutable
+source reference; only unbound inputs consult a default or an explicit source
+reference. New requests retain independent records, including within one Thread.
+
+Core derives current source, author, executor, and logical identity from active
+admission. Space resolves actual Task associations from its publication receipts;
+the per-Wake execution `taskId` is not a Space Task ID. A Task handoff resolves
+through its deterministic event Signal and exact recorded Wake target. Goal
+selection, revision/source comparison, receipt insertion, and default update share
+one SQLite transaction. Retries check the receipt fingerprint and return the
+current goal without applying old input again. Goal correction rechecks the
+requester or current Task roles. Source edits, recall, missing evidence, and
+unproven edited legacy inputs fail closed. Space deletion clears all three tables.
+They contain no Task phase, assignee, delegation, execution, permission, or
+provider outcome. Remote Agent materializes this owner read after compaction or
+rollover, and Plugin continuations follow authenticated ancestry to its origin.
+
 The Space Durable Object is the only writer for Space Tasks. Its SQLite schema
 owns `space_tasks`, append-only `space_task_events`, and idempotent
 `space_task_operations`. The stored Task document is the current read model;
@@ -285,6 +307,17 @@ phase and revision columns support bounded board reads and conflict-safe writes.
 Every mutation compares the expected Task revision inside the Space transaction.
 An operation id may replay only the exact same request and returns the retained
 receipt without appending another event.
+Task creation can opt into an initial handoff. That same transaction writes the
+Task, event, operation receipt, and existing delivery outbox intent. A creation
+handoff is fenced by later assignment, cancellation/reopen, start, or brief
+changes exactly like an assignment handoff. No second delegation registry or
+execution owner is introduced. Core recomputes requester representation from the
+live native admission; Space rechecks current membership and requester/owner
+authority. Caller-supplied requester attribution is never forwarded as authority.
+GitHub completion receipts and verified webhooks can write only the linked
+issue observation. They do not write a Task result, review, cancellation, or
+phase transition. A closed issue may represent migration rather than delivery;
+the normal Task workflow remains the sole completion and cancellation owner.
 The same transaction writes `space_task_delivery_outbox` rows for necessary
 handoff, completion, Inbox, GitHub issue and Project link projections, and authorized
 Stop effects. The Project link PostgreSQL projection contains only Organization,
@@ -343,8 +376,9 @@ carry no actor authority and cannot use this Task-specific Stop path.
 Linked GitHub issues are references on the Task document. GitHub remains the
 only writer of issue state. `lastObservedState` is a Task-owned observation
 from an authorized GitHub tool result or a verified GitHub App webhook
-delivery, not a second issue store. Remote Agent may create or cancel Tasks
-after a GitHub tool succeeds; it does not write Task rows itself and does not
+delivery, not a second issue store. Remote Agent can create a linked Task after
+a GitHub tool succeeds, with no implicit assignee. It can cancel a Task only
+through the normal authorized Task workflow; it does not write Task rows itself and does not
 PATCH GitHub when a Task closes.
 
 `space_task_github_issue_links` is a Core PostgreSQL query projection written after
@@ -494,6 +528,12 @@ Database-call elapsed time includes connection and network work. It is not
 origin SQL execution time or proof of Hyperdrive queue delay. Compare it with
 PlanetScale query insights and parent/caller spans before assigning a cause.
 Overlapping spans must not be added together.
+
+For a stalled Runtime Agent Controller Report, inspect the last
+`openmeld.stage` on `core.controller-reports.submit`. It distinguishes runtime
+identity lookup, policy read, report acceptance, usage recovery, model Inbox
+reconciliation, Member Agent catalog and PostgreSQL cleanup. The label records
+the stage entered, not whether a write committed.
 
 ## Space open read path
 
@@ -995,6 +1035,18 @@ written only by a new claim holder after local presentation succeeds, so a
 preparation failure or exact completed replay does not create a misleading
 audit row.
 
+## Permission Mode Audit Data Boundary
+
+Permission-mode changes reuse `sensitive_operation_audit_events`. The canonical
+Binding writer records the verified request attribution, before/after mode,
+Binding identity and configuration revision in the same PostgreSQL transaction
+as the conditional settings update or reconnect. No-op/conflicting writes do not
+create successful change events. The request-local attribution carries no
+credentials or execution authority. Missing legacy details are not reconstructed.
+Migration `0052_permission_mode_change_audit` adds a nullable details column;
+legacy API readers omit it, and audit response version 2 opts into validated
+details under the existing owner/Organization access checks.
+
 ## Connector Connection Data Boundary
 
 Connection access policy and revision live on `connector_connections`.
@@ -1031,8 +1083,15 @@ provenance. Core's Plugin request owner is its sole writer. The row
 binds requester, Organization, executor, operation ID, frozen connection/access
 revisions, action, effect and input for one hour. Input stays in that protected
 owner record; Inbox receives only an opaque reference and generic private
-recipient text. The detail projection exposes bounded resource identifiers,
-not arbitrary input or credentials. Core permits approval only when the
+recipient text. The standard detail projection exposes bounded resource identifiers,
+not arbitrary input or credentials. An explicit `includeIssuePreview` read by
+the signed-in recipient may also expose the exact saved title and description
+of a recoverable Linear or GitHub issue. Only these allowlisted fields enter
+that private detail; lists, Inbox previews, legacy readers and Agent-principal
+reads retain the standard projection. Preview reads recheck access after any
+provider lookup. Linear target names come from an exact-ID read on the frozen
+account; unavailable or mismatched names leave the IDs visible without guessing.
+Core permits approval only when the
 authenticated account principal matches the request owner and the acting Profile
 is human. An Agent delegation/execution credential or a selected Human Profile
 alone cannot approve. This is the existing account credential boundary, not a
@@ -1047,6 +1106,13 @@ in batches of at most 1,000 while preserving decision and operation identity.
 No provider credentials, public message copies or second execution ledger are
 introduced. Source edits, another requester, revoked membership, a changed
 connection/access revision, expiry and rejection prevent recovery.
+
+Recoverable issue approvals publish a short acknowledgement attributed to the
+approving member. The private continuation binding carries the approval ID;
+the existing executor retrieves and resumes the saved operation before the
+model continues. Operation IDs, authority declarations and executable input
+are not copied into that acknowledgement. Legacy Local Agent continuations
+retain their existing instruction contract until they have structured recovery.
 
 The decision and Inbox resolution share a conditional PostgreSQL transaction. Repeated or
 lost responses return the same decision and root. The operation owner rechecks
@@ -3838,17 +3904,54 @@ bundle hash; stamp that artifact available during final release integration.
 This change needs no data migration.
 
 Core owns the OpenMeld memory model. PostgreSQL stores the Organization enabled policy,
-member/organization subject identity, provider references, deletion lifecycle,
+member/organization/Space subject identity, provider references, deletion lifecycle,
 and deletion errors. Zep Cloud stores the semantic episodes and search index
 behind Core's `CenterAgentMemoryAdapter`; no client, worker, or tool may use Zep
 as an authorization, scope, or policy owner.
 
-Member memory and organization memory are separate subjects. The product rules
+Member, Organization and Space memory are separate subjects. A Space subject's
+canonical key includes its Organization and Space ID; it never supplies another
+Space's recall. The product rules
 for when each subject may be written live in
 `developing/product/organizations-and-center-agent.md`. Core alone resolves
 those rules, performs provider reads/writes, and projects a bounded memory list
 into the Remote Agent turn envelope. The worker consumes that projection and
 must not query provider state directly.
+
+Space memory uses the existing PostgreSQL subject registry with `subject_kind`
+`space` and a constrained `space_id`, not another store of business facts. Core
+checks current membership and owning-Space access before and after recall, and
+reopens every supporting message version within the recall deadline. Revoked,
+recalled, changed, unversioned, or cross-Space support is withheld. The model sees
+the public speaker identities attached to those readable Space messages. Private
+source-location identifiers and provider episode IDs stay out of automatic text.
+Whole facts share the existing context budget; facts that do not fit are omitted
+with an explicit truncation indication rather than clipped into a different claim.
+
+Provider invalidation is structured evidence, not only a text hint. When a
+superseded fact links to a later verified message, Core can retain that exact
+message as source grounding instead of discarding it after the version check.
+Mixed speakers likewise retain original-source context. Excerpts are JSON-quoted,
+deduplicated and kept whole within the same budget; historical semantic facts are
+not globally filtered out. This gives the model readable evidence for corrections
+without making a remembered rule an execution permission or adopted decision.
+
+Permanent Space purge erases its graph before removing the owning source storage.
+Deletion first fences new captures in the subject registry. Reads and new callbacks
+cannot revive the tombstone; an already-started write rechecks that fence and
+cleans up a late result. The write remains registered with `waitUntil` even if
+the caller's bounded wait expires. Only confirmed deletion or a provider HTTP 404 permits cleanup to finish. Permission failures, unknown outcomes and timeouts remain retryable.
+Account erasure distinguishes Space, member and Organization subjects. Ordinary
+Space deletion retains history under the existing Space retention/access policy;
+it is not a claim that retained source history was permanently erased.
+
+Versioned OpenMeld explicit saves reuse the existing message evidence contract.
+The submitted fact must equal the complete current message (after trimming) in
+the original conversation, with current represented-member access. The episode
+uses the source author and source-version time (`editedAt` when present), never
+the later save request's time or an Agent paraphrase labeled as a user statement.
+Source versions and author kinds are provider provenance metadata. They do not
+make a remembered fact an approved rule or replace current Guide/Document reads.
 
 Each Zep episode carries structured OpenMeld provenance metadata: the stable
 memory source, capture method, source conversation and message references,
@@ -3925,6 +4028,14 @@ is unavailable. Both failures remain observable without failing the Wake or
 native conversation.
 
 ## Organization Document Data Boundary
+
+Current Brief source references contain only document identity, current-content
+state, and a SHA-256 content fingerprint from the same query as the returned
+body. Draft-only identities are omitted. These are read projections, not another
+rule body, adoption ledger, approval authority, or document history store.
+Guide source references come from the owning Space through live access checks;
+the admitted Guide snapshot is kept distinct from a current read. No memory
+provider or compressed Agent summary can write either source.
 
 Core PostgreSQL owns `organization_documents`, including approved Markdown, the one
 replaceable Center Agent draft, document identity, kind, member subject, and

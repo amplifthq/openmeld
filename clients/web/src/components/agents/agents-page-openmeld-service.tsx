@@ -549,6 +549,10 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 		session: "fresh",
 	});
 
+	const savedReports =
+		input.computer.executionTargets.length > 1 ? (
+			<ComputerReportDetails computer={input.computer} />
+		) : null;
 	if (!input.hasSelectedEnvironment) {
 		const setupLabel = "Set up";
 		const needsSelection = input.computer.executionTargets.length > 1;
@@ -595,7 +599,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 						{setupLabel}
 					</Link>
 				) : null}
-				<ComputerReportDetails computer={input.computer} />
+				{savedReports}
 			</OpenMeldToolsCardFrame>
 		);
 	}
@@ -608,54 +612,29 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 		serviceAction: "update_service",
 		session: "fresh",
 	});
-	let serviceContent: ReactNode;
-	if (input.isReconcilingStatus) {
-		serviceContent = (
-			<p className="flex items-center gap-2 text-muted-foreground text-sm">
-				<Bars className="h-3 w-5" />
-				Checking OpenMeld status...
-			</p>
-		);
-	} else if (input.replyReadiness === null) {
-		serviceContent = (
-			<p className="flex items-center gap-2 text-muted-foreground text-sm">
-				<Bars className="h-3 w-5" />
-				Loading OpenMeld status...
-			</p>
-		);
-	} else {
-		serviceContent = (
-			<CurrentLocalRuntimeServiceFacts
-				computer={input.computer}
-				connectionHistory={
-					<>
-						<ComputerConnectionHistory
-							storageScope={input.recovery.storageScope}
-							target={input.currentLocalRuntimeReplyReadiness?.currentTarget}
-						/>
-						<ComputerReportDetails computer={input.computer} />
-					</>
-				}
-				currentLocalRuntimeReplyReadiness={
-					input.currentLocalRuntimeReplyReadiness
-				}
-				executionTarget={input.recovery.selectedExecutionTarget}
-				expectedServiceVersion={input.currentExpectedServiceVersion}
-				isCheckingStatus={isCheckingStatus}
-				isSavingAutomaticUpdates={isSavingAutomaticUpdates}
-				isUpdatingTools={isUpdatingTools}
-				onAutomaticUpdatesChange={setAutomaticUpdates}
-				onUpdateOpenMeldTools={updateOpenMeldTools}
-				pendingManagedUpdate={activePendingManagedUpdate}
-				replyReadiness={input.replyReadiness}
-				serviceUpdatePath={serviceUpdatePath}
-				setupCompleteRefreshPending={input.setupCompleteRefreshPending}
-				setupPath={setupPath}
-				updateRequestFailed={updateRequestFailed}
-				updateVerificationExhausted={updateVerificationExhausted}
-			/>
-		);
-	}
+	const historyTarget = input.currentLocalRuntimeReplyReadiness?.currentTarget;
+	const facts =
+		input.replyReadiness && !input.isReconcilingStatus
+			? renderCurrentLocalRuntimeServiceFacts({
+					computer: input.computer,
+					currentLocalRuntimeReplyReadiness:
+						input.currentLocalRuntimeReplyReadiness,
+					executionTarget: input.recovery.selectedExecutionTarget,
+					expectedServiceVersion: input.currentExpectedServiceVersion,
+					isCheckingStatus,
+					isSavingAutomaticUpdates,
+					isUpdatingTools,
+					onAutomaticUpdatesChange: setAutomaticUpdates,
+					onUpdateOpenMeldTools: updateOpenMeldTools,
+					pendingManagedUpdate: activePendingManagedUpdate,
+					replyReadiness: input.replyReadiness,
+					serviceUpdatePath,
+					setupCompleteRefreshPending: input.setupCompleteRefreshPending,
+					setupPath,
+					updateRequestFailed,
+					updateVerificationExhausted,
+				})
+			: null;
 
 	return (
 		<OpenMeldToolsCardFrame
@@ -683,8 +662,57 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 			connectionAction={input.connectionAction}
 			description="Connects this computer to OpenMeld and manages local tools."
 		>
-			{serviceContent}
+			<SelectedComputerServiceContent
+				facts={facts}
+				historyTarget={historyTarget}
+				isReconcilingStatus={input.isReconcilingStatus}
+				savedReports={savedReports}
+				storageScope={input.recovery.storageScope}
+			/>
 		</OpenMeldToolsCardFrame>
+	);
+}
+
+function SelectedComputerServiceContent(input: {
+	facts: ReturnType<typeof renderCurrentLocalRuntimeServiceFacts> | null;
+	historyTarget:
+		| CurrentLocalRuntimeReplyReadinessResponse["currentTarget"]
+		| undefined;
+	isReconcilingStatus: boolean;
+	savedReports: ReactNode;
+	storageScope: string;
+}) {
+	const { facts, historyTarget, savedReports } = input;
+	return (
+		<div className="flex flex-col">
+			{facts?.status ?? (
+				<p className="flex items-center gap-2 text-muted-foreground text-sm">
+					<Bars className="h-3 w-5" />
+					{input.isReconcilingStatus
+						? "Checking OpenMeld status..."
+						: "Loading OpenMeld status..."}
+				</p>
+			)}
+			{facts || savedReports || historyTarget?.availability === "resolved" ? (
+				<Accordion>
+					<AccordionItem value="technical-details">
+						<AccordionTrigger className="border-t py-3 font-medium text-muted-foreground text-sm">
+							Technical details
+						</AccordionTrigger>
+						<AccordionContent>
+							<div className="space-y-3 pb-3 pl-4">
+								{facts?.details}
+								<ComputerConnectionHistory
+									storageScope={input.storageScope}
+									target={historyTarget}
+								/>
+								{savedReports}
+							</div>
+						</AccordionContent>
+					</AccordionItem>
+				</Accordion>
+			) : null}
+		</div>
 	);
 }
 
@@ -979,10 +1007,6 @@ function selectedComputerConnectionLabel(
 }
 
 function ComputerReportDetails(input: { computer: LocalRuntimeComputer }) {
-	if (input.computer.executionTargets.length < 2) {
-		return null;
-	}
-
 	return (
 		<details
 			className="border-t pt-3 text-sm"
@@ -1016,9 +1040,8 @@ function ComputerReportDetails(input: { computer: LocalRuntimeComputer }) {
 	);
 }
 
-function CurrentLocalRuntimeServiceFacts(input: {
+function renderCurrentLocalRuntimeServiceFacts(input: {
 	computer: LocalRuntimeComputer;
-	connectionHistory: ReactNode;
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	executionTarget: LocalRuntimeExecutionTarget | null;
 	expectedServiceVersion: string | null;
@@ -1126,108 +1149,101 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		onUpdateOpenMeldTools: input.onUpdateOpenMeldTools,
 		updateIsActive,
 	});
-	return (
-		<div className="flex flex-col">
-			<div
-				className={cn(
-					"flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between",
-					display.hideVersionDetails ? "py-1" : "pb-4"
-				)}
-			>
-				<div className="min-w-0 space-y-1.5">
-					<p
-						className={cn(
-							"flex items-center gap-2 font-medium text-sm",
-							resolveOpenMeldServiceStatusTextClassName(display.tone)
-						)}
-					>
-						<span
-							aria-hidden="true"
+	return {
+		status: (
+			<>
+				<div
+					className={cn(
+						"flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between",
+						display.hideVersionDetails ? "py-1" : "pb-4"
+					)}
+				>
+					<div className="min-w-0 space-y-1.5">
+						<p
 							className={cn(
-								"status-dot",
-								resolveOpenMeldServiceStatusDotClassName(display.tone)
+								"flex items-center gap-2 font-medium text-sm",
+								resolveOpenMeldServiceStatusTextClassName(display.tone)
 							)}
-						/>
-						{display.statusLabel}
-					</p>
-					<p
-						className={cn(
-							"max-w-2xl text-xs leading-5",
-							display.descriptionTone === "warning"
-								? resolveStatusToneSoftTextClassName("warning")
-								: "text-muted-foreground"
-						)}
-					>
-						{display.description}
-					</p>
-				</div>
-				{canConfigureLocalComputer() && primaryAction ? (
-					<div className="flex w-fit shrink-0 items-center gap-3">
-						{primaryAction.kind === "managed" ? (
-							<Link
-								className="text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-								to={input.serviceUpdatePath}
-							>
-								{UPDATE_MANUALLY_LABEL}
-							</Link>
-						) : null}
-						<OpenMeldToolsActionControl
-							action={primaryAction}
-							className="w-fit shrink-0"
-							tone={display.tone}
-						/>
-					</div>
-				) : null}
-			</div>
-			<DesktopComputerRecovery
-				action={displayAction}
-				computer={input.computer}
-				key={JSON.stringify(
-					input.currentLocalRuntimeReplyReadiness?.currentTarget
-				)}
-				readiness={input.currentLocalRuntimeReplyReadiness}
-			/>
-			<OpenMeldToolsUpdateFeedback
-				confirmationPending={
-					input.pendingManagedUpdate?.kind === "confirmation"
-				}
-				failureCode={updateFailureCode}
-				operation={updateOperation}
-				requestFailed={input.updateRequestFailed && updateOperation === null}
-				requesting={input.isUpdatingTools}
-				targetObserved={updateTargetObserved}
-				verificationExhausted={input.updateVerificationExhausted}
-			/>
-
-			<Accordion>
-				<AccordionItem value="technical-details">
-					<AccordionTrigger className="border-t py-3 font-medium text-muted-foreground text-sm">
-						Technical details
-					</AccordionTrigger>
-					<AccordionContent>
-						<div className="space-y-3 pb-3 pl-4">
-							<OpenMeldToolsUpdateDetails
-								failureCode={updateFailureCode}
-								operation={updateOperation}
-								readiness={input.currentLocalRuntimeReplyReadiness}
+						>
+							<span
+								aria-hidden="true"
+								className={cn(
+									"status-dot",
+									resolveOpenMeldServiceStatusDotClassName(display.tone)
+								)}
 							/>
-							{display.hideVersionDetails ? null : (
-								<details className="border-t pt-3">
-									<summary className="cursor-pointer font-medium text-muted-foreground text-sm leading-8">
-										Software versions
-									</summary>
-									<div className="pt-3">
-										<OpenMeldToolsComponentDetails items={componentDetails} />
-									</div>
-								</details>
+							{display.statusLabel}
+						</p>
+						<p
+							className={cn(
+								"max-w-2xl text-xs leading-5",
+								display.descriptionTone === "warning"
+									? resolveStatusToneSoftTextClassName("warning")
+									: "text-muted-foreground"
 							)}
-							{input.connectionHistory}
+						>
+							{display.description}
+						</p>
+					</div>
+					{canConfigureLocalComputer() && primaryAction ? (
+						<div className="flex w-fit shrink-0 items-center gap-3">
+							{primaryAction.kind === "managed" ? (
+								<Link
+									className="text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+									to={input.serviceUpdatePath}
+								>
+									{UPDATE_MANUALLY_LABEL}
+								</Link>
+							) : null}
+							<OpenMeldToolsActionControl
+								action={primaryAction}
+								className="w-fit shrink-0"
+								tone={display.tone}
+							/>
 						</div>
-					</AccordionContent>
-				</AccordionItem>
-			</Accordion>
-		</div>
-	);
+					) : null}
+				</div>
+				<DesktopComputerRecovery
+					action={displayAction}
+					computer={input.computer}
+					key={JSON.stringify(
+						input.currentLocalRuntimeReplyReadiness?.currentTarget
+					)}
+					readiness={input.currentLocalRuntimeReplyReadiness}
+				/>
+				<OpenMeldToolsUpdateFeedback
+					confirmationPending={
+						input.pendingManagedUpdate?.kind === "confirmation"
+					}
+					failureCode={updateFailureCode}
+					operation={updateOperation}
+					requestFailed={input.updateRequestFailed && updateOperation === null}
+					requesting={input.isUpdatingTools}
+					targetObserved={updateTargetObserved}
+					verificationExhausted={input.updateVerificationExhausted}
+				/>
+			</>
+		),
+		details: (
+			<>
+				<OpenMeldToolsUpdateDetails
+					failureCode={updateFailureCode}
+					operation={updateOperation}
+					readiness={input.currentLocalRuntimeReplyReadiness}
+				/>
+				{display.hideVersionDetails ? null : (
+					<details className="border-t pt-3">
+						<summary className="cursor-pointer font-medium text-muted-foreground text-sm leading-8">
+							Software versions
+						</summary>
+						<div className="pt-3">
+							<OpenMeldToolsComponentDetails items={componentDetails} />
+						</div>
+					</details>
+				)}
+			</>
+		),
+	};
 }
 
 type CurrentLocalRuntimeServiceDisplay = {

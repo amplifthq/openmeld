@@ -173,7 +173,7 @@ describe("Space Task service brief updates", () => {
     ]);
   });
 
-  it("cancels an active linked Task from a GitHub close observation and does not reopen it", () => {
+  it("records a GitHub close and reopen without changing Task phase or publishing a cancellation", () => {
     const { events, service } = createService();
     const created = service.create(
       {
@@ -200,7 +200,6 @@ describe("Space Task service brief updates", () => {
       }
     );
     const closed = service.applyGitHubIssueObservation({
-      settleOperationId: "github-issue-cancel:amplifthq:openmeld:1143",
       identity: { number: 1143, owner: "amplifthq", repo: "openmeld" },
       observeOperationId: "github-issue-observe-closed:amplifthq:openmeld:1143",
       observedAt: "2026-09-20T12:00:00.000Z",
@@ -209,20 +208,18 @@ describe("Space Task service brief updates", () => {
       taskId: created.task.taskId,
     });
     expect(closed).toMatchObject({
-      canceled: true,
+      canceled: false,
       observed: true,
       skipReason: null,
     });
-    expect(closed.task?.phase).toBe("canceled");
+    expect(closed.task?.phase).toBe("to_do");
     expect(closed.task?.externalWorkItems[0]?.lastObservedState).toBe("closed");
     expect(events.map((event) => event.type)).toEqual([
       "created",
       "external_work_item_observed",
-      "canceled",
     ]);
 
     const replay = service.applyGitHubIssueObservation({
-      settleOperationId: "github-issue-cancel:amplifthq:openmeld:1143",
       identity: { number: 1143, owner: "amplifthq", repo: "openmeld" },
       observeOperationId: "github-issue-observe-closed:amplifthq:openmeld:1143",
       observedAt: "2026-09-20T12:00:00.000Z",
@@ -230,11 +227,10 @@ describe("Space Task service brief updates", () => {
       observedStateReason: "not_planned",
       taskId: created.task.taskId,
     });
-    expect(replay.task?.phase).toBe("canceled");
-    expect(events).toHaveLength(3);
+    expect(replay.task?.phase).toBe("to_do");
+    expect(events).toHaveLength(2);
 
     const reopened = service.applyGitHubIssueObservation({
-      settleOperationId: "github-issue-cancel:amplifthq:openmeld:1143:reopen",
       identity: { number: 1143, owner: "amplifthq", repo: "openmeld" },
       observeOperationId: "github-issue-observe-open:amplifthq:openmeld:1143",
       observedAt: "2026-09-20T13:00:00.000Z",
@@ -243,11 +239,10 @@ describe("Space Task service brief updates", () => {
     });
     expect(reopened.canceled).toBe(false);
     expect(reopened.observed).toBe(true);
-    expect(reopened.task?.phase).toBe("canceled");
+    expect(reopened.task?.phase).toBe("to_do");
     expect(reopened.task?.externalWorkItems[0]?.lastObservedState).toBe("open");
     expect(
       service.applyGitHubIssueObservation({
-        settleOperationId: "github-issue-cancel:missing",
         identity: { number: 1143, owner: "amplifthq", repo: "openmeld" },
         observeOperationId: "github-issue-observe-closed:missing",
         observedAt: "2026-09-20T12:00:00.000Z",

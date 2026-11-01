@@ -12,6 +12,7 @@ import {
   SERVICE_EXECUTION_HOST_PROTOCOL,
   type ServiceExecutionHostCatalog,
   type ServiceExecutionHostIdentity,
+  type ServiceExecutionHostInput,
   type ServiceExecutionHostMessage,
   type ServiceExecutionHostSnapshot,
   serviceExecutionHostCatalogSchema,
@@ -458,7 +459,27 @@ export function createExecutionHostRuntime(input: {
   // Inventory is independent of opening the inherited control endpoint.
   integrations.request();
 
-  function beginDrain(): ServiceExecutionHostSnapshot {
+  function beginDrain(
+    options: ServiceExecutionHostInput<"beginDrain"> = {}
+  ): ServiceExecutionHostSnapshot {
+    if (options.onlyIfIdle) {
+      if (draining || disposed) {
+        throw new ExecutionHostError(
+          "host.draining",
+          "The Host already has an admitted stop."
+        );
+      }
+      const current = snapshot();
+      if (
+        startupReplayPending ||
+        !current.localQuiescent ||
+        current.unacknowledgedResultCount > 0
+      ) {
+        return current;
+      }
+    }
+    // No await between the owning work check and closing admission. A Wake or
+    // control that arrives first wins; later arrivals see the same drain fence.
     draining = true;
     localExecutionSlots.beginDrain();
     return snapshot();

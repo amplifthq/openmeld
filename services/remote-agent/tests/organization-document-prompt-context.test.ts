@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createCoreRpcHttpError } from "../../core/src/rpc/errors";
 import { resolveCurrentOrganizationDocumentPromptContext as readContext } from "../flue-adapter/organization-document-prompt-context";
 
 const initial = {
@@ -9,6 +10,34 @@ const initial = {
 };
 describe("current document context", () => {
   afterEach(() => vi.restoreAllMocks());
+  it.each([
+    { code: "invalid_payload", status: 400, negotiate: true },
+    { code: "organization.membership_required", status: 403, negotiate: false },
+    { code: "core.unavailable", status: 503, negotiate: false },
+  ])("negotiates only unsupported source opt-ins and preserves current protection ($code)", async ({
+    code,
+    status,
+    negotiate,
+  }) => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const read = vi.fn((includeSources: boolean) =>
+      includeSources
+        ? Promise.reject(
+            createCoreRpcHttpError({
+              code,
+              status,
+              reason: "Controlled Core response",
+            })
+          )
+        : Promise.resolve(initial)
+    );
+    expect(
+      await readContext({ organizationId: initial.organizationId, read })
+    ).toEqual(negotiate ? initial : null);
+    expect(read.mock.calls.map(([includeSources]) => includeSources)).toEqual(
+      negotiate ? [true, false] : [true]
+    );
+  });
   it("reads updated B on a new turn instead of reusing A", async () => {
     await expect(
       readContext({
@@ -65,6 +94,20 @@ describe("current document context", () => {
       readContext({
         organizationId: initial.organizationId,
         read: async () => ({}),
+      })
+    ).rejects.toThrow("invalid");
+    await expect(
+      readContext({
+        organizationId: initial.organizationId,
+        read: async () => ({
+          ...initial,
+          briefSource: {
+            kind: "organization_document",
+            documentId: "document-1",
+            state: "draft",
+            version: "a".repeat(64),
+          },
+        }),
       })
     ).rejects.toThrow("invalid");
   });
