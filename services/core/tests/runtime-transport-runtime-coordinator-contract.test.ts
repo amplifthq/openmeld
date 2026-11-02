@@ -6937,6 +6937,50 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
+  it("identifies which owner-service attempt has entered the Hub while its body is still pending", async () => {
+    const { hub }: { hub: RuntimeTransportHub } = await createHarness();
+    const readId = crypto.randomUUID();
+    const body = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = body.writable.getWriter();
+    const info = vi.spyOn(console, "info");
+    const phases = () =>
+      info.mock.calls
+        .filter(([, row]) => row?.readId === readId && row?.attempt === 2)
+        .map(([, row]) => [row.stage, row.status]);
+    try {
+      const response = hub.fetch(
+        new Request("https://runtime-transport.internal/lookup-owner-service", {
+          method: "POST",
+          headers: {
+            "x-openmeld-runtime-read-id": readId,
+            "x-openmeld-runtime-read-attempt": "2",
+          },
+          body: body.readable,
+        })
+      );
+      expect(phases()).toEqual([["handler_entered", undefined]]);
+      await writer.write(
+        new TextEncoder().encode(
+          JSON.stringify({
+            v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+            ownerUserId: "owner-fast-path",
+          })
+        )
+      );
+      await writer.close();
+      expect((await response).status).toBe(404);
+      expect(phases()).toEqual([
+        ["handler_entered", undefined],
+        ["body_read_settled", undefined],
+        ["lookup_completed", undefined],
+        ["response_ready", 404],
+      ]);
+    } finally {
+      await writer.abort();
+      info.mockRestore();
+    }
+  });
+
   it("keeps route lookup fast paths off housekeeping and optional channel reads", async () => {
     const requests = [
       {
@@ -7025,6 +7069,34 @@ describe("runtime transport runtime coordinator transport contract", () => {
         pendingChannels.mock.results.map((result) => result.value)
       );
       pendingChannels.mockRestore();
+    }
+  });
+
+  it("ignores malformed diagnostic identifiers when serving an owner-service lookup", async () => {
+    const { hub }: { hub: RuntimeTransportHub } = await createHarness();
+    const info = vi.spyOn(console, "info");
+    try {
+      const response = await hub.fetch(
+        new Request("https://runtime-transport.internal/lookup-owner-service", {
+          method: "POST",
+          headers: {
+            "x-openmeld-runtime-read-id": "not-a-trusted-id",
+            "x-openmeld-runtime-read-attempt": "1",
+          },
+          body: JSON.stringify({
+            v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+            ownerUserId: "owner-fast-path",
+          }),
+        })
+      );
+      expect(response.status).toBe(404);
+      expect(
+        info.mock.calls.some(
+          ([label]) => label === "[core.runtime_transport.owner_read_stage]"
+        )
+      ).toBe(false);
+    } finally {
+      info.mockRestore();
     }
   });
 
