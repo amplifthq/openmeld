@@ -28,6 +28,7 @@ overrides:
   '@aws-sdk/nested-clients': 3.997.28
   '@aws-sdk/token-providers': 3.1080.0
   '@modelcontextprotocol/sdk>zod': 4.6.6
+  '@getzep/zep-cloud@3.30.0>zod': 4.6.6
   miniflare>undici@>=7.29.0 <7.30.1: 7.30.1
   rolldown@<1.2.0: 1.1.4
   rolldown@1.0.0-rc.3: 1.1.4
@@ -51,6 +52,9 @@ patchedDependencies:
   '@flue/runtime@2.3.0':
     hash: 29ff1b374b1a832ef518fa59841e1ed08476c129ccfc727f47ae9daca8b64c76
     path: patches/@flue__runtime@2.3.0.patch
+  '@getzep/zep-cloud@3.30.0':
+    hash: 589bdbd4cd26dbc47bf59bcc265a2937c6dcb410f4f4d9e8988fd88763236cb4
+    path: patches/@getzep__zep-cloud@3.30.0.patch
   '@tailwindcss/vite@4.2.1':
     hash: d5776a5397c18293d625eadd895bc63cbf260d59a7df05001dd36759ec11af2b
     path: patches/@tailwindcss__vite.patch
@@ -1787,7 +1791,7 @@ importers:
     dependencies:
       '@getzep/zep-cloud':
         specifier: 3.30.0
-        version: 3.30.0
+        version: 3.30.0(patch_hash=589bdbd4cd26dbc47bf59bcc265a2937c6dcb410f4f4d9e8988fd88763236cb4)
       '@openmeld/agent-runtime':
         specifier: workspace:*
         version: link:../../packages/agent-runtime
@@ -15193,9 +15197,6 @@ packages:
     peerDependencies:
       zod: 4.6.6
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
-
   zod@4.6.6:
     resolution: {integrity: sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==}
 
@@ -17808,9 +17809,9 @@ snapshots:
 
   '@fumari/image-size@0.1.1': {}
 
-  '@getzep/zep-cloud@3.30.0':
+  '@getzep/zep-cloud@3.30.0(patch_hash=589bdbd4cd26dbc47bf59bcc265a2937c6dcb410f4f4d9e8988fd88763236cb4)':
     dependencies:
-      zod: 3.25.76
+      zod: 4.6.6
 
   '@gilbarbara/deep-equal@0.4.1': {}
 
@@ -30365,8 +30366,6 @@ snapshots:
   zod-to-json-schema@3.25.1(zod@4.6.6):
     dependencies:
       zod: 4.6.6
-
-  zod@3.25.76: {}
 
   zod@4.6.6: {}
 
