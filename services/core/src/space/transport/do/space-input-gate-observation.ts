@@ -37,21 +37,18 @@ export class SpaceInputGateObservation {
     };
     const slowTimer = setTimeout(warn, SLOW_GATE_MS);
     const resetTimer = setTimeout(warn, NEAR_RESET_MS);
+    let status: "completed" | "failed" = "failed";
     try {
       const value = await run();
-      if (this.slow) {
-        this.emit("completed");
-      }
+      status = "completed";
       return value;
-    } catch (error) {
-      if (this.slow) {
-        this.emit("failed");
-      }
-      throw error;
     } finally {
       this.active = false;
       clearTimeout(slowTimer);
       clearTimeout(resetTimer);
+      if (this.slow || performance.now() - this.startedAt >= SLOW_GATE_MS) {
+        this.emit(status);
+      }
     }
   }
 

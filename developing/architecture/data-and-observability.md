@@ -545,14 +545,17 @@ to the `openmeld.gate_id` attribute on sampled `space.input_gate.*` and
 `space.input_gate_step.*` spans, including when overlapping requests appear
 in different traces.
 
-A gate still open at 5 or 25 seconds emits a snapshot. `pendingStages`
+While a gate is open, timers at 5 and 25 seconds capture snapshots. `pendingStages`
 counts unfinished calls at that instant. For example, `live_delivery` covers
 the send, `live_session_authorization` counts access checks started in that
 gate, and `inbox_live_receipts` covers waiting for prior sends.
 `background_dispatch_outbox` runs through `waitUntil` and can overlap either
 one. Once the callback returns, `phase = postgres_cleanup` covers the rest of
-the database scope. A slow gate that returns normally or throws emits a final
-status. A runtime reset can interrupt it before that record is written.
+the database scope. A gate that returns or throws after 5 seconds of observed
+elapsed time emits a final status even if its timer did not run. In production,
+the [Workers clock](https://developers.cloudflare.com/workers/runtime-apis/performance/)
+advances after I/O, so a purely synchronous stall can escape these measurements.
+A runtime reset can also interrupt the final record.
 
 For a keyed message, `persistedSignalId` records a successful SQLite write
 observed for that message inside this gate. A replay or a snapshot taken

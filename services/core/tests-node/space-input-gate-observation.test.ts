@@ -77,3 +77,29 @@ it("leaves a fast gate quiet after its callback has returned", async () => {
   await vi.advanceTimersByTimeAsync(30_000);
   expect(warn).not.toHaveBeenCalled();
 });
+
+it.each([
+  "completed",
+  "failed",
+] as const)("records a %s gate when the clock reaches the threshold before its timer runs", async (status) => {
+  vi.useFakeTimers();
+  const now = vi.spyOn(performance, "now").mockReturnValue(0);
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const gate = new SpaceInputGateObservation("object", "constructor");
+  const failure = new Error("initialization failed");
+
+  const result = gate.observe(() => {
+    now.mockReturnValue(5000);
+    return status === "failed" ? Promise.reject(failure) : Promise.resolve(42);
+  });
+  if (status === "failed") {
+    await expect(result).rejects.toBe(failure);
+  } else {
+    await expect(result).resolves.toBe(42);
+  }
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(warn).toHaveBeenCalledExactlyOnceWith(
+    "[core.space.input_gate]",
+    expect.objectContaining({ gateId: gate.id, status, elapsedMs: 5000 })
+  );
+});
