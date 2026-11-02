@@ -1,4 +1,5 @@
 import { queryOptions } from "@tanstack/react-query";
+import { isFreshSessionRequiredError } from "#/lib/auth-errors";
 import {
 	getAccountAvatar,
 	getSession,
@@ -7,7 +8,7 @@ import {
 	listSessions,
 	listUserPasskeys,
 } from "#/query/auth-query";
-import { baseQueryOptions } from "#/query/query-config";
+import { baseQueryOptions, shouldRetryQuery } from "#/query/query-config";
 import { userQueryKeys } from "#/query/query-keys";
 
 export const sessionQueryOptionsClient = () =>
@@ -29,6 +30,9 @@ export const listSessionsQueryOptionsClient = () =>
 		queryKey: userQueryKeys.listSessions,
 		queryFn: listSessions,
 		...baseQueryOptions,
+		retry: (failureCount, error) =>
+			!isFreshSessionRequiredError(error) &&
+			shouldRetryQuery(failureCount, error),
 	});
 
 export const listDeviceSessionsQueryOptionsClient = () =>
