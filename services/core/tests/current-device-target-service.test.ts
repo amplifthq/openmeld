@@ -1239,7 +1239,28 @@ describe("current device target service", () => {
     });
   });
 
-  it("keeps a connected Service honest when previous local work is unconfirmed", async () => {
+  it.each([
+    {
+      code: "host.previous_work_unconfirmed",
+      hostMessage:
+        "OpenMeld cannot confirm that work from the previous local execution host has ended.",
+      recoveryAction: "restart_computer",
+      recovery: "Restart this computer, then check its connection again.",
+    },
+    {
+      code: "host.previous_work_running",
+      hostMessage:
+        "Local agent work from the previous OpenMeld Service session is still finishing on this computer.",
+      recoveryAction: "wait_for_previous_work",
+      recovery:
+        "This computer accepts new tasks again automatically once it ends.",
+    },
+  ] as const)("keeps a connected Service honest when previous local work blocks its Host ($code)", async ({
+    code,
+    hostMessage,
+    recoveryAction,
+    recovery,
+  }) => {
     const store = createInMemoryCurrentDeviceTargetStore({
       executionTargetsByUserId: {
         "owner-1": [
@@ -1290,10 +1311,9 @@ describe("current device target service", () => {
                     startupReplayPending: null,
                     unacknowledgedResultCount: null,
                     unavailableReason: {
-                      code: "host.previous_work_unconfirmed",
-                      message:
-                        "OpenMeld cannot confirm that work from the previous local execution host has ended.",
-                      recoveryAction: "restart_computer",
+                      code,
+                      message: hostMessage,
+                      recoveryAction,
                     },
                   },
                   localComponents: CURRENT_LOCAL_COMPONENTS_STATUS,
@@ -1314,21 +1334,17 @@ describe("current device target service", () => {
       })
     ).resolves.toMatchObject({
       canReplyFromThisComputer: false,
-      message:
-        "OpenMeld cannot confirm that work from the previous local execution host has ended. Restart this computer only if OpenMeld does not recover after the previous task ends.",
+      message: `${hostMessage} ${recovery}`,
       nextAction: "none",
       primaryBlocker: "execution_host_unavailable",
       service: {
         connected: true,
         executionHost: {
           responsive: false,
-          unavailableReason: {
-            code: "host.previous_work_unconfirmed",
-            recoveryAction: "restart_computer",
-          },
+          unavailableReason: { code, recoveryAction },
         },
         matchingCurrentRuntime: true,
-        reasonCodes: ["host.previous_work_unconfirmed"],
+        reasonCodes: [code],
       },
       status: "blocked",
     });

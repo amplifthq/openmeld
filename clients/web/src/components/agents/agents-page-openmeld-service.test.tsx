@@ -509,7 +509,7 @@ describe("OpenMeldServiceCard", () => {
 		const readiness = buildCurrentLocalRuntimeReplyReadiness();
 		readiness.canReplyFromThisComputer = false;
 		readiness.message =
-			"OpenMeld cannot confirm that work from the previous local execution host has ended. Restart this computer only if OpenMeld does not recover after the previous task ends.";
+			"OpenMeld cannot confirm that work from the previous local execution host has ended. Restart this computer, then check its connection again.";
 		readiness.nextAction = "none";
 		readiness.primaryBlocker = "execution_host_unavailable";
 		readiness.service.executionHost = {
