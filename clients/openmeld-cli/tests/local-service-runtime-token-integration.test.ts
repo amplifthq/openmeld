@@ -248,6 +248,46 @@ describe("local service token-backed execution start", () => {
     vi.resetAllMocks();
   });
 
+  it("preserves the control result, invalidation and stop when only the release observation fails", async () => {
+    await withTempHome(async () => {
+      const host = await createTokenHost({
+        ledgerPaths: createLedgerPaths(),
+        adapter: {
+          adapterId: "codex",
+          transportModes: ["codex-app-server"],
+          adapter: {
+            adapterId: "codex",
+            dispatch: vi.fn(),
+            interrupt: vi.fn(),
+          },
+        },
+        onWorkStateChange: (state) => {
+          if (!state.unattributedWork) {
+            throw new Error("fixture release observation failed");
+          }
+        },
+      });
+      const events = vi.fn();
+      host.port.onEvent(events);
+      try {
+        await expect(
+          host.port.call("setEnabled", {
+            agentId: "unknown-fixture-agent",
+            enabled: true,
+          })
+        ).resolves.toMatchObject({ accepted: false, status: "rejected" });
+        expect(events).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "invalidate", scope: "execution" })
+        );
+        await expect(host.port.call("stop", {})).resolves.toMatchObject({
+          localQuiescent: true,
+        });
+      } finally {
+        await host.close();
+      }
+    });
+  });
+
   it("fences isolated workspace cleanup after the provider finishes, including during drain", async () => {
     await withTempHome(async (home) => {
       vi.stubGlobal(

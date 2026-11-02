@@ -255,6 +255,9 @@ The Host persists incomplete evidence before cleanup starts and keeps it
 incomplete until cleanup settles. This also applies when an accepted Wake
 finishes during drain. If the start cannot be recorded, the Service retains the
 workspace for reconciliation and releases its execution lock.
+A failed receipt update after cleanup or drain is logged locally. The last
+durable receipt still governs takeover; the settled outcome and Host teardown
+are preserved.
 
 Each invocation, including a repair round or retry of the same task, is recorded
 as started before the adapter can launch anything, even a launch probe. A

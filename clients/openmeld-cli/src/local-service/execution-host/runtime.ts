@@ -551,8 +551,21 @@ export function createExecutionHostRuntime(input: {
     beginDrain();
     await localExecutionSlots.drain();
     await Promise.allSettled([...unattributedOperations]);
-    observeWork();
+    observeReleasedWork();
     return snapshot();
+  }
+
+  function observeReleasedWork(): void {
+    try {
+      observeWork();
+    } catch (error) {
+      // Work already settled. Keep its outcome and continue teardown; the
+      // previous durable fence still governs a replacement Host.
+      warnDaemonEvent("[openmeld.execution_host.release_observation_failed]", {
+        event: "cli.execution_host.release_observation_failed",
+        detail: toErrorMessage(error),
+      });
+    }
   }
 
   function trackControl<T>(run: () => Promise<T>): Promise<T> {
@@ -574,7 +587,7 @@ export function createExecutionHostRuntime(input: {
     unattributedOperations.add(operation);
     return operation.finally(() => {
       unattributedOperations.delete(operation);
-      observeWork();
+      observeReleasedWork();
       invalidate("execution");
     });
   }
