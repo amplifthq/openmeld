@@ -1,12 +1,12 @@
 {
-  "version": "0.3.286",
+  "version": "0.3.287",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Packages the task sleep-prevention default with the existing Setup registration fixes. Existing CLI commands and cloud APIs remain compatible."
+    "reason": "Updates request validation and WebSocket fragment handling alongside the pending Setup and sleep-prevention changes. Existing CLI commands and cloud APIs remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Enables sleep prevention during active local tasks when no preference exists. Explicit Off survives updates. Existing Services can continue working without a forced update."
+    "reason": "Includes the WebSocket update alongside the active-task sleep-prevention default. Explicit Off and the existing Wake and reconnect protocols remain supported."
   },
   "skills": {
     "updatePolicy": "available",

@@ -35,7 +35,7 @@ allowBuilds:
 catalog:
   '@cloudflare/workers-types': 5.20261001.1
   wrangler: 4.147.0
-  zod: 4.6.5
+  zod: 4.6.6
 
 minimumReleaseAgeExclude:
   - miniflare
@@ -61,7 +61,9 @@ overrides:
   'rolldown@1.0.0-rc.3': 1.1.4
   # Miniflare 5 pins vulnerable sharp 0.35.x patches; lift them to the fix.
   'sharp@>=0.35.0 <0.35.5': 0.35.5
+  'ws@>=8.0.0 <8.21.0': 8.21.3
   wrangler: 'catalog:'
+  'zod@>=4.0.0 <4.6.6': 'catalog:'
 
 packageExtensions:
   # Flue's generated Worker still uses Agents 0.20.1. Keep its exact MCP peers
