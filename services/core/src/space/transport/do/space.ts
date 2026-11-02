@@ -1,4 +1,4 @@
-import { DurableObject } from "cloudflare:workers";
+import { DurableObject, tracing } from "cloudflare:workers";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { deleteCoreCenterAgentSpaceMemory } from "../../../center-agent-memory/core-memory-service";
 import {
@@ -1011,6 +1011,7 @@ import {
   SpaceLiveDelivery,
   type SpaceLiveDeliveryClosure,
 } from "./space-live-delivery";
+import { duringSpaceGateStage, SpaceInputGateObservation } from "./space-input-gate-observation";
 import { logSpaceOutboxConsoleEvent } from "./space-outbox-console-log-policy";
 import {
   acceptSpaceWebSocketHello,
@@ -2815,8 +2816,14 @@ export class Space extends DurableObject<CoreBindings> {
     Session,
     Parameters<Space["encodeLiveMessageForSession"]>[0]
   >({
-    authorize: async (session) =>
-      (await this.authorizeLiveSession(session)) ? "authorized" : "denied",
+    authorize: async (session) => {
+      const gate = this.postgresGateContext.getStore();
+      const checkAccess = () => this.authorizeLiveSession(session);
+      const authorized = gate?.active
+        ? await gate.during("live_session_authorization", checkAccess)
+        : await checkAccess();
+      return authorized ? "authorized" : "denied";
+    },
     close: (target, closure) => this.closeLiveSession(target, closure),
     deliver: (target, messages) =>
       this.deliverAuthorizedLiveMessages(target, messages),
@@ -2843,7 +2850,7 @@ export class Space extends DurableObject<CoreBindings> {
     this.bindings = env;
     this.durableObjectId = this.ctx.id.toString();
     this.spaceId = this.durableObjectId;
-    this.blockConcurrencyWithPostgres(async () => {
+    this.blockConcurrencyWithPostgres("constructor", async () => {
       measureSpaceSchemaInitialization({
         env: this.bindings,
         initialize: () => ensureSpaceSqlSchema(this.ctx.storage.sql),
@@ -2861,11 +2868,16 @@ export class Space extends DurableObject<CoreBindings> {
             "Organization Agent ownership migration requires identity storage"
           );
         }
-        const changed = await reconcileOrganizationAgentOwnership({
-          db,
-          organizationId: ownershipMeta.organizationId,
-          sql: this.ctx.storage.sql,
-        });
+        const changed = await duringSpaceGateStage(
+          this.postgresGateContext.getStore(),
+          "ownership_migration",
+          () =>
+            reconcileOrganizationAgentOwnership({
+              db,
+              organizationId: ownershipMeta.organizationId,
+              sql: this.ctx.storage.sql,
+            })
+        );
         if (changed) {
           this.closeAllSessions("space_access_changed");
         }
@@ -2882,7 +2894,11 @@ export class Space extends DurableObject<CoreBindings> {
       ) {
         this.lastTimestamp = Math.max(this.lastTimestamp, persistedClock);
       }
-      await this.syncSpaceBackgroundAlarm();
+      await duringSpaceGateStage(
+        this.postgresGateContext.getStore(),
+        "alarm_schedule",
+        () => this.syncSpaceBackgroundAlarm()
+      );
     });
     for (const webSocket of this.ctx.getWebSockets()) {
       try {
@@ -2935,15 +2951,16 @@ export class Space extends DurableObject<CoreBindings> {
   private readonly runPostgresTransaction = async <T>(
     callback: () => Promise<T>
   ): Promise<T> => {
-    if (this.postgresGateContext.getStore()?.active) {
-      return callback();
+    const currentGate = this.postgresGateContext.getStore();
+    if (currentGate?.active) {
+      return currentGate.during("postgres_transaction", callback);
     }
     // A later input gate must not suspend a transaction that still owns an
     // origin-pool slot. Admit the transaction before it opens its connection.
     const outcome = await this.ctx.blockConcurrencyWhile(async () => {
       try {
         return {
-          value: await this.withPostgresGateScope(callback),
+          value: await this.withPostgresGateScope("postgres_transaction", callback),
         };
       } catch (error) {
         // Include rollback and pool-close failures. Ordinary transaction
@@ -2957,32 +2974,45 @@ export class Space extends DurableObject<CoreBindings> {
     return outcome.value;
   };
 
-  private readonly postgresGateContext = new AsyncLocalStorage<{
-    active: boolean;
-  }>();
+  private readonly postgresGateContext =
+    new AsyncLocalStorage<SpaceInputGateObservation>();
 
-  private withPostgresGateScope<T>(callback: () => Promise<T>): Promise<T> {
-    const gate = { active: true };
-    return this.postgresGateContext.run(gate, async () => {
-      try {
-        return await withPostgresRequest(
-          this.bindings.OPENMELD_POSTGRESQL,
-          callback,
-          {
-            reuseConnection: false,
-            runTransaction: this.runPostgresTransaction,
-            transactionTimeoutMs: SPACE_POSTGRES_TRANSACTION_TIMEOUT_MS,
-          }
-        );
-      } finally {
-        // Deferred work retains its Space owner after this scope closes, but
-        // must seek fresh admission once this gate has finished.
-        gate.active = false;
-      }
+  private withPostgresGateScope<T>(
+    operation: string,
+    callback: () => Promise<T>
+  ): Promise<T> {
+    const parent = this.postgresGateContext.getStore();
+    const gate = new SpaceInputGateObservation(
+      this.durableObjectId,
+      operation,
+      parent?.active ? parent.id : undefined
+    );
+    return tracing.enterSpan(`space.input_gate.${operation}`, (span) => {
+      span.setAttribute("openmeld.gate_id", gate.id);
+      return this.postgresGateContext.run(gate, () =>
+        gate.observe(() =>
+          withPostgresRequest(
+            this.bindings.OPENMELD_POSTGRESQL,
+            async () => {
+              try {
+                return await callback();
+              } finally {
+                gate.cleaningUp();
+              }
+            },
+            {
+              reuseConnection: false,
+              runTransaction: this.runPostgresTransaction,
+              transactionTimeoutMs: SPACE_POSTGRES_TRANSACTION_TIMEOUT_MS,
+            }
+          )
+        )
+      );
     });
   }
 
   private blockConcurrencyWithPostgres<T>(
+    operation: string,
     callback: () => Promise<T>
   ): Promise<T> {
     // Input gates block socket events initiated before the gate. Keep all
@@ -2990,7 +3020,7 @@ export class Space extends DurableObject<CoreBindings> {
     // Preserve the caller's existing serialization boundary and close the
     // pool before reopening the gate; never borrow the outer request pool.
     return this.ctx.blockConcurrencyWhile(() =>
-      this.withPostgresGateScope(callback)
+      this.withPostgresGateScope(operation, callback)
     );
   }
   async alarm(): Promise<void> {
@@ -5692,7 +5722,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
   ): Promise<SignalEnvelope> {
     this.applySpaceRef(input.spaceId);
-    const result = await this.blockConcurrencyWithPostgres(async () => {
+    const result = await this.blockConcurrencyWithPostgres("post_direct_message", async () => {
       try {
         const meta = this.requireConvertibleDirectMessageMeta();
         const members = listSpaceMemberRecords(this.ctx.storage.sql, {
@@ -6002,11 +6032,17 @@ export class Space extends DurableObject<CoreBindings> {
           ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
         });
         const resolution = await this.blockConcurrencyWithPostgres(
+          "post_idempotent_signal",
           async (): Promise<
             | IdempotentPostSignalResolution
             | { status: "failed"; error: unknown }
           > => {
             try {
+              const gate = this.postgresGateContext.getStore();
+              gate?.watchMessage(
+                clientMessageId,
+                input.context?.actorContext.requestId
+              );
               const pluginContinuation = input.pluginContinuation
                 ? new PluginConnectionContinuationRepository(
                     this.ctx.storage.sql
@@ -6046,10 +6082,15 @@ export class Space extends DurableObject<CoreBindings> {
                 clientMessageId,
                 input,
               });
-              const signal = await this.postIdempotentTextSignal(
-                postInput,
-                workRecoveryQueueHandoff,
-                pluginContinuation?.binding
+              const signal = await duringSpaceGateStage(
+                gate,
+                "idempotent_publication",
+                () =>
+                  this.postIdempotentTextSignal(
+                    postInput,
+                    workRecoveryQueueHandoff,
+                    pluginContinuation?.binding
+                  )
               );
               return { signal, status: "accepted" };
             } catch (error) {
@@ -10978,7 +11019,7 @@ export class Space extends DurableObject<CoreBindings> {
       async () => {
         const input = resolveNativeReplyPlacementInputSchema.parse(raw);
         this.applySpaceRef(input.spaceId);
-        const outcome = await this.blockConcurrencyWithPostgres(async () => {
+        const outcome = await this.blockConcurrencyWithPostgres("resolve_native_reply_placement", async () => {
           try {
             return { value: await this.resolveNativeReplyPlacement(input) };
           } catch (error) {
@@ -12740,7 +12781,7 @@ export class Space extends DurableObject<CoreBindings> {
   } | null> {
     const input = spaceOwnerDepartureSpaceInputSchema.parse(raw);
     this.applySpaceRef(input.spaceId);
-    return this.blockConcurrencyWithPostgres(async () => {
+    return this.blockConcurrencyWithPostgres("check_owner_departure", async () => {
       const meta = this.readSpaceMetaRecord();
       if (meta && meta.organizationId !== input.organizationId) {
         throw new Error("Space organization mismatch.");
@@ -12777,7 +12818,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
     const input = parsed.data;
     this.applySpaceRef(input.spaceId);
-    const result = await this.blockConcurrencyWithPostgres(async () => {
+    const result = await this.blockConcurrencyWithPostgres("preview_member_removal", async () => {
       try {
         const authorized = await requireOrganizationMemberRemovalManager(
           this.bindings,
@@ -12809,7 +12850,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
     const input = parsed.data;
     this.applySpaceRef(input.spaceId);
-    const result = await this.blockConcurrencyWithPostgres(async () => {
+    const result = await this.blockConcurrencyWithPostgres("prepare_member_removal", async () => {
       try {
         await this.prepareOrganizationMemberRemovalSpace(input);
         return { ok: true as const };
@@ -13199,7 +13240,7 @@ export class Space extends DurableObject<CoreBindings> {
   ): Promise<ConvertDirectMessageToSpaceResponse> {
     return await this.withPostgresRequest(
       async () => {
-        const result = await this.blockConcurrencyWithPostgres(async () => {
+        const result = await this.blockConcurrencyWithPostgres("convert_direct_message", async () => {
           try {
             return {
               ok: true as const,
@@ -13885,7 +13926,7 @@ export class Space extends DurableObject<CoreBindings> {
     input: InitializeSpaceMetaWithOwnersInput
   ): Promise<InitializeSpaceMetaWithOwnersResponse> {
     owner.applySpaceRef(input.spaceId);
-    const result = await owner.blockConcurrencyWithPostgres(async () => {
+    const result = await owner.blockConcurrencyWithPostgres("initialize_meta_with_owners", async () => {
       try {
         const existing = owner.readSpaceMetaRecord();
         if (existing) {
@@ -14203,7 +14244,7 @@ export class Space extends DurableObject<CoreBindings> {
       }
     | { kind: "deleted"; spaceId: string; organizationId: string }
   > {
-    return await this.blockConcurrencyWithPostgres(async () => {
+    return await this.blockConcurrencyWithPostgres("manage_direct_message_session", async () => {
       this.applySpaceRef(input.spaceId);
       const meta = await this.requireDirectMessageSessionAccess(input.context);
       const db = this.requireSpaceIndexDb();
@@ -14310,7 +14351,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcDeleteConversationForMe(
     input: import("@openmeld/schemas").DeleteConversationForMeInput
   ): Promise<import("@openmeld/schemas").DeleteConversationForMeResponse> {
-    return await this.blockConcurrencyWithPostgres(async () => {
+    return await this.blockConcurrencyWithPostgres("delete_conversation", async () => {
       this.applySpaceRef(input.spaceId);
       const meta = this.readSpaceMetaRecord();
       const actor = input.context.actorContext;
@@ -14424,7 +14465,7 @@ export class Space extends DurableObject<CoreBindings> {
         });
       }
     });
-    return this.blockConcurrencyWithPostgres(async () => {
+    return this.blockConcurrencyWithPostgres("purge_account", async () => {
       const authorized = await authorize();
       if (!authorized) {
         return true;
@@ -15646,7 +15687,9 @@ export class Space extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-    return await this.blockConcurrencyWithPostgres(async () => {
+    return await this.blockConcurrencyWithPostgres("post_thread_signal", async () => {
+      const gate = this.postgresGateContext.getStore();
+      gate?.watchMessage(parsed.data.clientMessageId, input.context.actorContext.requestId);
       const existingSignal = this.readSourceTextSignalByClientMessageId(
         parsed.data.clientMessageId
       );
@@ -15707,8 +15750,8 @@ export class Space extends DurableObject<CoreBindings> {
         }
       );
       // Resolve once, after the retry check and before ordinary authorized publication.
-      const automaticWakeEnabled = await this.readAutomaticWakePreference(
-        signal.profile.profileId
+      const automaticWakeEnabled = await duringSpaceGateStage(gate, "thread_wake_preference", () =>
+        this.readAutomaticWakePreference(signal.profile.profileId)
       );
       applyAutomaticThreadWake(signal, () => {
         if (!automaticWakeEnabled) {
@@ -18014,7 +18057,7 @@ export class Space extends DurableObject<CoreBindings> {
       return Promise.resolve(this.unauthenticatedResponse(resolved.requestId));
     }
     if (request.method === "PATCH") {
-      return this.blockConcurrencyWithPostgres(() =>
+      return this.blockConcurrencyWithPostgres("initialize_meta", () =>
         this.handlePatchMeta(request, {
           context: resolved.context,
           initializeIfAbsent: true,
@@ -18033,7 +18076,7 @@ export class Space extends DurableObject<CoreBindings> {
       return Promise.resolve(this.unauthenticatedResponse(resolved.requestId));
     }
     if (request.method === "PATCH") {
-      return this.blockConcurrencyWithPostgres(() =>
+      return this.blockConcurrencyWithPostgres("initialize_meta_with_password", () =>
         this.handlePatchMetaWithPasswordAtomic(
           request,
           resolved.context,
@@ -20526,7 +20569,7 @@ export class Space extends DurableObject<CoreBindings> {
       }
     }
     if (Object.hasOwn(body ?? {}, "ownership")) {
-      return this.blockConcurrencyWithPostgres(() =>
+      return this.blockConcurrencyWithPostgres("change_space_owner", () =>
         this.handleChangeSpaceOwner(body, context)
       );
     }
@@ -20944,7 +20987,7 @@ export class Space extends DurableObject<CoreBindings> {
     request: Request,
     context: CoreRpcContextInput
   ): Promise<Response> {
-    return this.blockConcurrencyWithPostgres(() =>
+    return this.blockConcurrencyWithPostgres("delete_space", () =>
       this.deleteSpace(request, context)
     );
   }
@@ -21445,10 +21488,12 @@ export class Space extends DurableObject<CoreBindings> {
     // Include recovery alarms and concurrent publishers in the same ordering:
     // notification eligibility follows each source Signal's captured send.
     // Later stream frames cannot extend these per-Signal receipts.
-    await Promise.all(
-      records.map((record) =>
+    await duringSpaceGateStage(
+      this.postgresGateContext?.getStore(),
+      "inbox_live_receipts",
+      () => Promise.all(records.map((record) =>
         this.pendingSignalLiveDeliveries.get(record.signalId)
-      )
+      ))
     );
     for (const record of records) {
       const targetInboxDb = getPostgresDatabase(this.bindings);
@@ -23175,6 +23220,12 @@ export class Space extends DurableObject<CoreBindings> {
         );
       },
     });
+    if (persistedSignal && signal.type === "signal.text") {
+      this.postgresGateContext?.getStore()?.stored(
+        signal.id,
+        signal.data.meta?.clientMessageId
+      );
+    }
     this.broadcastRepostedSource(repostedSource);
     this.finishEarlyWakeStops(stoppedNotices, signalContext);
     this.maybeEmitRetentionWarningSignal({
@@ -23184,7 +23235,11 @@ export class Space extends DurableObject<CoreBindings> {
       nowMs: persistNowMs,
     });
     if (persistedSignal && agentAccessHolds.length > 0) {
-      await this.flushSpaceAgentAccessHoldsBestEffort();
+      await duringSpaceGateStage(
+        this.postgresGateContext?.getStore(),
+        "agent_access_hold_projection",
+        () => this.flushSpaceAgentAccessHoldsBestEffort()
+      );
     }
     if (persistedSignal) {
       this.scheduleInitialSessionTitle(signal, signalContext);
@@ -23863,7 +23918,7 @@ export class Space extends DurableObject<CoreBindings> {
   }): Promise<{ outcome: "applied" | "voided" | "closed" }> {
     this.applySpaceRef(input.spaceId);
     // A throw inside the gate resets the Space, so refusals leave it first.
-    const gated = await this.blockConcurrencyWithPostgres(async () => {
+    const gated = await this.blockConcurrencyWithPostgres("apply_agent_access_decision", async () => {
       try {
         return { value: await this.applyAgentAccessDecision(input) };
       } catch (error) {
@@ -24097,7 +24152,7 @@ export class Space extends DurableObject<CoreBindings> {
   }): Promise<{ requestId: string }> {
     this.applySpaceRef(input.spaceId);
     // A throw inside the gate resets the Space, so refusals leave it first.
-    const outcome = await this.blockConcurrencyWithPostgres(async () => {
+    const outcome = await this.blockConcurrencyWithPostgres("request_agent_for_space", async () => {
       try {
         return { value: await this.requestAgentForSpace(input) };
       } catch (error) {
@@ -28000,6 +28055,7 @@ export class Space extends DurableObject<CoreBindings> {
     signal: SignalEnvelope,
     signalContextInput?: SignalPublishContext
   ): Promise<void> {
+    const gate = this.postgresGateContext?.getStore();
     this.assertActiveSpaceForPublication();
     // Freeze legacy HTTP/RPC/WebSocket input here, before ordinary dispatch or
     // active Steer. Queue promotion already carries its original accepted anchor.
@@ -28107,12 +28163,16 @@ export class Space extends DurableObject<CoreBindings> {
       signalContext
     );
     if (typeof this.preloadDispatchContinuityCreatorProfileIds === "function") {
-      await this.preloadDispatchContinuityCreatorProfileIds();
+      await duringSpaceGateStage(gate, "profile_lineage", () =>
+        this.preloadDispatchContinuityCreatorProfileIds()
+      );
     }
-    await armSpaceInboxProjectionRecoveryAlarm({
-      spaceId: this.spaceId,
-      storage: this.ctx.storage,
-    });
+    await duringSpaceGateStage(gate, "prearm_inbox_alarm", () =>
+      armSpaceInboxProjectionRecoveryAlarm({
+        spaceId: this.spaceId,
+        storage: this.ctx.storage,
+      })
+    );
     const persistSignalWithOptionalOutbox =
       typeof this.persistTextSignalWithOptionalOutbox === "function"
         ? (
@@ -28142,20 +28202,33 @@ export class Space extends DurableObject<CoreBindings> {
       publishTextSignalUseCase({
         signal: signalWithAgentActivity,
         signalContext,
-        persistSignalWithOptionalOutbox,
-        flushPendingDispatchOutbox: () => this.flushPendingDispatchOutbox(),
+        inputGateId: gate?.active ? gate.id : undefined,
+        persistSignalWithOptionalOutbox: (...args) =>
+          duringSpaceGateStage(gate, "signal_persistence", () =>
+            persistSignalWithOptionalOutbox(...args)
+          ),
+        flushPendingDispatchOutbox: () =>
+          duringSpaceGateStage(gate, "background_dispatch_outbox", () =>
+            this.flushPendingDispatchOutbox()
+          ),
         recordHumanActivity: (currentSignal) =>
           this.recordOrganizationMemberHumanActivity(currentSignal),
         waitUntil: (promise) => this.ctx.waitUntil(promise),
         broadcast: (currentSignal) =>
-          this.broadcastSignal(currentSignal, signalContext, {
-            persisted: true,
-          }),
+          duringSpaceGateStage(gate, "live_delivery", () =>
+            this.broadcastSignal(currentSignal, signalContext, {
+              persisted: true,
+            })
+          ),
       })
     );
     await flushAndScheduleSpaceInboxProjection({
-      flush: () => this.flushPendingSpaceInboxProjectionOutbox(),
-      schedule: () => this.syncSpaceBackgroundAlarm(),
+      flush: () => duringSpaceGateStage(gate, "inbox_projection", () =>
+        this.flushPendingSpaceInboxProjectionOutbox()
+      ),
+      schedule: () => duringSpaceGateStage(gate, "alarm_schedule", () =>
+        this.syncSpaceBackgroundAlarm()
+      ),
       spaceId: this.spaceId,
       storage: this.ctx.storage,
     });

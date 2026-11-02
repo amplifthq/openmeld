@@ -535,6 +535,35 @@ identity lookup, policy read, report acceptance, usage recovery, model Inbox
 reconciliation, Member Agent catalog and PostgreSQL cleanup. The label records
 the stage entered, not whether a write committed.
 
+## Space input gate timeouts
+
+For a Space `blockConcurrencyWhile` timeout, filter Core logs by
+`event = space_input_gate` and the affected `durableObjectId` around the
+reset. Each admitted PostgreSQL-backed input gate has a `gateId` and an
+`operation`. A nested gate also records its `parentGateId`. Match these IDs
+to the `openmeld.gate_id` attribute on sampled `space.input_gate.*` and
+`space.input_gate_step.*` spans, including when overlapping requests appear
+in different traces.
+
+While a gate is open, timers at 5 and 25 seconds capture snapshots. `pendingStages`
+counts unfinished calls at that instant. For example, `live_delivery` covers
+the send, `live_session_authorization` counts access checks started in that
+gate, and `inbox_live_receipts` covers waiting for prior sends.
+`background_dispatch_outbox` runs through `waitUntil` and can overlap either
+one. Once the callback returns, `phase = postgres_cleanup` covers the rest of
+the database scope. A gate that returns or throws after 5 seconds of observed
+elapsed time emits a final status even if its timer did not run. In production,
+the [Workers clock](https://developers.cloudflare.com/workers/runtime-apis/performance/)
+advances after I/O, so a purely synchronous stall can escape these measurements.
+A runtime reset can also interrupt the final record.
+
+For a keyed message, `persistedSignalId` records a successful SQLite write
+observed for that message inside this gate. A replay or a snapshot taken
+before the write may omit it. The existing `core.openmeld.space.signal_persisted`
+event also carries the publishing gate's ID, so a completed write can be
+correlated even if the runtime interrupts a later snapshot. These diagnostics
+record no message text or SQL.
+
 ## Space open read path
 
 Opening a Space reads bootstrap, members, and entry resolution. Their slow
