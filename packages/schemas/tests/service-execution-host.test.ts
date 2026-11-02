@@ -62,21 +62,26 @@ describe("execution host process boundary", () => {
         schema: "service-execution-host-owner-v1",
       }).success
     ).toBe(true);
-    expect(
-      serviceExecutionHostOwnerSchema.safeParse({
-        ...base,
-        schema: "service-execution-host-owner-v2",
-        processStartedAt: "ps:Mon Sep 29 07:00:00 2026",
-        processEvidenceComplete: true,
-        ownedProcessTrees: [
-          {
-            pid: 456,
-            processStartedAt: "ps:Mon Sep 29 07:01:00 2026",
-            signalTarget: "process_group",
-          },
-        ],
-      }).success
-    ).toBe(true);
+    for (const schema of [
+      "service-execution-host-owner-v2",
+      "service-execution-host-owner-v3",
+    ]) {
+      expect(
+        serviceExecutionHostOwnerSchema.safeParse({
+          ...base,
+          schema,
+          processStartedAt: "ps:Mon Sep 29 07:00:00 2026",
+          processEvidenceComplete: true,
+          ownedProcessTrees: [
+            {
+              pid: 456,
+              processStartedAt: "ps:Mon Sep 29 07:01:00 2026",
+              signalTarget: "process_group",
+            },
+          ],
+        }).success
+      ).toBe(true);
+    }
   });
 
   it.each([

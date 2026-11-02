@@ -5,6 +5,7 @@ import {
   createLocalAdapterEntries,
   createLocalTaskInterruptSender,
   createPendingAgentInteractionRegistry,
+  type LocalDaemonAdapterEntry,
 } from "@openmeld/local-service";
 import {
   computerPowerRequestFrameSchema,
@@ -29,7 +30,7 @@ import {
 import { createDaemonLocalExecutionSlots } from "../carrier/local-execution-slots";
 import { resolveLocalConversationExecutionStatus } from "../control-plane/conversation-execution-status";
 import { CONTROLLED_SHUTDOWN_RESULT_ACK_TIMEOUT_MS } from "../core/constants";
-import { emitRunLine, toErrorMessage } from "../core/logger";
+import { emitRunLine, toErrorMessage, warnDaemonEvent } from "../core/logger";
 import type {
   CurrentDaemonSocketRef,
   DaemonFrameSink,
@@ -69,6 +70,10 @@ import {
 import { createExecutionAdmissionConfirmation } from "./execution-admission";
 import { createServiceExecutionInputReceiver } from "./execution-input";
 import { handleExecutionHostFrame } from "./frame-router";
+import type {
+  ExecutionHostWorkState,
+  ProviderInvocationEvent,
+} from "./ownership";
 
 type HostEvent = Exclude<ServiceExecutionHostMessage, { type: "reply" }>;
 
@@ -79,7 +84,9 @@ export async function createExecutionHostResources(input: {
     phase: "process_exit" | "process_spawned";
     processId: number | null;
     signalTarget: "process" | "process_group";
+    taskId: string;
   }) => void;
+  observeProviderInvocation?: (event: ProviderInvocationEvent) => void;
 }) {
   const ledgerPaths = buildLedgerPaths(input.runtimePaths.ledgerRootPath);
   const contextStore = await loadContextStore(
@@ -124,7 +131,9 @@ export async function createExecutionHostResources(input: {
           });
         }
       },
-    })
+    }).map((entry) =>
+      withProviderInvocationObserver(entry, input.observeProviderInvocation)
+    )
   );
   const emptyCatalog: RouteCatalog = {
     profileIds: [],
@@ -147,6 +156,43 @@ export type ExecutionHostResources = Awaited<
   ReturnType<typeof createExecutionHostResources>
 >;
 
+// Every provider invocation, including repair rounds and retries of the same
+// task, is observed before the adapter can launch anything. A start that
+// cannot be recorded refuses the invocation.
+export function withProviderInvocationObserver(
+  entry: LocalDaemonAdapterEntry,
+  observe: ((event: ProviderInvocationEvent) => void) | undefined
+): LocalDaemonAdapterEntry {
+  if (!observe) {
+    return entry;
+  }
+  const { adapter } = entry;
+  return {
+    ...entry,
+    adapter: {
+      ...adapter,
+      dispatch: async (request) => {
+        observe({ phase: "started", taskId: request.taskId });
+        try {
+          return await adapter.dispatch(request);
+        } finally {
+          try {
+            observe({ phase: "ended", taskId: request.taskId });
+          } catch (error) {
+            // The receipt still says this invocation is unrecorded, which only
+            // keeps the fence closed; the provider's outcome stands.
+            warnDaemonEvent("[openmeld.execution_host.receipt_write_failed]", {
+              event: "cli.execution_host.receipt_write_failed",
+              errorMessage: toErrorMessage(error),
+              taskId: request.taskId,
+            });
+          }
+        }
+      },
+    },
+  };
+}
+
 // One Host owns these execution objects across all replacement cloud sockets.
 // No socket, reconnect loop, public listener or independent task scheduler lives
 // here. The original execution/approval/result domain owners remain in use.
@@ -159,7 +205,7 @@ export function createExecutionHostRuntime(input: {
   profileOwnerName: string | null;
   presenter: Presenter;
   emit(event: HostEvent): void;
-  onWorkStateChange?(quiescent: boolean): void;
+  onWorkStateChange?(state: ExecutionHostWorkState): void;
 }) {
   const identity = input.identity;
   const {
@@ -177,6 +223,8 @@ export function createExecutionHostRuntime(input: {
   const localExecutionSlots = createDaemonLocalExecutionSlots({
     limits: input.resources.dispatchLimits,
     presenter: input.presenter,
+    // A started task is recorded as running before any of its work begins.
+    beforeTaskRun: () => observeWork(),
     onChanged: () => {
       power
         .setActiveTasks(localExecutionSlots.getDrainState().activeGlobal)
@@ -187,7 +235,7 @@ export function createExecutionHostRuntime(input: {
             text: toErrorMessage(error),
           })
         );
-      input.onWorkStateChange?.(snapshot().localQuiescent);
+      observeWork();
       invalidate("execution");
     },
   });
@@ -213,7 +261,7 @@ export function createExecutionHostRuntime(input: {
     Awaited<ReturnType<typeof syncLocalServiceRuntimeAgentControllerReports>>
   > | null = null;
   let reportPolicy: "background" | "fresh" | null = null;
-  const activeControls = new Set<Promise<unknown>>();
+  const unattributedOperations = new Set<Promise<unknown>>();
   const executionInput = createServiceExecutionInputReceiver({
     ownerUserId: identity.ownerUserId,
     registry: inflightTaskControlRegistry,
@@ -265,7 +313,7 @@ export function createExecutionHostRuntime(input: {
       activeCount: state.activeGlobal,
       pendingCount: state.pendingCount,
       localQuiescent:
-        localExecutionSlots.isQuiescent() && activeControls.size === 0,
+        localExecutionSlots.isQuiescent() && unattributedOperations.size === 0,
       unacknowledgedResultCount:
         listDispatchResultOutboxPendingAcknowledgementKeys({ ledgerPaths })
           .length,
@@ -274,6 +322,20 @@ export function createExecutionHostRuntime(input: {
         .listAdapters()
         .map((entry) => entry.adapterId),
     };
+  }
+
+  // `admitting` reports work that is about to start before it is visible in
+  // the slots or controls, so the receipt is durable before that work runs.
+  function observeWork(admitting?: "unattributed" | "delivery"): void {
+    const running = localExecutionSlots.getRunningWork();
+    input.onWorkStateChange?.({
+      localQuiescent: admitting === undefined && snapshot().localQuiescent,
+      unattributedWork:
+        admitting === "unattributed" ||
+        unattributedOperations.size > 0 ||
+        running.adapterOperationIds.length > 0,
+      runningTaskIds: running.taskIds,
+    });
   }
 
   function assertConnection(expected: number): DaemonFrameSink {
@@ -488,10 +550,22 @@ export function createExecutionHostRuntime(input: {
   async function drain(): Promise<ServiceExecutionHostSnapshot> {
     beginDrain();
     await localExecutionSlots.drain();
-    await Promise.allSettled([...activeControls]);
-    const drained = snapshot();
-    input.onWorkStateChange?.(drained.localQuiescent);
-    return drained;
+    await Promise.allSettled([...unattributedOperations]);
+    observeReleasedWork();
+    return snapshot();
+  }
+
+  function observeReleasedWork(): void {
+    try {
+      observeWork();
+    } catch (error) {
+      // Work already settled. Keep its outcome and continue teardown; the
+      // previous durable fence still governs a replacement Host.
+      warnDaemonEvent("[openmeld.execution_host.release_observation_failed]", {
+        event: "cli.execution_host.release_observation_failed",
+        detail: toErrorMessage(error),
+      });
+    }
   }
 
   function trackControl<T>(run: () => Promise<T>): Promise<T> {
@@ -503,12 +577,17 @@ export function createExecutionHostRuntime(input: {
         )
       );
     }
-    input.onWorkStateChange?.(false);
+    return trackUnattributedWork(run);
+  }
+
+  // Cleanup belongs to an already accepted task and must also run during drain.
+  function trackUnattributedWork<T>(run: () => Promise<T>): Promise<T> {
+    observeWork("unattributed");
     const operation = Promise.resolve().then(run);
-    activeControls.add(operation);
+    unattributedOperations.add(operation);
     return operation.finally(() => {
-      activeControls.delete(operation);
-      input.onWorkStateChange?.(snapshot().localQuiescent);
+      unattributedOperations.delete(operation);
+      observeReleasedWork();
       invalidate("execution");
     });
   }
@@ -712,9 +791,10 @@ export function createExecutionHostRuntime(input: {
             "Execution admission is closed; the existing Coordinator retains delivery ownership."
           );
         }
-        input.onWorkStateChange?.(false);
+        observeWork("delivery");
       }
       handleExecutionHostFrame({
+        trackWorkspaceCleanup: trackUnattributedWork,
         readRouteByProfileId: () => routeCatalogState.routeByProfileId,
         computerFileAccessStorePath,
         contextStore,
@@ -735,7 +815,7 @@ export function createExecutionHostRuntime(input: {
         routeByProfileId: routeCatalogState.routeByProfileId,
         socket,
       });
-      input.onWorkStateChange?.(snapshot().localQuiescent);
+      observeWork();
       invalidate("execution");
       return {};
     },

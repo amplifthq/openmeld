@@ -328,41 +328,149 @@ describe("Host responsiveness observations", () => {
     await link.detach();
   });
 
-  it("reports why previous work prevents Host initialization and how to recover", async () => {
-    fixture.call.mockRejectedValueOnce(
-      new ExecutionHostError(
-        "host.previous_work_unconfirmed",
-        "internal evidence omitted"
-      )
-    );
-    const host = launchExecutionHost({
-      identity: {
-        ownerUserId: "test-owner",
-        deviceId: "test-device",
-        lane: "dev-local",
-        daemonSessionId: "test-session",
-        serviceContractGeneration: 1,
-        sessionIdentity: "test-identity",
-        stateRoot: "/unused-boundary-fixture",
-        authBaseUrl: "http://localhost:1",
-        gatewayBaseUrl: "http://localhost:1",
-        parentPid: 41_000,
-        parentProcessStartedAt: "test-start",
-      },
-      onFailure: vi.fn(),
-    });
-
-    await expect(host.initialized).rejects.toMatchObject({
+  it.each([
+    {
       code: "host.previous_work_unconfirmed",
-    });
-    expect(host.observation?.()).toMatchObject({
-      responsive: false,
-      unavailableReason: {
-        code: "host.previous_work_unconfirmed",
+      message:
+        "OpenMeld cannot confirm that work from the previous local execution host has ended.",
+      recoveryAction: "restart_computer",
+    },
+    {
+      code: "host.owner_corrupt",
+      message:
+        "OpenMeld cannot read the local execution ownership record on this computer.",
+      recoveryAction: "open_diagnostics",
+    },
+    {
+      code: "host.owner_lock_unverified",
+      message:
+        "OpenMeld cannot identify which process holds local execution on this computer.",
+      recoveryAction: "open_diagnostics",
+    },
+  ])("reports why $code prevents Host initialization and never retries it", async (reason) => {
+    vi.useFakeTimers();
+    try {
+      fixture.call.mockClear();
+      fixture.call.mockRejectedValueOnce(
+        new ExecutionHostError(reason.code, "internal evidence omitted")
+      );
+      const onInitialization = vi.fn();
+      const host = launchExecutionHost({
+        identity: HOST_IDENTITY,
+        onFailure: vi.fn(),
+        onInitialization,
+      });
+
+      await expect(host.initialized).rejects.toMatchObject({
+        code: reason.code,
+      });
+      expect(host.observation?.()).toMatchObject({
+        responsive: false,
+        unavailableReason: reason,
+      });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(fixture.call.mock.calls.map(([method]) => method)).toEqual([
+        "initialize",
+      ]);
+      expect(onInitialization.mock.calls).toEqual([
+        [
+          {
+            status: "refused",
+            reason,
+            detail: "internal evidence omitted",
+            retrying: false,
+          },
+        ],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts on its own once recorded previous work finishes", async () => {
+    vi.useFakeTimers();
+    try {
+      fixture.call.mockClear();
+      const previousWork = new ExecutionHostError(
+        "host.previous_work_running",
+        "internal evidence omitted"
+      );
+      const snapshot = {
+        pid: fixture.child.pid,
+        admission: "open",
+        activeCount: 0,
+        pendingCount: 0,
+        localQuiescent: true,
+        unacknowledgedResultCount: 0,
+        startupReplayPending: false,
+        adapterIds: [],
+      };
+      fixture.call
+        .mockRejectedValueOnce(previousWork)
+        .mockRejectedValueOnce(previousWork)
+        .mockResolvedValueOnce(snapshot);
+      const onInitialization = vi.fn();
+      const host = launchExecutionHost({
+        identity: HOST_IDENTITY,
+        onFailure: vi.fn(),
+        onInitialization,
+      });
+
+      await expect(host.initialized).rejects.toBe(previousWork);
+      expect(host.available()).toBe(false);
+      const reason = {
+        code: "host.previous_work_running",
         message:
-          "OpenMeld cannot confirm that work from the previous local execution host has ended.",
-        recoveryAction: "restart_computer",
-      },
-    });
+          "Local agent work from the previous OpenMeld Service session is still finishing on this computer.",
+        recoveryAction: "wait_for_previous_work",
+      };
+      expect(host.observation?.()).toMatchObject({
+        responsive: false,
+        unavailableReason: reason,
+      });
+
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(host.initialized).rejects.toBe(previousWork);
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(host.initialized).resolves.toEqual(snapshot);
+      expect(host.available()).toBe(true);
+      expect(host.observation?.()).toMatchObject({
+        responsive: true,
+        unavailableReason: null,
+      });
+      expect(fixture.call.mock.calls.map(([method]) => method)).toEqual([
+        "initialize",
+        "initialize",
+        "initialize",
+      ]);
+      // A repeated refusal is not logged again; the recovery is.
+      expect(onInitialization.mock.calls).toEqual([
+        [
+          {
+            status: "refused",
+            reason,
+            detail: "internal evidence omitted",
+            retrying: true,
+          },
+        ],
+        [{ status: "ready" }],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
+
+const HOST_IDENTITY = {
+  ownerUserId: "test-owner",
+  deviceId: "test-device",
+  lane: "dev-local",
+  daemonSessionId: "test-session",
+  serviceContractGeneration: 1,
+  sessionIdentity: "test-identity",
+  stateRoot: "/unused-boundary-fixture",
+  authBaseUrl: "http://localhost:1",
+  gatewayBaseUrl: "http://localhost:1",
+  parentPid: 41_000,
+  parentProcessStartedAt: "test-start",
+} as const;

@@ -145,6 +145,7 @@ function enqueueLegacyTask(input: {
       activeGlobal: 0,
       pendingCount: 0,
     }),
+    getRunningWork: () => ({ adapterOperationIds: [], taskIds: [] }),
     getSharedFolderSessions: () => [],
     getSnapshot: () => ({
       activeForLane: 0,
@@ -322,6 +323,7 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
         activeGlobal: 0,
         pendingCount: 0,
       }),
+      getRunningWork: () => ({ adapterOperationIds: [], taskIds: [] }),
       getSharedFolderSessions: () => [],
       getSnapshot: () => ({
         activeForLane: 0,
@@ -432,11 +434,20 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
     });
   });
 
-  it("sends owner conflict as token-scoped diagnostic evidence", () => {
-    const sentFrames: string[] = [];
-    const localExecutionSlots = {
-      request: () => ({
-        accepted: false as const,
+  const slotSnapshot = {
+    activeForLane: 1,
+    activeGlobal: 1,
+    limits: {
+      globalConcurrency: 1,
+      queueMax: 10,
+    },
+    queueDepth: 0,
+  };
+  it.each([
+    {
+      outcome: "owner conflict",
+      request: (): ReturnType<LocalExecutionSlots["request"]> => ({
+        accepted: false,
         activeOwner: {
           attemptId: "attempt-active",
           dispatchId: "dispatch-active",
@@ -444,17 +455,56 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
           runtimeCoordinatorExecutionId: "rce-active",
           taskId: "task-1",
         },
-        reason: "task.owner_conflict" as const,
-        snapshot: {
-          activeForLane: 1,
-          activeGlobal: 1,
-          limits: {
-            globalConcurrency: 1,
-            queueMax: 10,
-          },
-          queueDepth: 0,
-        },
+        reason: "task.owner_conflict",
+        snapshot: slotSnapshot,
       }),
+      result: {
+        errorCode: "runtime.task.local_owner_conflict",
+        status: "failed",
+        suppressPublicOutcome: true,
+      },
+      localOwnerConflict: {
+        activeAttemptId: "attempt-active",
+        activeDispatchId: "dispatch-active",
+        activeExecutionTokenRunId: "run-active",
+        activeRuntimeCoordinatorExecutionId: "rce-active",
+        activeTaskId: "task-1",
+        reason: "task.owner_conflict",
+        rejectedAttemptId: "attempt-rejected",
+        rejectedDispatchId: "dispatch-rejected",
+        rejectedExecutionTokenRunId: "run-rejected",
+        rejectedRuntimeCoordinatorExecutionId: "rce-rejected",
+        rejectedTaskId: "task-1",
+      },
+    },
+    {
+      // The slots accepted the task but refused to start it, so no provider
+      // ran and the task's own result handling was skipped.
+      outcome: "a task refused before its run",
+      request: (
+        task: LocalExecutionSlotTask
+      ): ReturnType<LocalExecutionSlots["request"]> => {
+        task.onRunRefused?.(
+          new Error("EACCES: /private/fixture-owner/receipt")
+        );
+        return { accepted: true, deduped: false, snapshot: slotSnapshot };
+      },
+      result: {
+        errorCode: "host.execution_record_unavailable",
+        errorMessage:
+          "host.execution_record_unavailable: The local execution host could not record this task before starting it; the provider was not started.",
+        status: "failed",
+      },
+      localOwnerConflict: undefined,
+    },
+  ])("sends $outcome as token-scoped diagnostic evidence", ({
+    request,
+    result,
+    localOwnerConflict,
+  }) => {
+    const sentFrames: string[] = [];
+    const localExecutionSlots = {
+      request,
       getAdapterOperationStatus: () => "available" as const,
       runAdapterOperationIfIdle: async <T>(
         _adapterId: string,
@@ -469,6 +519,7 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
         activeGlobal: 1,
         pendingCount: 0,
       }),
+      getRunningWork: () => ({ adapterOperationIds: [], taskIds: ["task-1"] }),
       isQuiescent: () => false,
       getSharedFolderSessions: () => [],
       getSnapshot: () => ({
@@ -608,25 +659,9 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
     expect(resultFrame?.payload?.executionTokenEcho?.runId).toBe(
       "run-rejected"
     );
-    expect(resultFrame?.payload?.taskResult?.payload).toMatchObject({
-      errorCode: "runtime.task.local_owner_conflict",
-      status: "failed",
-      suppressPublicOutcome: true,
-    });
+    expect(resultFrame?.payload?.taskResult?.payload).toMatchObject(result);
     expect(
       resultFrame?.payload?.taskResult?.payload?.localOwnerConflict
-    ).toEqual({
-      activeAttemptId: "attempt-active",
-      activeDispatchId: "dispatch-active",
-      activeExecutionTokenRunId: "run-active",
-      activeRuntimeCoordinatorExecutionId: "rce-active",
-      activeTaskId: "task-1",
-      reason: "task.owner_conflict",
-      rejectedAttemptId: "attempt-rejected",
-      rejectedDispatchId: "dispatch-rejected",
-      rejectedExecutionTokenRunId: "run-rejected",
-      rejectedRuntimeCoordinatorExecutionId: "rce-rejected",
-      rejectedTaskId: "task-1",
-    });
+    ).toEqual(localOwnerConflict);
   });
 });

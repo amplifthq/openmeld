@@ -12,9 +12,11 @@ export function createDaemonLocalExecutionSlots(input: {
   limits: DaemonDispatchLimits;
   presenter: Presenter;
   onChanged?: () => void;
+  beforeTaskRun?: () => void;
 }): LocalExecutionSlots {
   return createLocalExecutionSlots({
     onChanged: input.onChanged,
+    beforeTaskRun: input.beforeTaskRun,
     limits: {
       ...input.limits,
       contextConcurrency: AGENT_PROFILE_WORK_CONCURRENCY_LIMIT,

@@ -342,7 +342,7 @@ async function recordSafeSwitchWaitFailure(
   if (!(current && isSameWaitingUpdate(current, waiting))) {
     return;
   }
-  if (isPreviousHostWorkUnconfirmed(error)) {
+  if (isHostRefusalNeedingHelp(error)) {
     await deps.completePendingJob(
       finishJob(current, {
         errorMessage: `${error.code}: ${toErrorMessage(error)}`,
@@ -627,9 +627,9 @@ export async function waitUntilDaemonServiceSafeSwitch(
         return;
       }
     } catch (error) {
-      if (isPreviousHostWorkUnconfirmed(error)) {
-        // Waiting cannot supply missing execution evidence. Preserve the old
-        // installation and surface this operation's existing recovery outcome.
+      if (isHostRefusalNeedingHelp(error)) {
+        // Waiting cannot clear this refusal. Preserve the old installation and
+        // surface this operation's existing recovery outcome.
         throw error;
       }
       if (
@@ -666,12 +666,20 @@ async function resolveCurrentDaemonDesiredState(): Promise<
     : "stopped";
 }
 
-function isPreviousHostWorkUnconfirmed(
+// Host refusals that waiting cannot clear: missing work evidence, an unreadable
+// ownership record, or an installation lock without an identifiable owner.
+const HOST_REFUSALS_NEEDING_HELP = new Set([
+  "host.previous_work_unconfirmed",
+  "host.owner_corrupt",
+  "host.owner_lock_unverified",
+]);
+
+function isHostRefusalNeedingHelp(
   error: unknown
 ): error is LocalDaemonControlPlaneClientError {
   return (
     error instanceof LocalDaemonControlPlaneClientError &&
-    error.code === "host.previous_work_unconfirmed"
+    HOST_REFUSALS_NEEDING_HELP.has(error.code)
   );
 }
 

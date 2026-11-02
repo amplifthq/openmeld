@@ -243,11 +243,61 @@ work starts, a private process-incarnation receipt records non-quiescence. A cle
 local drain clears that fence. After an unconfirmed owner loss, PID disappearance
 alone does not prove that its children or side effects ended. The current receipt
 records the Host process identity and each provider-owned process tree before
-execution continues. A same-boot replacement is allowed only when that evidence
-is complete, the exact Host incarnation is gone, and every recorded provider
-process group or Windows job-backed root is gone. Missing process evidence,
-legacy receipts, and corrupt records remain blocked; trustworthy operating-system
-restart evidence is the fallback. This receipt contains no task results or
+execution continues. Evidence is held per started task and per provider
+invocation, and it is complete only while no control, adapter maintenance or
+workspace cleanup is running and every started task is in one of these states:
+
+- inside a provider invocation whose latest launch has been recorded; or
+- between invocations, after at least one has finished.
+
+Releasing an isolated workspace can launch Git or a container removal command.
+The Host persists incomplete evidence before cleanup starts and keeps it
+incomplete until cleanup settles. This also applies when an accepted Wake
+finishes during drain. If the start cannot be recorded, the Service retains the
+workspace for reconciliation and releases its execution lock.
+A failed receipt update after cleanup or drain is logged locally. The last
+durable receipt still governs takeover; the settled outcome and Host teardown
+are preserved.
+
+Each invocation, including a repair round or retry of the same task, is recorded
+as started before the adapter can launch anything, even a launch probe. A
+recorded process exit makes the running invocation unrecorded again until its
+next launch is recorded. Before its first invocation, a task's preparation can
+launch work it never records, so it is incomplete. One task's or invocation's
+record never vouches for another. A started task is recorded as running before
+any of its work begins; a queued task has started nothing. If the task or
+invocation start cannot be written, that work is refused before it begins: a
+refused task reports `host.execution_record_unavailable` through the existing
+dispatch result outbox, and a refused invocation fails through the task's own
+result. Idle execution slots do not clear the fence: the receipt stays
+non-quiescent while any recorded provider process group is alive.
+
+Non-quiescent receipts are `service-execution-host-owner-v3`, whose
+completeness is per task. A quiescent receipt carries no evidence and keeps the
+v2 shape, so an older Service can still start after a verified rollback. Older
+Services marked v2 completeness Host-wide, so a non-quiescent v2 receipt cannot
+authorize a same-boot takeover. A same-boot replacement is allowed only when v3
+evidence is complete, the exact Host incarnation is gone, and every recorded
+provider process group or Windows job-backed root is gone. While complete
+evidence still names a live Host incarnation or provider process tree, or a live
+Host holds the installation's owner lock, the replacement reports
+`host.previous_work_running` with the `wait_for_previous_work` recovery action.
+An owner lock without an owner entry counts as such a handoff while it is younger
+than the lock's own recovery grace, because publishing and releasing briefly
+leave it holderless. The Service stays connected with execution admission closed
+and rechecks the same rule every few seconds; the Host starts once that recorded
+work exits. It never signals, adopts, or replays that work.
+
+Missing process evidence and legacy receipts remain blocked as
+`host.previous_work_unconfirmed`; waiting cannot complete missing evidence, so
+that refusal is not rechecked and trustworthy operating-system restart evidence
+is the fallback. An unreadable or malformed receipt reports `host.owner_corrupt`
+with the underlying error in local diagnostics, and an owner lock that stays
+holderless past its recovery grace reports `host.owner_lock_unverified`. Both are
+preserved for diagnostics, never rechecked or replaced automatically, and direct
+the owner to diagnostics because restarting cannot repair or identify them. The
+Service log records each distinct refusal and a later recovery, including from
+the detached background Service. This receipt contains no task results or
 approvals and does not authorize replay. It is not a second execution ledger.
 There is no automatic hot adoption or restart of unknown work.
 
@@ -3886,10 +3936,12 @@ request to escalate an available one without a stale worker restoring the old
 state. Requests coalesce into the existing operation; they never create
 parallel Service update lifecycles.
 
-A safe-switch read that explicitly reports `host.previous_work_unconfirmed`
-ends the same waiting operation as `needs_help`, retaining its original error
-and leaving installation state untouched. A transient transport/read failure
-still waits for positive readiness; elapsed time never clears the Host fence.
+A safe-switch read that explicitly reports `host.previous_work_unconfirmed`,
+`host.owner_corrupt`, or `host.owner_lock_unverified` ends the same waiting
+operation as `needs_help`, retaining its original error and leaving installation
+state untouched. A transient transport/read failure, including
+`host.previous_work_running` while recorded work exits, still waits for positive
+readiness; elapsed time never clears the Host fence.
 
 After the safe switch begins, RuntimeCoordinator remains the in-flight Wake
 authority. New Wake work may wait for the replacement route and resume after

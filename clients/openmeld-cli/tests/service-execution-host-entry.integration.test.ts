@@ -33,6 +33,7 @@ import {
 } from "../src/local-service/control-plane/client";
 import { createExecutionHostClient } from "../src/local-service/execution-host/channel";
 import { executionHostLaunchArguments } from "../src/local-service/execution-host/launch";
+import { acquireExecutionHostOwnership } from "../src/local-service/execution-host/ownership";
 import { childExecutionHostChannel } from "../src/local-service/execution-host/process-channel";
 import { restoreDaemonActiveBundleStateSnapshot } from "../src/local-service/lifecycle/daemon-service-bundle";
 import {
@@ -441,6 +442,83 @@ describe("real execution Host entry", () => {
       );
     } finally {
       client.dispose();
+    }
+  }, 20_000);
+
+  it("starts the same Host process once a live previous owner releases the installation", async () => {
+    await setAuthSession({
+      accessToken: "fixture-token",
+      authBaseUrl: origin,
+      clientId: "fixture-client",
+      user: { id: "fixture-owner" },
+    });
+    const candidate = (await getAuthSessionState()).session;
+    const session = candidate
+      ? await withAdmittedServiceSession(
+          candidate,
+          async () => (await getAuthSessionState()).session
+        )
+      : null;
+    if (!session?.user?.id) {
+      throw new Error("Admitted fixture session missing");
+    }
+    const contract = await upsertDaemonServiceContract({
+      ownerUserId: session.user.id,
+      deviceId: "fixture-device",
+      connectedComputerId: "fixture-computer",
+      gatewayUrl: origin,
+      lane: "dev-local",
+      daemonVersion: "0.0.0",
+      bundleId: "fixture-bundle",
+      desiredState: "background",
+      serviceController: "legacy-detached",
+      autoStart: false,
+      heartbeatMs: 5000,
+    });
+    const stateRoot = join(root, "state");
+    const previousOwner = await acquireExecutionHostOwnership({
+      hostInstanceId: randomUUID(),
+      ownerUserId: session.user.id,
+      deviceId: contract.deviceId,
+      lane: "dev-local",
+      stateRoot,
+      bootIdentity: null,
+    });
+    const instance = randomUUID();
+    const running = start(instance);
+    const client = createExecutionHostClient({
+      channel: childExecutionHostChannel(running.child),
+      hostInstanceId: instance,
+    });
+    const identity = {
+      ownerUserId: session.user.id,
+      deviceId: contract.deviceId,
+      lane: "dev-local" as const,
+      daemonSessionId: "fixture-session",
+      serviceContractGeneration: contract.generation,
+      sessionIdentity: buildStoredAuthSessionIdentity(session),
+      stateRoot,
+      authBaseUrl: origin,
+      gatewayBaseUrl: origin,
+      parentPid: process.pid,
+      parentProcessStartedAt:
+        readProcessStartIdentity(process.pid) ?? CURRENT_PROCESS_START_IDENTITY,
+    };
+    try {
+      await expect(client.call("initialize", identity)).rejects.toMatchObject({
+        code: "host.previous_work_running",
+      });
+      await previousOwner.release();
+      expect(await client.call("initialize", identity)).toMatchObject({
+        pid: running.child.pid,
+        localQuiescent: true,
+      });
+      await client.call("stop", {}, { timeoutMs: null });
+      running.child.disconnect();
+      expect(await running.exit, running.stderr()).toBe(0);
+    } finally {
+      client.dispose();
+      await previousOwner.release();
     }
   }, 20_000);
 

@@ -84,6 +84,8 @@ describe("daemon service background update coordinator", () => {
     "daemon.control.contract_mismatch",
     "daemon.control.endpoint_missing",
     "host.previous_work_unconfirmed",
+    "host.owner_corrupt",
+    "host.owner_lock_unverified",
   ])("keeps accepted work safe when readiness fails with %s", async (code) => {
     const pending: DaemonServiceUpdateJob = {
       v: 2,
@@ -135,7 +137,7 @@ describe("daemon service background update coordinator", () => {
       withReconcileLock: async (run) => await run(),
     });
 
-    if (code === "host.previous_work_unconfirmed") {
+    if (code.startsWith("host.")) {
       await expect(update).rejects.toThrow("Service cannot answer readiness");
       expect(durableJob).toMatchObject({
         phase: "needs_help",
@@ -246,7 +248,10 @@ describe("daemon service background update coordinator", () => {
     expect(phases).toContain("updating");
   });
 
-  it("keeps waiting when the readiness fact is unavailable", async () => {
+  it.each([
+    "daemon.control.invalid_response",
+    "host.previous_work_running",
+  ])("keeps waiting when the readiness fact is unavailable (%s)", async (code) => {
     const pending: DaemonServiceUpdateJob = {
       v: 2,
       schema: "openmeld-daemon-service-update-job-v2",
@@ -273,7 +278,7 @@ describe("daemon service background update coordinator", () => {
       requestReadiness: () =>
         Promise.reject(
           new LocalDaemonControlPlaneClientError(
-            "daemon.control.invalid_response",
+            code,
             "unexpected readiness response"
           )
         ),
