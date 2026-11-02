@@ -883,7 +883,7 @@ function resolveExecutionHostReplyBlocker(
     recovery = "Update OpenMeld Tools on this computer.";
   } else if (reason.recoveryAction === "wait_for_previous_work") {
     recovery =
-      "This computer accepts new tasks again automatically once it ends.";
+      "This computer accepts new tasks automatically when the previous work ends.";
   }
   return {
     message: `${reason.message} ${recovery}`,

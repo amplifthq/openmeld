@@ -1250,9 +1250,9 @@ receipts report `host.owner_corrupt` and holderless owner locks report
 worker ends a waiting update for any of them as `needs_help`.
 
 Because waiting can now authorize a takeover, receipt evidence is per task and
-per provider invocation. It is complete only while no control or adapter
-operation runs, and each started task is either inside an invocation whose latest
-launch is recorded or between finished invocations. The shared local-execution
+per provider invocation. It is complete only while no control, adapter maintenance
+or workspace cleanup runs, and each started task is either inside an invocation
+whose latest launch is recorded or between finished invocations. The shared local-execution
 slots add a pre-run hook, a task refusal callback, and a read of started work, so
 the Host records a task before its work begins. A task refused there reports
 `host.execution_record_unavailable` through the existing result outbox. The Host
@@ -1275,10 +1275,9 @@ since 0.3.261, so current Core, Gateway, and Web read it without a deploy. Core
 copy for `restart_computer` no longer suggests that OpenMeld may recover by
 itself, which is also true for older Services that never recheck; the
 `wait_for_previous_work` copy says new tasks resume automatically. Either deploy
-order is safe. The update worker already treats any Host read other than
-`host.previous_work_unconfirmed` as transient, so an update waits while recorded
-work exits instead of ending as `needs_help`. Desktop does not read Host reasons
-and needs no release.
+order is safe. The update worker waits through `host.previous_work_running`
+and transient read failures. The three persistent refusals listed above end
+the update as `needs_help`. Desktop does not read Host reasons and needs no release.
 
 The candidate is version 0.3.289 with explicit `available` decisions for CLI and
 Service, without a contract floor increase. This implementation does not

@@ -18,6 +18,7 @@ import {
   isProcessIdentityAlive,
   readProcessStartIdentity,
 } from "../../system/process-identity";
+import { toErrorMessage, warnDaemonEvent } from "../core/logger";
 import { ExecutionHostError } from "./channel";
 
 const run = promisify(execFile);
@@ -42,7 +43,7 @@ type HostOwnerReceipt = Extract<
 
 export type ExecutionHostWorkState = {
   localQuiescent: boolean;
-  // Controls and adapter operations can launch processes no task can claim.
+  // Controls, adapter maintenance and workspace cleanup launch unrecorded processes.
   unattributedWork: boolean;
   runningTaskIds: readonly string[];
 };
@@ -61,7 +62,7 @@ type TaskEvidence = {
 };
 
 // Preparation before the first invocation can launch work it never records.
-// Between invocations a task launches nothing until the next one starts.
+// Workspace cleanup after an invocation is tracked as unattributed work.
 function isTaskEvidenceComplete(task: TaskEvidence): boolean {
   return task.activeInvocations > 0
     ? task.unrecordedLaunches === 0
@@ -192,13 +193,24 @@ export async function acquireExecutionHostOwnership(input: {
     serviceExecutionHostOwnerSchema.parse(owner);
     persist(owner);
     function persist(next: HostOwnerReceipt) {
-      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-      const temporary = `${path}.${randomUUID()}.tmp`;
-      writeFileSync(temporary, JSON.stringify(next), {
-        mode: 0o600,
-        flag: "wx",
-      });
-      renameSync(temporary, path);
+      try {
+        mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+        const temporary = `${path}.${randomUUID()}.tmp`;
+        writeFileSync(temporary, JSON.stringify(next), {
+          mode: 0o600,
+          flag: "wx",
+        });
+        renameSync(temporary, path);
+      } catch (error) {
+        warnDaemonEvent("[openmeld.execution_host.receipt_write_failed]", {
+          event: "cli.execution_host.receipt_write_failed",
+          detail: toErrorMessage(error),
+        });
+        throw new ExecutionHostError(
+          "host.execution_record_unavailable",
+          "The local execution host could not write its ownership record."
+        );
+      }
     }
     // A failed write throws to the caller, which refuses the operation rather
     // than weakening the fence.

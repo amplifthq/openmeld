@@ -243,6 +243,7 @@ import {
   markExecutionContextWorkspaceInUse,
   prepareExecutionContextWorkspace,
   releaseExecutionContextWorkspace,
+  type TrackWorkspaceCleanup,
 } from "./execution-context-workspace";
 import {
   appendNonOwnerAudienceGuidance,
@@ -308,6 +309,7 @@ type EnqueueDispatchDeliverFrameInput = Parameters<
 type FailedTaskResultInput = Parameters<typeof buildFailedTaskResultPayload>[0];
 
 export function enqueueDispatchDeliverFrame(input: {
+  trackWorkspaceCleanup?: TrackWorkspaceCleanup;
   computerFileAccessStorePath: string;
   contextStore: Map<string, string>;
   currentSocketRef?: CurrentDaemonSocketRef;
@@ -552,16 +554,18 @@ function admitDispatchDeliverFrame(
     taskId: correlation.taskId,
     targetLabel: queueLogMeta.targetLabel,
     transportMode: queueLogMeta.transportMode,
-    onRunRefused: (error) =>
+    onRunRefused: () =>
       enqueueUnstartedTaskFailure({
         errorCode: "host.execution_record_unavailable",
-        errorMessage: `host.execution_record_unavailable: The local execution host could not record this task before starting it; the provider was not started. ${toErrorMessage(error)}`,
+        errorMessage:
+          "The local execution host could not record this task before starting it; the provider was not started.",
         errorType: "internal",
         localOwnerConflict: null,
         suppressPublicOutcome: false,
       }),
     run: async () => {
       return await handleDispatchDeliverFrame({
+        trackWorkspaceCleanup: input.trackWorkspaceCleanup,
         computerFileAccessStorePath: input.computerFileAccessStorePath,
         contextStore: input.contextStore,
         currentSocketRef,
@@ -1039,6 +1043,7 @@ function normalizePositiveInteger(value: unknown): number | null {
 }
 
 export async function handleDispatchDeliverFrame(input: {
+  trackWorkspaceCleanup?: TrackWorkspaceCleanup;
   computerFileAccessStorePath: string;
   contextStore: Map<string, string>;
   currentSocketRef: CurrentDaemonSocketRef;
@@ -2552,6 +2557,7 @@ export async function handleDispatchDeliverFrame(input: {
     spaceActionReplyStream?.stop();
     await nativeQuiescence;
     await releaseDispatchTaskWorkspace({
+      trackWorkspaceCleanup: input.trackWorkspaceCleanup,
       workspaceUse,
       parsedTask,
       ledgerRootPath: input.ledgerPaths.rootDirPath,
@@ -3289,6 +3295,7 @@ async function prepareDispatchClaudeProjectContainer(input: {
 }
 
 async function releaseDispatchTaskWorkspace(input: {
+  trackWorkspaceCleanup?: TrackWorkspaceCleanup;
   workspaceUse: ExecutionContextWorkspaceUse | null;
   parsedTask: ParsedDispatchTask;
   ledgerRootPath: string;
@@ -3302,6 +3309,7 @@ async function releaseDispatchTaskWorkspace(input: {
   }
   try {
     const released = await releaseExecutionContextWorkspace({
+      trackWorkspaceCleanup: input.trackWorkspaceCleanup,
       ledgerRootPath: input.ledgerRootPath,
       context,
       use: input.workspaceUse,

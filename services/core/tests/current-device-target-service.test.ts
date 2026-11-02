@@ -1253,7 +1253,7 @@ describe("current device target service", () => {
         "Local agent work from the previous OpenMeld Service session is still finishing on this computer.",
       recoveryAction: "wait_for_previous_work",
       recovery:
-        "This computer accepts new tasks again automatically once it ends.",
+        "This computer accepts new tasks automatically when the previous work ends.",
     },
   ] as const)("keeps a connected Service honest when previous local work blocks its Host ($code)", async ({
     code,

@@ -484,11 +484,15 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
       request: (
         task: LocalExecutionSlotTask
       ): ReturnType<LocalExecutionSlots["request"]> => {
-        task.onRunRefused?.(new Error("receipt write failed"));
+        task.onRunRefused?.(
+          new Error("EACCES: /private/fixture-owner/receipt")
+        );
         return { accepted: true, deduped: false, snapshot: slotSnapshot };
       },
       result: {
         errorCode: "host.execution_record_unavailable",
+        errorMessage:
+          "host.execution_record_unavailable: The local execution host could not record this task before starting it; the provider was not started.",
         status: "failed",
       },
       localOwnerConflict: undefined,

@@ -244,11 +244,17 @@ local drain clears that fence. After an unconfirmed owner loss, PID disappearanc
 alone does not prove that its children or side effects ended. The current receipt
 records the Host process identity and each provider-owned process tree before
 execution continues. Evidence is held per started task and per provider
-invocation, and it is complete only while no control or adapter operation is
-running and every started task is in one of these states:
+invocation, and it is complete only while no control, adapter maintenance or
+workspace cleanup is running and every started task is in one of these states:
 
 - inside a provider invocation whose latest launch has been recorded; or
 - between invocations, after at least one has finished.
+
+Releasing an isolated workspace can launch Git or a container removal command.
+The Host persists incomplete evidence before cleanup starts and keeps it
+incomplete until cleanup settles. This also applies when an accepted Wake
+finishes during drain. If the start cannot be recorded, the Service retains the
+workspace for reconciliation and releases its execution lock.
 
 Each invocation, including a repair round or retry of the same task, is recorded
 as started before the adapter can launch anything, even a launch probe. A

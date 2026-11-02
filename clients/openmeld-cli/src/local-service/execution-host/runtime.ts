@@ -261,7 +261,7 @@ export function createExecutionHostRuntime(input: {
     Awaited<ReturnType<typeof syncLocalServiceRuntimeAgentControllerReports>>
   > | null = null;
   let reportPolicy: "background" | "fresh" | null = null;
-  const activeControls = new Set<Promise<unknown>>();
+  const unattributedOperations = new Set<Promise<unknown>>();
   const executionInput = createServiceExecutionInputReceiver({
     ownerUserId: identity.ownerUserId,
     registry: inflightTaskControlRegistry,
@@ -313,7 +313,7 @@ export function createExecutionHostRuntime(input: {
       activeCount: state.activeGlobal,
       pendingCount: state.pendingCount,
       localQuiescent:
-        localExecutionSlots.isQuiescent() && activeControls.size === 0,
+        localExecutionSlots.isQuiescent() && unattributedOperations.size === 0,
       unacknowledgedResultCount:
         listDispatchResultOutboxPendingAcknowledgementKeys({ ledgerPaths })
           .length,
@@ -326,13 +326,13 @@ export function createExecutionHostRuntime(input: {
 
   // `admitting` reports work that is about to start before it is visible in
   // the slots or controls, so the receipt is durable before that work runs.
-  function observeWork(admitting?: "control" | "delivery"): void {
+  function observeWork(admitting?: "unattributed" | "delivery"): void {
     const running = localExecutionSlots.getRunningWork();
     input.onWorkStateChange?.({
       localQuiescent: admitting === undefined && snapshot().localQuiescent,
       unattributedWork:
-        admitting === "control" ||
-        activeControls.size > 0 ||
+        admitting === "unattributed" ||
+        unattributedOperations.size > 0 ||
         running.adapterOperationIds.length > 0,
       runningTaskIds: running.taskIds,
     });
@@ -550,7 +550,7 @@ export function createExecutionHostRuntime(input: {
   async function drain(): Promise<ServiceExecutionHostSnapshot> {
     beginDrain();
     await localExecutionSlots.drain();
-    await Promise.allSettled([...activeControls]);
+    await Promise.allSettled([...unattributedOperations]);
     observeWork();
     return snapshot();
   }
@@ -564,11 +564,16 @@ export function createExecutionHostRuntime(input: {
         )
       );
     }
-    observeWork("control");
+    return trackUnattributedWork(run);
+  }
+
+  // Cleanup belongs to an already accepted task and must also run during drain.
+  function trackUnattributedWork<T>(run: () => Promise<T>): Promise<T> {
+    observeWork("unattributed");
     const operation = Promise.resolve().then(run);
-    activeControls.add(operation);
+    unattributedOperations.add(operation);
     return operation.finally(() => {
-      activeControls.delete(operation);
+      unattributedOperations.delete(operation);
       observeWork();
       invalidate("execution");
     });
@@ -776,6 +781,7 @@ export function createExecutionHostRuntime(input: {
         observeWork("delivery");
       }
       handleExecutionHostFrame({
+        trackWorkspaceCleanup: trackUnattributedWork,
         readRouteByProfileId: () => routeCatalogState.routeByProfileId,
         computerFileAccessStorePath,
         contextStore,

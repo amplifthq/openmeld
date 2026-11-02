@@ -500,6 +500,20 @@ export function createLocalExecutionSlots(input: {
     }
   };
 
+  // Release is already committed. An observation failure must not strand a
+  // drain waiter or the next task, which still has its own pre-run fence.
+  const notifyReleased = (): void => {
+    try {
+      input.onChanged?.();
+    } catch (error) {
+      console.warn(
+        "[openmeld.local_execution_slots.release_observation_failed]",
+        toErrorMessage(error)
+      );
+    }
+    notifyDrainWaitersIfIdle();
+  };
+
   const pump = (): void => {
     while (activeGlobal < input.limits.globalConcurrency) {
       // OPENMELD_LOCAL_EXECUTION_SLOT: HIGHEST_FACT lane-serial-local-execution
@@ -621,8 +635,7 @@ export function createLocalExecutionSlots(input: {
               remainingActiveForLane
             );
           }
-          input.onChanged?.();
-          notifyDrainWaitersIfIdle();
+          notifyReleased();
           pump();
         });
     }
@@ -664,8 +677,7 @@ export function createLocalExecutionSlots(input: {
         };
       } finally {
         adapterOperationIds.delete(adapterId);
-        input.onChanged?.();
-        notifyDrainWaitersIfIdle();
+        notifyReleased();
         pump();
       }
     },
@@ -784,8 +796,7 @@ export function createLocalExecutionSlots(input: {
           reason,
         });
       }
-      input.onChanged?.();
-      notifyDrainWaitersIfIdle();
+      notifyReleased();
       return {
         droppedCount,
       };

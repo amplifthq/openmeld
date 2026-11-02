@@ -147,6 +147,11 @@ test("local execution slots report started work and fail a task whose pre-run ho
   const runTaskIds = [];
   const completed = [];
   const queue = createLocalExecutionSlots({
+    onChanged: () => {
+      if (completed.length > 0) {
+        throw new Error("receipt unavailable after release");
+      }
+    },
     limits: { globalConcurrency: 1, queueMax: 10 },
     beforeTaskRun: (task) => {
       runningAtHook.push([task.taskId, queue.getRunningWork().taskIds]);

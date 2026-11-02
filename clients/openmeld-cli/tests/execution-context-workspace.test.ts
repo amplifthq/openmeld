@@ -342,6 +342,31 @@ describe("Execution Context workspaces", () => {
     ).toBe(".husky");
   });
 
+  it("retains the workspace and releases its execution lock when cleanup cannot be recorded", async () => {
+    await initializeRepository();
+    const workspace = await prepare();
+    const use = await markExecutionContextWorkspaceInUse({
+      context,
+      ledgerRootPath: ledger,
+    });
+    if (!use) {
+      throw new Error("Missing workspace execution lock");
+    }
+    await expect(
+      releaseExecutionContextWorkspace({
+        context,
+        ledgerRootPath: ledger,
+        ownedProcessesQuiescent: true,
+        use,
+        trackWorkspaceCleanup: () => {
+          throw new Error("receipt write failed");
+        },
+      })
+    ).rejects.toThrow("receipt write failed");
+    await expect(stat(workspace.workingDirectory)).resolves.toBeDefined();
+    await expect(stat(use.lock.path)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("rejects a stale project shell from another dispatch attempt", async () => {
     await initializeRepository();
     await prepare();
