@@ -107,6 +107,8 @@ export function runExecutionHost(hostInstanceId: string): Promise<void> {
                 presenter,
                 observeOwnedProcess: (event) =>
                   verifiedOwnership.observeOwnedProcess(event),
+                observeProviderInvocation: (event) =>
+                  verifiedOwnership.observeProviderInvocation(event),
               }),
               hostInstanceId,
               identity,

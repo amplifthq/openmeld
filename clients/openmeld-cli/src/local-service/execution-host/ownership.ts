@@ -47,6 +47,27 @@ export type ExecutionHostWorkState = {
   runningTaskIds: readonly string[];
 };
 
+export type ProviderInvocationEvent = {
+  phase: "ended" | "started";
+  taskId: string;
+};
+
+type TaskEvidence = {
+  activeInvocations: number;
+  // Points where a running invocation may launch a process it has not yet
+  // recorded: its start, and each recorded exit before it ends.
+  unrecordedLaunches: number;
+  completedInvocation: boolean;
+};
+
+// Preparation before the first invocation can launch work it never records.
+// Between invocations a task launches nothing until the next one starts.
+function isTaskEvidenceComplete(task: TaskEvidence): boolean {
+  return task.activeInvocations > 0
+    ? task.unrecordedLaunches === 0
+    : task.completedInvocation;
+}
+
 export async function readExecutionHostBootIdentity(): Promise<string | null> {
   try {
     return await readBootIdentity();
@@ -197,19 +218,17 @@ export async function acquireExecutionHostOwnership(input: {
       persist(next);
       owner = next;
     }
-    // Evidence is complete only when every running task has recorded its own
-    // provider process. One task's record never vouches for another's.
-    let runningTaskIds = new Set<string>();
-    const recordedTaskIds = new Set<string>();
+    // Evidence is per running task and per provider invocation. One task's
+    // record never vouches for another task, and one invocation's record never
+    // vouches for the next invocation of the same task.
+    const tasks = new Map<string, TaskEvidence>();
     let unattributedWork = false;
     const evidenceComplete = () =>
-      !unattributedWork &&
-      [...runningTaskIds].every((taskId) => recordedTaskIds.has(taskId));
+      !unattributedWork && [...tasks.values()].every(isTaskEvidenceComplete);
     return {
       observeWork(state: ExecutionHostWorkState) {
         if (state.localQuiescent) {
-          runningTaskIds = new Set();
-          recordedTaskIds.clear();
+          tasks.clear();
           unattributedWork = false;
           // Idle slots do not prove a recorded process group has exited; the
           // receipt stays non-quiescent until every recorded tree is gone.
@@ -223,32 +242,60 @@ export async function acquireExecutionHostOwnership(input: {
           });
           return;
         }
-        runningTaskIds = new Set(state.runningTaskIds);
-        unattributedWork = state.unattributedWork;
-        for (const taskId of recordedTaskIds) {
-          if (!runningTaskIds.has(taskId)) {
-            recordedTaskIds.delete(taskId);
+        const running = new Set(state.runningTaskIds);
+        for (const taskId of tasks.keys()) {
+          if (!running.has(taskId)) {
+            tasks.delete(taskId);
           }
         }
+        for (const taskId of running) {
+          if (!tasks.has(taskId)) {
+            tasks.set(taskId, {
+              activeInvocations: 0,
+              unrecordedLaunches: 0,
+              completedInvocation: false,
+            });
+          }
+        }
+        unattributedWork = state.unattributedWork;
         update({
           localQuiescent: false,
           processEvidenceComplete: evidenceComplete(),
         });
       },
+      // Called before a provider invocation can launch anything, so the
+      // durable receipt is incomplete first; a failed write refuses it.
+      observeProviderInvocation(event: ProviderInvocationEvent) {
+        const task = tasks.get(event.taskId);
+        if (!task) {
+          return;
+        }
+        if (event.phase === "started") {
+          task.activeInvocations += 1;
+          task.unrecordedLaunches += 1;
+        } else {
+          task.activeInvocations = Math.max(0, task.activeInvocations - 1);
+          if (task.activeInvocations === 0) {
+            task.unrecordedLaunches = 0;
+            task.completedInvocation = true;
+          }
+        }
+        update({ processEvidenceComplete: evidenceComplete() });
+      },
       observeOwnedProcess(event: OwnedProcessEvent) {
+        const task = tasks.get(event.taskId);
         if (event.phase === "process_spawned") {
           if (event.processId === null) {
-            recordedTaskIds.delete(event.taskId);
-            update({ processEvidenceComplete: evidenceComplete() });
             return;
           }
           const processStartedAt =
             readProcessStartIdentity(event.processId) ??
             `fallback:${event.processId}:unknown`;
-          if (runningTaskIds.has(event.taskId)) {
-            recordedTaskIds.add(event.taskId);
+          if (task && task.activeInvocations > 0) {
+            task.unrecordedLaunches = Math.max(0, task.unrecordedLaunches - 1);
           }
           update({
+            localQuiescent: false,
             processEvidenceComplete: evidenceComplete(),
             ownedProcessTrees: [
               ...owner.ownedProcessTrees.filter(
@@ -266,7 +313,13 @@ export async function acquireExecutionHostOwnership(input: {
         if (event.processId === null) {
           return;
         }
+        // A running invocation may launch again after a recorded process
+        // exits, such as a context-heal retry.
+        if (task && task.activeInvocations > 0) {
+          task.unrecordedLaunches += 1;
+        }
         update({
+          processEvidenceComplete: evidenceComplete(),
           ownedProcessTrees: owner.ownedProcessTrees.filter(
             (process) =>
               process.pid !== event.processId ||

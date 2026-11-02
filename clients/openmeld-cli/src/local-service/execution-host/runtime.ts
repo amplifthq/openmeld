@@ -5,6 +5,7 @@ import {
   createLocalAdapterEntries,
   createLocalTaskInterruptSender,
   createPendingAgentInteractionRegistry,
+  type LocalDaemonAdapterEntry,
 } from "@openmeld/local-service";
 import {
   computerPowerRequestFrameSchema,
@@ -29,7 +30,7 @@ import {
 import { createDaemonLocalExecutionSlots } from "../carrier/local-execution-slots";
 import { resolveLocalConversationExecutionStatus } from "../control-plane/conversation-execution-status";
 import { CONTROLLED_SHUTDOWN_RESULT_ACK_TIMEOUT_MS } from "../core/constants";
-import { emitRunLine, toErrorMessage } from "../core/logger";
+import { emitRunLine, toErrorMessage, warnDaemonEvent } from "../core/logger";
 import type {
   CurrentDaemonSocketRef,
   DaemonFrameSink,
@@ -69,7 +70,10 @@ import {
 import { createExecutionAdmissionConfirmation } from "./execution-admission";
 import { createServiceExecutionInputReceiver } from "./execution-input";
 import { handleExecutionHostFrame } from "./frame-router";
-import type { ExecutionHostWorkState } from "./ownership";
+import type {
+  ExecutionHostWorkState,
+  ProviderInvocationEvent,
+} from "./ownership";
 
 type HostEvent = Exclude<ServiceExecutionHostMessage, { type: "reply" }>;
 
@@ -82,6 +86,7 @@ export async function createExecutionHostResources(input: {
     signalTarget: "process" | "process_group";
     taskId: string;
   }) => void;
+  observeProviderInvocation?: (event: ProviderInvocationEvent) => void;
 }) {
   const ledgerPaths = buildLedgerPaths(input.runtimePaths.ledgerRootPath);
   const contextStore = await loadContextStore(
@@ -126,7 +131,9 @@ export async function createExecutionHostResources(input: {
           });
         }
       },
-    })
+    }).map((entry) =>
+      withProviderInvocationObserver(entry, input.observeProviderInvocation)
+    )
   );
   const emptyCatalog: RouteCatalog = {
     profileIds: [],
@@ -148,6 +155,43 @@ export async function createExecutionHostResources(input: {
 export type ExecutionHostResources = Awaited<
   ReturnType<typeof createExecutionHostResources>
 >;
+
+// Every provider invocation, including repair rounds and retries of the same
+// task, is observed before the adapter can launch anything. A start that
+// cannot be recorded refuses the invocation.
+export function withProviderInvocationObserver(
+  entry: LocalDaemonAdapterEntry,
+  observe: ((event: ProviderInvocationEvent) => void) | undefined
+): LocalDaemonAdapterEntry {
+  if (!observe) {
+    return entry;
+  }
+  const { adapter } = entry;
+  return {
+    ...entry,
+    adapter: {
+      ...adapter,
+      dispatch: async (request) => {
+        observe({ phase: "started", taskId: request.taskId });
+        try {
+          return await adapter.dispatch(request);
+        } finally {
+          try {
+            observe({ phase: "ended", taskId: request.taskId });
+          } catch (error) {
+            // The receipt still says this invocation is unrecorded, which only
+            // keeps the fence closed; the provider's outcome stands.
+            warnDaemonEvent("[openmeld.execution_host.receipt_write_failed]", {
+              event: "cli.execution_host.receipt_write_failed",
+              errorMessage: toErrorMessage(error),
+              taskId: request.taskId,
+            });
+          }
+        }
+      },
+    },
+  };
+}
 
 // One Host owns these execution objects across all replacement cloud sockets.
 // No socket, reconnect loop, public listener or independent task scheduler lives

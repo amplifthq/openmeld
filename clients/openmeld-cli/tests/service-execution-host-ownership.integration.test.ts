@@ -58,6 +58,9 @@ describe("execution Host durable process ownership", () => {
       | "concurrent"
       | "concurrent-started"
       | "lingering-group"
+      | "second-round"
+      | "heal-retry"
+      | "between-rounds"
   ) => {
     const require = createRequire(import.meta.url);
     const loader = join(
@@ -401,20 +404,29 @@ describe("execution Host durable process ownership", () => {
   });
 
   it.each([
+    // Another task, started after or before the first task recorded its provider.
     "concurrent",
     "concurrent-started",
-  ] as const)("never lets one task's recorded provider vouch for a concurrent task's unrecorded work (%s)", async (mode) => {
+    // The same task, in a second invocation or a retry within the first one.
+    "second-round",
+    "heal-retry",
+  ] as const)("never lets a recorded provider vouch for work launched without a record (%s)", async (mode) => {
     const { providerPid, retained } = await killOwnerFixture(mode);
     await expect(
       acquire(await readExecutionHostBootIdentity())
     ).rejects.toMatchObject({ code: "host.previous_work_unconfirmed" });
 
-    // The second task's work is still alive and was never recorded.
+    // The unrecorded process is still alive.
     await killProcessTree(providerPid);
     await expect(
       acquire(await readExecutionHostBootIdentity())
     ).rejects.toMatchObject({ code: "host.previous_work_unconfirmed" });
     expect(await readFile(receiptPath(), "utf8")).toBe(retained);
+  });
+
+  it("recovers a task stopped between provider invocations", async () => {
+    await killOwnerFixture("between-rounds");
+    await acquire(await readExecutionHostBootIdentity());
   });
 });
 

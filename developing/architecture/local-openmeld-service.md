@@ -243,14 +243,25 @@ work starts, a private process-incarnation receipt records non-quiescence. A cle
 local drain clears that fence. After an unconfirmed owner loss, PID disappearance
 alone does not prove that its children or side effects ended. The current receipt
 records the Host process identity and each provider-owned process tree before
-execution continues. Evidence is complete only while every started task has
-recorded its own provider process and no control or adapter operation is
-running; one task's record never vouches for another task's preparation. A
-started task is recorded as running before any of its work begins; a queued task
-has started nothing. If that record cannot be written, the task is refused before
-its work and reports `host.execution_record_unavailable` through the existing
-dispatch result outbox. Idle execution slots do not clear the fence: the receipt
-stays non-quiescent while any recorded provider process group is alive.
+execution continues. Evidence is held per started task and per provider
+invocation, and it is complete only while no control or adapter operation is
+running and every started task is in one of these states:
+
+- inside a provider invocation whose latest launch has been recorded; or
+- between invocations, after at least one has finished.
+
+Each invocation, including a repair round or retry of the same task, is recorded
+as started before the adapter can launch anything, even a launch probe. A
+recorded process exit makes the running invocation unrecorded again until its
+next launch is recorded. Before its first invocation, a task's preparation can
+launch work it never records, so it is incomplete. One task's or invocation's
+record never vouches for another. A started task is recorded as running before
+any of its work begins; a queued task has started nothing. If the task or
+invocation start cannot be written, that work is refused before it begins: a
+refused task reports `host.execution_record_unavailable` through the existing
+dispatch result outbox, and a refused invocation fails through the task's own
+result. Idle execution slots do not clear the fence: the receipt stays
+non-quiescent while any recorded provider process group is alive.
 
 Non-quiescent receipts are `service-execution-host-owner-v3`, whose
 completeness is per task. A quiescent receipt carries no evidence and keeps the
