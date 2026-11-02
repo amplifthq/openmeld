@@ -13854,7 +13854,88 @@ describe("OpenMeld Core", () => {
       history.signals?.filter((signal) => signal.id === published.id)
     ).toHaveLength(1);
   });
-  it("returns one signal for concurrent idempotent direct RPC writes", async () => {
+  it("identifies a persisted message while its input gate waits for live delivery", async () => {
+    const spaceId = await createSpace({ name: "Slow message delivery" });
+    const spaces = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const context = createRpcContext({
+      requestId: "slow-gate-request",
+      profileId: "slow-gate-author",
+      profileKind: "human",
+      profileName: "Slow Gate Author",
+      ownerUserId: "slow-gate-owner",
+    });
+    await runInDurableObject(
+      spaces.get(spaces.idFromString(spaceId)),
+      async (instance) => {
+        const warn = vi.spyOn(console, "warn");
+        const info = vi.spyOn(console, "info");
+        const delivery = vi
+          .spyOn(
+            instance as unknown as {
+              broadcastSignal(signal: SignalEnvelope): Promise<void>;
+            },
+            "broadcastSignal"
+          )
+          .mockImplementationOnce(async (signal) => {
+            const persisted = info.mock.calls.find(
+              ([label, record]) =>
+                label === "[core.openmeld.space.signal_persisted]" &&
+                record?.signalId === signal.id
+            )?.[1];
+            expect(persisted?.gateId).toEqual(expect.any(String));
+            // Keep the real input gate open until its own timer observes the wait.
+            await vi.waitFor(
+              () => {
+                expect(warn).toHaveBeenCalledWith(
+                  "[core.space.input_gate]",
+                  expect.objectContaining({
+                    gateId: persisted.gateId,
+                    durableObjectId: spaceId,
+                    operation: "post_idempotent_signal",
+                    requestId: "slow-gate-request",
+                    phase: "callback",
+                    status: "pending",
+                    persistedSignalId: signal.id,
+                    pendingStages: expect.objectContaining({
+                      live_delivery: 1,
+                    }),
+                  })
+                );
+              },
+              { timeout: 8000, interval: 100 }
+            );
+          });
+        try {
+          const signal = await instance.rpcPostSignalOnceByClientMessageId({
+            authoringPolicy: "system_emitted",
+            clientMessageId: "slow-gate-message",
+            context,
+            meta: { clientMessageId: "slow-gate-message" },
+            profile: {
+              kind: "human",
+              profileId: "slow-gate-author",
+              profileName: "Slow Gate Author",
+            },
+            spaceId,
+            text: "Wait for live delivery",
+          });
+          expect(delivery).toHaveBeenCalled();
+          expect(warn).toHaveBeenCalledWith(
+            "[core.space.input_gate]",
+            expect.objectContaining({
+              status: "completed",
+              persistedSignalId: signal.id,
+            })
+          );
+        } finally {
+          delivery.mockRestore();
+          info.mockRestore();
+          warn.mockRestore();
+        }
+      }
+    );
+  }, 15_000);
+  it("returns one signal for concurrent idempotent writes alongside dispatch callbacks and an alarm", async () => {
     const spaceId = await createSpace({
       name: `rpc-idempotent-concurrent-${Date.now()}`,
     });
@@ -13898,9 +13979,22 @@ describe("OpenMeld Core", () => {
       spaceId,
       text: "one idempotent concurrent signal",
     };
+    const sibling = namespace.get(namespace.idFromString(spaceId));
     const [first, second] = await Promise.all([
       stub.rpcPostSignalOnceByClientMessageId(request),
       stub.rpcPostSignalOnceByClientMessageId(request),
+      sibling.rpcReadFinalReplyClaimOutcome({
+        spaceId,
+        dispatchId: "test-gate-overlap",
+        profileId: rpcContext.actorContext.openMeldProfileId,
+      }),
+      sibling.rpcPostTransientSignal({
+        spaceId,
+        context: rpcContext,
+        profile: request.profile,
+        text: "Working",
+      }),
+      runInDurableObject(sibling, (instance) => instance.alarm()),
     ]);
     expect(first.id).toBe(second.id);
     if (!(first.type === "signal.text" && second.type === "signal.text")) {
