@@ -1,10 +1,12 @@
-import {
-  normalizeOpenClawSpaceIdPrefix,
-  slugifyOpenClawNamePart,
-} from "./naming";
+import { decodeOpenClawSpaceId, slugifyOpenClawNamePart } from "./naming";
 
+// Only the current key format parses: its fixed `openmeld-space-v2`
+// component is one the prefix-era builder could never emit (it always
+// wrote `openmeld-space:` followed directly by the slug), so a stored
+// prefix-era key never parses — even when its eight-character segment
+// happens to spell a v2 encoding — and can never classify as owned.
 const OPENCLAW_SPACE_SESSION_KEY_RE =
-  /^agent:(?<agentId>[a-z0-9-]+):openmeld-space:(?<spaceSlug>[a-z0-9-]+)--(?<spaceIdPrefix>[a-z0-9]{8})$/u;
+  /^agent:(?<agentId>[a-z0-9-]+):openmeld-space-v2:(?<spaceSlug>[a-z0-9-]+)--(?<spaceIdSegment>v2(?:[0-9a-f]{2})+)$/u;
 
 export type OpenClawAgentControllerConversationClassification =
   | "missing"
@@ -14,7 +16,7 @@ export type OpenClawAgentControllerConversationClassification =
 
 export type ParsedOpenClawSpaceSessionKey = {
   agentId: string;
-  spaceIdPrefix: string;
+  spaceId: string;
   spaceSlug: string;
 };
 
@@ -26,14 +28,16 @@ export function parseOpenClawSpaceSessionKey(
     return null;
   }
   const agentId = normalizeOptionalText(match.groups.agentId);
-  const spaceIdPrefix = normalizeOptionalText(match.groups.spaceIdPrefix);
+  const spaceId = match.groups.spaceIdSegment
+    ? decodeOpenClawSpaceId(match.groups.spaceIdSegment)
+    : null;
   const spaceSlug = normalizeOptionalText(match.groups.spaceSlug);
-  if (!(agentId && spaceIdPrefix && spaceSlug)) {
+  if (!(agentId && spaceId && spaceSlug)) {
     return null;
   }
   return {
     agentId,
-    spaceIdPrefix,
+    spaceId,
     spaceSlug,
   };
 }
@@ -53,9 +57,13 @@ export function matchesOwnedOpenClawSpaceSessionKey(input: {
   if (!normalizedAgentId) {
     return false;
   }
+  const normalizedSpaceId = normalizeOptionalText(input.spaceId);
+  if (!normalizedSpaceId) {
+    return false;
+  }
   return (
     parsed.agentId === slugifyOpenClawNamePart(normalizedAgentId, "agent") &&
-    parsed.spaceIdPrefix === normalizeOpenClawSpaceIdPrefix(input.spaceId)
+    parsed.spaceId === normalizedSpaceId
   );
 }
 
