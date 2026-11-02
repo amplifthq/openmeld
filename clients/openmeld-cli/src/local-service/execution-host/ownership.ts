@@ -6,7 +6,11 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { serviceExecutionHostOwnerSchema } from "@openmeld/schemas";
 import { z } from "zod/v4";
-import { acquireLock, releaseLock } from "../../config/lock";
+import {
+  acquireLock,
+  isOpenMeldLockError,
+  releaseLock,
+} from "../../config/lock";
 import { systemDir } from "../../config/paths";
 import {
   CURRENT_PROCESS_START_IDENTITY,
@@ -119,15 +123,7 @@ export async function acquireExecutionHostOwnership(input: {
   stateRoot: string;
   bootIdentity: string | null;
 }) {
-  const lock = await acquireLock({
-    openMeldProfileId: "service-execution-host",
-    key: "process-owner",
-    pathResolution: { env: { ...process.env, OPENMELD_HOME: input.stateRoot } },
-    meta: {
-      hostInstanceId: input.hostInstanceId,
-      ownerUserId: input.ownerUserId,
-    },
-  });
+  const lock = await acquireProcessOwnerLock(input);
   const path = join(
     systemDir({ env: { OPENMELD_HOME: input.stateRoot } }),
     "execution-host-owner.json"
@@ -137,13 +133,9 @@ export async function acquireExecutionHostOwnership(input: {
     if (
       previous &&
       !previous.localQuiescent &&
-      !confirmsNewBoot(previous.bootIdentity, input.bootIdentity) &&
-      !canRecoverPreviousOwnerOnSameBoot(previous)
+      !confirmsNewBoot(previous.bootIdentity, input.bootIdentity)
     ) {
-      throw new ExecutionHostError(
-        "host.previous_work_unconfirmed",
-        "The previous execution host ended before its local work was confirmed stopped. Restart this Computer, then check its connection. If restart evidence is unavailable, inspect the retained Host diagnostics before recovery. Existing results remain saved; no task will be restarted automatically."
-      );
+      assertPreviousOwnerReplaceableOnSameBoot(previous);
     }
     let owner = serviceExecutionHostOwnerSchema.parse({
       schema: "service-execution-host-owner-v2",
@@ -242,23 +234,60 @@ export async function acquireExecutionHostOwnership(input: {
   }
 }
 
-function canRecoverPreviousOwnerOnSameBoot(
-  previous: ReturnType<typeof readOwner>
-): boolean {
+async function acquireProcessOwnerLock(input: {
+  hostInstanceId: string;
+  ownerUserId: string;
+  stateRoot: string;
+}) {
+  try {
+    return await acquireLock({
+      openMeldProfileId: "service-execution-host",
+      key: "process-owner",
+      pathResolution: {
+        env: { ...process.env, OPENMELD_HOME: input.stateRoot },
+      },
+      meta: {
+        hostInstanceId: input.hostInstanceId,
+        ownerUserId: input.ownerUserId,
+      },
+    });
+  } catch (error) {
+    if (isOpenMeldLockError(error) && error.contentionState === "active") {
+      throw new ExecutionHostError(
+        "host.previous_work_running",
+        "Another execution host for this installation is still running. This Host starts after it exits; no task will be restarted automatically."
+      );
+    }
+    throw error;
+  }
+}
+
+// Waiting can clear only a fence whose recorded processes are still alive.
+// Incomplete or legacy evidence stays unconfirmed however long it is retried.
+function assertPreviousOwnerReplaceableOnSameBoot(
+  previous: NonNullable<ReturnType<typeof readOwner>>
+): void {
   if (
-    !previous ||
     previous.schema !== "service-execution-host-owner-v2" ||
-    !previous.processEvidenceComplete ||
+    !previous.processEvidenceComplete
+  ) {
+    throw new ExecutionHostError(
+      "host.previous_work_unconfirmed",
+      "The previous execution host ended before its local work was confirmed stopped. Restart this Computer, then check its connection. If restart evidence is unavailable, inspect the retained Host diagnostics before recovery. Existing results remain saved; no task will be restarted automatically."
+    );
+  }
+  if (
     isProcessIdentityAlive({
       ownerPid: previous.pid,
       ownerProcessStartedAt: previous.processStartedAt,
-    })
+    }) ||
+    previous.ownedProcessTrees.some(isOwnedProcessTreeAlive)
   ) {
-    return false;
+    throw new ExecutionHostError(
+      "host.previous_work_running",
+      "Local agent work recorded by the previous execution host is still running. This Host starts after that work exits; no task will be restarted automatically."
+    );
   }
-  return previous.ownedProcessTrees.every(
-    (process) => !isOwnedProcessTreeAlive(process)
-  );
 }
 
 function isOwnedProcessTreeAlive(input: {

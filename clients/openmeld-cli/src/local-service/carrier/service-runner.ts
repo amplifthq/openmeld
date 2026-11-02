@@ -770,6 +770,23 @@ async function launchAccountExecutionHost(input: {
         code: "daemon.run.execution_host_unavailable",
         text: `Local execution is unavailable: ${toErrorMessage(error)}`,
       }),
+    // The detached Service runs with a silent presenter; Host initialization
+    // outcomes must still reach its log.
+    onInitialization: (outcome) => {
+      if (outcome.status === "ready") {
+        warnDaemonEvent("[openmeld.execution_host.recovered]", {
+          event: "cli.execution_host.recovered",
+        });
+        return;
+      }
+      warnDaemonEvent("[openmeld.execution_host.unavailable]", {
+        event: "cli.execution_host.unavailable",
+        reasonCode: outcome.reason.code,
+        recoveryAction: outcome.reason.recoveryAction,
+        retrying: outcome.retrying,
+        message: outcome.reason.message,
+      });
+    },
   });
 }
 

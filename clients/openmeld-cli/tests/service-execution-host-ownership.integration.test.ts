@@ -48,7 +48,9 @@ describe("execution Host durable process ownership", () => {
 
   it("allows an empty/quiescent installation without reboot evidence and retains one owner", async () => {
     const first = await acquire(null);
-    await expect(acquire(null)).rejects.toThrow();
+    await expect(acquire(null)).rejects.toMatchObject({
+      code: "host.previous_work_running",
+    });
     await first.release();
     const next = await acquire(null);
     expect(
@@ -201,9 +203,10 @@ describe("execution Host durable process ownership", () => {
       await exited;
       // The real lock's orphan detection and durable unsafe receipt must not
       // turn a vanished PID into permission to repeat an unknown operation.
+      // Waiting cannot complete missing evidence, so it is not a retry state.
       await expect(
         acquire(await readExecutionHostBootIdentity())
-      ).rejects.toThrow();
+      ).rejects.toMatchObject({ code: "host.previous_work_unconfirmed" });
       expect(await readFile(receiptPath(), "utf8")).toBe(retained);
       expect(await readFile(join(root, "execution-started"), "utf8")).toBe(
         "once"
@@ -254,9 +257,11 @@ describe("execution Host durable process ownership", () => {
       child.kill("SIGKILL");
       await exited;
 
+      const retained = await readFile(receiptPath(), "utf8");
       await expect(
         acquire(await readExecutionHostBootIdentity())
-      ).rejects.toMatchObject({ code: "host.previous_work_unconfirmed" });
+      ).rejects.toMatchObject({ code: "host.previous_work_running" });
+      expect(await readFile(receiptPath(), "utf8")).toBe(retained);
 
       if (providerPid !== null) {
         process.kill(

@@ -79,7 +79,7 @@ export function runExecutionHost(hostInstanceId: string): Promise<void> {
       }
       if (!initializing) {
         acceptedIdentity = identity;
-        initializing = (async () => {
+        const attempt = (async () => {
           const verified = await validateExecutionHostIdentity(identity);
           if (disconnected) {
             throw new ExecutionHostError(
@@ -124,6 +124,18 @@ export function runExecutionHost(hostInstanceId: string): Promise<void> {
             });
           });
         })();
+        initializing = attempt;
+        attempt.catch((error: unknown) => {
+          // Ownership was refused before any runtime state opened. The
+          // supervising Service asks again once the recorded work may have exited.
+          if (
+            initializing === attempt &&
+            error instanceof ExecutionHostError &&
+            error.code === "host.previous_work_running"
+          ) {
+            initializing = null;
+          }
+        });
       }
       await initializing;
       if (!runtime || disconnected) {
