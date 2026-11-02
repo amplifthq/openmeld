@@ -6,6 +6,6 @@
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "A replacement execution Host waits for still-running previous work and starts on its own once it exits, and logs why local execution is paused. Unconfirmed work stays fenced; Wake, result, and Host receipt contracts are unchanged, so no compatibility floor is raised."
+    "reason": "A replacement execution Host waits for identified still-running previous work and starts on its own once it exits, records process evidence per started task, and logs why local execution is paused. Unconfirmed, corrupt, and unidentifiable ownership stays fenced; Wake, result, and Host receipt contracts are unchanged, so no compatibility floor is raised."
   }
 }

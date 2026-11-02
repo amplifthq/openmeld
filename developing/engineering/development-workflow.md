@@ -1241,13 +1241,21 @@ authorize a production migration, release, or production smoke.
 
 A replacement Host now separates previous work that is still running from work
 that cannot be confirmed. Complete receipts naming a live Host or provider tree,
-and an owner lock held by a live Host, report `host.previous_work_running` with
-the existing `wait_for_previous_work` recovery action. The Host rechecks the
-unchanged same-boot rule until it can start. Incomplete, legacy, and corrupt
-receipts keep `host.previous_work_unconfirmed` and are never rechecked. The
-receipt schema, process evidence, Host IPC methods, Runtime Transport, Wake,
-result receipts, Prepare, and CLI JSON output are unchanged; the Host IPC stays
-inside one Service artifact.
+and an owner lock held by an identified live Host, report
+`host.previous_work_running` with the existing `wait_for_previous_work` recovery
+action. The Host rechecks the unchanged same-boot rule until it can start.
+Incomplete and legacy receipts keep `host.previous_work_unconfirmed`; malformed
+receipts report `host.owner_corrupt` and holderless owner locks report
+`host.owner_lock_unverified`. None of those three is rechecked, and the update
+worker ends a waiting update for any of them as `needs_help`.
+
+Because waiting can now authorize a takeover, receipt evidence is per task: it
+is complete only while every started task has recorded its own provider process
+and no control or adapter operation runs. The shared local-execution slots add a
+pre-run hook and a read of started work so the Host records a task before its
+work begins. Queued tasks do not count. The receipt schema, Host IPC methods,
+Runtime Transport, Wake, result receipts, Prepare, and CLI JSON output are
+unchanged; the Host IPC stays inside one Service artifact.
 
 The computer-care observation has accepted this code pattern and recovery action
 since 0.3.261, so current Core, Gateway, and Web read it without a deploy. Core
