@@ -73,7 +73,7 @@ not install packages or query the network. Stage new manifests before running it
 | [@flue/cli](https://www.npmjs.com/package/@flue/cli) | <code>2.3.0</code> | Development | [services/remote-agent](../services/remote-agent/package.json) |
 | [@flue/runtime](https://www.npmjs.com/package/@flue/runtime) | <code>2.3.0</code> | Runtime | [services/remote-agent](../services/remote-agent/package.json) |
 | [@flue/vite](https://www.npmjs.com/package/@flue/vite) | <code>2.3.0</code> | Development | [services/remote-agent](../services/remote-agent/package.json) |
-| [@getzep/zep-cloud](https://www.npmjs.com/package/@getzep/zep-cloud) | <code>3.23.0</code> | Runtime | [services/core](../services/core/package.json) |
+| [@getzep/zep-cloud](https://www.npmjs.com/package/@getzep/zep-cloud) | <code>3.30.0</code> | Runtime | [services/core](../services/core/package.json) |
 | [@glideapps/glide-data-grid](https://www.npmjs.com/package/@glideapps/glide-data-grid) | <code>6.0.4-alpha24</code> | Runtime | [clients/web](../clients/web/package.json) |
 | [@hugeicons/core-free-icons](https://www.npmjs.com/package/@hugeicons/core-free-icons) | <code>^4.1.1</code> | Runtime | [clients/web](../clients/web/package.json) |
 | [@hugeicons/react](https://www.npmjs.com/package/@hugeicons/react) | <code>^1.1.6</code> | Runtime | [clients/web](../clients/web/package.json) |
@@ -247,7 +247,7 @@ not install packages or query the network. Stage new manifests before running it
 | [remark-rehype](https://www.npmjs.com/package/remark-rehype) | <code>^11.1.2</code> | Runtime | [clients/web](../clients/web/package.json) |
 | [rolldown](https://www.npmjs.com/package/rolldown) | <code>1.1.4</code> | Development | [services/remote-agent](../services/remote-agent/package.json) |
 | [semver](https://www.npmjs.com/package/semver) | <code>7.7.4</code> | Runtime | [clients/desktop](../clients/desktop/package.json)<br>[packages/agent-runtime](../packages/agent-runtime/package.json) |
-| [shadcn](https://www.npmjs.com/package/shadcn) | <code>^3.8.5</code> | Development | [clients/desktop](../clients/desktop/package.json)<br>[clients/web](../clients/web/package.json)<br>[clients/website](../clients/website/package.json) |
+| [shadcn](https://www.npmjs.com/package/shadcn) | <code>^4.23.0</code> | Development | [clients/desktop](../clients/desktop/package.json)<br>[clients/web](../clients/web/package.json)<br>[clients/website](../clients/website/package.json) |
 | [sherif](https://www.npmjs.com/package/sherif) | <code>1.13.0</code> | Development | [package.json](../package.json) |
 | [slackify-markdown](https://www.npmjs.com/package/slackify-markdown) | <code>5.0.0</code> | Runtime | [services/core](../services/core/package.json) |
 | [smol-toml](https://www.npmjs.com/package/smol-toml) | <code>1.9.0</code> | Runtime | [runtime/adapters/grok-build](../runtime/adapters/grok-build/package.json) |

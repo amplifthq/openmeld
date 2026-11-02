@@ -36,7 +36,7 @@
     "cf-typegen": "wrangler types --env-interface=CloudflareBindings --env-file .dev.vars.example && pnpm run typecheck"
   },
   "dependencies": {
-    "@getzep/zep-cloud": "3.23.0",
+    "@getzep/zep-cloud": "3.30.0",
     "@openmeld/agent-runtime": "workspace:*",
     "@openmeld/auth": "workspace:*",
     "@openmeld/db": "workspace:*",
