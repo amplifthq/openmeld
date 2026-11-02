@@ -27,6 +27,19 @@ type OwnedProcessEvent = {
   phase: "process_exit" | "process_spawned";
   processId: number | null;
   signalTarget: "process" | "process_group";
+  taskId: string;
+};
+
+type HostOwnerReceipt = Extract<
+  z.infer<typeof serviceExecutionHostOwnerSchema>,
+  { schema: "service-execution-host-owner-v2" }
+>;
+
+export type ExecutionHostWorkState = {
+  localQuiescent: boolean;
+  // Controls and adapter operations can launch processes no task can claim.
+  unattributedWork: boolean;
+  runningTaskIds: readonly string[];
 };
 
 export async function readExecutionHostBootIdentity(): Promise<string | null> {
@@ -137,7 +150,7 @@ export async function acquireExecutionHostOwnership(input: {
     ) {
       assertPreviousOwnerReplaceableOnSameBoot(previous);
     }
-    let owner = serviceExecutionHostOwnerSchema.parse({
+    let owner: HostOwnerReceipt = {
       schema: "service-execution-host-owner-v2",
       hostInstanceId: input.hostInstanceId,
       ownerUserId: input.ownerUserId,
@@ -149,9 +162,10 @@ export async function acquireExecutionHostOwnership(input: {
       localQuiescent: true,
       processEvidenceComplete: true,
       ownedProcessTrees: [],
-    });
+    };
+    serviceExecutionHostOwnerSchema.parse(owner);
     persist(owner);
-    function persist(next: typeof owner) {
+    function persist(next: HostOwnerReceipt) {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
       const temporary = `${path}.${randomUUID()}.tmp`;
       writeFileSync(temporary, JSON.stringify(next), {
@@ -160,43 +174,64 @@ export async function acquireExecutionHostOwnership(input: {
       });
       renameSync(temporary, path);
     }
+    // A failed write throws to the caller, which refuses the operation rather
+    // than weakening the fence.
+    function update(changes: Partial<HostOwnerReceipt>) {
+      const next = { ...owner, ...changes };
+      if (JSON.stringify(next) === JSON.stringify(owner)) {
+        return;
+      }
+      persist(next);
+      owner = next;
+    }
+    // Evidence is complete only when every running task has recorded its own
+    // provider process. One task's record never vouches for another's.
+    let runningTaskIds = new Set<string>();
+    const recordedTaskIds = new Set<string>();
+    let unattributedWork = false;
+    const evidenceComplete = () =>
+      !unattributedWork &&
+      [...runningTaskIds].every((taskId) => recordedTaskIds.has(taskId));
     return {
-      observeLocalQuiescence(quiescent: boolean) {
-        if (owner.localQuiescent === quiescent) {
+      observeWork(state: ExecutionHostWorkState) {
+        if (state.localQuiescent) {
+          runningTaskIds = new Set();
+          recordedTaskIds.clear();
+          unattributedWork = false;
+          update({
+            localQuiescent: true,
+            processEvidenceComplete: true,
+            ownedProcessTrees: [],
+          });
           return;
         }
-        const next = {
-          ...owner,
-          localQuiescent: quiescent,
-          ...(owner.schema === "service-execution-host-owner-v2"
-            ? {
-                processEvidenceComplete: quiescent,
-                ...(quiescent ? { ownedProcessTrees: [] } : {}),
-              }
-            : {}),
-        };
-        // The unsafe transition is durable before any provider operation. A
-        // failed write refuses that operation rather than weakening the fence.
-        persist(next);
-        owner = next;
+        runningTaskIds = new Set(state.runningTaskIds);
+        unattributedWork = state.unattributedWork;
+        for (const taskId of recordedTaskIds) {
+          if (!runningTaskIds.has(taskId)) {
+            recordedTaskIds.delete(taskId);
+          }
+        }
+        update({
+          localQuiescent: false,
+          processEvidenceComplete: evidenceComplete(),
+        });
       },
       observeOwnedProcess(event: OwnedProcessEvent) {
-        if (owner.schema !== "service-execution-host-owner-v2") {
-          return;
-        }
         if (event.phase === "process_spawned") {
           if (event.processId === null) {
-            const next = { ...owner, processEvidenceComplete: false };
-            persist(next);
-            owner = next;
+            recordedTaskIds.delete(event.taskId);
+            update({ processEvidenceComplete: evidenceComplete() });
             return;
           }
           const processStartedAt =
             readProcessStartIdentity(event.processId) ??
             `fallback:${event.processId}:unknown`;
-          const next = {
-            ...owner,
-            processEvidenceComplete: true,
+          if (runningTaskIds.has(event.taskId)) {
+            recordedTaskIds.add(event.taskId);
+          }
+          update({
+            processEvidenceComplete: evidenceComplete(),
             ownedProcessTrees: [
               ...owner.ownedProcessTrees.filter(
                 (process) => process.pid !== event.processId
@@ -207,24 +242,19 @@ export async function acquireExecutionHostOwnership(input: {
                 signalTarget: event.signalTarget,
               },
             ],
-          };
-          persist(next);
-          owner = next;
+          });
           return;
         }
         if (event.processId === null) {
           return;
         }
-        const next = {
-          ...owner,
+        update({
           ownedProcessTrees: owner.ownedProcessTrees.filter(
             (process) =>
               process.pid !== event.processId ||
               isOwnedProcessTreeAlive(process)
           ),
-        };
-        persist(next);
-        owner = next;
+        });
       },
       release: () => releaseLock(lock),
     };
@@ -252,13 +282,20 @@ async function acquireProcessOwnerLock(input: {
       },
     });
   } catch (error) {
-    if (isOpenMeldLockError(error) && error.contentionState === "active") {
+    if (!(isOpenMeldLockError(error) && error.contentionState === "active")) {
+      throw error;
+    }
+    // An active lock without a readable owner has no process to wait for.
+    if (typeof error.meta?.pid !== "number") {
       throw new ExecutionHostError(
-        "host.previous_work_running",
-        "Another execution host for this installation is still running. This Host starts after it exits; no task will be restarted automatically."
+        "host.owner_lock_unverified",
+        "The execution host lock for this installation has no identifiable owner. Preserve it for diagnostics; automatic replacement is refused."
       );
     }
-    throw error;
+    throw new ExecutionHostError(
+      "host.previous_work_running",
+      "Another execution host for this installation is still running. This Host starts after it exits; no task will be restarted automatically."
+    );
   }
 }
 
@@ -325,12 +362,16 @@ function readOwner(path: string) {
     }
     throw error;
   }
-  const parsed = serviceExecutionHostOwnerSchema.safeParse(JSON.parse(raw));
-  if (!parsed.success) {
-    throw new ExecutionHostError(
-      "host.owner_corrupt",
-      "The Host ownership record cannot be verified. Preserve it for diagnostics; automatic replacement is refused."
-    );
+  try {
+    const parsed = serviceExecutionHostOwnerSchema.safeParse(JSON.parse(raw));
+    if (parsed.success) {
+      return parsed.data;
+    }
+  } catch {
+    // Unreadable JSON is as unverifiable as a record with the wrong shape.
   }
-  return parsed.data;
+  throw new ExecutionHostError(
+    "host.owner_corrupt",
+    "The Host ownership record cannot be verified. Preserve it for diagnostics; automatic replacement is refused."
+  );
 }

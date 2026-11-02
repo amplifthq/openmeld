@@ -57,6 +57,23 @@ function projectExecutionHostUnavailableReason(
       recoveryAction: "restart_computer",
     };
   }
+  // Restarting cannot repair or identify these records; they need inspection.
+  if (code === "host.owner_corrupt") {
+    return {
+      code,
+      message:
+        "OpenMeld cannot read the local execution ownership record on this computer.",
+      recoveryAction: "open_diagnostics",
+    };
+  }
+  if (code === "host.owner_lock_unverified") {
+    return {
+      code,
+      message:
+        "OpenMeld cannot identify which process holds local execution on this computer.",
+      recoveryAction: "open_diagnostics",
+    };
+  }
   if (code === "host.entry_unavailable") {
     return {
       code,

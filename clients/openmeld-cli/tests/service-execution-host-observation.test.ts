@@ -328,15 +328,31 @@ describe("Host responsiveness observations", () => {
     await link.detach();
   });
 
-  it("reports why previous work prevents Host initialization and never retries unconfirmed work", async () => {
+  it.each([
+    {
+      code: "host.previous_work_unconfirmed",
+      message:
+        "OpenMeld cannot confirm that work from the previous local execution host has ended.",
+      recoveryAction: "restart_computer",
+    },
+    {
+      code: "host.owner_corrupt",
+      message:
+        "OpenMeld cannot read the local execution ownership record on this computer.",
+      recoveryAction: "open_diagnostics",
+    },
+    {
+      code: "host.owner_lock_unverified",
+      message:
+        "OpenMeld cannot identify which process holds local execution on this computer.",
+      recoveryAction: "open_diagnostics",
+    },
+  ])("reports why $code prevents Host initialization and never retries it", async (reason) => {
     vi.useFakeTimers();
     try {
       fixture.call.mockClear();
       fixture.call.mockRejectedValueOnce(
-        new ExecutionHostError(
-          "host.previous_work_unconfirmed",
-          "internal evidence omitted"
-        )
+        new ExecutionHostError(reason.code, "internal evidence omitted")
       );
       const onInitialization = vi.fn();
       const host = launchExecutionHost({
@@ -346,14 +362,8 @@ describe("Host responsiveness observations", () => {
       });
 
       await expect(host.initialized).rejects.toMatchObject({
-        code: "host.previous_work_unconfirmed",
+        code: reason.code,
       });
-      const reason = {
-        code: "host.previous_work_unconfirmed",
-        message:
-          "OpenMeld cannot confirm that work from the previous local execution host has ended.",
-        recoveryAction: "restart_computer",
-      };
       expect(host.observation?.()).toMatchObject({
         responsive: false,
         unavailableReason: reason,

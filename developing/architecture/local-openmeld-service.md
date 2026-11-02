@@ -243,21 +243,29 @@ work starts, a private process-incarnation receipt records non-quiescence. A cle
 local drain clears that fence. After an unconfirmed owner loss, PID disappearance
 alone does not prove that its children or side effects ended. The current receipt
 records the Host process identity and each provider-owned process tree before
-execution continues. A same-boot replacement is allowed only when that evidence
+execution continues. Evidence is complete only while every started task has
+recorded its own provider process and no control or adapter operation is
+running; one task's record never vouches for another task's preparation. A
+started task is recorded as running before any of its work begins; a queued task
+has started nothing. A same-boot replacement is allowed only when that evidence
 is complete, the exact Host incarnation is gone, and every recorded provider
 process group or Windows job-backed root is gone. While complete evidence still
-names a live Host incarnation or provider process tree, or a live Host holds the
-installation's owner lock, the replacement reports `host.previous_work_running`
-with the `wait_for_previous_work` recovery action. The Service stays connected
-with execution admission closed and rechecks the same rule every few seconds;
-the Host starts once that recorded work exits. It never signals, adopts, or
-replays that work. Missing process evidence, legacy receipts, and corrupt
-records remain blocked as `host.previous_work_unconfirmed`. Waiting cannot
+names a live Host incarnation or provider process tree, or an identified live
+Host holds the installation's owner lock, the replacement reports
+`host.previous_work_running` with the `wait_for_previous_work` recovery action.
+The Service stays connected with execution admission closed and rechecks the
+same rule every few seconds; the Host starts once that recorded work exits. It
+never signals, adopts, or replays that work. Missing process evidence and legacy
+receipts remain blocked as `host.previous_work_unconfirmed`; waiting cannot
 complete missing evidence, so that refusal is not rechecked and trustworthy
-operating-system restart evidence is the fallback. The Service log records each
-distinct refusal and a later recovery, including from the detached background
-Service. This receipt contains no task results or approvals and does not
-authorize replay. It is not a second execution ledger. There is no automatic
+operating-system restart evidence is the fallback. An unreadable or malformed
+receipt reports `host.owner_corrupt`, and an owner lock without an identifiable
+holder reports `host.owner_lock_unverified`. Both are preserved for
+diagnostics, never rechecked or replaced automatically, and direct the owner to
+diagnostics because restarting cannot repair or identify them. The Service log
+records each distinct refusal and a later recovery, including from the detached
+background Service. This receipt contains no task results or approvals and does
+not authorize replay. It is not a second execution ledger. There is no automatic
 hot adoption or restart of unknown work.
 
 Claude Agent SDK invocations use its public custom-spawn contract on every
@@ -3895,11 +3903,12 @@ request to escalate an available one without a stale worker restoring the old
 state. Requests coalesce into the existing operation; they never create
 parallel Service update lifecycles.
 
-A safe-switch read that explicitly reports `host.previous_work_unconfirmed`
-ends the same waiting operation as `needs_help`, retaining its original error
-and leaving installation state untouched. A transient transport/read failure,
-including `host.previous_work_running` while recorded work exits, still waits
-for positive readiness; elapsed time never clears the Host fence.
+A safe-switch read that explicitly reports `host.previous_work_unconfirmed`,
+`host.owner_corrupt`, or `host.owner_lock_unverified` ends the same waiting
+operation as `needs_help`, retaining its original error and leaving installation
+state untouched. A transient transport/read failure, including
+`host.previous_work_running` while recorded work exits, still waits for positive
+readiness; elapsed time never clears the Host fence.
 
 After the safe switch begins, RuntimeCoordinator remains the in-flight Wake
 authority. New Wake work may wait for the replacement route and resume after

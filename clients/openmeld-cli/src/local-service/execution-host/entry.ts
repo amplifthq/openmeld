@@ -119,8 +119,8 @@ export function runExecutionHost(hostInstanceId: string): Promise<void> {
                   server.emit(event);
                 }
               },
-              onWorkStateChange: (quiescent) =>
-                verifiedOwnership.observeLocalQuiescence(quiescent),
+              onWorkStateChange: (state) =>
+                verifiedOwnership.observeWork(state),
             });
           });
         })();

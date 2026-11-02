@@ -251,6 +251,8 @@ export function createLocalExecutionSlots(input: {
   // Observe ownership after mutation, including release. Completion events are
   // emitted while the task still owns its slot and cannot prove quiescence.
   onChanged?: () => void;
+  // Runs first in a started task. A throw fails that task before its work.
+  beforeTaskRun?: (task: LocalExecutionSlotTask) => void;
   onTaskCompleted?: (event: LocalExecutionSlotCompletionEvent) => void;
   onTaskDropped?: (event: LocalExecutionSlotDropEvent) => void;
   onTaskQueued?: (event: LocalExecutionSlotLifecycleEvent) => void;
@@ -545,6 +547,7 @@ export function createLocalExecutionSlots(input: {
 
       Promise.resolve()
         .then(async () => {
+          input.beforeTaskRun?.(selectedTask);
           const runResult = await selectedTask.run();
           const completionResult = resolveTaskCompletionResult(runResult);
           input.onTaskCompleted?.({
@@ -787,6 +790,13 @@ export function createLocalExecutionSlots(input: {
       return new Promise<void>((resolve) => {
         drainWaiters.push(resolve);
       });
+    },
+    /** Started tasks and adapter operations; queued tasks have not begun work. */
+    getRunningWork(): { adapterOperationIds: string[]; taskIds: string[] } {
+      return {
+        adapterOperationIds: [...adapterOperationIds],
+        taskIds: [...activeTasks.keys()],
+      };
     },
     getDrainState(): {
       activeGlobal: number;

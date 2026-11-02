@@ -145,6 +145,7 @@ function enqueueLegacyTask(input: {
       activeGlobal: 0,
       pendingCount: 0,
     }),
+    getRunningWork: () => ({ adapterOperationIds: [], taskIds: [] }),
     getSharedFolderSessions: () => [],
     getSnapshot: () => ({
       activeForLane: 0,
@@ -322,6 +323,7 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
         activeGlobal: 0,
         pendingCount: 0,
       }),
+      getRunningWork: () => ({ adapterOperationIds: [], taskIds: [] }),
       getSharedFolderSessions: () => [],
       getSnapshot: () => ({
         activeForLane: 0,
@@ -469,6 +471,7 @@ describe("enqueueDispatchDeliverFrame controllerKey", () => {
         activeGlobal: 1,
         pendingCount: 0,
       }),
+      getRunningWork: () => ({ adapterOperationIds: [], taskIds: ["task-1"] }),
       isQuiescent: () => false,
       getSharedFolderSessions: () => [],
       getSnapshot: () => ({

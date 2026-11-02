@@ -1,11 +1,19 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { acquireLock } from "../src/config/lock";
 import { systemDir } from "../src/config/paths";
 import { createDaemonLocalExecutionSlots } from "../src/local-service/carrier/local-execution-slots";
 import {
@@ -16,15 +24,93 @@ import {
 describe("execution Host durable process ownership", () => {
   let root: string;
   const releases: Array<() => Promise<void>> = [];
+  const processTrees = new Set<number>();
   const firstBoot = "darwin:811b4099-be87-4efc-8cc6-20a7ef71a2ed";
   const secondBoot = "darwin:c615b170-8643-4d12-b5b6-7ea5ab222d99";
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "openmeld-host-owner-"));
   });
   afterEach(async () => {
+    for (const pid of processTrees) {
+      await killProcessTree(pid);
+    }
     await Promise.all(releases.splice(0).map((release) => release()));
     await rm(root, { recursive: true, force: true });
   });
+  const killProcessTree = async (pid: number | null) => {
+    if (pid === null) {
+      return;
+    }
+    try {
+      process.kill(process.platform === "win32" ? pid : -pid, "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+    await waitForProcessTreeExit(pid);
+    processTrees.delete(pid);
+  };
+  // Runs the real owner in its own process, then kills it without a release.
+  const killOwnerFixture = async (
+    mode?: "with-provider" | "concurrent" | "concurrent-started"
+  ) => {
+    const require = createRequire(import.meta.url);
+    const loader = join(
+      createRequire(require.resolve("vitest/package.json")).resolve(
+        "tsx/package.json"
+      ),
+      "..",
+      "dist/loader.mjs"
+    );
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        loader,
+        join(import.meta.dirname, "fixtures/service-execution-host-owner.ts"),
+        root,
+        ...(mode ? [mode] : []),
+      ],
+      {
+        env: { ...process.env, OPENMELD_HOME: root },
+        stdio: ["ignore", "ignore", "pipe", "ipc"],
+      }
+    );
+    const exited = once(child, "exit");
+    let stderr = "";
+    child.stderr?.on("data", (chunk) => {
+      stderr = `${stderr}${String(chunk)}`.slice(-4096);
+    });
+    try {
+      const [ready] = await Promise.race([
+        once(child, "message"),
+        exited.then(() => {
+          throw new Error(`Owner fixture exited before readiness: ${stderr}`);
+        }),
+      ]);
+      const { providerPid, unrecordedPid } = ready as {
+        providerPid: number | null;
+        unrecordedPid: number | null;
+      };
+      for (const pid of [providerPid, unrecordedPid]) {
+        if (pid !== null) {
+          processTrees.add(pid);
+        }
+      }
+      const retained = await readFile(receiptPath(), "utf8");
+      const receipt = JSON.parse(retained);
+      if (receipt.pid !== child.pid || receipt.localQuiescent !== false) {
+        throw new Error(`Owner fixture did not persist busy work: ${retained}`);
+      }
+      child.kill("SIGKILL");
+      await exited;
+      return { providerPid, retained };
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
+      await exited;
+    }
+  };
   const acquire = async (
     bootIdentity: string | null,
     ownerUserId = "test-owner"
@@ -45,6 +131,21 @@ describe("execution Host durable process ownership", () => {
       systemDir({ env: { OPENMELD_HOME: root } }),
       "execution-host-owner.json"
     );
+  const readReceipt = async () =>
+    JSON.parse(await readFile(receiptPath(), "utf8"));
+  type Owner = Awaited<ReturnType<typeof acquire>>;
+  const busy = (owner: Owner, runningTaskIds: string[] = ["task-a"]) =>
+    owner.observeWork({
+      localQuiescent: false,
+      unattributedWork: false,
+      runningTaskIds,
+    });
+  const idle = (owner: Owner) =>
+    owner.observeWork({
+      localQuiescent: true,
+      unattributedWork: false,
+      runningTaskIds: [],
+    });
 
   it("allows an empty/quiescent installation without reboot evidence and retains one owner", async () => {
     const first = await acquire(null);
@@ -69,7 +170,7 @@ describe("execution Host durable process ownership", () => {
     ["win32:100:638900000000000000", "win32:1:638900000000000002", false],
   ] as const)("does not replace unknown local work without trustworthy reboot evidence (%s → %s)", async (before, after, recover) => {
     const first = await acquire(before);
-    first.observeLocalQuiescence(false);
+    busy(first);
     await first.release();
     const retained = await readFile(receiptPath(), "utf8");
     if (recover) {
@@ -86,20 +187,49 @@ describe("execution Host durable process ownership", () => {
     }
   });
 
-  it("allows confirmed quiescence, but never replaces a corrupt ownership record", async () => {
+  it.each([
+    "{broken",
+    '{"schema":"service-execution-host-owner-v2"}',
+  ])("allows confirmed quiescence, but never replaces a corrupt ownership record (%s)", async (corrupt) => {
     const first = await acquire(firstBoot);
-    first.observeLocalQuiescence(false);
-    first.observeLocalQuiescence(true);
+    busy(first);
+    idle(first);
     await first.release();
     const next = await acquire(firstBoot);
     await next.release();
-    await writeFile(receiptPath(), "{broken");
-    await expect(acquire(secondBoot)).rejects.toThrow();
-    expect(await readFile(receiptPath(), "utf8")).toBe("{broken");
+    await writeFile(receiptPath(), corrupt);
+    // Restart evidence cannot repair the record, so it is not that refusal.
+    await expect(acquire(secondBoot)).rejects.toMatchObject({
+      code: "host.owner_corrupt",
+    });
+    expect(await readFile(receiptPath(), "utf8")).toBe(corrupt);
   });
 
-  it("persists released execution slots before replacing a drained Host", async () => {
+  it("does not wait for an installation lock without an identifiable owner", async () => {
+    const lock = await acquireLock({
+      openMeldProfileId: "service-execution-host",
+      key: "process-owner",
+      pathResolution: { env: { ...process.env, OPENMELD_HOME: root } },
+    });
+    for (const entry of await readdir(lock.path)) {
+      await rm(join(lock.path, entry));
+    }
+    await writeFile(join(lock.path, ".DS_Store"), "");
+    const stale = new Date(Date.now() - 10 * 60_000);
+    await utimes(lock.path, stale, stale);
+    await expect(acquire(firstBoot)).rejects.toMatchObject({
+      code: "host.owner_lock_unverified",
+    });
+  });
+
+  it("records a started task before its work and persists released slots before replacing a drained Host", async () => {
     const first = await acquire(firstBoot);
+    const observe = () =>
+      first.observeWork({
+        localQuiescent: slots.isQuiescent(),
+        unattributedWork: false,
+        runningTaskIds: slots.getRunningWork().taskIds,
+      });
     const slots = createDaemonLocalExecutionSlots({
       limits: { globalConcurrency: 1, queueMax: 10 },
       presenter: {
@@ -108,15 +238,15 @@ describe("execution Host durable process ownership", () => {
         line: () => undefined,
         data: () => undefined,
       },
-      onChanged: () => {
-        first.observeLocalQuiescence(slots.isQuiescent());
-      },
+      beforeTaskRun: observe,
+      onChanged: observe,
     });
     let complete!: () => void;
     const work = new Promise<void>((resolve) => {
       complete = resolve;
     });
-    first.observeLocalQuiescence(false);
+    let receiptAtRunStart: unknown = null;
+    busy(first, []);
     expect(
       slots.request({
         adapterId: "codex",
@@ -130,15 +260,18 @@ describe("execution Host durable process ownership", () => {
         taskId: "task-completed",
         transportMode: "local-cli",
         run: async () => {
+          receiptAtRunStart = await readReceipt();
           await work;
           return { result: "success" };
         },
       }).accepted
     ).toBe(true);
     slots.beginDrain();
-    expect(
-      JSON.parse(await readFile(receiptPath(), "utf8")).localQuiescent
-    ).toBe(false);
+    await vi.waitFor(() => expect(receiptAtRunStart).not.toBeNull());
+    expect(receiptAtRunStart).toMatchObject({
+      localQuiescent: false,
+      processEvidenceComplete: false,
+    });
     complete();
     await slots.drain();
     expect(slots.isQuiescent()).toBe(true);
@@ -160,134 +293,46 @@ describe("execution Host durable process ownership", () => {
   });
 
   it("refuses takeover after an actual owner process dies with unconfirmed work", async () => {
-    const require = createRequire(import.meta.url);
-    const loader = join(
-      createRequire(require.resolve("vitest/package.json")).resolve(
-        "tsx/package.json"
-      ),
-      "..",
-      "dist/loader.mjs"
+    const { retained } = await killOwnerFixture();
+    // The real lock's orphan detection and durable unsafe receipt must not
+    // turn a vanished PID into permission to repeat an unknown operation.
+    // Waiting cannot complete missing evidence, so it is not a retry state.
+    await expect(
+      acquire(await readExecutionHostBootIdentity())
+    ).rejects.toMatchObject({ code: "host.previous_work_unconfirmed" });
+    expect(await readFile(receiptPath(), "utf8")).toBe(retained);
+    expect(await readFile(join(root, "execution-started"), "utf8")).toBe(
+      "once"
     );
-    const child = spawn(
-      process.execPath,
-      [
-        "--import",
-        loader,
-        join(import.meta.dirname, "fixtures/service-execution-host-owner.ts"),
-        root,
-      ],
-      {
-        env: { ...process.env, OPENMELD_HOME: root },
-        stdio: ["ignore", "ignore", "pipe", "ipc"],
-      }
-    );
-    const exited = once(child, "exit");
-    let stderr = "";
-    child.stderr?.on("data", (chunk) => {
-      stderr = `${stderr}${String(chunk)}`.slice(-4096);
-    });
-    try {
-      const ready = await Promise.race([
-        once(child, "message"),
-        exited.then(() => {
-          throw new Error(`Owner fixture exited before readiness: ${stderr}`);
-        }),
-      ]);
-      expect(ready[0]).toMatchObject({ ready: true });
-      const retained = await readFile(receiptPath(), "utf8");
-      expect(JSON.parse(retained)).toMatchObject({
-        pid: child.pid,
-        localQuiescent: false,
-      });
-      child.kill("SIGKILL");
-      await exited;
-      // The real lock's orphan detection and durable unsafe receipt must not
-      // turn a vanished PID into permission to repeat an unknown operation.
-      // Waiting cannot complete missing evidence, so it is not a retry state.
-      await expect(
-        acquire(await readExecutionHostBootIdentity())
-      ).rejects.toMatchObject({ code: "host.previous_work_unconfirmed" });
-      expect(await readFile(receiptPath(), "utf8")).toBe(retained);
-      expect(await readFile(join(root, "execution-started"), "utf8")).toBe(
-        "once"
-      );
-    } finally {
-      if (child.exitCode === null && child.signalCode === null) {
-        child.kill("SIGKILL");
-      }
-      await exited;
-    }
   });
 
   it("recovers on the same boot only after the old Host and provider process tree are gone", async () => {
-    const require = createRequire(import.meta.url);
-    const loader = join(
-      createRequire(require.resolve("vitest/package.json")).resolve(
-        "tsx/package.json"
-      ),
-      "..",
-      "dist/loader.mjs"
-    );
-    const child = spawn(
-      process.execPath,
-      [
-        "--import",
-        loader,
-        join(import.meta.dirname, "fixtures/service-execution-host-owner.ts"),
-        root,
-        "with-provider",
-      ],
-      {
-        env: { ...process.env, OPENMELD_HOME: root },
-        stdio: ["ignore", "ignore", "pipe", "ipc"],
-      }
-    );
-    const exited = once(child, "exit");
-    let providerPid: number | null = null;
-    try {
-      const ready = await Promise.race([
-        once(child, "message"),
-        exited.then(() => {
-          throw new Error("Owner fixture exited before provider readiness");
-        }),
-      ]);
-      const payload = ready[0] as { providerPid: number | null; ready: true };
-      providerPid = payload.providerPid;
-      expect(providerPid).toBeTypeOf("number");
-      child.kill("SIGKILL");
-      await exited;
+    const { providerPid, retained } = await killOwnerFixture("with-provider");
+    await expect(
+      acquire(await readExecutionHostBootIdentity())
+    ).rejects.toMatchObject({ code: "host.previous_work_running" });
+    expect(await readFile(receiptPath(), "utf8")).toBe(retained);
 
-      const retained = await readFile(receiptPath(), "utf8");
-      await expect(
-        acquire(await readExecutionHostBootIdentity())
-      ).rejects.toMatchObject({ code: "host.previous_work_running" });
-      expect(await readFile(receiptPath(), "utf8")).toBe(retained);
+    await killProcessTree(providerPid);
+    const replacement = await acquire(await readExecutionHostBootIdentity());
+    await replacement.release();
+  });
 
-      if (providerPid !== null) {
-        process.kill(
-          process.platform === "win32" ? providerPid : -providerPid,
-          "SIGKILL"
-        );
-        await waitForProcessTreeExit(providerPid);
-      }
-      const replacement = await acquire(await readExecutionHostBootIdentity());
-      await replacement.release();
-    } finally {
-      if (child.exitCode === null && child.signalCode === null) {
-        child.kill("SIGKILL");
-      }
-      if (providerPid !== null) {
-        try {
-          process.kill(
-            process.platform === "win32" ? providerPid : -providerPid,
-            "SIGKILL"
-          );
-        } catch {
-          // Already gone.
-        }
-      }
-      await exited;
-    }
+  it.each([
+    "concurrent",
+    "concurrent-started",
+  ] as const)("never lets one task's recorded provider vouch for a concurrent task's unrecorded work (%s)", async (mode) => {
+    const { providerPid, retained } = await killOwnerFixture(mode);
+    await expect(
+      acquire(await readExecutionHostBootIdentity())
+    ).rejects.toMatchObject({ code: "host.previous_work_unconfirmed" });
+
+    // The second task's work is still alive and was never recorded.
+    await killProcessTree(providerPid);
+    await expect(
+      acquire(await readExecutionHostBootIdentity())
+    ).rejects.toMatchObject({ code: "host.previous_work_unconfirmed" });
+    expect(await readFile(receiptPath(), "utf8")).toBe(retained);
   });
 });
 

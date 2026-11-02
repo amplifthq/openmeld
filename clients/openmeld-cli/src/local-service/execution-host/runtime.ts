@@ -69,6 +69,7 @@ import {
 import { createExecutionAdmissionConfirmation } from "./execution-admission";
 import { createServiceExecutionInputReceiver } from "./execution-input";
 import { handleExecutionHostFrame } from "./frame-router";
+import type { ExecutionHostWorkState } from "./ownership";
 
 type HostEvent = Exclude<ServiceExecutionHostMessage, { type: "reply" }>;
 
@@ -79,6 +80,7 @@ export async function createExecutionHostResources(input: {
     phase: "process_exit" | "process_spawned";
     processId: number | null;
     signalTarget: "process" | "process_group";
+    taskId: string;
   }) => void;
 }) {
   const ledgerPaths = buildLedgerPaths(input.runtimePaths.ledgerRootPath);
@@ -159,7 +161,7 @@ export function createExecutionHostRuntime(input: {
   profileOwnerName: string | null;
   presenter: Presenter;
   emit(event: HostEvent): void;
-  onWorkStateChange?(quiescent: boolean): void;
+  onWorkStateChange?(state: ExecutionHostWorkState): void;
 }) {
   const identity = input.identity;
   const {
@@ -177,6 +179,8 @@ export function createExecutionHostRuntime(input: {
   const localExecutionSlots = createDaemonLocalExecutionSlots({
     limits: input.resources.dispatchLimits,
     presenter: input.presenter,
+    // A started task is recorded as running before any of its work begins.
+    beforeTaskRun: () => observeWork(),
     onChanged: () => {
       power
         .setActiveTasks(localExecutionSlots.getDrainState().activeGlobal)
@@ -187,7 +191,7 @@ export function createExecutionHostRuntime(input: {
             text: toErrorMessage(error),
           })
         );
-      input.onWorkStateChange?.(snapshot().localQuiescent);
+      observeWork();
       invalidate("execution");
     },
   });
@@ -274,6 +278,20 @@ export function createExecutionHostRuntime(input: {
         .listAdapters()
         .map((entry) => entry.adapterId),
     };
+  }
+
+  // `admitting` reports work that is about to start before it is visible in
+  // the slots or controls, so the receipt is durable before that work runs.
+  function observeWork(admitting?: "control" | "delivery"): void {
+    const running = localExecutionSlots.getRunningWork();
+    input.onWorkStateChange?.({
+      localQuiescent: admitting === undefined && snapshot().localQuiescent,
+      unattributedWork:
+        admitting === "control" ||
+        activeControls.size > 0 ||
+        running.adapterOperationIds.length > 0,
+      runningTaskIds: running.taskIds,
+    });
   }
 
   function assertConnection(expected: number): DaemonFrameSink {
@@ -489,9 +507,8 @@ export function createExecutionHostRuntime(input: {
     beginDrain();
     await localExecutionSlots.drain();
     await Promise.allSettled([...activeControls]);
-    const drained = snapshot();
-    input.onWorkStateChange?.(drained.localQuiescent);
-    return drained;
+    observeWork();
+    return snapshot();
   }
 
   function trackControl<T>(run: () => Promise<T>): Promise<T> {
@@ -503,12 +520,12 @@ export function createExecutionHostRuntime(input: {
         )
       );
     }
-    input.onWorkStateChange?.(false);
+    observeWork("control");
     const operation = Promise.resolve().then(run);
     activeControls.add(operation);
     return operation.finally(() => {
       activeControls.delete(operation);
-      input.onWorkStateChange?.(snapshot().localQuiescent);
+      observeWork();
       invalidate("execution");
     });
   }
@@ -712,7 +729,7 @@ export function createExecutionHostRuntime(input: {
             "Execution admission is closed; the existing Coordinator retains delivery ownership."
           );
         }
-        input.onWorkStateChange?.(false);
+        observeWork("delivery");
       }
       handleExecutionHostFrame({
         readRouteByProfileId: () => routeCatalogState.routeByProfileId,
@@ -735,7 +752,7 @@ export function createExecutionHostRuntime(input: {
         routeByProfileId: routeCatalogState.routeByProfileId,
         socket,
       });
-      input.onWorkStateChange?.(snapshot().localQuiescent);
+      observeWork();
       invalidate("execution");
       return {};
     },
