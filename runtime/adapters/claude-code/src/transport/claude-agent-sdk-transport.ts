@@ -263,6 +263,20 @@ function isFailedResultMessage(resultMessage: SDKResultMessage): boolean {
   return resultMessage.subtype !== "success" || resultMessage.is_error === true;
 }
 
+function allowsClaudePlanReview(input: {
+  deliveryOnly?: boolean;
+  env?: Record<string, string | undefined>;
+  executionMode?: AdapterDispatchExecutionMode;
+  onInteractionRequest?: AdapterInteractionCallback;
+  spaceActionTools?: AdapterDispatchSpaceTools;
+}): boolean {
+  return (
+    input.onInteractionRequest !== undefined &&
+    input.executionMode !== "repair" &&
+    !(input.deliveryOnly ?? isClaudeDeliveryOnly(input))
+  );
+}
+
 function resolveCanonicalRepairSessionId(input: {
   executionMode?: AdapterDispatchExecutionMode;
   sessionId: string | null;
@@ -337,7 +351,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
   const resources = await createClaudeAgentSdkInvocationResources({
     launchContract: input.launchContract,
     onProcessControlEvent: input.onProcessControlEvent,
-    needsPlanCapture: input.onInteractionRequest !== undefined,
+    needsPlanCapture: allowsClaudePlanReview(input),
   });
   const abortController = new AbortController();
   const invokedAtMs = Date.now();
@@ -932,6 +946,10 @@ function buildClaudeAgentSdkOptions(input: {
     ...(input.onInteractionRequest
       ? {
           canUseTool: createClaudeCanUseTool({
+            allowPlanReview: allowsClaudePlanReview({
+              ...input,
+              deliveryOnly,
+            }),
             getPlanReviewText: input.getPlanReviewText,
             onInteractionRequest: input.onInteractionRequest,
           }),
