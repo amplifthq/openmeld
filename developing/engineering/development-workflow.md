@@ -1252,10 +1252,20 @@ worker ends a waiting update for any of them as `needs_help`.
 Because waiting can now authorize a takeover, receipt evidence is per task: it
 is complete only while every started task has recorded its own provider process
 and no control or adapter operation runs. The shared local-execution slots add a
-pre-run hook and a read of started work so the Host records a task before its
-work begins. Queued tasks do not count. The receipt schema, Host IPC methods,
-Runtime Transport, Wake, result receipts, Prepare, and CLI JSON output are
-unchanged; the Host IPC stays inside one Service artifact.
+pre-run hook, a task refusal callback, and a read of started work, so the Host
+records a task before its work begins. A task refused there reports
+`host.execution_record_unavailable` through the existing result outbox. Queued
+tasks do not count, and idle slots keep any live recorded process group in the
+receipt.
+
+The private receipt gains `service-execution-host-owner-v3` for non-quiescent,
+per-task evidence. A non-quiescent v2 receipt from an older Service had
+Host-wide completeness and stays unconfirmed. Quiescent receipts keep the v2
+shape, so a verified rollback to 0.3.288 or earlier still starts; an older
+Service reading a non-quiescent v3 receipt reports it as corrupt, which matches
+the existing rule never to roll back over uncertain new-Host work. Host IPC
+methods, Runtime Transport, Wake, result receipts, Prepare, and CLI JSON output
+are unchanged; the Host IPC stays inside one Service artifact.
 
 The computer-care observation has accepted this code pattern and recovery action
 since 0.3.261, so current Core, Gateway, and Web read it without a deploy. Core
