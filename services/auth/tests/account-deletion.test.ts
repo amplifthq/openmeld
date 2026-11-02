@@ -313,7 +313,6 @@ async function fixture() {
       "disposable-test-secret-which-is-longer-than-thirty-two-characters",
     BETTER_AUTH_URL: "http://localhost:8788",
     WEB_APP_URL: origin,
-    OPENMELD_AUTH_KV: {},
     OPENMELD_POSTGRESQL: harness.binding,
     OPENMELD_CORE_WORKER: {
       checkSpaceOwnerDeparture: async () => ({ spaces: [] }),

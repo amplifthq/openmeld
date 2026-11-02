@@ -7,7 +7,6 @@ import type { createAuthDatabase } from "@openmeld/db/auth";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { betterAuth } from "better-auth";
 import type { AuthBindings } from "../bindings";
-import { createKvSecondaryStorage } from "../utils/kv";
 import "./initialize-async-context";
 import { createOrganizationDeletionGuard } from "./organization-deletion-guard";
 
@@ -46,22 +45,12 @@ export function createAuth(
     },
     database
   );
-  const isProduction = env.AUTH_WORKER_NODE_ENV === "production";
   const authOptions: typeof authConfig = {
     ...authConfig,
     hooks: {
       ...authConfig.hooks,
       before: createOrganizationDeletionGuard(getPostgresDatabase(env)),
     },
-    ...(isProduction
-      ? {
-          secondaryStorage: createKvSecondaryStorage(env.OPENMELD_AUTH_KV),
-          rateLimit: {
-            ...authConfig.rateLimit,
-            storage: "secondary-storage",
-          },
-        }
-      : {}),
   };
   return betterAuth(authOptions);
 }

@@ -34,6 +34,7 @@ export const {
   organizationsRelations,
   passkeys,
   passkeysRelations,
+  rateLimits,
   sessions,
   sessionsRelations,
   users,
