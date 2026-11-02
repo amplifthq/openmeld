@@ -521,6 +521,96 @@ describe("canonical Inbox attention page", () => {
 		expect(await screen.findByText("Older update")).toBeTruthy();
 	});
 
+	it("shows one refresh warning when an expired snapshot makes open groups fail, and Retry loads a new Inbox snapshot", async () => {
+		const first = item({ id: "first", title: "Saved update" });
+		const grouped = row(first, {
+			group: { kind: "space", conversationCount: 2 },
+			groupKey: "Y29udmVyc2F0aW9u",
+			itemCount: 17,
+			unreadCount: 17,
+		});
+		const expired = {
+			...page([grouped]),
+			selectionUnreadCount: 17,
+			snapshotExpiresAt: new Date(Date.now() - 1).toISOString(),
+			snapshotId: "expired-snapshot",
+		};
+		const fresh = {
+			...page([grouped]),
+			selectionUnreadCount: 17,
+			snapshotId: "fresh-snapshot",
+		};
+		const { queryClient, queryKey } = renderPage({
+			expandedRows: [row(first)],
+			preserveFeedMock: true,
+			rows: [grouped],
+		});
+		mocks.feed.mockImplementation(
+			(query: { groupKey?: string; snapshotId?: string }) => {
+				if (query.snapshotId === "expired-snapshot") {
+					return Promise.reject(new Error("inbox.snapshot_expired"));
+				}
+				if (query.groupKey) {
+					return Promise.resolve({
+						...page([row(first)]),
+						snapshotId: "fresh-snapshot",
+					});
+				}
+				return Promise.resolve(fresh);
+			}
+		);
+		act(() => {
+			queryClient.setQueryData(queryKey, {
+				pageParams: [undefined],
+				pages: [expired],
+			});
+		});
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Design Room 2 conversations · 17 unread",
+			})
+		);
+		await waitFor(() =>
+			expect(
+				screen.getAllByText(
+					"Couldn’t refresh. Showing the latest Inbox view available."
+				)
+			).toHaveLength(1)
+		);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Mark 17 items as read",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		await waitFor(() =>
+			expect(
+				screen.queryByText(
+					"Couldn’t refresh. Showing the latest Inbox view available."
+				)
+			).toBeNull()
+		);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Mark 17 items as read",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(false);
+		expect(
+			screen.getByRole("button", {
+				name: "Design Room 2 conversations · 17 unread",
+			})
+		).toBeTruthy();
+		expect(
+			mocks.feed.mock.calls.some(
+				([query]) => query?.snapshotId === "expired-snapshot" && !query.groupKey
+			)
+		).toBe(false);
+	});
+
 	it("shows an expired saved view but waits for a fresh snapshot before bulk actions", async () => {
 		const original = row(item({ id: "saved", title: "Saved update" }));
 		const { queryClient, queryKey } = renderPage({ rows: [original] });

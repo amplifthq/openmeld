@@ -100,6 +100,18 @@ function InboxSourceDetails({ target }: { target: InboxItem["sourceTarget"] }) {
 	return null;
 }
 
+function inboxRefreshWarningShown(input: {
+	hasData: boolean;
+	isFetchNextPageError: boolean;
+	isRefetchError: boolean;
+	snapshotExpired: boolean;
+}) {
+	return (
+		input.snapshotExpired ||
+		(input.isRefetchError && input.hasData && !input.isFetchNextPageError)
+	);
+}
+
 function markReadLabel(count: number | null): string {
 	if (count === null) {
 		return "Mark as read";
@@ -309,9 +321,12 @@ export function InboxPage(input: {
 		INBOX_TABS.findIndex((tab) => tab.view === input.view)
 	);
 	const loadMoreState = resolveInboxFeedLoadMoreState(feed, snapshotExpired);
-	const refreshWarningShown = Boolean(
-		feed.isRefetchError && feed.data && !feed.isFetchNextPageError
-	);
+	const refreshWarningShown = inboxRefreshWarningShown({
+		hasData: Boolean(feed.data),
+		isFetchNextPageError: feed.isFetchNextPageError,
+		isRefetchError: feed.isRefetchError,
+		snapshotExpired,
+	});
 	const openItem = (item: InboxItem) => setRead(item, true);
 	const confirmationLabel = markReadLabel(confirmation?.unreadCount ?? null);
 	return (
