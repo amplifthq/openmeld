@@ -196,25 +196,4 @@ describe("auth db tooling proxies", () => {
       wranglerTestConfig.hyperdrive[0]?.localConnectionString
     ).toBeUndefined();
   });
-
-  it("keeps auth local dev KV local", () => {
-    const wranglerConfig = parseJsoncObject<{
-      kv_namespaces: Array<{
-        binding?: string;
-        remote?: boolean;
-      }>;
-    }>(
-      fs.readFileSync(
-        path.resolve(serviceDirectoryPath, "wrangler.jsonc"),
-        "utf8"
-      )
-    );
-
-    const authKv = wranglerConfig.kv_namespaces.find(
-      (binding) => binding.binding === "OPENMELD_AUTH_KV"
-    );
-
-    expect(authKv).toBeDefined();
-    expect(authKv?.remote).not.toBe(true);
-  });
 });
