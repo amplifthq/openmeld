@@ -22,7 +22,12 @@ import {
 	useRevokeAllOtherSessions,
 	useRevokeSession,
 } from "#/hooks/account.hooks";
-import { getAuthErrorMessage } from "#/lib/auth-errors";
+import {
+	getAuthErrorMessage,
+	isFreshSessionRequiredError,
+} from "#/lib/auth-errors";
+import { ADD_ACCOUNT_AUTH_INTENT } from "#/lib/auth-intent";
+import { buildLoginRedirectUrl } from "#/lib/session-expired";
 import { SessionsManagementCardSkeleton } from "./account-skeletons";
 
 function formatDate(value: unknown): string {
@@ -107,8 +112,11 @@ function sessionActionLabel({
 export function SessionsManagementCard() {
 	const { data: currentSessionData, isPending: isCurrentSessionPending } =
 		useAccountSession();
-	const { data: sessions = [], isPending: isSessionsPending } =
-		useAccountSessions();
+	const {
+		data: sessions,
+		error: sessionsError,
+		isPending: isSessionsPending,
+	} = useAccountSessions();
 	const revokeSession = useRevokeSession();
 	const revokeOtherSessions = useRevokeAllOtherSessions();
 
@@ -122,7 +130,8 @@ export function SessionsManagementCard() {
 	}
 
 	const currentSession = currentSessionData?.session;
-	if (!currentSession) {
+	if (!currentSession || sessionsError || !sessions) {
+		const needsFreshSignIn = isFreshSessionRequiredError(sessionsError);
 		return (
 			<Card>
 				<CardHeader>
@@ -130,8 +139,22 @@ export function SessionsManagementCard() {
 						<WifiHighIcon className="size-5" />
 						Sessions
 					</CardTitle>
-					<CardDescription>Unable to load session information.</CardDescription>
+					<CardDescription>
+						{needsFreshSignIn
+							? "Sign in again with this account to view and manage your sessions."
+							: "Unable to load session information."}
+					</CardDescription>
 				</CardHeader>
+				{needsFreshSignIn && (
+					<CardContent>
+						<a
+							className={buttonVariants({ size: "sm", variant: "outline" })}
+							href={`${buildLoginRedirectUrl()}&intent=${ADD_ACCOUNT_AUTH_INTENT}`}
+						>
+							Sign in again
+						</a>
+					</CardContent>
+				)}
 			</Card>
 		);
 	}

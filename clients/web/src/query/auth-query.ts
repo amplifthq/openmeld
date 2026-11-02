@@ -158,36 +158,24 @@ export async function listUserPasskeys(): Promise<AuthPasskey[]> {
 }
 
 export async function listSessions(): Promise<AuthSessionRecord[]> {
-	if (authClientWithAccountApi.listSessions) {
-		const response = await resolveClientResult<AuthSessionRecord[] | null>(
-			() => authClientWithAccountApi.listSessions?.(),
-			"Failed to fetch sessions."
-		);
-
-		if (response.error) {
-			if (isUnauthorizedError(response.error)) {
-				return [];
-			}
-			throwAuthError(response.error, "Failed to fetch sessions.");
-		}
-
-		return Array.isArray(response.data) ? response.data : [];
+	const fallbackMessage = "Failed to fetch sessions.";
+	const { data, error } = authClientWithAccountApi.listSessions
+		? await resolveClientResult<AuthSessionRecord[]>(
+				() => authClientWithAccountApi.listSessions?.(),
+				fallbackMessage
+			)
+		: await requestAuthEndpoint<AuthSessionRecord[]>({
+				path: "/list-sessions",
+				request: { method: "GET" },
+				fallbackMessage,
+			});
+	if (error) {
+		throw Object.assign(new Error(fallbackMessage), error);
 	}
-
-	const fallbackResponse = await requestAuthEndpoint<AuthSessionRecord[]>({
-		path: "/list-sessions",
-		request: { method: "GET" },
-		fallbackMessage: "Failed to fetch sessions.",
-	});
-
-	if (fallbackResponse.error) {
-		if (isUnauthorizedError(fallbackResponse.error)) {
-			return [];
-		}
-		throwAuthError(fallbackResponse.error, "Failed to fetch sessions.");
+	if (!Array.isArray(data)) {
+		throw new Error(fallbackMessage);
 	}
-
-	return Array.isArray(fallbackResponse.data) ? fallbackResponse.data : [];
+	return data;
 }
 
 export async function listDeviceSessions(): Promise<AuthDeviceSession[]> {
