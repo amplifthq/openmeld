@@ -1279,7 +1279,7 @@ order is safe. The update worker waits through `host.previous_work_running`
 and transient read failures. The three persistent refusals listed above end
 the update as `needs_help`. Desktop does not read Host reasons and needs no release.
 
-The candidate is version 0.3.289 with explicit `available` decisions for CLI and
+The candidate is version 0.3.290 with explicit `available` decisions for CLI and
 Service, without a contract floor increase. This implementation does not
 authorize a production release or production smoke.
 

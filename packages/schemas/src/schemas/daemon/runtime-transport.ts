@@ -752,6 +752,17 @@ export const runtimeTransportLookupOwnerServiceRequestSchema = z.strictObject({
   ownerUserId: z.string().min(1),
 });
 
+export const RUNTIME_TRANSPORT_READ_ID_HEADER = "x-openmeld-runtime-read-id";
+export const RUNTIME_TRANSPORT_READ_ATTEMPT_HEADER =
+  "x-openmeld-runtime-read-attempt";
+export const runtimeTransportReadAttemptHeadersSchema = z.strictObject({
+  readId: z.string().uuid(),
+  attempt: z
+    .string()
+    .regex(/^[1-9]\d?$/)
+    .transform(Number),
+});
+
 const runtimeTransportLiveSessionSchema = z.strictObject({
   daemonSessionId: z.string().min(1),
   deviceId: z.string().min(1),

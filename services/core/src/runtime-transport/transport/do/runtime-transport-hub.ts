@@ -70,6 +70,8 @@ import {
   RUNTIME_COORDINATOR_FINALIZATION_COMMAND_MODEL_VERSION,
   RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
   RUNTIME_COORDINATOR_TOKEN_DIAGNOSTIC_MODEL_VERSION,
+  RUNTIME_TRANSPORT_READ_ATTEMPT_HEADER,
+  RUNTIME_TRANSPORT_READ_ID_HEADER,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   resolveLocalExecutionOwnerCancellationReason,
   runtimeCoordinatorFailurePublicationOutcomeSchema,
@@ -154,6 +156,7 @@ import {
   runtimeTransportOpenMeldToolsControlResponseSchema,
   runtimeTransportOpenMeldToolsControlResultFramePayloadSchema,
   runtimeTransportPreExecutionHandoffRequestSchema,
+  runtimeTransportReadAttemptHeadersSchema,
   runtimeTransportReadProfileFolderProjectionRequestSchema,
   runtimeTransportReadProfileFolderProjectionResponseSchema,
   runtimeTransportReadProfileWorkspaceRequestSchema,
@@ -11383,16 +11386,44 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private async handleLookupOwnerServiceRequest(
     request: Request
   ): Promise<Response> {
-    const parsed = runtimeTransportLookupOwnerServiceRequestSchema.safeParse(
-      await readJsonBody(request)
-    );
+    const startedAt = performance.now();
+    const correlation = runtimeTransportReadAttemptHeadersSchema.safeParse({
+      readId: request.headers.get(RUNTIME_TRANSPORT_READ_ID_HEADER),
+      attempt: request.headers.get(RUNTIME_TRANSPORT_READ_ATTEMPT_HEADER),
+    });
+    const record = (
+      stage:
+        | "handler_entered"
+        | "body_read_settled"
+        | "lookup_completed"
+        | "response_ready",
+      status?: number
+    ) => {
+      if (correlation.success) {
+        console.info("[core.runtime_transport.owner_read_stage]", {
+          event: CORE_LOG_EVENTS.runtimeTransportOwnerReadStage,
+          ...this.gateLogContext,
+          ...correlation.data,
+          stage,
+          elapsedMs: performance.now() - startedAt,
+          status,
+        });
+      }
+    };
+    const jsonResponse = (payload: unknown, status: number) => {
+      const response = Response.json(payload, { status });
+      record("response_ready", status);
+      return response;
+    };
+    record("handler_entered");
+    const body = await readJsonBody(request);
+    record("body_read_settled");
+    const parsed =
+      runtimeTransportLookupOwnerServiceRequestSchema.safeParse(body);
     if (!parsed.success) {
-      return Response.json(
-        {
-          online: false,
-          reasonCode: "daemon.session.not_found",
-        },
-        { status: 400 }
+      return jsonResponse(
+        { online: false, reasonCode: "daemon.session.not_found" },
+        400
       );
     }
     const response = lookupOwnerService(this.state, parsed.data, {
@@ -11401,19 +11432,17 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
       localComponentsManifest: getCachedCoreLocalComponentsRelease().manifest,
     });
+    record("lookup_completed");
     const validated =
       runtimeTransportLookupOwnerServiceResponseSchema.safeParse(response);
     if (!validated.success) {
-      return Response.json(
-        {
-          online: false,
-          reasonCode: "daemon.session.not_found",
-        },
-        { status: 500 }
+      return jsonResponse(
+        { online: false, reasonCode: "daemon.session.not_found" },
+        500
       );
     }
     const status = validated.data.online ? 200 : 404;
-    return Response.json(validated.data, { status });
+    return jsonResponse(validated.data, status);
   }
   private async handleSetLocalAgentEnabledRequest(
     request: Request

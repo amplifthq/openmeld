@@ -3,6 +3,7 @@ export const CORE_LOG_EVENTS = {
   runtimeTransportClientRequestTimeout:
     "runtime_transport_client_request_timeout",
   runtimeTransportReadAttemptFailed: "runtime_transport_read_attempt_failed",
+  runtimeTransportOwnerReadStage: "runtime_transport_owner_read_stage",
   runtimeTransportGatePhase: "runtime_transport_gate_phase",
   spaceInputGate: "space_input_gate",
   runtimeTransportConnectionGenerationResultRejected:

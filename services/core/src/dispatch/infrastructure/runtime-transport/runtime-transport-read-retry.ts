@@ -111,7 +111,9 @@ export async function callRuntimeTransportRead<T>(input: {
   attemptTimeoutMs?: number;
   execute: (
     stub: DurableObjectStub<RuntimeTransportHub>,
-    signal: AbortSignal
+    signal: AbortSignal,
+    readId: string,
+    attempt: number
   ) => Promise<T>;
 }): Promise<T> {
   const readId = crypto.randomUUID();
@@ -194,7 +196,7 @@ export async function callRuntimeTransportRead<T>(input: {
     }
     try {
       const result = await Promise.race([
-        input.execute(stub, controller.signal),
+        input.execute(stub, controller.signal, readId, attempt),
         ...pending,
       ]);
       if (Date.now() >= deadlineAt) {

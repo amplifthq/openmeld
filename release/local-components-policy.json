@@ -1,11 +1,11 @@
 {
-  "version": "0.3.289",
+  "version": "0.3.290",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Ships the packaged Service Host recovery change. User CLI commands, JSON output, setup, and trace remain compatible."
+    "reason": "Packages Service Host recovery and the shared schemas for optional Core-to-Hub read diagnostics. Existing CLI commands, JSON output, setup, and trace remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "A replacement execution Host waits for identified still-running previous work and starts on its own once it exits, records process evidence per started task and provider invocation in a v3 receipt, and logs why local execution is paused. Unconfirmed, older non-quiescent, corrupt, and unidentifiable ownership stays fenced. Quiescent receipts keep the v2 shape so a verified rollback still starts; Wake and result contracts are unchanged, so no compatibility floor is raised."
+    "reason": "A replacement execution Host waits for recorded work to exit and refuses takeover when ownership is uncertain. Busy Hosts write v3 receipts; quiescent v2 receipts support rollback. The optional Hub diagnostic headers preserve existing Service connections, readiness reports, and Wake and result contracts, so no compatibility floor is raised."
   }
 }
