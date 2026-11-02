@@ -1,3 +1,7 @@
+import {
+  RUNTIME_TRANSPORT_READ_ATTEMPT_HEADER,
+  RUNTIME_TRANSPORT_READ_ID_HEADER,
+} from "@openmeld/schemas";
 import type { CoreBindings } from "../../../lib/bindings";
 import { CORE_LOG_EVENTS } from "../../../shared/observability/log-events";
 import {
@@ -73,11 +77,12 @@ export const callRuntimeTransportApi = async (input: {
   });
   const fetchResponse = (
     shard: ReturnType<typeof resolveRuntimeTransportOwnerShard>,
-    signal: AbortSignal
+    signal: AbortSignal,
+    readHeaders?: Record<string, string>
   ) =>
     shard.fetch(requestUrl.toString(), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...readHeaders },
       body: JSON.stringify(input.body),
       signal,
     });
@@ -109,8 +114,17 @@ export const callRuntimeTransportApi = async (input: {
       // Reserve time for a fresh-stub attempt without extending the total
       // budget. Batch reads keep their existing longer allowance.
       attemptTimeoutMs: readTimeoutMs / 2,
-      execute: async (shard, signal) => {
-        const response = await fetchResponse(shard, signal);
+      execute: async (shard, signal, readId, attempt) => {
+        const response = await fetchResponse(
+          shard,
+          signal,
+          input.path === "/lookup-owner-service"
+            ? {
+                [RUNTIME_TRANSPORT_READ_ID_HEADER]: readId,
+                [RUNTIME_TRANSPORT_READ_ATTEMPT_HEADER]: String(attempt),
+              }
+            : undefined
+        );
         // Body transport failures must reach the retry classifier; only a
         // successfully read body with invalid JSON follows the legacy fallback.
         const body = await response.text();

@@ -535,6 +535,27 @@ identity lookup, policy read, report acceptance, usage recovery, model Inbox
 reconciliation, Member Agent catalog and PostgreSQL cleanup. The label records
 the stage entered, not whether a write committed.
 
+## Runtime Transport owner-service lookup timeouts
+
+Start with the Gateway status and duration. For a failed `/lookup-owner-service`
+read, join the caller's `runtime_transport_read_attempt_failed` events to the
+Hub's `runtime_transport_owner_read_stage` events by `readId` and `attempt`.
+Each HTTP retry carries the same read ID and its own attempt number. The Hub
+records the following checkpoints with its object ID, boot ID and elapsed time:
+
+- `handler_entered` precedes reading the request body.
+- `body_read_settled` records that the body read returned, including a parse failure.
+- `lookup_completed` follows the in-memory lookup.
+- `response_ready` records the status of the constructed response. Confirm
+  receipt separately from the parent fetch and Gateway outcome.
+
+For a canceled attempt, inspect the last recorded checkpoint. If none was
+captured, use the native receiver request and span IDs and object-filtered
+invocation metrics to investigate dispatch or missing telemetry. Under
+sampling or cancellation, absence of an event cannot establish where a request
+was lost. The optional internal Core-to-Hub headers carry diagnostic identifiers
+only. Older callers and receivers can continue using the same request and response.
+
 ## Space input gate timeouts
 
 For a Space `blockConcurrencyWhile` timeout, filter Core logs by

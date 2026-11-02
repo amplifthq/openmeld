@@ -1,11 +1,11 @@
 {
-  "version": "0.3.288",
+  "version": "0.3.289",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Updates the MCP URI parser within its existing major version. Valid tool calls, CLI commands, and cloud APIs remain compatible; malformed URI inputs receive the upstream security fixes."
+    "reason": "Packages the shared schemas for optional Core-to-Hub read diagnostics. Existing CLI commands and setup remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Ships the compatible parser fixes in the packaged Service. Existing setup, Wake, MCP, and reconnect protocols remain supported without a new contract floor."
+    "reason": "The shared schema bundle gains internal diagnostic headers. Installed Services continue to connect, report readiness, and handle Wakes with the existing contract."
   }
 }
