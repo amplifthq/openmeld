@@ -9,7 +9,7 @@ describe("openclaw agent controller conversation helpers", () => {
   it("parses canonical session keys into ownership fields", () => {
     expect(
       parseOpenClawSpaceSessionKey(
-        "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v261626331323334356465616462656566"
+        "agent:openmeld-openclaw-phase-one:openmeld-space-v2:ops-room--v261626331323334356465616462656566"
       )
     ).toEqual({
       agentId: "openmeld-openclaw-phase-one",
@@ -21,7 +21,7 @@ describe("openclaw agent controller conversation helpers", () => {
   it("parses the encoded space id back to the exact original id", () => {
     expect(
       parseOpenClawSpaceSessionKey(
-        "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v2443341442d423333462d313131312d31313131"
+        "agent:openmeld-openclaw-phase-one:openmeld-space-v2:ops-room--v2443341442d423333462d313131312d31313131"
       )
     ).toEqual({
       agentId: "openmeld-openclaw-phase-one",
@@ -53,7 +53,7 @@ describe("openclaw agent controller conversation helpers", () => {
       matchesOwnedOpenClawSpaceSessionKey({
         openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
         sessionKey:
-          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v261626331323334356465616462656566",
+          "agent:openmeld-openclaw-phase-one:openmeld-space-v2:ops-room--v261626331323334356465616462656566",
         spaceId: "abc12345deadbeef",
       })
     ).toBe(true);
@@ -61,7 +61,7 @@ describe("openclaw agent controller conversation helpers", () => {
       matchesOwnedOpenClawSpaceSessionKey({
         openClawBootstrapAgentId: "openmeld-other-agent",
         sessionKey:
-          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v261626331323334356465616462656566",
+          "agent:openmeld-openclaw-phase-one:openmeld-space-v2:ops-room--v261626331323334356465616462656566",
         spaceId: "abc12345deadbeef",
       })
     ).toBe(false);
@@ -69,7 +69,7 @@ describe("openclaw agent controller conversation helpers", () => {
 
   it("does not match a session key minted for a space id that differs only in separator placement", () => {
     const sessionKey =
-      "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v261622d63";
+      "agent:openmeld-openclaw-phase-one:openmeld-space-v2:ops-room--v261622d63";
     expect(
       matchesOwnedOpenClawSpaceSessionKey({
         openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
@@ -163,7 +163,7 @@ describe("openclaw agent controller conversation helpers", () => {
       matchesOwnedOpenClawSpaceSessionKey({
         openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
         sessionKey:
-          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v2616263",
+          "agent:openmeld-openclaw-phase-one:openmeld-space-v2:ops-room--v2616263",
         spaceId: "abc",
       })
     ).toBe(true);
@@ -171,10 +171,40 @@ describe("openclaw agent controller conversation helpers", () => {
       matchesOwnedOpenClawSpaceSessionKey({
         openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
         sessionKey:
-          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v2616263",
+          "agent:openmeld-openclaw-phase-one:openmeld-space-v2:ops-room--v2616263",
         spaceId: "abd",
       })
     ).toBe(false);
+  });
+
+  it("does not match a prefix-era key whose segment spells the v2 encoding of a short space id", () => {
+    // Minted by the prefix-era builder for v2616263deadbeef with Space
+    // name Ops. Its eight-character segment is exactly the v2 encoding of
+    // the short id abc, but the key carries the prefix-era component, so
+    // it is legacy for every Space — including the one it was minted for.
+    const sessionKey = "agent:openmeld-demo:openmeld-space:ops--v2616263";
+    expect(parseOpenClawSpaceSessionKey(sessionKey)).toBeNull();
+    expect(
+      matchesOwnedOpenClawSpaceSessionKey({
+        openClawBootstrapAgentId: "openmeld-demo",
+        sessionKey,
+        spaceId: "abc",
+      })
+    ).toBe(false);
+    expect(
+      classifyOpenClawAgentControllerConversation({
+        agentControllerConversationId: sessionKey,
+        openClawBootstrapAgentId: "openmeld-demo",
+        spaceId: "abc",
+      })
+    ).toBe("legacy");
+    expect(
+      classifyOpenClawAgentControllerConversation({
+        agentControllerConversationId: sessionKey,
+        openClawBootstrapAgentId: "openmeld-demo",
+        spaceId: "v2616263deadbeef",
+      })
+    ).toBe("legacy");
   });
 
   it("classifies a missing controller conversation as missing", () => {
@@ -201,7 +231,7 @@ describe("openclaw agent controller conversation helpers", () => {
     expect(
       classifyOpenClawAgentControllerConversation({
         agentControllerConversationId:
-          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v261626331323334356465616462656566",
+          "agent:openmeld-openclaw-phase-one:openmeld-space-v2:ops-room--v261626331323334356465616462656566",
         openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
         spaceId: "abc12345deadbeef",
       })
@@ -212,7 +242,7 @@ describe("openclaw agent controller conversation helpers", () => {
     expect(
       classifyOpenClawAgentControllerConversation({
         agentControllerConversationId:
-          "agent:openmeld-other-agent:openmeld-space:ops-room--v261626331323334356465616462656566",
+          "agent:openmeld-other-agent:openmeld-space-v2:ops-room--v261626331323334356465616462656566",
         openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
         spaceId: "abc12345deadbeef",
       })
@@ -223,7 +253,7 @@ describe("openclaw agent controller conversation helpers", () => {
     expect(
       classifyOpenClawAgentControllerConversation({
         agentControllerConversationId:
-          "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v266666666666666666666666666666666",
+          "agent:openmeld-openclaw-phase-one:openmeld-space-v2:ops-room--v266666666666666666666666666666666",
         openClawBootstrapAgentId: "openmeld-openclaw-phase-one",
         spaceId: "abc12345deadbeef",
       })

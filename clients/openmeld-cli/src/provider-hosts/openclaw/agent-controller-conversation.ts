@@ -1,11 +1,12 @@
 import { decodeOpenClawSpaceId, slugifyOpenClawNamePart } from "./naming";
 
-// Only the current key format parses: the Space id segment must be the
-// marked lossless encoding from naming.ts. Prefix-era segments and the
-// unidentified segment do not parse, so a stored key carrying one can
-// never classify as owned.
+// Only the current key format parses: its fixed `openmeld-space-v2`
+// component is one the prefix-era builder could never emit (it always
+// wrote `openmeld-space:` followed directly by the slug), so a stored
+// prefix-era key never parses — even when its eight-character segment
+// happens to spell a v2 encoding — and can never classify as owned.
 const OPENCLAW_SPACE_SESSION_KEY_RE =
-  /^agent:(?<agentId>[a-z0-9-]+):openmeld-space:(?<spaceSlug>[a-z0-9-]+)--(?<spaceIdSegment>v2(?:[0-9a-f]{2})+)$/u;
+  /^agent:(?<agentId>[a-z0-9-]+):openmeld-space-v2:(?<spaceSlug>[a-z0-9-]+)--(?<spaceIdSegment>v2(?:[0-9a-f]{2})+)$/u;
 
 export type OpenClawAgentControllerConversationClassification =
   | "missing"

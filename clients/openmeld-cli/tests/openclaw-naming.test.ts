@@ -73,7 +73,7 @@ describe("openclaw naming helpers", () => {
     });
 
     expect(sessionKey).toBe(
-      "agent:openmeld-openclaw-phase-one:openmeld-space:yc-agent-lab--v266303330333061343432376565646135636263623632323064633966336530373038346430383466643862326561366562376463616563616162376438326566"
+      "agent:openmeld-openclaw-phase-one:openmeld-space-v2:yc-agent-lab--v266303330333061343432376565646135636263623632323064633966336530373038346430383466643862326561366562376463616563616162376438326566"
     );
     expect(isCanonicalOpenClawSpaceSessionKey(sessionKey)).toBe(true);
   });
@@ -96,10 +96,10 @@ describe("openclaw naming helpers", () => {
     });
 
     expect(first).toBe(
-      "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v261622d63"
+      "agent:openmeld-openclaw-phase-one:openmeld-space-v2:ops-room--v261622d63"
     );
     expect(second).toBe(
-      "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v2612d6263"
+      "agent:openmeld-openclaw-phase-one:openmeld-space-v2:ops-room--v2612d6263"
     );
     expect(first).not.toBe(second);
     expect(upper).not.toBe(first);
@@ -146,7 +146,7 @@ describe("openclaw naming helpers", () => {
       });
 
       expect(sessionKey).toBe(
-        "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--unidentified"
+        "agent:openmeld-openclaw-phase-one:openmeld-space-v2:ops-room--unidentified"
       );
       expect(isCanonicalOpenClawSpaceSessionKey(sessionKey)).toBe(false);
     }
@@ -163,6 +163,32 @@ describe("openclaw naming helpers", () => {
         "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--abc12345deadbeef"
       )
     ).toBe(false);
+    // A v2 segment under the prefix-era component is not canonical either:
+    // the version marker is the fixed key component, not the segment.
+    expect(
+      isCanonicalOpenClawSpaceSessionKey(
+        "agent:openmeld-openclaw-phase-one:openmeld-space:ops-room--v261626331323334356465616462656566"
+      )
+    ).toBe(false);
+  });
+
+  it("mints short-id keys under a component the prefix-era builder could never emit", () => {
+    // The prefix-era builder minted this key for v2616263deadbeef with
+    // Space name Ops; its eight-character segment is also the v2 encoding
+    // of the short id abc. The current builder must not mint it again.
+    const prefixEraKey = "agent:openmeld-demo:openmeld-space:ops--v2616263";
+    const sessionKey = buildOpenClawSpaceSessionKey({
+      agentId: "openmeld-demo",
+      spaceId: "abc",
+      spaceNameSnapshot: "Ops",
+    });
+
+    expect(sessionKey).toBe(
+      "agent:openmeld-demo:openmeld-space-v2:ops--v2616263"
+    );
+    expect(sessionKey).not.toBe(prefixEraKey);
+    expect(isCanonicalOpenClawSpaceSessionKey(prefixEraKey)).toBe(false);
+    expect(isCanonicalOpenClawSpaceSessionKey(sessionKey)).toBe(true);
   });
 
   it("falls back to a safe default slug when the space name is missing", () => {
@@ -173,7 +199,7 @@ describe("openclaw naming helpers", () => {
         spaceNameSnapshot: null,
       })
     ).toBe(
-      "agent:openmeld-openclaw-phase-one:openmeld-space:space--v261626331323334356465616462656566"
+      "agent:openmeld-openclaw-phase-one:openmeld-space-v2:space--v261626331323334356465616462656566"
     );
   });
 });

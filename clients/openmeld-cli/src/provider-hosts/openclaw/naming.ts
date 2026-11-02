@@ -2,8 +2,13 @@ import { createHash } from "node:crypto";
 
 const OPENCLAW_SPACE_ID_SEGMENT_RE = /^v2(?:[0-9a-f]{2})+$/u;
 
+// The v2 marker is a fixed key component, not part of the id segment: the
+// prefix-era builder always emitted `openmeld-space:` followed directly by
+// the slug (slugs contain no `:`), so it could never produce the
+// `openmeld-space-v2:` component, whatever its eight-character segment
+// happened to spell.
 const CANONICAL_OPENCLAW_SPACE_SESSION_KEY_RE =
-  /^agent:[a-z0-9-]+:openmeld-space:[a-z0-9-]+--v2(?:[0-9a-f]{2})+$/u;
+  /^agent:[a-z0-9-]+:openmeld-space-v2:[a-z0-9-]+--v2(?:[0-9a-f]{2})+$/u;
 
 // Segment for an id that carries no identity at all. It sits outside the
 // canonical format, so a stored key carrying it never classifies as owned;
@@ -78,7 +83,7 @@ export function buildOpenClawSpaceSessionKey(input: {
   const spaceIdSegment =
     encodeOpenClawSpaceId(input.spaceId) ??
     UNIDENTIFIED_OPENCLAW_SPACE_ID_SEGMENT;
-  return `agent:${normalizedAgentId}:openmeld-space:${spaceSlug}--${spaceIdSegment}`;
+  return `agent:${normalizedAgentId}:openmeld-space-v2:${spaceSlug}--${spaceIdSegment}`;
 }
 
 export function isCanonicalOpenClawSpaceSessionKey(value: string): boolean {
@@ -104,11 +109,15 @@ export function slugifyOpenClawNamePart(
 export function encodeOpenClawSpaceId(spaceId: string): string | null {
   // Lossless hex encoding of the complete id, marked as format v2. Case,
   // separators, and every other character survive, so two distinct Space
-  // ids never encode to the same segment; and because the segment is
-  // marked, a prefix-era segment (bare normalized text) can never be
-  // mistaken for this format. Ownership of a stored Space session is
-  // decided against this value. Only an id with no text at all carries
-  // no identity to encode, and returns null.
+  // ids never encode to the same segment. Ownership of a stored Space
+  // session is decided against this value. Only an id with no text at all
+  // carries no identity to encode, and returns null. The segment alone is
+  // not what distinguishes this format from a prefix-era key — a
+  // prefix-era segment is eight arbitrary alphanumerics and can spell a
+  // v2 segment exactly (the prefix of `v2616263deadbeef` is the encoding
+  // of `abc`) — so the builder places the segment under the fixed
+  // `openmeld-space-v2` key component, which the prefix-era builder could
+  // never emit.
   const normalized = normalizeOptionalText(spaceId);
   if (!normalized) {
     return null;
