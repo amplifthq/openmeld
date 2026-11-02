@@ -43,7 +43,6 @@ async function createEnv(input: {
   return {
     env: {
       OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
-      OPENMELD_AUTH_KV: {} as KVNamespace,
       ...(input.reconcile
         ? {
             OPENMELD_CORE_WORKER: {

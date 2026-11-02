@@ -297,9 +297,16 @@ describe("OpenMeldServiceCard", () => {
 		});
 		expect(screen.getByText("Connected")).toBeTruthy();
 		expect(screen.getByText("Last update failed.")).toBeTruthy();
+		expect(screen.queryByText("Last update details")).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
+		const updateDetails = screen
+			.getByText("Last update details")
+			.closest("details");
+		expect(updateDetails?.open).toBe(false);
+		fireEvent.click(screen.getByText("Last update details"));
 		expect(
 			screen.getByText(
-				"Service has connected since that attempt. This does not confirm that the update target was installed."
+				"Service reconnected after this update attempt. Installation was not confirmed."
 			)
 		).toBeTruthy();
 		expect(readiness.localComponents.updateOperation?.phase).toBe(phase);
@@ -445,9 +452,10 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 		expect(screen.getByText("Last update failed.")).toBeTruthy();
+		openTechnicalDetails("Last update details");
 		expect(
 			screen.getByText(
-				"Waiting for a current connection report after that attempt."
+				"No connection has been confirmed since this update attempt."
 			)
 		).toBeTruthy();
 		expect(screen.getByText("Last update details")).toBeTruthy();
@@ -472,6 +480,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 		expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
+		openTechnicalDetails("Last update details");
 		expect(
 			screen.getByText("Requested CLI: 0.8.0; Service: 0.7.92")
 		).toBeTruthy();
@@ -556,6 +565,7 @@ describe("OpenMeldServiceCard", () => {
 		expect(
 			screen.queryByRole("link", { name: "Update OpenMeld Tools" })
 		).toBeNull();
+		openTechnicalDetails("Software versions");
 		expect(screen.getByText("OpenMeld Service")).toBeTruthy();
 		expect(screen.getByText("OpenMeld CLI")).toBeTruthy();
 		expect(screen.getAllByText("Installed v0.7.92")).toHaveLength(2);
@@ -632,6 +642,7 @@ describe("OpenMeldServiceCard", () => {
 		});
 
 		expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
+		openTechnicalDetails("Software versions");
 		expect(screen.getByText("Update to v0.3.127.")).toBeTruthy();
 		const updateButton = screen.getByRole("button", { name: "Update" });
 		const manualUpdateLink = screen.getByRole("link", {
@@ -700,6 +711,7 @@ describe("OpenMeldServiceCard", () => {
 		});
 
 		expect(screen.getAllByText("Update available").length).toBeGreaterThan(0);
+		openTechnicalDetails("Software versions");
 		const serviceUpdateText = screen.getByText(
 			"A newer version of OpenMeld is available."
 		);
@@ -929,6 +941,7 @@ describe("OpenMeldServiceCard", () => {
 		});
 
 		expect(screen.queryByText("Up to date")).toBeNull();
+		openTechnicalDetails("Software versions");
 		expect(screen.getByText("Software versions")).toBeTruthy();
 		expect(screen.queryByText("Verifying…")).toBeNull();
 		expect(screen.getByText("Connected")).toBeTruthy();
@@ -1459,6 +1472,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
+		openTechnicalDetails("Last update details");
 		expect(screen.getByText(failureMessage)).toBeTruthy();
 		expect(screen.queryByText("Update failed. Try again.")).toBeNull();
 		expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
@@ -1778,6 +1792,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
+		openTechnicalDetails("Software versions");
 		expect(screen.getAllByText("Update available").length).toBeGreaterThan(0);
 		expect(
 			screen
@@ -1854,6 +1869,7 @@ describe("OpenMeldServiceCard", () => {
 		});
 
 		expect(screen.queryByText("Required CLI contract update.")).toBeNull();
+		openTechnicalDetails("Software versions");
 		expect(screen.getByText("Latest available: v0.7.92.")).toBeTruthy();
 	});
 
@@ -1879,6 +1895,7 @@ describe("OpenMeldServiceCard", () => {
 
 		expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
 		expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
+		openTechnicalDetails("Software versions");
 		expect(
 			screen.getByText((content) =>
 				content.includes("Required CLI contract update.")
@@ -1910,6 +1927,7 @@ describe("OpenMeldServiceCard", () => {
 		});
 
 		expect(screen.getAllByText("Update required").length).toBeGreaterThan(0);
+		openTechnicalDetails("Software versions");
 		expect(
 			screen.getByText((content) => content.includes("CLI update required."))
 		).toBeTruthy();
@@ -1943,6 +1961,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
+		openTechnicalDetails("Software versions");
 		expect(screen.getAllByText("Update available").length).toBeGreaterThan(0);
 		expect(
 			screen
@@ -1963,6 +1982,44 @@ describe("OpenMeldServiceCard", () => {
 		expect(screen.queryByText("Update OpenMeld skills")).toBeNull();
 		expect(screen.queryByText("hash-prev")).toBeNull();
 		expect(screen.queryByText("hash-next")).toBeNull();
+	});
+
+	it("keeps saved connection reports open through loading and status reconciliation", () => {
+		const computer = buildComputer();
+		const target = computer.executionTargets[0];
+		if (!target) {
+			throw new Error(
+				"Expected the test computer to have a saved execution target"
+			);
+		}
+		computer.executionTargets.push({ ...target, runtimeLane: "canary" });
+		const { rerender } = renderOpenMeldServiceCard({
+			computer,
+			currentLocalRuntimeReplyReadiness: null,
+			replyReadiness: null,
+		});
+		expect(screen.getByText("Loading OpenMeld status...")).toBeTruthy();
+		const details = screen.getByRole("button", { name: "Technical details" });
+		expect(details.getAttribute("aria-expanded")).toBe("false");
+		fireEvent.click(details);
+		fireEvent.click(screen.getByText("Connection reports"));
+		expect(screen.queryByText("Connection history")).toBeNull();
+
+		rerender(
+			buildOpenMeldServiceCard({
+				computer,
+				currentLocalRuntimeReplyReadiness:
+					buildCurrentLocalRuntimeReplyReadiness(),
+				isReconcilingStatus: true,
+				replyReadiness: READY_REPLY_READINESS,
+			})
+		);
+		expect(screen.getByText("Checking OpenMeld status...")).toBeTruthy();
+		expect(
+			screen.getByText("Connection reports").closest("details")?.open
+		).toBe(true);
+		expect(screen.getByText("Connection history")).toBeTruthy();
+		expect(screen.queryByText("Connected")).toBeNull();
 	});
 
 	it("does not present cached component updates as current while status is reconciling", () => {
@@ -2081,6 +2138,7 @@ describe("OpenMeldServiceCard", () => {
 			replyReadiness: READY_REPLY_READINESS,
 		});
 
+		openTechnicalDetails("Software versions");
 		expect(screen.getAllByText("Not checked")).toHaveLength(2);
 		expect(
 			screen.getByText(
@@ -2328,7 +2386,7 @@ function renderOpenMeldServiceCard(input: {
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	hasSelectedEnvironment?: boolean;
 	isReconcilingStatus?: boolean;
-	replyReadiness: ComputerReplyReadiness;
+	replyReadiness: ComputerReplyReadiness | null;
 }) {
 	return render(buildOpenMeldServiceCard(input), {
 		wrapper: TestQueryClientProvider,
@@ -2342,7 +2400,7 @@ function buildOpenMeldServiceCard(input: {
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	hasSelectedEnvironment?: boolean;
 	isReconcilingStatus?: boolean;
-	replyReadiness: ComputerReplyReadiness;
+	replyReadiness: ComputerReplyReadiness | null;
 }) {
 	return (
 		<TooltipProvider>
@@ -2412,6 +2470,13 @@ function buildComputer(input?: {
 		osVersion: "15.4",
 		platformFamily: "macOS",
 	};
+}
+
+function openTechnicalDetails(
+	section: "Software versions" | "Last update details"
+) {
+	fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
+	fireEvent.click(screen.getByText(section));
 }
 
 function buildRecoveryStub(): OpenMeldServiceCardOwnerProps["recovery"] {

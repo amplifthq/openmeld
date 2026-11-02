@@ -4554,6 +4554,11 @@ Cloudflare evidence query tooling must derive its field order from the shared
 runtime evidence contract. Do not hand-maintain a second Analytics Engine schema
 inside scripts or runbooks.
 
+Auth stores sessions, one-time verification records, and sign-in rate limits in
+PostgreSQL. Better Auth consumes one-time records and updates shared counters
+atomically through the Drizzle adapter. Session renewal and revocation use the
+existing session rows.
+
 Organization entry and Account Session reads use the caller's `x-request-id` to
 correlate browser failures with Web and Auth. Web emits `web.openmeld.proxy_stage` at receipt,
 upstream URL construction, upstream dispatch, and upstream response headers;

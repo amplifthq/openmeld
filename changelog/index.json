@@ -2,6 +2,168 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "center-agent-space-memory",
+      "title": "Center Agent remembers conversations within their Space",
+      "kind": "improved",
+      "areas": [
+        "center-agent",
+        "spaces"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-11-01",
+      "evidence": [
+        "pr:347",
+        "workflow:41280228590",
+        "workflow:41280870650"
+      ],
+      "body": "Center Agent can retain messages sent to it in a shared Space for use in that\nsame Space, while keeping them separate from personal and Organization-wide\nmemory. Recall checks current access and the original message versions.\n\nExplicit Organization saves from OpenMeld conversations preserve the complete source message's\noriginal author, version and time. Context limits omit whole facts instead of\ncutting off conditions or exceptions. The Organization memory setting also\ncontrols Space capture."
+    },
+    {
+      "id": "remote-agent-image-quota-error",
+      "title": "Explain image processing quota failures immediately",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "spaces"
+      ],
+      "audiences": [
+        "users",
+        "admins"
+      ],
+      "publishedAt": "2026-11-01",
+      "evidence": [
+        "pr:346",
+        "workflow:41279936160",
+        "workflow:41280228590"
+      ],
+      "body": "When Cloudflare Images cannot prepare an attached image because its\ntransformation quota is exhausted, new Remote Agent requests stop with a clear\nexplanation and a next step. They no longer keep retrying until a generic\nstartup timeout appears. Repeated delivery of the same rejected request does\nnot restart it."
+    },
+    {
+      "id": "service-connection-lookups-and-history",
+      "title": "Keep Computer connection checks responsive during release-policy refresh",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "agents"
+      ],
+      "audiences": [
+        "users",
+        "integrators"
+      ],
+      "publishedAt": "2026-11-01",
+      "release": "v0.3.284",
+      "evidence": [
+        "pr:349",
+        "workflow:41280870650",
+        "workflow:41282523330"
+      ],
+      "body": "OpenMeld can report a registered Service and its Agent routes while the release\npolicy is still loading. The Service keeps pending connection history on the\ncomputer when its connection closes and resumes uploads after the new connection\nis acknowledged."
+    },
+    {
+      "id": "local-agent-recovery-reliability",
+      "title": "Keep local Agent work safe through updates and recovery",
+      "kind": "fixed",
+      "areas": [
+        "service",
+        "agents",
+        "desktop"
+      ],
+      "audiences": [
+        "users",
+        "operators"
+      ],
+      "publishedAt": "2026-11-01",
+      "release": "v0.3.284",
+      "evidence": [
+        "pr:343",
+        "pr:350",
+        "workflow:41280228590",
+        "workflow:41280870650",
+        "workflow:41282523330",
+        "workflow:41282289221"
+      ],
+      "body": "Service updates preserve running work when shutdown cannot be confirmed and keep\ntask folders in place. Ordinary automatic updates yield if new work arrives\nbefore the idle switch is admitted, keeping the same update ready for later.\nClaude reply reviews use only context and delivery tools instead\nof entering a new planning approval. Claude SDK processes now contribute the\nevidence needed for safe recovery, and a failed Codex usage probe no longer leaks\nan unhandled request rejection.\n\nWhen Desktop is running with notifications enabled, a confirmed local sign-in\nfailure offers a quiet reminder to reconnect. Permission changes retain their\nsource and before/after settings in the owner's audit history."
+    },
+    {
+      "id": "space-preview-after-agent-joins",
+      "title": "Keep Space previews current after an Agent joins",
+      "kind": "fixed",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-11-01",
+      "evidence": [
+        "pr:346",
+        "workflow:41280870650"
+      ],
+      "body": "After an Agent is added to a Space through a join request, the sidebar shows\nthe latest message again instead of keeping an outdated \"Agent joined\" label\nbeside the latest message's time."
+    },
+    {
+      "id": "computer-power-connection-replacement",
+      "title": "Report interrupted Computer power requests promptly",
+      "kind": "fixed",
+      "areas": [
+        "computers"
+      ],
+      "audiences": [
+        "users",
+        "integrators"
+      ],
+      "publishedAt": "2026-11-01",
+      "evidence": [
+        "pr:341",
+        "workflow:41279936160"
+      ],
+      "body": "When OpenMeld Service reconnects, a pending sleep-prevention request on the old\nconnection now reports that connection was lost instead of waiting for the full\ntimeout. Settings updates are never replayed automatically. Check the current\nsetting before trying an interrupted update again."
+    },
+    {
+      "id": "runtime-directory-and-computer-power-failures",
+      "title": "Keep Agent directories available during runtime interruptions",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "computers"
+      ],
+      "audiences": [
+        "users",
+        "integrators"
+      ],
+      "publishedAt": "2026-10-30",
+      "evidence": [
+        "pr:339",
+        "workflow:41011552210"
+      ],
+      "body": "Organization directories and Agent runtime overviews remain available when a\nmember's runtime status cannot be checked. The affected Agent remains unavailable\nuntil a fresh check succeeds, without repeating the failed check for each Agent.\n\nComputer sleep-prevention requests now distinguish a Service timeout, a missing\nresponse, and an invalid response instead of showing a schema error. Updates are\nnever automatically replayed after an uncertain result."
+    },
+    {
+      "id": "space-guide-tab",
+      "title": "Read and edit your Space guide in its own tab",
+      "kind": "new",
+      "areas": [
+        "spaces",
+        "web",
+        "desktop"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-10-30",
+      "evidence": [
+        "pr:330",
+        "pr:342",
+        "workflow:41045368474",
+        "workflow:41049043954"
+      ],
+      "body": "Ordinary Spaces now have a Guide tab after Files. Members can read the Space's\nstanding rules, and Space owners can edit and save them in place. Drafts survive\nswitching tabs and warn before leaving with unsaved changes. Guides support up\nto 100,000 characters and provide shared instructions for Agents working in the\nSpace."
+    },
+    {
       "id": "center-agent-task-outcome-evidence",
       "title": "Keep Task outcomes tied to the requested work",
       "kind": "fixed",

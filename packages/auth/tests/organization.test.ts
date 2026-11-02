@@ -175,6 +175,64 @@ describe("organization identity foundation", () => {
     expect(emailUrl.searchParams.has("untrusted")).toBe(false);
   });
 
+  it("enforces the shared magic-link limit across concurrent Auth requests", async () => {
+    const { auth, sentEmails } = await createTestAuth({
+      enableRateLimit: true,
+    });
+    const requests = Array.from({ length: 4 }, () =>
+      postAuth(
+        auth,
+        "/sign-in/magic-link",
+        { email: "rate-limit@example.com" },
+        new Headers({ "x-forwarded-for": "192.0.2.123" })
+      )
+    );
+    expect((await Promise.all(requests)).map((r) => r.status).sort()).toEqual([
+      200, 200, 200, 429,
+    ]);
+    expect(sentEmails).toHaveLength(3);
+  });
+
+  it("accepts an emailed magic link once and rejects OAuth state for the same account", async () => {
+    const { auth, sentEmails } = await createTestAuth({ githubSignIn: true });
+    const email = "magic-link-owner@example.com";
+    await signUp(auth, { email, name: "Owner", password });
+    const social = await postAuth(auth, "/sign-in/social", {
+      provider: "github",
+      additionalData: { email },
+      disableRedirect: true,
+    });
+    expect(social.status).toBe(200);
+    const state = new URL((await social.json()).url).searchParams.get("state");
+    const verify = (token: string | null) => {
+      if (!token) {
+        throw new Error("Expected a sign-in token");
+      }
+      const url = new URL("/api/auth/magic-link/verify", AUTH_BASE_URL);
+      url.searchParams.set("token", token);
+      return auth.handler(new Request(url));
+    };
+    const rejected = await verify(state);
+    expect(rejected.headers.get("location")).toContain("error=INVALID_TOKEN");
+    expect(rejected.headers.get("set-cookie")).toBeNull();
+
+    expect(
+      (await postAuth(auth, "/sign-in/magic-link", { email })).status
+    ).toBe(200);
+    const token = requireMagicLinkEmailUrl(sentEmails, email).searchParams.get(
+      "token"
+    );
+    const attempts = await Promise.all([verify(token), verify(token)]);
+    const accepted = attempts.filter((response) => response.status === 200);
+    expect(accepted).toHaveLength(1);
+    expect(await accepted[0]?.json()).toMatchObject({ user: { email } });
+    expect(
+      attempts.filter((response) =>
+        response.headers.get("location")?.includes("error=INVALID_TOKEN")
+      )
+    ).toHaveLength(1);
+  });
+
   it("does not mark an ordinary final magic-link email URL as add-account", async () => {
     const { auth, sentEmails } = await createTestAuth();
     const callbackUrl = new URL("/magic-link", WEB_APP_URL);
@@ -1569,6 +1627,8 @@ async function createTestAuth(
       AuthConfigEnv["OPENMELD_CORE_WORKER"]
     >["checkSpaceOwnerDeparture"];
     enforceOriginCheck?: boolean;
+    enableRateLimit?: boolean;
+    githubSignIn?: boolean;
     legacyAppOrigin?: string;
     sender?: CloudflareEmailSender;
   } = {}
@@ -1605,6 +1665,12 @@ async function createTestAuth(
     AUTH_EMAIL: sender,
     AUTH_FROM_EMAIL: "OpenMeld <noreply@openmeld.invalid>",
     AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS: "300",
+    ...(input.githubSignIn
+      ? {
+          GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID: "test-client",
+          GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET: "test-client-secret",
+        }
+      : {}),
     AUTH_LEGACY_APP_ORIGIN: input.legacyAppOrigin,
     AUTH_WORKER_NODE_ENV: input.enforceOriginCheck
       ? "production"
@@ -1644,7 +1710,13 @@ async function createTestAuth(
               },
             }
           : baseAuthConfig;
-        return await betterAuth(authConfig).handler(request);
+        return await betterAuth({
+          ...authConfig,
+          rateLimit: {
+            ...authConfig.rateLimit,
+            enabled: input.enableRateLimit,
+          },
+        }).handler(request);
       }),
   };
 

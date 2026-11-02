@@ -1,12 +1,12 @@
 {
-  "version": "0.3.284",
+  "version": "0.3.287",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Refreshes the CLI bundle for the shared Space-memory schema. Existing workstation commands and Wake contracts remain compatible."
+    "reason": "Updates request validation and WebSocket fragment handling alongside the pending Setup and sleep-prevention changes. Existing CLI commands and cloud APIs remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Refreshes the bundled shared schema. The hosted memory change does not raise the workstation protocol floor."
+    "reason": "Includes the WebSocket update alongside the active-task sleep-prevention default. Explicit Off and the existing Wake and reconnect protocols remain supported."
   },
   "skills": {
     "updatePolicy": "available",

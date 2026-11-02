@@ -6,7 +6,6 @@ type CoreProfileLifecycleWorker = Service<
 export type AuthBindings = {
   AUTH_EMAIL: SendEmail;
   OPENMELD_POSTGRESQL: PostgreSQLBinding;
-  OPENMELD_AUTH_KV: KVNamespace;
   OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER: RateLimit;
   OPENMELD_CORE_WORKER?: CoreProfileLifecycleWorker;
   OPENMELD_OBSERVABILITY?: AnalyticsEngineDataset;

@@ -4,6 +4,8 @@ title: Report interrupted Computer power requests promptly
 kind: fixed
 areas: ["computers"]
 audiences: ["users", "integrators"]
+publishedAt: 2026-11-01
+evidence: ["pr:341", "workflow:41279936160"]
 ---
 
 When OpenMeld Service reconnects, a pending sleep-prevention request on the old

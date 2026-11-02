@@ -79,10 +79,6 @@ export function OrganizationComputerDetail(input: {
 				}}
 				view="team"
 			/>
-			<ComputerTokenUsage
-				computerId={input.computer.connectedComputerId}
-				organizationId={input.organizationId}
-			/>
 			<LocalAgentsCard
 				computer={{
 					deviceDisplayName: input.computer.deviceDisplayName,
@@ -109,6 +105,10 @@ export function OrganizationComputerDetail(input: {
 						: undefined
 				}
 				view="team"
+			/>
+			<ComputerTokenUsage
+				computerId={input.computer.connectedComputerId}
+				organizationId={input.organizationId}
 			/>
 		</div>
 	);

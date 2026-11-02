@@ -152,6 +152,11 @@ import type { SpaceAutomaticWakeComposerHintKind } from "./space-composer-copy";
 import type { SpaceComposerEditorHandle } from "./space-composer-editor";
 import { SpaceConversationPanel } from "./space-conversation-panel";
 import { useSpaceGuideDraft } from "./space-guide-draft";
+import {
+	type SpaceGuideSaver,
+	saveSpaceGuideBeforeLeaving,
+	useSpaceGuideSaver,
+} from "./space-guide-save";
 import { SpaceHeader, SpaceWindowHeader } from "./space-header";
 import { SpaceLandingErrorBoundary } from "./space-landing-error-boundary";
 import { SpaceLiveNotice } from "./space-live-notice";
@@ -1702,6 +1707,11 @@ function SpaceLandingConversationShell({
 		viewerMembership,
 	} = useSpaceLandingViewerState({ controller, state });
 	const guideDraft = useSpaceGuideDraft(controller.spaceId);
+	const guideSaver = useSpaceGuideSaver({
+		onSaved: guideDraft.onSaved,
+		openMeldProfileId: controller.profileId,
+		spaceId: controller.spaceId,
+	});
 	const memberAgentDirectMessage = useCurrentMemberAgentDirectMessage({
 		isActiveSpaceMember: currentProfileIsActiveSpaceMember,
 		isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
@@ -1882,6 +1892,10 @@ function SpaceLandingConversationShell({
 					description="Your changes to this Space's guide haven't been saved."
 					hasUnsavedChanges={guideDraft.hasUnsavedChanges}
 					onDiscard={guideDraft.discard}
+					onSave={() =>
+						saveSpaceGuideBeforeLeaving(guideDraft.draft, guideSaver)
+					}
+					saving={guideSaver.isPending}
 				/>
 				<AppMainContent
 					bodyClassName="flex"
@@ -2012,6 +2026,7 @@ function SpaceLandingConversationShell({
 								directMessageAccessRequest={directMessageAccessRequest}
 								directMessageJoinPrompt={directMessageJoinPrompt}
 								guideDraft={guideDraft}
+								guideSaver={guideSaver}
 								historyErrorMessage={historyErrorMessage}
 								input={conversationInput}
 								pendingActionSurface={pendingActionSurface}
@@ -2363,6 +2378,7 @@ function SpaceLandingConversation({
 	directMessageAccessRequest,
 	directMessageJoinPrompt,
 	guideDraft,
+	guideSaver,
 	historyErrorMessage,
 	input,
 	pendingActionSurface,
@@ -2384,6 +2400,7 @@ function SpaceLandingConversation({
 	directMessageAccessRequest: DirectMessageAccessRequest | null;
 	directMessageJoinPrompt: string | null;
 	guideDraft: ReturnType<typeof useSpaceGuideDraft>;
+	guideSaver: SpaceGuideSaver;
 	historyErrorMessage: string | null;
 	input: SpaceLandingInput;
 	pendingActionSurface?: ReactNode;
@@ -2577,8 +2594,8 @@ function SpaceLandingConversation({
 						draft={guideDraft.draft}
 						key={controller.spaceId}
 						onDraftChange={guideDraft.onDraftChange}
-						onSaved={guideDraft.onSaved}
 						openMeldProfileId={controller.profileId}
+						saver={guideSaver}
 						spaceId={controller.spaceId}
 					/>
 				</Suspense>

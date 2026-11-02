@@ -4,6 +4,8 @@ title: Keep Space previews current after an Agent joins
 kind: fixed
 areas: ["spaces"]
 audiences: ["users"]
+publishedAt: 2026-11-01
+evidence: ["pr:346", "workflow:41280870650"]
 ---
 
 After an Agent is added to a Space through a join request, the sidebar shows

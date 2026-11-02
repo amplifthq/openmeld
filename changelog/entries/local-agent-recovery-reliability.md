@@ -4,6 +4,9 @@ title: Keep local Agent work safe through updates and recovery
 kind: fixed
 areas: ["service", "agents", "desktop"]
 audiences: ["users", "operators"]
+publishedAt: 2026-11-01
+release: v0.3.284
+evidence: ["pr:343", "pr:350", "workflow:41280228590", "workflow:41280870650", "workflow:41282523330", "workflow:41282289221"]
 ---
 
 Service updates preserve running work when shutdown cannot be confirmed and keep

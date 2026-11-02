@@ -4,6 +4,8 @@ title: Explain image processing quota failures immediately
 kind: fixed
 areas: ["center-agent", "spaces"]
 audiences: ["users", "admins"]
+publishedAt: 2026-11-01
+evidence: ["pr:346", "workflow:41279936160", "workflow:41280228590"]
 ---
 
 When Cloudflare Images cannot prepare an attached image because its

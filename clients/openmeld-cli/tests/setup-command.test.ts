@@ -29,6 +29,7 @@ const {
   resolveControllingTerminalSessionMock,
   turnOffUnselectedLocalAgentsForSetupMock,
   registerUnselectedLocalAgentsOffForSetupMock,
+  reconcileNewRunnableBuiltinAgentsForSetupMock,
 } = vi.hoisted(() => ({
   assertSetupServiceUpdateCompleteMock: vi.fn(),
   collectStartLocalReadinessMock: vi.fn(),
@@ -57,6 +58,12 @@ const {
   resolveControllingTerminalSessionMock: vi.fn(),
   turnOffUnselectedLocalAgentsForSetupMock: vi.fn(),
   registerUnselectedLocalAgentsOffForSetupMock: vi.fn(),
+  reconcileNewRunnableBuiltinAgentsForSetupMock: vi.fn(),
+}));
+
+vi.mock("../src/agents/registry", () => ({
+  reconcileNewRunnableBuiltinAgentsForSetup:
+    reconcileNewRunnableBuiltinAgentsForSetupMock,
 }));
 
 vi.mock("../src/commands/setup-service-update-truth", () => ({
@@ -184,6 +191,11 @@ describe("setup command", () => {
       turnedOffAgentIds: [],
     });
     registerUnselectedLocalAgentsOffForSetupMock.mockResolvedValue([]);
+    reconcileNewRunnableBuiltinAgentsForSetupMock.mockResolvedValue({
+      registeredAgentIds: [],
+      preservedDisabledAgentIds: [],
+      preservedEnabledAgentIds: ["codex"],
+    });
     Reflect.deleteProperty(process.env, "OPENMELD_SETUP_FORCE_SERVICE_REFRESH");
     resolveRuntimeContextMock.mockResolvedValue({
       resolvedView: "agent",
@@ -246,6 +258,7 @@ describe("setup command", () => {
         candidates: [
           {
             agentId: "codex",
+            enabled: true,
             selectable: true,
           },
         ],
@@ -718,7 +731,7 @@ describe("setup command", () => {
       .map(([line]) => (line as { text: string }).text)
       .join("\n");
     expect(lineOutput).toContain(
-      "Non-interactive: connecting all detected agents (use --local-agent to limit, or --local-agents none to skip)."
+      "Non-interactive: connecting new agents and keeping existing On/Off choices (use --local-agent to choose, or --local-agents none to skip)."
     );
   });
 
@@ -1021,17 +1034,65 @@ describe("setup command", () => {
     );
   });
 
-  it("excludes suspended local agents from standard setup auto-selection", async () => {
+  it("connects new agents without replacing existing switches during automatic setup", async () => {
+    const enabled = new Map([
+      ["codex", false],
+      ["cursor", false],
+      ["openclaw", true],
+    ]);
+    reconcileNewRunnableBuiltinAgentsForSetupMock.mockImplementation(() => {
+      enabled.set("codex", true);
+      return {
+        registeredAgentIds: ["codex"],
+        preservedDisabledAgentIds: ["cursor"],
+        preservedEnabledAgentIds: ["openclaw"],
+      };
+    });
+    const turnOffUnselected = ({
+      selectedLocalAgentIds,
+    }: {
+      selectedLocalAgentIds: string[];
+    }) => {
+      for (const id of enabled.keys()) {
+        if (!selectedLocalAgentIds.includes(id)) {
+          enabled.set(id, false);
+        }
+      }
+    };
+    registerUnselectedLocalAgentsOffForSetupMock.mockImplementation((input) => {
+      turnOffUnselected(input);
+      return [];
+    });
+    turnOffUnselectedLocalAgentsForSetupMock.mockImplementation((input) => {
+      turnOffUnselected(input);
+      return { failedAgentIds: [], turnedOffAgentIds: [] };
+    });
+    runStartLocalAgentsEnableMock.mockImplementation(
+      ({ agent }: { agent: string[] }) => {
+        for (const id of agent) {
+          enabled.set(id, true);
+        }
+        return { status: "completed", summary: { errors: [] } };
+      }
+    );
     collectStartLocalReadinessMock.mockResolvedValue({
       agents: {
         candidates: [
           {
             agentId: "codex",
+            enabled: true,
+            lifecycleStatus: "active",
+            selectable: true,
+          },
+          {
+            agentId: "cursor",
+            enabled: false,
             lifecycleStatus: "active",
             selectable: true,
           },
           {
             agentId: "openclaw",
+            enabled: true,
             lifecycleStatus: "suspended",
             selectable: true,
           },
@@ -1044,12 +1105,12 @@ describe("setup command", () => {
       view: "agent",
     });
 
-    expect(runStartLocalAgentsEnableMock).toHaveBeenCalledWith({
-      agent: ["codex"],
-      interactive: false,
-      presentation: "handoff",
-      view: "agent",
+    expect(Object.fromEntries(enabled)).toEqual({
+      codex: true,
+      cursor: false,
+      openclaw: true,
     });
+
     expect(runSetupFirstBootstrapMock).toHaveBeenCalledWith({
       gatewayUrl: "https://gateway.openmeld.test",
       interactive: false,
@@ -1486,7 +1547,7 @@ describe("setup command", () => {
     expect(output).toContain("People and agents, working as one.");
     expect(output).toContain("Current version:");
     expect(output).toContain("Checking local agents...");
-    expect(output).toContain("Enabling local agents...");
+    expect(output).toContain("Local agents connected: Codex.");
     expect(output).toContain("Preparing OpenMeld Service...");
     expect(output).not.toContain("✓ Local Agents");
     expect(output).not.toContain("✓ OpenMeld Service");
@@ -1516,7 +1577,10 @@ describe("setup command", () => {
     );
   });
 
-  it("shows the local agent install guide in the human setup summary when no agents are connected", async () => {
+  it.each([
+    false,
+    true,
+  ])("explains no connected agents when saved Off is %s", async (savedOff) => {
     resolveRuntimeContextMock.mockResolvedValue({
       resolvedView: "human",
       viewMode: "human",
@@ -1524,7 +1588,16 @@ describe("setup command", () => {
     });
     collectStartLocalReadinessMock.mockResolvedValue({
       agents: {
-        candidates: [],
+        candidates: savedOff
+          ? [
+              {
+                agentId: "codex",
+                enabled: false,
+                selectable: true,
+                lifecycleStatus: "active",
+              },
+            ]
+          : [],
       },
     });
     submitSelectedAgentControllerReportsMock.mockResolvedValue([]);
@@ -1542,12 +1615,24 @@ describe("setup command", () => {
       "",
       "🎉 Your computer is connected.",
       "",
-      "OpenMeld did not find a supported local agent on this computer.",
-      "",
-      "Install a local agent: https://gateway.openmeld.test/guides/local-agents",
+      ...(savedOff
+        ? [
+            "Your local agents remain off. Turn them on in Computers when you're ready.",
+          ]
+        : [
+            "OpenMeld did not find a supported local agent on this computer.",
+            "",
+            "Install a local agent: https://gateway.openmeld.test/guides/local-agents",
+          ]),
       "",
       "Continue in OpenMeld: https://gateway.openmeld.test/",
     ]);
+    if (savedOff) {
+      expect(runStartLocalAgentsEnableMock).not.toHaveBeenCalled();
+      expect(
+        presenter.line.mock.calls.map(([line]) => line.text).join("\n")
+      ).not.toContain("/guides/local-agents");
+    }
   });
 
   it("does not show the install guide when human setup explicitly skips local agents", async () => {

@@ -129,8 +129,9 @@ notification requires Desktop to be running and OS notifications to be available
 This page explains that closing keeps notifications available and quitting stops
 desktop notifications, while Service and accepted local work remain independent.
 Global shortcuts and Service lifecycle controls remain separate. The Desktop
-Power section reuses the Local Computer setting and API. The independent
-Service owns its saved preference and task-scoped sleep prevention; Desktop
+sleep-prevention row reuses the Local Computer setting and API without a
+redundant Power heading. It defaults on only when no preference is saved. The
+independent Service owns its saved preference and task-scoped sleep prevention; Desktop
 does not hold an Electron power-save blocker.
 
 Window chrome, traffic-light insets, drag regions, tray, and native capabilities
@@ -989,7 +990,7 @@ version or a successful unguarded Service command.
 
 Native admitted `/v1/` requests use the Better Auth SDK's public fetch pipeline
 and return the original response status/body through the credential-stripping
-adapter. `patches/@better-auth__electron@1.6.30.patch` moves only the vendor's
+adapter. `patches/@better-auth__electron@1.7.7.patch` moves only the vendor's
 response-cookie persistence and session signal from `onSuccess` to `onResponse`.
 The pinned upstream otherwise loses legitimate renewal on 403/500 and deletion
 on 401. Successful session-data caching and existing error notifications remain
@@ -1250,7 +1251,7 @@ stable, isolated local test profile. Main sets and verifies Electron's
 that directory explicitly to Electron, keeping GUI preferences and credentials
 separate from other worktrees.
 
-Electron 44.7.2 is paired with electron-vite 5.0.0 and Vite 7.3.7. Hydrate the
+Electron 44.9.1 is paired with electron-vite 5.0.0 and Vite 7.3.7. Hydrate the
 native binary with `pnpm --filter @openmeld/desktop exec electron --version`.
 Electron is deliberately separate from the root Worker development stack.
 

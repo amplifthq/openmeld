@@ -4,6 +4,8 @@ title: Keep Agent directories available during runtime interruptions
 kind: fixed
 areas: ["agents", "computers"]
 audiences: ["users", "integrators"]
+publishedAt: 2026-10-30
+evidence: ["pr:339", "workflow:41011552210"]
 ---
 
 Organization directories and Agent runtime overviews remain available when a
