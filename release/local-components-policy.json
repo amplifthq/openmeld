@@ -1,11 +1,11 @@
 {
-  "version": "0.3.288",
+  "version": "0.3.289",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Updates the MCP URI parser within its existing major version. Valid tool calls, CLI commands, and cloud APIs remain compatible; malformed URI inputs receive the upstream security fixes."
+    "reason": "Ships the packaged Service Host recovery change. User CLI commands, JSON output, setup, and trace remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Ships the compatible parser fixes in the packaged Service. Existing setup, Wake, MCP, and reconnect protocols remain supported without a new contract floor."
+    "reason": "A replacement execution Host waits for still-running previous work and starts on its own once it exits, and logs why local execution is paused. Unconfirmed work stays fenced; Wake, result, and Host receipt contracts are unchanged, so no compatibility floor is raised."
   }
 }

@@ -1237,6 +1237,32 @@ floor increase. Publish the updated CLI/update worker with the Service. Do not f
 updater through a live Wake to deliver this fix. This implementation does not
 authorize a production migration, release, or production smoke.
 
+### Execution Host Previous-Work Recovery Contract Impact Audit
+
+A replacement Host now separates previous work that is still running from work
+that cannot be confirmed. Complete receipts naming a live Host or provider tree,
+and an owner lock held by a live Host, report `host.previous_work_running` with
+the existing `wait_for_previous_work` recovery action. The Host rechecks the
+unchanged same-boot rule until it can start. Incomplete, legacy, and corrupt
+receipts keep `host.previous_work_unconfirmed` and are never rechecked. The
+receipt schema, process evidence, Host IPC methods, Runtime Transport, Wake,
+result receipts, Prepare, and CLI JSON output are unchanged; the Host IPC stays
+inside one Service artifact.
+
+The computer-care observation has accepted this code pattern and recovery action
+since 0.3.261, so current Core, Gateway, and Web read it without a deploy. Core
+copy for `restart_computer` no longer suggests that OpenMeld may recover by
+itself, which is also true for older Services that never recheck; the
+`wait_for_previous_work` copy says new tasks resume automatically. Either deploy
+order is safe. The update worker already treats any Host read other than
+`host.previous_work_unconfirmed` as transient, so an update waits while recorded
+work exits instead of ending as `needs_help`. Desktop does not read Host reasons
+and needs no release.
+
+The candidate is version 0.3.289 with explicit `available` decisions for CLI and
+Service, without a contract floor increase. This implementation does not
+authorize a production release or production smoke.
+
 ### Trusted Delegation Contract Impact Audit
 
 The Local task permission correction also adds an optional Core-owned requester
