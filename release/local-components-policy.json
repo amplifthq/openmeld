@@ -1,15 +1,11 @@
 {
-  "version": "0.3.287",
+  "version": "0.3.288",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Updates request validation and WebSocket fragment handling alongside the pending Setup and sleep-prevention changes. Existing CLI commands and cloud APIs remain compatible."
+    "reason": "Updates the MCP URI parser within its existing major version. Valid tool calls, CLI commands, and cloud APIs remain compatible; malformed URI inputs receive the upstream security fixes."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Includes the WebSocket update alongside the active-task sleep-prevention default. Explicit Off and the existing Wake and reconnect protocols remain supported."
-  },
-  "skills": {
-    "updatePolicy": "available",
-    "reason": "No managed Skills source changes; existing Skills remain compatible."
+    "reason": "Ships the compatible parser fixes in the packaged Service. Existing setup, Wake, MCP, and reconnect protocols remain supported without a new contract floor."
   }
 }

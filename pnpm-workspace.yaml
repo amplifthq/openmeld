@@ -57,6 +57,12 @@ overrides:
   # Paired with the Zep ontology patch below; keep its runtime and types on Zod 4.
   '@getzep/zep-cloud@3.30.0>zod': 'catalog:'
   '@modelcontextprotocol/sdk>zod': 'catalog:'
+  # Keep the existing parser major versions while lifting vulnerable copies.
+  '@xmldom/xmldom@>=0.8.0 <0.8.15': 0.8.15
+  'brace-expansion@>=1.0.0 <1.1.21': 1.1.21
+  'brace-expansion@>=2.0.0 <2.1.7': 2.1.7
+  'brace-expansion@>=5.0.0 <5.0.12': 5.0.12
+  'fast-uri@>=3.0.0 <3.1.9': 3.1.9
   # Miniflare pins earlier Undici 7 versions affected by HTTP and TLS advisories.
   'miniflare>undici@>=7.29.0 <7.30.1': 7.30.1
   'rolldown@<1.2.0': 1.1.4
