@@ -136,6 +136,8 @@ export type LocalExecutionSlotTask = {
   spaceId: string | null;
   targetLabel: string;
   run: () => Promise<LocalExecutionSlotTaskResult | undefined>;
+  // Reports the outcome of a started task the slots refused to run.
+  onRunRefused?: (error: unknown) => void;
   taskId: string;
   transportMode: string | null;
 };
@@ -547,7 +549,12 @@ export function createLocalExecutionSlots(input: {
 
       Promise.resolve()
         .then(async () => {
-          input.beforeTaskRun?.(selectedTask);
+          try {
+            input.beforeTaskRun?.(selectedTask);
+          } catch (error) {
+            selectedTask.onRunRefused?.(error);
+            throw error;
+          }
           const runResult = await selectedTask.run();
           const completionResult = resolveTaskCompletionResult(runResult);
           input.onTaskCompleted?.({

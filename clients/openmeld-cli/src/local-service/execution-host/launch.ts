@@ -33,6 +33,8 @@ export type ExecutionHostInitializationOutcome =
   | {
       status: "refused";
       reason: ExecutionHostUnavailableReason;
+      // The Host's own error, which may name local paths; local logs only.
+      detail: string;
       retrying: boolean;
     };
 
@@ -258,7 +260,12 @@ export function launchExecutionHost(input: {
           !(closing || failed);
         if (reason.code !== refusedReasonCode) {
           refusedReasonCode = reason.code;
-          input.onInitialization?.({ status: "refused", reason, retrying });
+          input.onInitialization?.({
+            status: "refused",
+            reason,
+            detail: error instanceof Error ? error.message : String(error),
+            retrying,
+          });
         }
         if (retrying) {
           initializationRecheck = setTimeout(() => {

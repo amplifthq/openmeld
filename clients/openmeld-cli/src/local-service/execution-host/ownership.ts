@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { serviceExecutionHostOwnerSchema } from "@openmeld/schemas";
@@ -9,6 +9,7 @@ import { z } from "zod/v4";
 import {
   acquireLock,
   isOpenMeldLockError,
+  MALFORMED_LOCK_RECOVERY_GRACE_MS,
   releaseLock,
 } from "../../config/lock";
 import { systemDir } from "../../config/paths";
@@ -32,7 +33,11 @@ type OwnedProcessEvent = {
 
 type HostOwnerReceipt = Extract<
   z.infer<typeof serviceExecutionHostOwnerSchema>,
-  { schema: "service-execution-host-owner-v2" }
+  {
+    schema:
+      | "service-execution-host-owner-v2"
+      | "service-execution-host-owner-v3";
+  }
 >;
 
 export type ExecutionHostWorkState = {
@@ -176,8 +181,16 @@ export async function acquireExecutionHostOwnership(input: {
     }
     // A failed write throws to the caller, which refuses the operation rather
     // than weakening the fence.
-    function update(changes: Partial<HostOwnerReceipt>) {
-      const next = { ...owner, ...changes };
+    function update(changes: Partial<Omit<HostOwnerReceipt, "schema">>) {
+      const merged = { ...owner, ...changes };
+      const next: HostOwnerReceipt = {
+        ...merged,
+        // A quiescent receipt carries no evidence, so it keeps the shape an
+        // older Service reads after a verified rollback.
+        schema: merged.localQuiescent
+          ? "service-execution-host-owner-v2"
+          : "service-execution-host-owner-v3",
+      };
       if (JSON.stringify(next) === JSON.stringify(owner)) {
         return;
       }
@@ -198,10 +211,15 @@ export async function acquireExecutionHostOwnership(input: {
           runningTaskIds = new Set();
           recordedTaskIds.clear();
           unattributedWork = false;
+          // Idle slots do not prove a recorded process group has exited; the
+          // receipt stays non-quiescent until every recorded tree is gone.
+          const liveTrees = owner.ownedProcessTrees.filter(
+            isOwnedProcessTreeAlive
+          );
           update({
-            localQuiescent: true,
+            localQuiescent: liveTrees.length === 0,
             processEvidenceComplete: true,
-            ownedProcessTrees: [],
+            ownedProcessTrees: liveTrees,
           });
           return;
         }
@@ -285,27 +303,44 @@ async function acquireProcessOwnerLock(input: {
     if (!(isOpenMeldLockError(error) && error.contentionState === "active")) {
       throw error;
     }
-    // An active lock without a readable owner has no process to wait for.
-    if (typeof error.meta?.pid !== "number") {
+    if (typeof error.meta?.pid === "number") {
       throw new ExecutionHostError(
-        "host.owner_lock_unverified",
-        "The execution host lock for this installation has no identifiable owner. Preserve it for diagnostics; automatic replacement is refused."
+        "host.previous_work_running",
+        "Another execution host for this installation is still running. This Host starts after it exits; no task will be restarted automatically."
+      );
+    }
+    // A lock briefly has no owner entry while it is published or released.
+    // Past the lock's own recovery grace, there is no process to wait for.
+    if (await isOwnerLockHandoffPossible(error.lockPath)) {
+      throw new ExecutionHostError(
+        "host.previous_work_running",
+        "Another execution host for this installation is starting or stopping. This Host checks again shortly; no task will be restarted automatically."
       );
     }
     throw new ExecutionHostError(
-      "host.previous_work_running",
-      "Another execution host for this installation is still running. This Host starts after it exits; no task will be restarted automatically."
+      "host.owner_lock_unverified",
+      "The execution host lock for this installation has no identifiable owner. Preserve it for diagnostics; automatic replacement is refused."
     );
   }
 }
 
+async function isOwnerLockHandoffPossible(lockPath: string): Promise<boolean> {
+  try {
+    const stats = await lstat(lockPath);
+    return Date.now() - stats.mtimeMs < MALFORMED_LOCK_RECOVERY_GRACE_MS;
+  } catch (error) {
+    return isNodeError(error, "ENOENT");
+  }
+}
+
 // Waiting can clear only a fence whose recorded processes are still alive.
-// Incomplete or legacy evidence stays unconfirmed however long it is retried.
+// Incomplete or legacy evidence, including a non-quiescent V2 receipt whose
+// completeness was Host-wide, stays unconfirmed however long it is retried.
 function assertPreviousOwnerReplaceableOnSameBoot(
   previous: NonNullable<ReturnType<typeof readOwner>>
 ): void {
   if (
-    previous.schema !== "service-execution-host-owner-v2" ||
+    previous.schema !== "service-execution-host-owner-v3" ||
     !previous.processEvidenceComplete
   ) {
     throw new ExecutionHostError(
@@ -357,10 +392,13 @@ function readOwner(path: string) {
   try {
     raw = readFileSync(path, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (isNodeError(error, "ENOENT")) {
       return null;
     }
-    throw error;
+    throw new ExecutionHostError(
+      "host.owner_corrupt",
+      `The Host ownership record cannot be read (${error instanceof Error ? error.message : String(error)}). Preserve it for diagnostics; automatic replacement is refused.`
+    );
   }
   try {
     const parsed = serviceExecutionHostOwnerSchema.safeParse(JSON.parse(raw));

@@ -75,11 +75,7 @@ const serviceExecutionHostOwnedProcessTreeSchema = z.strictObject({
   signalTarget: z.enum(["process", "process_group"]),
 });
 
-// A process-incarnation recovery fence, not a task ledger. V2 records the
-// exact Host and provider process trees needed to prove a same-boot takeover
-// safe. V1 remains readable but cannot authorize that recovery.
-const serviceExecutionHostOwnerV2Schema = z.strictObject({
-  schema: z.literal("service-execution-host-owner-v2"),
+const serviceExecutionHostOwnerFields = {
   hostInstanceId: z.uuid(),
   ownerUserId: identityString,
   deviceId: identityString,
@@ -92,11 +88,28 @@ const serviceExecutionHostOwnerV2Schema = z.strictObject({
   ownedProcessTrees: z
     .array(serviceExecutionHostOwnedProcessTreeSchema)
     .max(64),
+};
+
+// A process-incarnation recovery fence, not a task ledger. V3 records the
+// exact Host and provider process trees needed to prove a same-boot takeover
+// safe, with completeness held per started task. V2 completeness was
+// Host-wide, so only a quiescent V2 receipt is trusted; current writers keep
+// that shape when quiescent so a verified rollback can still start. V1 remains
+// readable but cannot authorize recovery.
+const serviceExecutionHostOwnerV2Schema = z.strictObject({
+  schema: z.literal("service-execution-host-owner-v2"),
+  ...serviceExecutionHostOwnerFields,
+});
+
+const serviceExecutionHostOwnerV3Schema = z.strictObject({
+  schema: z.literal("service-execution-host-owner-v3"),
+  ...serviceExecutionHostOwnerFields,
 });
 
 export const serviceExecutionHostOwnerSchema = z.discriminatedUnion("schema", [
   serviceExecutionHostOwnerV1Schema,
   serviceExecutionHostOwnerV2Schema,
+  serviceExecutionHostOwnerV3Schema,
 ]);
 
 export const profileWorkingFolderFactSchema = z.strictObject({

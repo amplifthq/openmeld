@@ -247,26 +247,39 @@ execution continues. Evidence is complete only while every started task has
 recorded its own provider process and no control or adapter operation is
 running; one task's record never vouches for another task's preparation. A
 started task is recorded as running before any of its work begins; a queued task
-has started nothing. A same-boot replacement is allowed only when that evidence
-is complete, the exact Host incarnation is gone, and every recorded provider
-process group or Windows job-backed root is gone. While complete evidence still
-names a live Host incarnation or provider process tree, or an identified live
+has started nothing. If that record cannot be written, the task is refused before
+its work and reports `host.execution_record_unavailable` through the existing
+dispatch result outbox. Idle execution slots do not clear the fence: the receipt
+stays non-quiescent while any recorded provider process group is alive.
+
+Non-quiescent receipts are `service-execution-host-owner-v3`, whose
+completeness is per task. A quiescent receipt carries no evidence and keeps the
+v2 shape, so an older Service can still start after a verified rollback. Older
+Services marked v2 completeness Host-wide, so a non-quiescent v2 receipt cannot
+authorize a same-boot takeover. A same-boot replacement is allowed only when v3
+evidence is complete, the exact Host incarnation is gone, and every recorded
+provider process group or Windows job-backed root is gone. While complete
+evidence still names a live Host incarnation or provider process tree, or a live
 Host holds the installation's owner lock, the replacement reports
 `host.previous_work_running` with the `wait_for_previous_work` recovery action.
-The Service stays connected with execution admission closed and rechecks the
-same rule every few seconds; the Host starts once that recorded work exits. It
-never signals, adopts, or replays that work. Missing process evidence and legacy
-receipts remain blocked as `host.previous_work_unconfirmed`; waiting cannot
-complete missing evidence, so that refusal is not rechecked and trustworthy
-operating-system restart evidence is the fallback. An unreadable or malformed
-receipt reports `host.owner_corrupt`, and an owner lock without an identifiable
-holder reports `host.owner_lock_unverified`. Both are preserved for
-diagnostics, never rechecked or replaced automatically, and direct the owner to
-diagnostics because restarting cannot repair or identify them. The Service log
-records each distinct refusal and a later recovery, including from the detached
-background Service. This receipt contains no task results or approvals and does
-not authorize replay. It is not a second execution ledger. There is no automatic
-hot adoption or restart of unknown work.
+An owner lock without an owner entry counts as such a handoff while it is younger
+than the lock's own recovery grace, because publishing and releasing briefly
+leave it holderless. The Service stays connected with execution admission closed
+and rechecks the same rule every few seconds; the Host starts once that recorded
+work exits. It never signals, adopts, or replays that work.
+
+Missing process evidence and legacy receipts remain blocked as
+`host.previous_work_unconfirmed`; waiting cannot complete missing evidence, so
+that refusal is not rechecked and trustworthy operating-system restart evidence
+is the fallback. An unreadable or malformed receipt reports `host.owner_corrupt`
+with the underlying error in local diagnostics, and an owner lock that stays
+holderless past its recovery grace reports `host.owner_lock_unverified`. Both are
+preserved for diagnostics, never rechecked or replaced automatically, and direct
+the owner to diagnostics because restarting cannot repair or identify them. The
+Service log records each distinct refusal and a later recovery, including from
+the detached background Service. This receipt contains no task results or
+approvals and does not authorize replay. It is not a second execution ledger.
+There is no automatic hot adoption or restart of unknown work.
 
 Claude Agent SDK invocations use its public custom-spawn contract on every
 platform through the existing supervised process launcher. The adapter reports

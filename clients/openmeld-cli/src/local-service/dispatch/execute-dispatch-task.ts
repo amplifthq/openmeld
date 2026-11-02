@@ -305,6 +305,7 @@ const AGENT_CONTROLLER_OCCUPANCY_KEEPALIVE_REASSERT_INTERVALS = 4;
 type EnqueueDispatchDeliverFrameInput = Parameters<
   typeof enqueueDispatchDeliverFrame
 >[0];
+type FailedTaskResultInput = Parameters<typeof buildFailedTaskResultPayload>[0];
 
 export function enqueueDispatchDeliverFrame(input: {
   computerFileAccessStorePath: string;
@@ -551,6 +552,14 @@ function admitDispatchDeliverFrame(
     taskId: correlation.taskId,
     targetLabel: queueLogMeta.targetLabel,
     transportMode: queueLogMeta.transportMode,
+    onRunRefused: (error) =>
+      enqueueUnstartedTaskFailure({
+        errorCode: "host.execution_record_unavailable",
+        errorMessage: `host.execution_record_unavailable: The local execution host could not record this task before starting it; the provider was not started. ${toErrorMessage(error)}`,
+        errorType: "internal",
+        localOwnerConflict: null,
+        suppressPublicOutcome: false,
+      }),
     run: async () => {
       return await handleDispatchDeliverFrame({
         computerFileAccessStorePath: input.computerFileAccessStorePath,
@@ -619,9 +628,7 @@ function admitDispatchDeliverFrame(
       rejected.reason === "task.owner_conflict"
         ? `${queueRejectErrorCode}: local task owner conflict for task ${correlation.taskId}; activeOwner=${rejected.activeOwner.dispatchId}/${rejected.activeOwner.attemptId}`
         : `queue.full: local execution slot queue is full (queueMax=${String(rejected.snapshot.limits.queueMax)}, pending=${String(rejected.snapshot.queueDepth)})`;
-    const queueRejectPayload = buildFailedTaskResultPayload({
-      attemptId: correlation.attemptId,
-      agentControllerRef: correlation.agentControllerRef,
+    enqueueUnstartedTaskFailure({
       errorCode: queueRejectErrorCode,
       errorMessage: queueRejectMessage,
       errorType:
@@ -646,40 +653,7 @@ function admitDispatchDeliverFrame(
               rejectedTaskId: correlation.taskId,
             }
           : null,
-      sourceEventId: correlation.sourceEventId,
       suppressPublicOutcome: rejected.reason === "task.owner_conflict",
-      targetProfileId: correlation.targetProfileId,
-      taskId: correlation.taskId,
-    });
-    enqueueDispatchResultOutboxRecord({
-      attemptId: correlation.attemptId,
-      connectionGeneration: deliverRequest.connectionGeneration,
-      currentSocketRef,
-      daemonSessionId: input.daemonSessionId,
-      dispatchId: correlation.dispatchId,
-      executionIdentityEcho:
-        toRuntimeTransportResultIdentityEcho(deliverRequest),
-      executionTokenEcho:
-        toRuntimeCoordinatorExecutionTokenEcho(deliverRequest),
-      ledgerPaths: input.ledgerPaths,
-      leaseEpoch: deliverRequest.leaseEpoch,
-      payload: queueRejectPayload,
-      presenter: input.presenter,
-      runtimeCoordinatorExecutionId:
-        deliverRequest.payload.runtimeCoordinatorExecutionId,
-      taskId: correlation.taskId,
-    });
-    emitDaemonDispatchJournalEvent({
-      attemptId: correlation.attemptId,
-      connectionGeneration: deliverRequest.connectionGeneration,
-      daemonSessionId: input.daemonSessionId,
-      dispatchId: correlation.dispatchId,
-      leaseEpoch: deliverRequest.leaseEpoch,
-      metadata: buildResultDispatchJournalMetadata(queueRejectPayload),
-      profileId: deliverRequest.profileId,
-      result: queueRejectPayload.status,
-      taskId: correlation.taskId,
-      type: "dispatch.result.queued",
     });
     emitRunLine({
       presenter: input.presenter,
@@ -712,13 +686,61 @@ function admitDispatchDeliverFrame(
           : {}),
       },
     });
+  }
+  // A task that never started its own work still owes RuntimeCoordinator one
+  // explicit outcome through the durable result outbox.
+  function enqueueUnstartedTaskFailure(failure: {
+    errorCode: string;
+    errorMessage: string;
+    errorType: FailedTaskResultInput["errorType"];
+    localOwnerConflict: FailedTaskResultInput["localOwnerConflict"];
+    suppressPublicOutcome: boolean;
+  }): void {
+    const payload = buildFailedTaskResultPayload({
+      ...failure,
+      attemptId: correlation.attemptId,
+      agentControllerRef: correlation.agentControllerRef,
+      sourceEventId: correlation.sourceEventId,
+      targetProfileId: correlation.targetProfileId,
+      taskId: correlation.taskId,
+    });
+    enqueueDispatchResultOutboxRecord({
+      attemptId: correlation.attemptId,
+      connectionGeneration: deliverRequest.connectionGeneration,
+      currentSocketRef,
+      daemonSessionId: input.daemonSessionId,
+      dispatchId: correlation.dispatchId,
+      executionIdentityEcho:
+        toRuntimeTransportResultIdentityEcho(deliverRequest),
+      executionTokenEcho:
+        toRuntimeCoordinatorExecutionTokenEcho(deliverRequest),
+      ledgerPaths: input.ledgerPaths,
+      leaseEpoch: deliverRequest.leaseEpoch,
+      payload,
+      presenter: input.presenter,
+      runtimeCoordinatorExecutionId:
+        deliverRequest.payload.runtimeCoordinatorExecutionId,
+      taskId: correlation.taskId,
+    });
+    emitDaemonDispatchJournalEvent({
+      attemptId: correlation.attemptId,
+      connectionGeneration: deliverRequest.connectionGeneration,
+      daemonSessionId: input.daemonSessionId,
+      dispatchId: correlation.dispatchId,
+      leaseEpoch: deliverRequest.leaseEpoch,
+      metadata: buildResultDispatchJournalMetadata(payload),
+      profileId: deliverRequest.profileId,
+      result: payload.status,
+      taskId: correlation.taskId,
+      type: "dispatch.result.queued",
+    });
     emitDispatchRuntimeEvidenceTransition({
       currentSocketRef,
       daemonSessionId: input.daemonSessionId,
       deliverRequest,
       phase: "failed",
       presenter: input.presenter,
-      reasonCode: queueRejectErrorCode,
+      reasonCode: failure.errorCode,
     });
   }
   if (!enqueueResult.accepted) {

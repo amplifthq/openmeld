@@ -2,10 +2,12 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import {
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
   rm,
+  stat,
   utimes,
   writeFile,
 } from "node:fs/promises";
@@ -51,7 +53,11 @@ describe("execution Host durable process ownership", () => {
   };
   // Runs the real owner in its own process, then kills it without a release.
   const killOwnerFixture = async (
-    mode?: "with-provider" | "concurrent" | "concurrent-started"
+    mode?:
+      | "with-provider"
+      | "concurrent"
+      | "concurrent-started"
+      | "lingering-group"
   ) => {
     const require = createRequire(import.meta.url);
     const loader = join(
@@ -188,21 +194,64 @@ describe("execution Host durable process ownership", () => {
   });
 
   it.each([
-    "{broken",
-    '{"schema":"service-execution-host-owner-v2"}',
-  ])("allows confirmed quiescence, but never replaces a corrupt ownership record (%s)", async (corrupt) => {
+    ["truncated JSON", "{broken"],
+    ["a wrong shape", '{"schema":"service-execution-host-owner-v2"}'],
+    ["an unreadable path", null],
+  ] as const)("allows confirmed quiescence, but never replaces a corrupt ownership record (%s)", async (_kind, corrupt) => {
     const first = await acquire(firstBoot);
     busy(first);
     idle(first);
     await first.release();
     const next = await acquire(firstBoot);
     await next.release();
-    await writeFile(receiptPath(), corrupt);
+    if (corrupt === null) {
+      await rm(receiptPath());
+      await mkdir(receiptPath());
+    } else {
+      await writeFile(receiptPath(), corrupt);
+    }
     // Restart evidence cannot repair the record, so it is not that refusal.
     await expect(acquire(secondBoot)).rejects.toMatchObject({
       code: "host.owner_corrupt",
+      ...(corrupt === null
+        ? { message: expect.stringContaining("EISDIR") }
+        : {}),
     });
-    expect(await readFile(receiptPath(), "utf8")).toBe(corrupt);
+    if (corrupt === null) {
+      expect((await stat(receiptPath())).isDirectory()).toBe(true);
+    } else {
+      expect(await readFile(receiptPath(), "utf8")).toBe(corrupt);
+    }
+  });
+
+  it("trusts a receipt from an older Service only while it was quiescent", async () => {
+    const first = await acquire(firstBoot);
+    busy(first);
+    expect(await readReceipt()).toMatchObject({
+      schema: "service-execution-host-owner-v3",
+    });
+    idle(first);
+    // An older Service can still start after a verified rollback.
+    expect(await readReceipt()).toMatchObject({
+      schema: "service-execution-host-owner-v2",
+      localQuiescent: true,
+    });
+    await first.release();
+    // Older writers marked evidence complete Host-wide, so one task's record
+    // could hide a concurrent task's unrecorded work.
+    await writeFile(
+      receiptPath(),
+      JSON.stringify({
+        ...(await readReceipt()),
+        pid: 2_147_483_646,
+        localQuiescent: false,
+        processEvidenceComplete: true,
+        ownedProcessTrees: [],
+      })
+    );
+    await expect(acquire(firstBoot)).rejects.toMatchObject({
+      code: "host.previous_work_unconfirmed",
+    });
   });
 
   it("does not wait for an installation lock without an identifiable owner", async () => {
@@ -215,11 +264,31 @@ describe("execution Host durable process ownership", () => {
       await rm(join(lock.path, entry));
     }
     await writeFile(join(lock.path, ".DS_Store"), "");
+    // While a lock is published or released it briefly has no owner entry.
+    await expect(acquire(firstBoot)).rejects.toMatchObject({
+      code: "host.previous_work_running",
+    });
     const stale = new Date(Date.now() - 10 * 60_000);
     await utimes(lock.path, stale, stale);
     await expect(acquire(firstBoot)).rejects.toMatchObject({
       code: "host.owner_lock_unverified",
     });
+  });
+
+  it("starts once a lock seen mid-handoff is gone", async () => {
+    const lock = await acquireLock({
+      openMeldProfileId: "service-execution-host",
+      key: "process-owner",
+      pathResolution: { env: { ...process.env, OPENMELD_HOME: root } },
+    });
+    for (const entry of await readdir(lock.path)) {
+      await rm(join(lock.path, entry));
+    }
+    await expect(acquire(firstBoot)).rejects.toMatchObject({
+      code: "host.previous_work_running",
+    });
+    await rm(lock.path, { recursive: true });
+    await acquire(firstBoot);
   });
 
   it("records a started task before its work and persists released slots before replacing a drained Host", async () => {
@@ -305,6 +374,19 @@ describe("execution Host durable process ownership", () => {
       "once"
     );
   });
+
+  it.skipIf(process.platform === "win32")(
+    "keeps idle slots from clearing a recorded process group that is still alive",
+    async () => {
+      const { providerPid } = await killOwnerFixture("lingering-group");
+      await expect(
+        acquire(await readExecutionHostBootIdentity())
+      ).rejects.toMatchObject({ code: "host.previous_work_running" });
+
+      await killProcessTree(providerPid);
+      await acquire(await readExecutionHostBootIdentity());
+    }
+  );
 
   it("recovers on the same boot only after the old Host and provider process tree are gone", async () => {
     const { providerPid, retained } = await killOwnerFixture("with-provider");

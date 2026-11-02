@@ -785,6 +785,7 @@ async function launchAccountExecutionHost(input: {
         recoveryAction: outcome.reason.recoveryAction,
         retrying: outcome.retrying,
         message: outcome.reason.message,
+        detail: outcome.detail,
       });
     },
   });

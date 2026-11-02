@@ -373,7 +373,14 @@ describe("Host responsiveness observations", () => {
         "initialize",
       ]);
       expect(onInitialization.mock.calls).toEqual([
-        [{ status: "refused", reason, retrying: false }],
+        [
+          {
+            status: "refused",
+            reason,
+            detail: "internal evidence omitted",
+            retrying: false,
+          },
+        ],
       ]);
     } finally {
       vi.useRealTimers();
@@ -438,7 +445,14 @@ describe("Host responsiveness observations", () => {
       ]);
       // A repeated refusal is not logged again; the recovery is.
       expect(onInitialization.mock.calls).toEqual([
-        [{ status: "refused", reason, retrying: true }],
+        [
+          {
+            status: "refused",
+            reason,
+            detail: "internal evidence omitted",
+            retrying: true,
+          },
+        ],
         [{ status: "ready" }],
       ]);
     } finally {

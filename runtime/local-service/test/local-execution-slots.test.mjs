@@ -159,9 +159,10 @@ test("local execution slots report started work and fail a task whose pre-run ho
     },
   });
   const taskA = createDeferred();
+  const refused = [];
   for (const taskId of ["task-a", "task-b"]) {
-    queue.request(
-      buildTask({
+    queue.request({
+      ...buildTask({
         attemptId: `attempt-${taskId}`,
         dispatchId: `dispatch-${taskId}`,
         localExecutionLaneKey: `profile:${taskId}`,
@@ -173,8 +174,12 @@ test("local execution slots report started work and fail a task whose pre-run ho
           }
         },
         taskId,
-      })
-    );
+      }),
+      // The task owner reports the refusal through its own result channel.
+      onRunRefused: (error) => {
+        refused.push([taskId, error.message]);
+      },
+    });
   }
 
   // A queued task has not begun work yet.
@@ -190,6 +195,7 @@ test("local execution slots report started work and fail a task whose pre-run ho
     ["task-b", ["task-b"]],
   ]);
   assert.deepEqual(runTaskIds, ["task-a"]);
+  assert.deepEqual(refused, [["task-b", "receipt unavailable"]]);
   assert.deepEqual(completed.at(-1), ["task-b", "failed"]);
   assert.deepEqual(queue.getRunningWork(), {
     adapterOperationIds: [],
