@@ -1249,14 +1249,17 @@ receipts report `host.owner_corrupt` and holderless owner locks report
 `host.owner_lock_unverified`. None of those three is rechecked, and the update
 worker ends a waiting update for any of them as `needs_help`.
 
-Because waiting can now authorize a takeover, receipt evidence is per task: it
-is complete only while every started task has recorded its own provider process
-and no control or adapter operation runs. The shared local-execution slots add a
-pre-run hook, a task refusal callback, and a read of started work, so the Host
-records a task before its work begins. A task refused there reports
-`host.execution_record_unavailable` through the existing result outbox. Queued
-tasks do not count, and idle slots keep any live recorded process group in the
-receipt.
+Because waiting can now authorize a takeover, receipt evidence is per task and
+per provider invocation. It is complete only while no control or adapter
+operation runs, and each started task is either inside an invocation whose latest
+launch is recorded or between finished invocations. The shared local-execution
+slots add a pre-run hook, a task refusal callback, and a read of started work, so
+the Host records a task before its work begins. A task refused there reports
+`host.execution_record_unavailable` through the existing result outbox. The Host
+wraps each local adapter's `dispatch` to record every invocation, including repair
+rounds of the same task, before the adapter can launch a probe or provider.
+Queued tasks do not count, and idle slots keep any live recorded process group
+in the receipt.
 
 The private receipt gains `service-execution-host-owner-v3` for non-quiescent,
 per-task evidence. A non-quiescent v2 receipt from an older Service had
