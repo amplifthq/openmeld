@@ -4216,10 +4216,11 @@ its reply should identify unfinished requests without implying that an
 acknowledgement started or queued them. Claude concurrent reply review uses the existing
 delivery-only tool scope, including bounded context reads and the final Space
 action. It must not expose business shell tools or planning transitions that
-create a new plan-approval wait. The selected native permission intent and its
-deny/ask rules remain authoritative. Other controllers retain their existing
-review isolation policy; this Claude correction does not require a new
-delivery-only capability from them.
+create a new plan-approval wait; repair and delivery-only turns deny
+`ExitPlanMode` directly without opening a `plan_review` interaction. The selected
+native permission intent and its deny/ask rules remain authoritative. Other
+controllers retain their existing review isolation policy; this Claude
+correction does not require a new delivery-only capability from them.
 
 Every local adapter repair turn must preserve the validated canonical
 conversation identity and the Binding's controller-native permission intent.

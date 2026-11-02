@@ -299,6 +299,8 @@ for (const mode of ["auto", "plan", "default"]) {
     const directory = await mkdtemp(join(tmpdir(), "claude-delivery-only-"));
     const tools = fixtureTools(true);
     let options;
+    let exitPlanDecision;
+    const interactionRequests = [];
     try {
       const result = await invokeClaudeAgentSdkTransport({
         agentControllerPermissionMode: `claude-code:${mode}`,
@@ -309,6 +311,13 @@ for (const mode of ["auto", "plan", "default"]) {
         claudeWorkdir: directory,
         sessionId: "canonical-session",
         prompt: "Correct the public reply only.",
+        onInteractionRequest(request) {
+          interactionRequests.push(request);
+          return Promise.resolve({
+            action: "approve",
+            kind: "plan_review",
+          });
+        },
         createQuery(input) {
           options = input.options;
           const query = (async function* () {
@@ -320,6 +329,14 @@ for (const mode of ["auto", "plan", "default"]) {
               subtype: "init",
               session_id: "repair-fork",
             };
+            exitPlanDecision = await options.canUseTool(
+              "ExitPlanMode",
+              { allowedPrompts: [] },
+              {
+                signal: new AbortController().signal,
+                toolUseID: "tool-use-exit-plan-repair",
+              }
+            );
             await tools.call("reply", { message: "Known limitation." });
             yield {
               type: "result",
@@ -358,6 +375,10 @@ for (const mode of ["auto", "plan", "default"]) {
       assert.equal(options.mcpServers[serverId].type, "sdk");
       assert.deepEqual(Object.keys(options.mcpServers), [serverId]);
       assert.deepEqual(options.outputFormat.schema.required, ["recorded"]);
+      assert.deepEqual(interactionRequests, []);
+      assert.equal(exitPlanDecision?.behavior, "deny");
+      assert.equal(exitPlanDecision?.interrupt, false);
+      assert.equal(exitPlanDecision?.toolUseID, "tool-use-exit-plan-repair");
       assert.equal(result.sessionId, "canonical-session");
       assert.equal(
         result.output,
