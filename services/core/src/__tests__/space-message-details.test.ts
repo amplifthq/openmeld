@@ -1,13 +1,13 @@
 import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import type {
   MessageEnvelope,
+  WakeTiming,
   WakeTraceWaterfallItem,
   WakeTraceWaterfallStepName,
   WakeTraceWaterfallSummaryStatus,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { projectSpaceMessageDetails } from "../space/application/space-message-details";
-import { projectWakeTiming } from "../space/application/wake-timing";
 
 const SPACE_ID = "space-1";
 const SENT_AT_MS = Date.UTC(2026, 5, 4, 6, 8);
@@ -391,13 +391,7 @@ describe("space Message Details projection", () => {
       },
     });
 
-    const codexTiming = projectWakeTiming({
-      asOfMs: SENT_AT_MS + 5000,
-      pendingInteractionRequestedAtMs: null,
-      requestReceivedAtMs: SENT_AT_MS,
-      summaryStatus: "running",
-      trace: null,
-    });
+    const codexTiming = createRoutingWakeTiming();
     const details = projectSpaceMessageDetails({
       replySignal: null,
       signal: wakeSourceSignal,
@@ -405,9 +399,7 @@ describe("space Message Details projection", () => {
       visibleReplySignal: null,
       visibleSignal: wakeSourceSignal,
       wakeSourceSignal,
-      ...(codexTiming
-        ? { wakeTimingByTargetProfileId: new Map([["agt-codex", codexTiming]]) }
-        : {}),
+      wakeTimingByTargetProfileId: new Map([["agt-codex", codexTiming]]),
       wakeTraceItems: [
         createWakeTraceItem({
           reasonCode: null,
@@ -631,6 +623,41 @@ function agentProfile(input: Partial<Profile>): Profile {
     kind: "agent",
     profileId: "agt-codex",
     ...input,
+  };
+}
+
+function createRoutingWakeTiming(): WakeTiming {
+  const startedAt = new Date(SENT_AT_MS).toISOString();
+  return {
+    modelVersion: "openmeld.wake_timing.v1",
+    factSource: "platform_observed",
+    state: "in_progress",
+    asOf: new Date(SENT_AT_MS + 5000).toISOString(),
+    lastEvidenceAt: startedAt,
+    milestones: [],
+    segments: [
+      {
+        kind: "routing",
+        startedAt,
+        endedAt: null,
+        durationMs: 5000,
+        reasonCode: null,
+      },
+    ],
+    totals: {
+      endToEndMs: 5000,
+      byKind: {
+        routing: 5000,
+        queue: 0,
+        delivery: 0,
+        startup: 0,
+        agent_run: 0,
+        waiting_for_input: 0,
+        result_delivery: 0,
+        publishing: 0,
+        not_recorded: 0,
+      },
+    },
   };
 }
 

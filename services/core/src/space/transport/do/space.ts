@@ -749,7 +749,10 @@ import type {
   SourceDispatchChainContext,
 } from "../../application/types";
 import { projectWakeProgressItemsForClient } from "../../application/wake-progress-client-projection";
-import { projectWakeTiming } from "../../application/wake-timing";
+import {
+  projectWakeTiming,
+  type WakeTimingInteraction,
+} from "../../application/wake-timing";
 import {
   isRuntimeCoordinatorExecutionLocallyQueued,
   projectWakeTraceWaterfall,
@@ -27403,22 +27406,16 @@ export class Space extends DurableObject<CoreBindings> {
       input.evidence.waterfall.items.map(
         async (item): Promise<[string, WakeTiming] | null> => {
           const dispatchId = item.correlation.dispatchId;
-          // Without dispatch evidence, or when a recorded dispatch's trace
-          // could not be read, elapsed time cannot be attributed to any stage.
-          const traceResponse = dispatchId
-            ? input.evidence.tracesByDispatchId.get(dispatchId)
-            : undefined;
-          if (
-            !dispatchId ||
-            traceResponse === null ||
-            traceResponse?.nativeDeliveryTrace ||
-            (traceResponse && !traceResponse.trace)
-          ) {
+          // A Space outbox record alone, an unread trace, and a hosted native
+          // delivery all leave `trace` null; the projection rejects the rest.
+          const trace = dispatchId
+            ? (input.evidence.tracesByDispatchId.get(dispatchId)?.trace ?? null)
+            : null;
+          if (!trace) {
             return null;
           }
-          const trace = traceResponse?.trace ?? null;
-          const execution = trace?.runtimeCoordinatorExecution ?? null;
-          let pendingInteractionRequestedAtMs: number | null = null;
+          const execution = trace.runtimeCoordinatorExecution;
+          let interaction: WakeTimingInteraction | null = null;
           if (
             execution &&
             execution.terminalOutcome === null &&
@@ -27426,12 +27423,14 @@ export class Space extends DurableObject<CoreBindings> {
               item.summary.status === "pending")
           ) {
             try {
-              const interaction = await this.readWakeProgressAgentInteraction({
+              const read = await this.readWakeProgressAgentInteraction({
                 actorOwnerUserId: input.viewerOwnerUserId,
                 execution,
               });
-              pendingInteractionRequestedAtMs =
-                interaction.pendingInteraction?.requestedAtMs ?? null;
+              interaction = {
+                hasPendingRequest: read.pendingInteraction !== null,
+                updatedAtMs: read.interactionUpdatedAtMs,
+              };
             } catch (error) {
               console.warn(
                 "[core.space.message_details.wake_timing_interaction_read_failed]",
@@ -27447,7 +27446,7 @@ export class Space extends DurableObject<CoreBindings> {
           }
           const timing = projectWakeTiming({
             asOfMs,
-            pendingInteractionRequestedAtMs,
+            interaction,
             requestReceivedAtMs: input.requestReceivedAtMs,
             summaryStatus: item.summary.status,
             trace,
