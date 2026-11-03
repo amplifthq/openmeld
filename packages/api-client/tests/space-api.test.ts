@@ -1387,6 +1387,20 @@ describe("api-client space api", () => {
         }),
       })
     );
+    const guideEdit = {
+      previous: "Use Linear.",
+      text: "Use Linear. Include a reproduction.",
+    };
+    await api.updateMeta({
+      spaceId: "space-123",
+      requestContext: REQUEST_CONTEXT,
+      guideEdit,
+    });
+    expect(transport).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        init: expect.objectContaining({ body: JSON.stringify({ guideEdit }) }),
+      })
+    );
   });
 
   it("reads members snapshot through the shared space api", async () => {

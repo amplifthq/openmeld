@@ -1,10 +1,11 @@
+import type { PatchSpaceMetaBody } from "@openmeld/schemas/types";
 import { useState } from "react";
 
 /**
- * An open guide edit, scoped to the Space it was written in. `saved` is the
- * guide text the edit started from, or the text most recently saved from it.
+ * `previous` is the guide text the edit started from, or the latest text
+ * this editor successfully saved.
  */
-export type SpaceGuideDraft = { spaceId: string; text: string; saved: string };
+export type SpaceGuideDraft = NonNullable<PatchSpaceMetaBody["guideEdit"]>;
 
 /**
  * Keeps an open guide edit outside the panel, so switching Space tabs (which
@@ -12,31 +13,30 @@ export type SpaceGuideDraft = { spaceId: string; text: string; saved: string };
  * unsaved text is guarded by the page's UnsavedChangesGuard.
  */
 export function useSpaceGuideDraft(spaceId: string) {
-	const [draft, setDraft] = useState<SpaceGuideDraft | null>(null);
-	const current = draft?.spaceId === spaceId ? draft : null;
+	const [draft, setDraft] = useState<{
+		spaceId: string;
+		edit: SpaceGuideDraft;
+	} | null>(null);
+	const current = draft?.spaceId === spaceId ? draft.edit : null;
 	return {
-		draft: current?.text ?? null,
-		hasUnsavedChanges: current !== null && current.text !== current.saved,
+		draft: current,
+		hasUnsavedChanges: current !== null && current.text !== current.previous,
 		discard: () => setDraft(null),
-		onDraftChange: (next: string | null) =>
-			setDraft((previous) => {
-				if (next === null) {
-					return null;
-				}
-				// Starting an edit: the opening text is what is already saved.
-				const saved = previous?.spaceId === spaceId ? previous.saved : next;
-				return { spaceId, text: next, saved };
-			}),
+		onDraftChange: (edit: SpaceGuideDraft | null) =>
+			setDraft(edit === null ? null : { spaceId, edit }),
 		/**
 		 * Called when a save succeeds. Closes the editor, unless the text
 		 * changed while the save was in flight; then the newer edit stays open.
 		 */
-		onSaved: (submitted: string) =>
+		onSaved: (submitted: string, saved: string) =>
 			setDraft((previous) => {
-				if (previous?.spaceId !== spaceId || previous.text === submitted) {
+				if (previous?.spaceId !== spaceId) {
+					return previous;
+				}
+				if (previous.edit.text === submitted) {
 					return null;
 				}
-				return { ...previous, saved: submitted };
+				return { spaceId, edit: { previous: saved, text: previous.edit.text } };
 			}),
 	};
 }

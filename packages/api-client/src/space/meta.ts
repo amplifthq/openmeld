@@ -22,6 +22,7 @@ export async function updateSpaceMeta(
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.purpose === undefined ? {} : { purpose: input.purpose }),
     ...(input.guide === undefined ? {} : { guide: input.guide }),
+    ...(input.guideEdit === undefined ? {} : { guideEdit: input.guideEdit }),
   });
 
   if (!parsedBody.success) {
