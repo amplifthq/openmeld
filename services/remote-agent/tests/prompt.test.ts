@@ -366,7 +366,7 @@ describe("remote agent system prompt", () => {
     );
   });
 
-  it("reads the rest of a Space when a thread is not enough and keeps standing rules in the guide", () => {
+  it("reads the rest of a Space when a thread is not enough and raises the read limit to continue", () => {
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
       "A Wake inside a thread does not make that thread the whole Space."
     );
@@ -374,16 +374,13 @@ describe("remote agent system prompt", () => {
       "read openmeld_read_space_context with scope=history, or openmeld_query_messages with this spaceId and no threadId"
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "say when the result is truncated"
+      "Say when the result is truncated."
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "Standing rules for a Space live in its Space guide"
+      "If the answer is still missing and coverage is not complete, continue that same read with its resumeId, the returned nextCursor, and a larger total limit."
     );
-    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "save it with openmeld_update_space_settings, keeping the existing guide and adding only the confirmed rule"
-    );
-    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
-      "Do not invent rules or switch issue trackers against it."
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).not.toContain(
+      "openmeld_update_space_settings"
     );
   });
 
