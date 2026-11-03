@@ -4,6 +4,8 @@ title: Explain an expired Inbox separately from a failed refresh
 kind: fixed
 areas: ["inbox"]
 audiences: ["members"]
+publishedAt: 2026-11-03
+evidence: ["pr:366", "workflow:41598146737"]
 ---
 
 An Inbox whose saved view has expired now says so and offers one Refresh.
