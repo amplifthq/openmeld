@@ -1342,6 +1342,15 @@ export type {
   SpaceWakeStopSelector,
 } from "./space-wake-stop";
 export type {
+  WakeTiming,
+  WakeTimingMilestone,
+  WakeTimingMilestoneName,
+  WakeTimingSegment,
+  WakeTimingSegmentKind,
+  WakeTimingState,
+  WakeTimingTotals,
+} from "./space-wake-timing";
+export type {
   GetSpaceWakeTraceWaterfallInput,
   GetSpaceWakeTraceWaterfallResponse,
   WakeTargetExecutionContext,
