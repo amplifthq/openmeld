@@ -88,7 +88,9 @@ export type WakeTimingInteraction =
   | {
       readStatus: "read";
       hasPendingRequest: boolean;
-      /** Core time of the latest interaction change; a pending request's arrival. */
+      /** Core time the pending request first reached Core, when recorded. */
+      pendingRequestArrivedAtMs: number | null;
+      /** Interaction revision: Core time of the latest interaction change. */
       updatedAtMs: number | null;
     }
   | { readStatus: "unavailable" };
@@ -445,7 +447,7 @@ function buildOpenSegments(input: {
   ) {
     return [input.current];
   }
-  const requestArrivedAtMs = input.interaction.updatedAtMs;
+  const requestArrivedAtMs = input.interaction.pendingRequestArrivedAtMs;
   if (requestArrivedAtMs === null) {
     // The Agent is waiting for input, but nothing places when that began.
     return [{ ...input.current, kind: "not_recorded", reasonCode: null }];

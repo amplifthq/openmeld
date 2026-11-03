@@ -284,6 +284,7 @@ describe("runtime transport split clients call fallback behavior", () => {
       readStatus: "read",
       interactionUpdatedAtMs: null,
       pendingInteraction,
+      pendingInteractionReceivedAtMs: null,
     });
     expect(
       stub.fetch.mock.calls.map(([url]) => new URL(url as string).pathname)

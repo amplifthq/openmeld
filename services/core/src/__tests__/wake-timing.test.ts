@@ -263,9 +263,11 @@ describe("Wake timing projection", () => {
     expect(timing.totals.byKind.delivery).toBe(0);
   });
 
+  // The interaction revision (595s) can move past the arrival with later
+  // command writes, so only the recorded arrival places the wait.
   it.each([
     [
-      "Core's arrival time for the request",
+      "Core's recorded arrival time for the request",
       590,
       [
         ["agent_run", 586_000, null],
@@ -276,14 +278,16 @@ describe("Wake timing projection", () => {
         ],
       ],
     ],
-    ["no Core arrival time", null, [["not_recorded", 596_000, null]]],
+    ["no recorded arrival time", null, [["not_recorded", 596_000, null]]],
   ] as const)("splits an open Agent run at %s", (_case, requestArrivedAt, expectedTail) => {
     const timing = projectParsed({
       asOfMs: at(600),
       interaction: {
         readStatus: "read",
         hasPendingRequest: true,
-        updatedAtMs: requestArrivedAt === null ? null : at(requestArrivedAt),
+        pendingRequestArrivedAtMs:
+          requestArrivedAt === null ? null : at(requestArrivedAt),
+        updatedAtMs: at(595),
       },
       summaryStatus: "running",
       trace: buildTrace({
@@ -297,7 +301,7 @@ describe("Wake timing projection", () => {
     });
 
     expect(summarizeSegments(timing).slice(4)).toEqual(expectedTail);
-    expect(timing.lastEvidenceAt).toBe(iso(requestArrivedAt ?? 4));
+    expect(timing.lastEvidenceAt).toBe(iso(595));
   });
 
   it("counts a redelivered execution's Agent run once from its first recorded start", () => {

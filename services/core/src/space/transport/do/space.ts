@@ -27444,6 +27444,8 @@ export class Space extends DurableObject<CoreBindings> {
                   ? {
                       readStatus: "read",
                       hasPendingRequest: read.pendingInteraction !== null,
+                      pendingRequestArrivedAtMs:
+                        read.pendingInteractionReceivedAtMs ?? null,
                       updatedAtMs: read.interactionUpdatedAtMs,
                     }
                   : { readStatus: "unavailable" };

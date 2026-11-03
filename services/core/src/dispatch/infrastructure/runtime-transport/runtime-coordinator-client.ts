@@ -897,6 +897,7 @@ export const readRuntimeTransportRuntimeCoordinatorInteraction = async (input: {
         readStatus: "read",
         interactionUpdatedAtMs: null,
         pendingInteraction: legacyResponse.data.pendingInteraction,
+        pendingInteractionReceivedAtMs: null,
       }
     : { readStatus: "unavailable" };
 };
