@@ -1728,6 +1728,61 @@ If the execution store is unavailable, stale, or internally invalid, the Board
 must fail or expose unavailable evidence rather than fall back to Dispatch
 Ledger, Agent Activity, service liveness, or client caches.
 
+### Wake Timing Read Model
+
+Wake timing partitions one workstation Wake target's elapsed time into
+contiguous, non-overlapping segments. Core projects it at read time from the
+same evidence Message Details already loads for the Wake trace waterfall; it
+adds no writer, table, event, or retention, and it never decides execution,
+Wakeability, or final outcome.
+
+Each boundary uses the earliest recorded observation:
+
+| Boundary | Evidence |
+| --- | --- |
+| Request received | Space source Signal time |
+| Queued | Head lifecycle `createdAt`, else Dispatch Ledger first-seen time |
+| Execution created | Head `executionLinkedAt`, else RuntimeCoordinator execution creation |
+| Accepted on the computer | First `lifecycle_accepted_local` event |
+| Agent started | First recorded `runningAtMs` in a running or completed lifecycle payload |
+| Agent finished | First `lifecycle_completed_local`, else `result_received` |
+| Result accepted | First `result_accepted` event, else result inbox acceptance |
+| Result visible | Final visible Space message, else reply Signal creation |
+
+Event observation times can move under keepalive replacement, so Agent start
+uses only the recorded first running time. Boundaries are clamped to a
+non-decreasing order no later than the read time, so clock skew cannot create
+negative or overlapping time. Redelivered attempts share one Agent run from the
+first recorded start; per-attempt intervals are never summed.
+
+The interval between adjacent boundaries takes that stage's kind: `routing`,
+`queue`, `delivery`, `startup`, `agent_run`, `result_delivery`, or
+`publishing`. An interval between non-adjacent boundaries is `not_recorded`;
+it is never attributed to the Agent or to OpenMeld. The one exception is a Wake
+that ended before its Agent finished and whose visible outcome is not a
+published reply: it stays in its last stage until the recorded
+RuntimeCoordinator terminal outcome or head no-execution decision, then
+`publishing` covers the visible outcome. An open Wake ends with one open
+segment for its current stage. While RuntimeCoordinator reports an unanswered
+local Agent interaction for the viewer, the open startup or Agent-run segment
+splits at the interaction's Core request time into `waiting_for_input`.
+Resolved interactions are not historical evidence yet, so earlier input waits
+remain inside `agent_run`; the Agent run therefore includes tool use and any
+wait the Agent did not report.
+
+Segment reason codes reuse existing evidence: the head waiting boundary or
+no-execution reason, `runtime_coordinator.head_queued` for an Agent Profile
+queue wait, the Service local-queue and conversation-occupancy codes, and
+`runtime_coordinator.interaction_waiting`. Totals by kind always sum to the
+end-to-end time. The projection omits a target when the dispatch lookup, its
+trace read, or a needed interaction read failed, when no dispatch evidence
+exists, or when the Wake is a hosted native delivery, because elapsed time
+could not be attributed honestly.
+
+All timing facts are `platform_observed`. Agent- or integration-reported
+business phases, such as waiting for CI or retesting, need their own reporting
+contract with a separate source label before they can join this timeline.
+
 ## Organization Logo Data Boundary
 
 Auth is the only writer for the canonical `organizations.logo` reference. The
