@@ -356,7 +356,8 @@ function InboxCollectionContents(
 					<InboxFeedItem {...input} key={row.groupKey} row={row} />
 				))}
 			</ul>
-			{members.hasNextPage || members.isFetchNextPageError ? (
+			{!input.snapshotExpired &&
+			(members.hasNextPage || members.isFetchNextPageError) ? (
 				<Button
 					className="my-2 ms-4"
 					disabled={members.isFetchingNextPage}

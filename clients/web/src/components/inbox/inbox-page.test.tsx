@@ -619,6 +619,45 @@ describe("canonical Inbox attention page", () => {
 		).toBe(false);
 	});
 
+	it.each([
+		"Show more",
+		"Retry loading",
+	])("hides %s when an open group's snapshot expires", async (action) => {
+		const grouped = row(item({ id: "group" }), {
+			group: { kind: "space", conversationCount: 2 },
+			itemCount: 2,
+		});
+		const { queryClient, queryKey } = renderPage({ rows: [grouped] });
+		mocks.feed.mockResolvedValueOnce(
+			page(
+				[row(item({ id: "cached", title: "Cached group update" }))],
+				"next-page"
+			)
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Expand groups" }));
+		const more = await screen.findByRole("button", { name: "Show more" });
+		if (action === "Retry loading") {
+			mocks.feed.mockRejectedValueOnce(new Error("Connection lost"));
+			fireEvent.click(more);
+			await screen.findByRole("button", { name: action });
+		}
+
+		act(() =>
+			queryClient.setQueryData(queryKey, {
+				pageParams: [undefined],
+				pages: [
+					{
+						...page([grouped]),
+						snapshotExpiresAt: new Date(Date.now() - 1).toISOString(),
+					},
+				],
+			})
+		);
+		await screen.findByRole("button", { name: "Refresh" });
+		expect(screen.getByText("Cached group update")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: action })).toBeNull();
+	});
+
 	it("shows an expired saved view but waits for a fresh snapshot before bulk actions", async () => {
 		const original = row(item({ id: "saved", title: "Saved update" }));
 		const { queryClient, queryKey } = renderPage({ rows: [original] });
