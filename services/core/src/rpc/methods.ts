@@ -679,6 +679,7 @@ import type {
   OrganizationUsageOverviewRpcInput,
   OwnerComputerDiagnostics,
   PatchSpaceContractBody,
+  PatchSpaceMetaBody,
   PendingGitHubAppInstallation,
   PeopleComputerFileAccessReadRpcInput,
   PeopleComputerFileAccessUpdateRpcInput,
@@ -2205,6 +2206,7 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
     purpose?: string;
     creator?: SpaceCreator;
     guide?: string;
+    guideEdit?: PatchSpaceMetaBody["guideEdit"];
     accessMode?: SpaceAccessMode;
     organizationId?: string;
     visibility?: "public" | "private";
@@ -2654,14 +2656,8 @@ export type GetSpaceMetaInput = {
   context?: CoreRpcContextInput;
   spaceAccess?: SpaceAccessContext;
 };
-export type UpdateSpaceMetaInput = {
-  ownership?: import("@openmeld/schemas/types").PatchSpaceMetaBody["ownership"];
-  allowGuests?: boolean;
+export type UpdateSpaceMetaInput = PatchSpaceMetaBody & {
   spaceId: string;
-  visibility?: SpaceMeta["visibility"];
-  name?: string;
-  purpose?: string;
-  guide?: string;
   password?: string;
   context?: CoreRpcContextInput;
 };
@@ -21988,6 +21984,7 @@ export async function rpcUpdateSpaceMeta(
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.purpose === undefined ? {} : { purpose: input.purpose }),
     ...(input.guide === undefined ? {} : { guide: input.guide }),
+    ...(input.guideEdit === undefined ? {} : { guideEdit: input.guideEdit }),
   });
   if (!parsedBody.success) {
     throw createCoreRpcHttpError({

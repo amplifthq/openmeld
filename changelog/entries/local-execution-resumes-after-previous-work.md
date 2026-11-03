@@ -4,6 +4,9 @@ title: Resume local work when the previous session's agents finish
 kind: fixed
 areas: ["service", "agents"]
 audiences: ["users", "operators"]
+publishedAt: 2026-11-03
+release: v0.3.290
+evidence: ["pr:361", "workflow:41601722765", "tag:v0.3.290"]
 ---
 
 When OpenMeld Service restarts while local agent work from its previous session

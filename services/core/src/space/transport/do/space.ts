@@ -233,6 +233,7 @@ import type {
   OpenMeldDaemonDispatchQueueRecoveryReason,
   OpenMeldDaemonMentionDispatchResultPayload,
   OpenMeldRequestContext,
+  PatchSpaceMetaBody,
   RequestChain,
   PostSpaceDispatchOutboxRedriveResponse,
   PostSpaceMembersResponse,
@@ -2612,6 +2613,7 @@ type PatchSpaceMetaInput = {
   purpose?: string;
   creator?: SpaceCreator;
   guide?: string;
+  guideEdit?: PatchSpaceMetaBody["guideEdit"];
   accessMode?: SpaceAccessMode;
   linkJoinPolicy?: SpaceLinkJoinPolicy;
   organizationId?: string;
@@ -2833,7 +2835,8 @@ export class Space extends DurableObject<CoreBindings> {
   >({
     authorize: async (session) => {
       const gate = this.postgresGateContext.getStore();
-      const checkAccess = () => this.authorizeLiveSession(session);
+      const checkAccess = () =>
+        this.withPostgresRequest(() => this.authorizeLiveSession(session));
       const authorized = gate?.active
         ? await gate.during("live_session_authorization", checkAccess)
         : await checkAccess();
@@ -2992,6 +2995,12 @@ export class Space extends DurableObject<CoreBindings> {
   private readonly postgresGateContext =
     new AsyncLocalStorage<SpaceInputGateObservation>();
 
+  private readonly publicationGate = new AsyncLocalStorage<{
+    active: boolean;
+    released: Promise<void>;
+    completions: Promise<void>[];
+  }>();
+
   private withPostgresGateScope<T>(
     operation: string,
     callback: () => Promise<T>
@@ -3026,7 +3035,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
-  private blockConcurrencyWithPostgres<T>(
+  private async blockConcurrencyWithPostgres<T>(
     operation: string,
     callback: () => Promise<T>
   ): Promise<T> {
@@ -3034,9 +3043,33 @@ export class Space extends DurableObject<CoreBindings> {
     // PostgreSQL connections used by this protected operation inside it.
     // Preserve the caller's existing serialization boundary and close the
     // pool before reopening the gate; never borrow the outer request pool.
-    return this.ctx.blockConcurrencyWhile(() =>
-      this.withPostgresGateScope(operation, callback)
-    );
+    const run = () =>
+      this.ctx.blockConcurrencyWhile(() =>
+        this.withPostgresGateScope(operation, callback)
+      );
+    // A nested publication (for example in a Direct Message) still holds
+    // its caller's gate. Only the outermost gate may release its live sends.
+    if (this.publicationGate.getStore()?.active) {
+      return run();
+    }
+    const release = Promise.withResolvers<void>();
+    const completions: Promise<void>[] = [];
+    const gate = { active: true, released: release.promise, completions };
+    let result: T;
+    try {
+      result = await this.publicationGate.run(gate, run);
+    } catch (error) {
+      // Preserve the original failure if earlier writes in this gate committed.
+      if (completions.length) {
+        this.ctx.waitUntil(Promise.allSettled(completions));
+      }
+      throw error;
+    } finally {
+      gate.active = false;
+      release.resolve();
+    }
+    await Promise.all(completions);
+    return result;
   }
   async alarm(): Promise<void> {
     return await this.withPostgresRequest(
@@ -13915,6 +13948,7 @@ export class Space extends DurableObject<CoreBindings> {
           : {}),
         ...(input.creator ? { creator: input.creator } : {}),
         ...(typeof input.guide === "string" ? { guide: input.guide } : {}),
+        ...(input.guideEdit === undefined ? {} : { guideEdit: input.guideEdit }),
         ...(input.accessMode === undefined
           ? {}
           : { accessMode: input.accessMode }),
@@ -22299,7 +22333,8 @@ export class Space extends DurableObject<CoreBindings> {
       | SpaceLiveInvalidationFrame
       | SpaceAgentStreamDeltaFrame
       | SpaceAgentStreamPartFrame
-      | SpaceAgentStreamTerminalFrame
+      | SpaceAgentStreamTerminalFrame,
+    gateReleased?: Promise<void>
   ): Promise<void> {
     if (this.sessions.size === 0) {
       return Promise.resolve();
@@ -22309,7 +22344,8 @@ export class Space extends DurableObject<CoreBindings> {
         session,
         webSocket,
       })),
-      message
+      message,
+      gateReleased
     );
   }
   private async authorizeLiveSession(session: Session): Promise<boolean> {
@@ -22566,7 +22602,8 @@ export class Space extends DurableObject<CoreBindings> {
   private broadcastSignal(
     signal: SignalEnvelope,
     signalContext?: SignalPublishContext,
-    history?: SpaceLiveSignalFrame["history"]
+    history?: SpaceLiveSignalFrame["history"],
+    gateReleased?: Promise<void>
   ): Promise<void> {
     const finalReplyClaim = resolveSignalFinalReplyClaimForLog(signal);
     if (finalReplyClaim) {
@@ -22591,7 +22628,9 @@ export class Space extends DurableObject<CoreBindings> {
           }
         : {}),
     };
-    const delivery = this.broadcast(frame);
+    const delivery = gateReleased
+      ? this.broadcast(frame, gateReleased)
+      : this.broadcast(frame);
     return history?.persisted
       ? this.trackSignalLiveDelivery(signal.id, delivery)
       : delivery;
@@ -28298,9 +28337,19 @@ export class Space extends DurableObject<CoreBindings> {
                 signalContextArg
               )
             );
-    await this.trackSignalLiveDelivery(
-      signal.id,
-      publishTextSignalUseCase({
+    const publicationGate = this.publicationGate?.getStore();
+    const held = publicationGate?.active ? publicationGate : undefined;
+    // New drains cannot borrow the gate's pool. An existing drain keeps its
+    // FIFO and may need an input that the gate currently excludes.
+    const afterRelease = (work: () => Promise<void>) =>
+      held ? held.released.then(() => this.withPostgresRequest(work)) : work();
+    // Register before persistence can yield: an alarm or Inbox read can
+    // select this Signal while its live send is still being prepared.
+    const previousSend = this.pendingSignalLiveDeliveries.get(signal.id);
+    const send = Promise.withResolvers<void>();
+    const delivered = this.trackSignalLiveDelivery(signal.id, send.promise);
+    try {
+      await publishTextSignalUseCase({
         signal: signalWithAgentActivity,
         signalContext,
         inputGateId: gate?.active ? gate.id : undefined,
@@ -28309,30 +28358,41 @@ export class Space extends DurableObject<CoreBindings> {
             persistSignalWithOptionalOutbox(...args)
           ),
         flushPendingDispatchOutbox: () =>
-          duringSpaceGateStage(gate, "background_dispatch_outbox", () =>
-            this.flushPendingDispatchOutbox()
-          ),
+          afterRelease(() => this.flushPendingDispatchOutbox()),
         recordHumanActivity: (currentSignal) =>
-          this.recordOrganizationMemberHumanActivity(currentSignal),
-        waitUntil: (promise) => this.ctx.waitUntil(promise),
-        broadcast: (currentSignal) =>
-          duringSpaceGateStage(gate, "live_delivery", () =>
-            this.broadcastSignal(currentSignal, signalContext, {
-              persisted: true,
-            })
+          afterRelease(() =>
+            this.recordOrganizationMemberHumanActivity(currentSignal)
           ),
-      })
+        waitUntil: (promise) => this.ctx.waitUntil(promise),
+        broadcast: (currentSignal) => {
+          const history = { persisted: true } as const;
+          send.resolve(
+            held
+              ? this.broadcastSignal(currentSignal, signalContext, history, held.released)
+              : this.broadcastSignal(currentSignal, signalContext, history)
+          );
+        },
+      });
+    } finally {
+      // A rejected or duplicate write never enqueues a send. For a queued
+      // Signal the receipt already follows its actual delivery promise.
+      send.resolve(previousSend);
+    }
+    const completed = delivered.then(() =>
+      afterRelease(() =>
+        flushAndScheduleSpaceInboxProjection({
+          flush: () => this.flushPendingSpaceInboxProjectionOutbox(),
+          schedule: () => this.syncSpaceBackgroundAlarm(),
+          spaceId: this.spaceId,
+          storage: this.ctx.storage,
+        })
+      )
     );
-    await flushAndScheduleSpaceInboxProjection({
-      flush: () => duringSpaceGateStage(gate, "inbox_projection", () =>
-        this.flushPendingSpaceInboxProjectionOutbox()
-      ),
-      schedule: () => duringSpaceGateStage(gate, "alarm_schedule", () =>
-        this.syncSpaceBackgroundAlarm()
-      ),
-      spaceId: this.spaceId,
-      storage: this.ctx.storage,
-    });
+    if (held?.active) {
+      held.completions.push(completed);
+    } else {
+      await completed;
+    }
   }
   private async recordOrganizationMemberHumanActivity(
     signal: SignalEnvelope

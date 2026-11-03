@@ -5899,6 +5899,14 @@ cloud-first order is satisfied.
 
 ### Hosted Center Agent Space Guide Contract
 
+For a human owner's Web edit, `PATCH /v1/spaces/:spaceId/meta` takes
+`guideEdit: { previous, text }` as its only update. The owning Space compares
+`previous` (empty string for no guide) to the current guide immediately before
+writing. A mismatch returns 409 `space.guide_conflict` without changing metadata.
+The existing `guide` string remains an explicit replacement for older clients.
+The response and the per-turn guide projection are unchanged. Release Core and
+Gateway support before Web; an older receiver rejects a standalone guide edit.
+
 `packages/schemas/src/schemas/runtime/remote-agent-turn-envelope.ts` owns the
 optional bounded `space.guide` projection on a Remote Agent turn envelope. Core
 reads it from the owning Space Durable Object for each Space-context native

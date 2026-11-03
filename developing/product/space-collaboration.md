@@ -642,7 +642,12 @@ boundaries taking precedence.
 
 In Web, an ordinary Space shows the guide in a Guide tab after Files. Every
 member can read it; Space owners can edit and save it there, and Core still
-authorizes the write. The guide accepts up to `MAX_TEXT_LENGTH` (100,000)
+authorizes the write. When a member confirms a durable Space rule in conversation,
+the Center Agent replies with the agreed wording and explains that a human
+Space owner can save it here.
+Web saves against the guide the owner started editing. If its text has changed,
+the owner's draft stays open so they can copy their changes and edit the latest
+guide. The guide accepts up to `MAX_TEXT_LENGTH` (100,000)
 characters, the same cap as other Space text. Web does not show a running
 count and reports the cap only when an edit exceeds it. An unsaved edit
 survives switching Space tabs, and the tab rereads the guide each time it

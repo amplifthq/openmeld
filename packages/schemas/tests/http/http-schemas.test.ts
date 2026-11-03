@@ -715,6 +715,20 @@ describe("http schemas", () => {
       ).toBe(false);
     });
 
+    it("requires the reviewed guide and rejects mixing a guarded edit with replacement", () => {
+      expect(
+        patchSpaceMetaBodySchema.safeParse({
+          guideEdit: { text: "Unreviewed." },
+        }).success
+      ).toBe(false);
+      expect(
+        patchSpaceMetaBodySchema.safeParse({
+          guideEdit: { previous: "", text: "Reviewed." },
+          guide: "Unconditional replacement.",
+        }).success
+      ).toBe(false);
+    });
+
     it("rejects creator profileId when kind and runtime id shape disagree", () => {
       expect(
         spaceMetaSchema.safeParse({

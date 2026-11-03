@@ -85,6 +85,7 @@ import {
   rpcPostSpaceWakeStop,
   rpcPostStatusSignal,
   rpcPostSystemNoticeSignal,
+  rpcUpdateSpaceMeta,
 } from "../src/rpc/methods";
 import {
   rpcReadMessages,
@@ -6130,6 +6131,63 @@ describe("OpenMeld Core", () => {
     );
     expect(response.status).toBe(400);
     await expect(response.text()).resolves.toContain("Guide too long");
+  });
+  it("only saves a human owner's guide edit against the guide they reviewed", async () => {
+    const owner = {
+      profileId: SECOND_HUMAN_PROFILE_ID,
+      openMeldProfileId: SECOND_HUMAN_PROFILE_ID,
+      profileKind: "human" as const,
+      ownerUserId: "guide-owner",
+    };
+    const spaceId = await createSpace({ name: "Issue rules" }, owner);
+    const url = `${BASE_URL}/v1/spaces/${spaceId}/meta`;
+    const edit = (
+      previous: string,
+      text: string,
+      actor: TestAuthProfile = owner
+    ) =>
+      fetchWithOpenMeldAuth(
+        url,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ guideEdit: { previous, text } }),
+        },
+        actor
+      );
+
+    for (const profileKind of ["human", "agent"] as const) {
+      const denied = await edit("", "Unauthorized rule.", {
+        profileId: "other-profile",
+        openMeldProfileId: "other-profile",
+        ownerUserId: profileKind === "agent" ? owner.ownerUserId : "non-owner",
+        profileKind,
+      });
+      expect(await readResponseStatusAndCode(denied)).toEqual({
+        status: 403,
+        code: "space.forbidden",
+      });
+    }
+    const updated = await edit("", "Use Linear.");
+    expect(updated.status).toBe(200);
+    const stale = await edit("", "File issues in GitHub.");
+    expect(await readResponseStatusAndCode(stale)).toEqual({
+      status: 409,
+      code: "space.guide_conflict",
+    });
+    const current = await fetchWithOpenMeldAuth(url, undefined, owner);
+    await expect(current.json()).resolves.toMatchObject({
+      guide: "Use Linear.",
+    });
+    const reconciled = await rpcUpdateSpaceMeta(env as CoreBindings, {
+      spaceId,
+      guideEdit: {
+        previous: "Use Linear.",
+        text: "Use Linear. Include a reproduction.",
+      },
+      context: createRpcContext({ ...owner, requestId: "save-reviewed-guide" }),
+    });
+    expect(reconciled.guide).toBe("Use Linear. Include a reproduction.");
   });
   it("stores space creator + guide on create and supports metadata updates", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
@@ -13854,87 +13912,137 @@ describe("OpenMeld Core", () => {
       history.signals?.filter((signal) => signal.id === published.id)
     ).toHaveLength(1);
   });
-  it("identifies a persisted message while its input gate waits for live delivery", async () => {
-    const spaceId = await createSpace({ name: "Slow message delivery" });
+  it.each([
+    "idempotent message",
+    "thread reply",
+  ] as const)("admits another Space RPC while a committed %s waits for an earlier live send", async (kind) => {
+    const spaceId = await createSpace({ name: "Queued message delivery" });
     const spaces = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
-    const context = createRpcContext({
-      requestId: "slow-gate-request",
-      profileId: "slow-gate-author",
-      profileKind: "human",
-      profileName: "Slow Gate Author",
-      ownerUserId: "slow-gate-owner",
-    });
-    await runInDurableObject(
-      spaces.get(spaces.idFromString(spaceId)),
-      async (instance) => {
-        const warn = vi.spyOn(console, "warn");
-        const info = vi.spyOn(console, "info");
-        const delivery = vi
-          .spyOn(
-            instance as unknown as {
-              broadcastSignal(signal: SignalEnvelope): Promise<void>;
-            },
-            "broadcastSignal"
-          )
-          .mockImplementationOnce(async (signal) => {
-            const persisted = info.mock.calls.find(
-              ([label, record]) =>
-                label === "[core.openmeld.space.signal_persisted]" &&
-                record?.signalId === signal.id
-            )?.[1];
-            expect(persisted?.gateId).toEqual(expect.any(String));
-            // Keep the real input gate open until its own timer observes the wait.
-            await vi.waitFor(
-              () => {
-                expect(warn).toHaveBeenCalledWith(
-                  "[core.space.input_gate]",
-                  expect.objectContaining({
-                    gateId: persisted.gateId,
-                    durableObjectId: spaceId,
-                    operation: "post_idempotent_signal",
-                    requestId: "slow-gate-request",
-                    phase: "callback",
-                    status: "pending",
-                    persistedSignalId: signal.id,
-                    pendingStages: expect.objectContaining({
-                      live_delivery: 1,
-                    }),
-                  })
-                );
-              },
-              { timeout: 8000, interval: 100 }
-            );
-          });
-        try {
-          const signal = await instance.rpcPostSignalOnceByClientMessageId({
-            authoringPolicy: "system_emitted",
-            clientMessageId: "slow-gate-message",
-            context,
-            meta: { clientMessageId: "slow-gate-message" },
-            profile: {
-              kind: "human",
-              profileId: "slow-gate-author",
-              profileName: "Slow Gate Author",
-            },
-            spaceId,
-            text: "Wait for live delivery",
-          });
-          expect(delivery).toHaveBeenCalled();
-          expect(warn).toHaveBeenCalledWith(
-            "[core.space.input_gate]",
-            expect.objectContaining({
-              status: "completed",
-              persistedSignalId: signal.id,
-            })
-          );
-        } finally {
-          delivery.mockRestore();
-          info.mockRestore();
-          warn.mockRestore();
+    const stub = spaces.get(spaces.idFromString(spaceId));
+    let threadPath: string | undefined;
+    if (kind === "thread reply") {
+      const root = await postTextSignal(spaceId, "Thread root");
+      const created = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${spaceId}/threads`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            rootSignalId: root.id,
+            clientMutationId: randomUUID(),
+          }),
         }
+      );
+      expect(created.status).toBe(200);
+      const { thread } = (await created.json()) as {
+        thread: { threadId: string };
+      };
+      threadPath = `/threads/${thread.threadId}/signals`;
+    }
+    const context = createRpcContext({
+      requestId: "queued-send",
+      profileId: "queued-author",
+      profileKind: "human",
+      profileName: "Author",
+      ownerUserId: "queued-owner",
+    });
+    let enqueued = false;
+    const access = Promise.withResolvers<boolean>();
+    const post = runInDurableObject(stub, async (instance) => {
+      const target = instance as unknown as {
+        sessions: Map<unknown, unknown>;
+        broadcast(message: string): Promise<void>;
+        broadcastSignal(
+          signal: SignalEnvelope,
+          ...other: unknown[]
+        ): Promise<void>;
+        authorizeLiveSession(): Promise<boolean>;
+      };
+      const profile = {
+        kind: "human" as const,
+        profileId: "queued-author",
+        profileName: "Author",
+      };
+      const send = vi.fn();
+      const socket = { send, close: vi.fn() };
+      target.sessions.set(socket, { profile, supportsLiveSignalHistory: true });
+      const authorize = vi
+        .spyOn(target, "authorizeLiveSession")
+        .mockImplementationOnce(() => access.promise)
+        .mockResolvedValue(true);
+      const first = target.broadcast("earlier frame");
+      const broadcast = target.broadcastSignal.bind(target);
+      const delivery = vi
+        .spyOn(target, "broadcastSignal")
+        .mockImplementationOnce((signal, ...other) => {
+          const receipt = broadcast(signal, ...other);
+          enqueued = true;
+          return receipt;
+        });
+      try {
+        let signal: SignalEnvelope;
+        if (threadPath) {
+          const init = {
+            method: "POST",
+            body: JSON.stringify({
+              text: "Queued thread reply",
+              clientMessageId: randomUUID(),
+            }),
+          };
+          const response = await instance.fetch(
+            new Request(
+              `https://openmeld-core.internal${threadPath}?space=${spaceId}`,
+              {
+                ...init,
+                headers: buildOpenMeldAuthHeaders(
+                  `${BASE_URL}/v1/spaces/${spaceId}${threadPath}`,
+                  init
+                ),
+              }
+            )
+          );
+          expect(response.status).toBe(200);
+          signal = ((await response.json()) as { signal: SignalEnvelope })
+            .signal;
+        } else {
+          signal = await instance.rpcPostSignalOnceByClientMessageId({
+            authoringPolicy: "system_emitted",
+            clientMessageId: "queued-message",
+            context,
+            meta: { clientMessageId: "queued-message" },
+            profile,
+            spaceId,
+            text: "Deliver after the earlier frame",
+          });
+        }
+        await first;
+        const frames = send.mock.calls.map(([frame]) => String(frame));
+        expect(frames.indexOf("earlier frame")).toBeGreaterThanOrEqual(0);
+        expect(
+          frames.findIndex((frame) => frame.includes(signal.id))
+        ).toBeGreaterThan(frames.indexOf("earlier frame"));
+        expect(authorize.mock.calls.length).toBeGreaterThanOrEqual(2);
+      } finally {
+        access.resolve(false);
+        target.sessions.delete(socket);
+        delivery.mockRestore();
+        authorize.mockRestore();
       }
-    );
-  }, 15_000);
+    });
+    // The waiting session's continuation belongs to an earlier input, so
+    // issue the independent RPC from the caller, outside the publishing gate.
+    const read = (async () => {
+      await vi.waitFor(() => expect(enqueued).toBe(true));
+      await runInDurableObject(stub, async (instance) => {
+        await instance.rpcReadFinalReplyClaimOutcome({
+          spaceId,
+          dispatchId: "queued-delivery-callback",
+          profileId: "queued-author",
+        });
+        access.resolve(true);
+      });
+    })();
+    await Promise.all([post, read]);
+  }, 38_000);
   it("returns one signal for concurrent idempotent writes alongside dispatch callbacks and an alarm", async () => {
     const spaceId = await createSpace({
       name: `rpc-idempotent-concurrent-${Date.now()}`,
