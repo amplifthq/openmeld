@@ -521,7 +521,7 @@ describe("canonical Inbox attention page", () => {
 		expect(await screen.findByText("Older update")).toBeTruthy();
 	});
 
-	it("shows one refresh warning when an expired snapshot makes open groups fail, and Retry loads a new Inbox snapshot", async () => {
+	it("offers one Refresh for an expired snapshot, then loads an open group with the new snapshot", async () => {
 		const first = item({ id: "first", title: "Saved update" });
 		const grouped = row(first, {
 			group: { kind: "space", conversationCount: 2 },
@@ -570,13 +570,18 @@ describe("canonical Inbox attention page", () => {
 				name: "Design Room 2 conversations · 17 unread",
 			})
 		);
-		await waitFor(() =>
-			expect(
-				screen.getAllByText(
-					"Couldn’t refresh. Showing the latest Inbox view available."
-				)
-			).toHaveLength(1)
-		);
+		expect(screen.getAllByRole("button", { name: "Refresh" })).toHaveLength(1);
+		expect(screen.getByText("This Inbox view has expired.")).toBeTruthy();
+		expect(
+			screen.queryByText("Couldn’t load the updates in this group.")
+		).toBeNull();
+		expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+		expect(
+			screen.queryByText(
+				"Couldn’t refresh. Showing the latest Inbox view available."
+			)
+		).toBeNull();
+		expect(mocks.feed).not.toHaveBeenCalled();
 		expect(
 			(
 				screen.getByRole("button", {
@@ -584,14 +589,17 @@ describe("canonical Inbox attention page", () => {
 				}) as HTMLButtonElement
 			).disabled
 		).toBe(true);
-		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 		await waitFor(() =>
 			expect(
-				screen.queryByText(
-					"Couldn’t refresh. Showing the latest Inbox view available."
+				mocks.feed.mock.calls.some(
+					([query]) =>
+						query?.groupKey === "Y29udmVyc2F0aW9u" &&
+						query.snapshotId === "fresh-snapshot"
 				)
-			).toBeNull()
+			).toBe(true)
 		);
+		expect(screen.queryByText("This Inbox view has expired.")).toBeNull();
 		expect(
 			(
 				screen.getByRole("button", {
@@ -606,7 +614,7 @@ describe("canonical Inbox attention page", () => {
 		).toBeTruthy();
 		expect(
 			mocks.feed.mock.calls.some(
-				([query]) => query?.snapshotId === "expired-snapshot" && !query.groupKey
+				([query]) => query?.snapshotId === "expired-snapshot"
 			)
 		).toBe(false);
 	});
@@ -635,6 +643,13 @@ describe("canonical Inbox attention page", () => {
 			).toBe(true)
 		);
 		expect(screen.getByText("Saved update")).toBeTruthy();
+		expect(screen.getByText("This Inbox view has expired.")).toBeTruthy();
+		expect(
+			screen.queryByText(
+				"Couldn’t refresh. Showing the latest Inbox view available."
+			)
+		).toBeNull();
+		expect(mocks.feed).not.toHaveBeenCalled();
 		expect(mocks.selection).not.toHaveBeenCalled();
 		await act(async () => {
 			await queryClient.invalidateQueries({ queryKey });

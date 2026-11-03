@@ -1,11 +1,12 @@
 ---
 id: inbox-expired-snapshot-refresh
-title: Recover an expired Inbox with one refresh
+title: Explain an expired Inbox separately from a failed refresh
 kind: fixed
 areas: ["inbox"]
 audiences: ["members"]
 ---
 
-An Inbox that stays open past its saved view now shows one refresh warning, at
-the top of the page. Retry loads a new view, including on Desktop, instead of
-repeating the same warning for every open group.
+An Inbox whose saved view has expired now says so and offers one Refresh.
+That refresh loads a new view, and open groups use the new view instead of
+retrying the expired one. A refresh that actually fails still says it could
+not refresh.

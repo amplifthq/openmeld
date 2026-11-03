@@ -51,7 +51,8 @@ import {
 	InboxInitialError,
 	InboxItemLookupWarning,
 	InboxListSkeleton,
-	InboxRefreshWarning,
+	InboxSavedViewNotice,
+	inboxSavedViewNotice,
 } from "./inbox-page-presentation";
 import { INBOX_TABS } from "./inbox-page-tabs";
 import { useInboxRemoval } from "./inbox-removal-dialog";
@@ -98,18 +99,6 @@ function InboxSourceDetails({ target }: { target: InboxItem["sourceTarget"] }) {
 		);
 	}
 	return null;
-}
-
-function inboxRefreshWarningShown(input: {
-	hasData: boolean;
-	isFetchNextPageError: boolean;
-	isRefetchError: boolean;
-	snapshotExpired: boolean;
-}) {
-	return (
-		input.snapshotExpired ||
-		(input.isRefetchError && input.hasData && !input.isFetchNextPageError)
-	);
 }
 
 function markReadLabel(count: number | null): string {
@@ -321,7 +310,7 @@ export function InboxPage(input: {
 		INBOX_TABS.findIndex((tab) => tab.view === input.view)
 	);
 	const loadMoreState = resolveInboxFeedLoadMoreState(feed, snapshotExpired);
-	const refreshWarningShown = inboxRefreshWarningShown({
+	const savedViewNotice = inboxSavedViewNotice({
 		hasData: Boolean(feed.data),
 		isFetchNextPageError: feed.isFetchNextPageError,
 		isRefetchError: feed.isRefetchError,
@@ -432,9 +421,10 @@ export function InboxPage(input: {
 				{deepLink.isError && deepLink.error.status !== 404 ? (
 					<InboxItemLookupWarning onRetry={() => deepLink.refetch()} />
 				) : null}
-				{refreshWarningShown ? (
-					<InboxRefreshWarning onRetry={() => feed.refetch()} />
-				) : null}
+				<InboxSavedViewNotice
+					kind={savedViewNotice}
+					onRefresh={() => feed.refetch()}
+				/>
 				{INBOX_TABS.map((tab, index) => (
 					<TabsSubtlePanel
 						idPrefix="inbox-view"
@@ -460,9 +450,10 @@ export function InboxPage(input: {
 										onSetRead={setRead}
 										organizationId={currentOrganization.id}
 										organizationSlug={currentOrganization.slug}
-										refreshWarningShown={refreshWarningShown}
+										refreshWarningShown={savedViewNotice === "failed"}
 										rows={rows}
 										sectionAction={selectionAction}
+										snapshotExpired={snapshotExpired}
 										snapshotId={firstPage.snapshotId}
 									/>
 								) : null}
