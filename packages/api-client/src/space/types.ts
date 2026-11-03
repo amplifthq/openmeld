@@ -366,6 +366,7 @@ export type SpaceApi = {
       includeThreadContext?: true;
       signalId: string;
       executionContextVersion?: 1;
+      timingVersion?: 1;
       delegationVersion?: 1;
       delegationCursor?: string;
     }

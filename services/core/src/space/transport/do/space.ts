@@ -305,6 +305,7 @@ import type {
   UpdateSpaceFileEntryResponse,
   WakeProgressItem,
   WakeProgressPhase,
+  WakeTiming,
   WakeTraceWaterfallItem,
 } from "@openmeld/schemas/types";
 import {
@@ -747,6 +748,7 @@ import type {
   SourceDispatchChainContext,
 } from "../../application/types";
 import { projectWakeProgressItemsForClient } from "../../application/wake-progress-client-projection";
+import { projectWakeTiming } from "../../application/wake-timing";
 import {
   isRuntimeCoordinatorExecutionLocallyQueued,
   projectWakeTraceWaterfall,
@@ -2171,6 +2173,19 @@ type SpaceReadViewerIdentity = {
   viewerOwnerUserId?: string;
   viewerProfileId?: string;
   creatorProfileIdByProfileId?: CreatorProfileIdsByProfileId;
+};
+type SpaceWakeTraceEvidenceInput = {
+  agentLocalOriginFactsViewer?: SpaceReadViewerIdentity;
+  executionContextVersion?: 1;
+  clientMessageId?: string | null;
+  sourceSignalId?: string | null;
+  targetProfileId?: string;
+};
+type SpaceWakeTraceEvidence = {
+  lookupError: unknown | null;
+  // A null value is a dispatch whose trace read failed.
+  tracesByDispatchId: ReadonlyMap<string, SpaceDispatchTraceResponse | null>;
+  waterfall: GetSpaceWakeTraceWaterfallResponse;
 };
 const stripLiveSignalHistory = (
   frame: SpaceLiveSignalFrame
@@ -12708,6 +12723,9 @@ export class Space extends DurableObject<CoreBindings> {
         if (input.executionContextVersion === 1) {
           url.searchParams.set("executionContextVersion", "1");
         }
+        if (input.timingVersion === 1) {
+          url.searchParams.set("timingVersion", "1");
+        }
         const request = this.buildDirectRpcRequest({
           path: `${url.pathname}${url.search}`,
           method: "GET",
@@ -17891,6 +17909,9 @@ export class Space extends DurableObject<CoreBindings> {
                 ),
               }
             : {}),
+          ...(url.searchParams.has("timingVersion")
+            ? { timingVersion: Number(url.searchParams.get("timingVersion")) }
+            : {}),
         });
         if (!parsed.success) {
           return new Response(
@@ -17903,6 +17924,7 @@ export class Space extends DurableObject<CoreBindings> {
           signalId: parsed.data.signalId,
           includeThreadContext: parsed.data.includeThreadContext,
           executionContextVersion: parsed.data.executionContextVersion,
+          timingVersion: parsed.data.timingVersion,
           viewer: await this.resolveReadViewerIdentity(spaceAccess),
         });
         if (!details) {
@@ -27112,6 +27134,7 @@ export class Space extends DurableObject<CoreBindings> {
     includeThreadContext?: true;
     signalId: string;
     executionContextVersion?: 1;
+    timingVersion?: 1;
     viewer?: SpaceReadViewerIdentity;
   }): Promise<GetSpaceMessageDetailsResponse | null> {
     if (
@@ -27158,17 +27181,24 @@ export class Space extends DurableObject<CoreBindings> {
     const wakeClientMessageId = wakeSourceSignal
       ? normalizeOptionalText(wakeSourceSignal.data.meta?.clientMessageId)
       : null;
-    const wakeTraceItems = wakeSourceSignal
-      ? (
-          await this.readSpaceWakeTraceWaterfall({
-            agentLocalOriginFactsViewer: input.viewer,
-            executionContextVersion: input.executionContextVersion,
-            ...(wakeClientMessageId
-              ? { clientMessageId: wakeClientMessageId }
-              : { sourceSignalId: wakeSourceSignal.id }),
+    const wakeTraceEvidence = wakeSourceSignal
+      ? await this.readSpaceWakeTraceEvidence({
+          agentLocalOriginFactsViewer: input.viewer,
+          executionContextVersion: input.executionContextVersion,
+          ...(wakeClientMessageId
+            ? { clientMessageId: wakeClientMessageId }
+            : { sourceSignalId: wakeSourceSignal.id }),
+        })
+      : null;
+    const wakeTraceItems = wakeTraceEvidence?.waterfall.items ?? [];
+    const wakeTimingByTargetProfileId =
+      input.timingVersion === 1 && wakeSourceSignal && wakeTraceEvidence
+        ? await this.readMessageDetailsWakeTiming({
+            evidence: wakeTraceEvidence,
+            requestReceivedAtMs: wakeSourceSignal.ts,
+            viewerOwnerUserId: input.viewer?.viewerOwnerUserId,
           })
-        ).items
-      : [];
+        : undefined;
     const workingDetails = await readAgentWorkingDetailsForSignal({
       storage: this.agentStreamProjectionStorage,
       signalId: signal.id,
@@ -27215,6 +27245,7 @@ export class Space extends DurableObject<CoreBindings> {
         : null,
       visibleSignal,
       wakeSourceSignal,
+      ...(wakeTimingByTargetProfileId ? { wakeTimingByTargetProfileId } : {}),
       wakeTraceItems,
       workingDetails,
       viewerOwnerUserId: input.viewer?.viewerOwnerUserId,
@@ -27320,13 +27351,82 @@ export class Space extends DurableObject<CoreBindings> {
       return new Map();
     }
   }
-  private async readSpaceWakeTraceWaterfall(input: {
-    agentLocalOriginFactsViewer?: SpaceReadViewerIdentity;
-    executionContextVersion?: 1;
-    clientMessageId?: string | null;
-    sourceSignalId?: string | null;
-    targetProfileId?: string;
-  }): Promise<GetSpaceWakeTraceWaterfallResponse> {
+  private async readMessageDetailsWakeTiming(input: {
+    evidence: SpaceWakeTraceEvidence;
+    requestReceivedAtMs: number;
+    viewerOwnerUserId?: string;
+  }): Promise<ReadonlyMap<string, WakeTiming>> {
+    if (input.evidence.lookupError !== null) {
+      return new Map();
+    }
+    const asOfMs = Date.now();
+    const entries = await Promise.all(
+      input.evidence.waterfall.items.map(
+        async (item): Promise<[string, WakeTiming] | null> => {
+          const dispatchId = item.correlation.dispatchId;
+          // Without dispatch evidence, or when a recorded dispatch's trace
+          // could not be read, elapsed time cannot be attributed to any stage.
+          const traceResponse = dispatchId
+            ? input.evidence.tracesByDispatchId.get(dispatchId)
+            : undefined;
+          if (
+            !dispatchId ||
+            traceResponse === null ||
+            traceResponse?.nativeDeliveryTrace ||
+            (traceResponse && !traceResponse.trace)
+          ) {
+            return null;
+          }
+          const trace = traceResponse?.trace ?? null;
+          const execution = trace?.runtimeCoordinatorExecution ?? null;
+          let pendingInteractionRequestedAtMs: number | null = null;
+          if (
+            execution &&
+            execution.terminalOutcome === null &&
+            (item.summary.status === "running" ||
+              item.summary.status === "pending")
+          ) {
+            try {
+              const interaction = await this.readWakeProgressAgentInteraction({
+                actorOwnerUserId: input.viewerOwnerUserId,
+                execution,
+              });
+              pendingInteractionRequestedAtMs =
+                interaction.pendingInteraction?.requestedAtMs ?? null;
+            } catch (error) {
+              console.warn(
+                "[core.space.message_details.wake_timing_interaction_read_failed]",
+                {
+                  dispatchId,
+                  errorMessage: formatUnknownErrorMessage(error),
+                  spaceId: this.spaceId,
+                  targetProfileId: item.targetProfileId,
+                }
+              );
+              return null;
+            }
+          }
+          const timing = projectWakeTiming({
+            asOfMs,
+            pendingInteractionRequestedAtMs,
+            requestReceivedAtMs: input.requestReceivedAtMs,
+            summaryStatus: item.summary.status,
+            trace,
+          });
+          return timing ? [item.targetProfileId, timing] : null;
+        }
+      )
+    );
+    return new Map(entries.filter((entry) => entry !== null));
+  }
+  private async readSpaceWakeTraceWaterfall(
+    input: SpaceWakeTraceEvidenceInput
+  ): Promise<GetSpaceWakeTraceWaterfallResponse> {
+    return (await this.readSpaceWakeTraceEvidence(input)).waterfall;
+  }
+  private async readSpaceWakeTraceEvidence(
+    input: SpaceWakeTraceEvidenceInput
+  ): Promise<SpaceWakeTraceEvidence> {
     const targetProfileId = normalizeOptionalText(input.targetProfileId);
     const clientMessageId = normalizeOptionalText(input.clientMessageId);
     const selectorSourceSignalId = normalizeOptionalText(input.sourceSignalId);
@@ -27395,7 +27495,7 @@ export class Space extends DurableObject<CoreBindings> {
         traceErrorsByDispatchId.add(match.dispatchId);
       }
     }
-    return projectWakeTraceWaterfall({
+    const waterfall = projectWakeTraceWaterfall({
       agentLocalOriginFactsViewer: input.agentLocalOriginFactsViewer,
       clientMessageId,
       sourceSignalId,
@@ -27415,6 +27515,7 @@ export class Space extends DurableObject<CoreBindings> {
       traceErrorsByDispatchId,
       tracesByDispatchId,
     });
+    return { lookupError, tracesByDispatchId, waterfall };
   }
   private readWakeTraceWaterfallSourceSignal(input: {
     clientMessageId: string | null;

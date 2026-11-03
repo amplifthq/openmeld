@@ -7,6 +7,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { projectSpaceMessageDetails } from "../space/application/space-message-details";
+import { projectWakeTiming } from "../space/application/wake-timing";
 
 const SPACE_ID = "space-1";
 const SENT_AT_MS = Date.UTC(2026, 5, 4, 6, 8);
@@ -390,6 +391,13 @@ describe("space Message Details projection", () => {
       },
     });
 
+    const codexTiming = projectWakeTiming({
+      asOfMs: SENT_AT_MS + 5000,
+      pendingInteractionRequestedAtMs: null,
+      requestReceivedAtMs: SENT_AT_MS,
+      summaryStatus: "running",
+      trace: null,
+    });
     const details = projectSpaceMessageDetails({
       replySignal: null,
       signal: wakeSourceSignal,
@@ -397,6 +405,9 @@ describe("space Message Details projection", () => {
       visibleReplySignal: null,
       visibleSignal: wakeSourceSignal,
       wakeSourceSignal,
+      ...(codexTiming
+        ? { wakeTimingByTargetProfileId: new Map([["agt-codex", codexTiming]]) }
+        : {}),
       wakeTraceItems: [
         createWakeTraceItem({
           reasonCode: null,
@@ -431,6 +442,8 @@ describe("space Message Details projection", () => {
         reasonCode: null,
       },
     ]);
+    expect(details.wakeContext.targets[0]?.timing).toEqual(codexTiming);
+    expect(details.wakeContext.targets[1]).not.toHaveProperty("timing");
     expect(details.diagnostics.traceSelectors).toEqual([
       {
         kind: "signal",

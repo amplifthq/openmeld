@@ -10,6 +10,7 @@ export async function getSpaceMessageDetails(
     includeThreadContext?: true;
     signalId: string;
     executionContextVersion?: 1;
+    timingVersion?: 1;
     delegationVersion?: 1;
     delegationCursor?: string;
   }
@@ -27,6 +28,9 @@ export async function getSpaceMessageDetails(
   }
   if (input.executionContextVersion === 1) {
     searchParams.set("executionContextVersion", "1");
+  }
+  if (input.timingVersion === 1) {
+    searchParams.set("timingVersion", "1");
   }
 
   return await client.requestJson({
