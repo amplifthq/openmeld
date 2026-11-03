@@ -6141,7 +6141,11 @@ describe("OpenMeld Core", () => {
     };
     const spaceId = await createSpace({ name: "Issue rules" }, owner);
     const url = `${BASE_URL}/v1/spaces/${spaceId}/meta`;
-    const edit = (previous: string, text: string, actor: TestAuthProfile = owner) =>
+    const edit = (
+      previous: string,
+      text: string,
+      actor: TestAuthProfile = owner
+    ) =>
       fetchWithOpenMeldAuth(
         url,
         {
