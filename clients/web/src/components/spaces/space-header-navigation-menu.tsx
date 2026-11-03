@@ -15,7 +15,7 @@ import {
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
 import type { Icon } from "@phosphor-icons/react";
-import { ChecksIcon, DotsThreeIcon, InfoIcon } from "@phosphor-icons/react";
+import { CheckIcon, DotsThreeIcon, InfoIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
@@ -82,7 +82,7 @@ export function SpaceHeaderNavigationMenu(input: {
 						index={input.items.length}
 						onClick={input.onMarkAllRead}
 					>
-						<ChecksIcon aria-hidden="true" />
+						<CheckIcon aria-hidden="true" />
 						Mark all as read
 					</FluidDropdownMenuItem>
 				)}
