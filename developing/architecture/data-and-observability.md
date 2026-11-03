@@ -1737,48 +1737,76 @@ same evidence Message Details already loads for the Wake trace waterfall; it
 adds no writer, table, event, or retention, and it never decides execution,
 Wakeability, or final outcome.
 
-Each boundary uses the earliest recorded observation:
+Timing exists only for a workstation Wake whose dispatch trace was read and
+carries RuntimeCoordinator evidence: an execution record or a readable head
+lifecycle. A Space outbox record without a dispatch trace, a hosted native
+delivery (top-level or inside the dispatch snapshot), an unreadable head
+without an execution, a failed dispatch lookup or trace read, and a failed
+interaction read all omit the target, because elapsed time could not be
+attributed honestly.
 
-| Boundary | Evidence |
-| --- | --- |
-| Request received | Space source Signal time |
-| Queued | Head lifecycle `createdAt`, else Dispatch Ledger first-seen time |
-| Execution created | Head `executionLinkedAt`, else RuntimeCoordinator execution creation |
-| Accepted on the computer | First `lifecycle_accepted_local` event |
-| Agent started | First recorded `runningAtMs` in a running or completed lifecycle payload |
-| Agent finished | First `lifecycle_completed_local`, else `result_received` |
-| Result accepted | First `result_accepted` event, else result inbox acceptance |
-| Result visible | Final visible Space message, else reply Signal creation |
+Each boundary uses its earliest recorded fact. OpenMeld boundaries are fact
+times; computer boundaries are Service lifecycle times bounded by Core receipt,
+matching how RuntimeCoordinator records its own local progress:
 
-Event observation times can move under keepalive replacement, so Agent start
-uses only the recorded first running time. Boundaries are clamped to a
-non-decreasing order no later than the read time, so clock skew cannot create
-negative or overlapping time. Redelivered attempts share one Agent run from the
-first recorded start; per-attempt intervals are never summed.
+| Boundary | Source | Evidence |
+| --- | --- | --- |
+| Request received | OpenMeld | Space source Signal time |
+| Queued | OpenMeld | Head lifecycle `createdAt`, else Dispatch Ledger first-seen time |
+| Execution created | OpenMeld | Head `executionLinkedAt`, else RuntimeCoordinator execution creation |
+| Accepted on the computer | Computer | First `lifecycle_accepted_local` report |
+| Agent started | Computer | First recorded `runningAtMs` in a running or completed lifecycle payload |
+| Agent finished | Computer | First `lifecycle_completed_local` report |
+| Result accepted | OpenMeld | Result inbox acceptance |
+| Result visible | OpenMeld | Final visible Space message, else the reply Signal of the published result |
+
+The `result_accepted` event and `result_received` are not boundaries: the
+event can be written after Space publication, and a result can reach Core long
+after the Agent finished, for example from the Service outbox after a
+reconnect. Event observation times can also move under keepalive replacement,
+so Agent start uses only the recorded first running time. OpenMeld boundaries
+move only to stay in order and never past the read time; a computer boundary
+is kept inside the window between the surrounding OpenMeld boundaries, so clock
+skew can shift time between adjacent computer stages but never moves Space or
+Core facts. Redelivered attempts share one Agent run from the first recorded
+start; per-attempt intervals are never summed.
 
 The interval between adjacent boundaries takes that stage's kind: `routing`,
 `queue`, `delivery`, `startup`, `agent_run`, `result_delivery`, or
 `publishing`. An interval between non-adjacent boundaries is `not_recorded`;
-it is never attributed to the Agent or to OpenMeld. The one exception is a Wake
-that ended before its Agent finished and whose visible outcome is not a
-published reply: it stays in its last stage until the recorded
-RuntimeCoordinator terminal outcome or head no-execution decision, then
-`publishing` covers the visible outcome. An open Wake ends with one open
-segment for its current stage. While RuntimeCoordinator reports an unanswered
-local Agent interaction for the viewer, the open startup or Agent-run segment
-splits at the interaction's Core request time into `waiting_for_input`.
-Resolved interactions are not historical evidence yet, so earlier input waits
-remain inside `agent_run`; the Agent run therefore includes tool use and any
-wait the Agent did not report.
+it is never attributed to the Agent or to OpenMeld.
+
+A RuntimeCoordinator decision ends work when it is a final execution outcome
+(not a retryable one, which leads to redelivery) or a head no-execution
+decision, follows every recorded progress boundary, and does not follow Space
+visibility. The stage before the decision keeps its kind only for stages the
+decision itself ends (`queue`, `delivery`, `publishing`); a computer stage may
+have ended earlier, so that interval is `not_recorded`. `publishing` then runs
+from the decision to the visible outcome, or stays open while the outcome is
+not yet visible.
+
+The waterfall summary and the shared final-visible-outcome projection decide
+the state: `settled` once the outcome is visible, `in_progress` while the
+summary is not terminal or publication is pending or retrying, otherwise
+`ended`. An in-progress Wake ends with one open segment. Without a decision,
+it keeps the last boundary's stage only when RuntimeCoordinator's current
+execution or head state reports that same stage, or when publication is pending
+after result acceptance; any other unlocated stage change is `not_recorded`.
+While RuntimeCoordinator reports an unanswered local Agent interaction for the
+viewer, the open segment splits into `waiting_for_input` at Core's arrival time
+for that request (`interactionUpdatedAtMs`), never the Service's request time.
+Without a Core arrival time, the open segment is `not_recorded`. Resolved
+interactions are not historical evidence yet, so earlier input waits remain
+inside `agent_run`; the Agent run therefore includes tool use and any wait the
+Agent did not report.
 
 Segment reason codes reuse existing evidence: the head waiting boundary or
 no-execution reason, `runtime_coordinator.head_queued` for an Agent Profile
 queue wait, the Service local-queue and conversation-occupancy codes, and
-`runtime_coordinator.interaction_waiting`. Totals by kind always sum to the
-end-to-end time. The projection omits a target when the dispatch lookup, its
-trace read, or a needed interaction read failed, when no dispatch evidence
-exists, or when the Wake is a hosted native delivery, because elapsed time
-could not be attributed honestly.
+`runtime_coordinator.interaction_waiting`. Adjacent segments with the same kind
+and reason merge. Totals by kind always sum to the end-to-end time. The last
+evidence time includes lifecycle events, execution and head updates, and the
+latest interaction change.
 
 All timing facts are `platform_observed`. Agent- or integration-reported
 business phases, such as waiting for CI or retesting, need their own reporting
