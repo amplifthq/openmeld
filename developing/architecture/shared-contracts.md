@@ -9274,6 +9274,14 @@ same lifecycle revision, such as a per-message poll taken before the request,
 cannot outrank the newer interaction state. The Service's `requestedAtMs`
 stays display data and never orders progress.
 
+The revision read also returns optional `pendingInteractionReceivedAtMs`: the
+Core time the still-pending request first reached Core, or null when no request
+is pending or it was stored before Core recorded arrivals. It is arrival
+evidence for Wake timing, not a revision; Wake progress keeps ordering by
+`interactionUpdatedAtMs`. A reader on an earlier build rejects the new field and
+uses the original-read fallback above until the rollout completes; a new reader
+treats an absent field as no recorded arrival.
+
 Provider adapters map native protocols into this contract without creating
 provider-specific approval truth:
 

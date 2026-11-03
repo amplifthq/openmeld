@@ -1797,9 +1797,11 @@ it keeps the last boundary's stage only when RuntimeCoordinator's current
 execution or head state reports that same stage, or when publication is pending
 after result acceptance; any other unlocated stage change is `not_recorded`.
 While RuntimeCoordinator reports an unanswered local Agent interaction for the
-viewer, the open segment splits into `waiting_for_input` at Core's arrival time
-for that request (`interactionUpdatedAtMs`), never the Service's request time.
-Without a Core arrival time, the open segment is `not_recorded`. Resolved
+viewer, the open segment splits into `waiting_for_input` at Core's recorded
+arrival time for that request (`pendingInteractionReceivedAtMs`), never the
+Service's request time or the interaction revision (`interactionUpdatedAtMs`),
+which later command writes can move. Without a recorded arrival time, the open
+segment is `not_recorded`. Resolved
 interactions are not historical evidence yet, so earlier input waits remain
 inside `agent_run`; the Agent run therefore includes tool use and any wait the
 Agent did not report.
