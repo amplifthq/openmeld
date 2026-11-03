@@ -567,11 +567,12 @@ to the `openmeld.gate_id` attribute on sampled `space.input_gate.*` and
 in different traces.
 
 While a gate is open, timers at 5 and 25 seconds capture snapshots. `pendingStages`
-counts unfinished calls at that instant. For example, `live_delivery` covers
-the send, `live_session_authorization` counts access checks started in that
-gate, and `inbox_live_receipts` covers waiting for prior sends.
-`background_dispatch_outbox` runs through `waitUntil` and can overlap either
-one. Once the callback returns, `phase = postgres_cleanup` covers the rest of
+counts unfinished calls at that instant. In older captures, a persisted
+Signal with `live_delivery` still pending could be waiting for a session queue
+owned by an earlier input. `background_dispatch_outbox` could overlap that
+wait. Gated text publications now finish their live sends, dispatch recovery
+and Inbox processing outside the publication gate. Once the callback returns,
+`phase = postgres_cleanup` covers the rest of
 the database scope. A gate that returns or throws after 5 seconds of observed
 elapsed time emits a final status even if its timer did not run. In production,
 the [Workers clock](https://developers.cloudflare.com/workers/runtime-apis/performance/)

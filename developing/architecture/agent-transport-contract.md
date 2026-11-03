@@ -1973,6 +1973,14 @@ row. `dispatch_results` is an archive/query projection only. A Wake may choose
 not to archive a result, but it must still close through the Space final signal
 claim when a visible outcome is published.
 
+Gated text publications reserve their live queue positions when the Signal is
+persisted. The outermost input gate protects the write and its idempotency
+decision. It releases before waiting for the live send or its Inbox projection.
+A session may already be draining an access check started by an earlier input,
+and that check must be able to resume. New session drains start after release
+and verify current access. The publishing request still awaits delivery and
+projection, and recovery reads honor the same per-Signal receipt.
+
 Space queues authorized live delivery of a persisted final Signal before its
 Inbox projection can expose the corresponding notification. Outbox drains and
 Inbox read repair wait for delivery of their selected Signals, without waiting
