@@ -84,11 +84,14 @@ const HEAD_QUEUED_REASON_CODE = "runtime_coordinator.head_queued";
 const INTERACTION_WAITING_REASON_CODE =
   "runtime_coordinator.interaction_waiting";
 
-export type WakeTimingInteraction = {
-  hasPendingRequest: boolean;
-  /** Core time of the latest interaction change; a pending request's arrival. */
-  updatedAtMs: number | null;
-};
+export type WakeTimingInteraction =
+  | {
+      readStatus: "read";
+      hasPendingRequest: boolean;
+      /** Core time of the latest interaction change; a pending request's arrival. */
+      updatedAtMs: number | null;
+    }
+  | { readStatus: "unavailable" };
 
 export type ProjectWakeTimingInput = {
   asOfMs: number;
@@ -110,7 +113,11 @@ export function projectWakeTiming(
   input: ProjectWakeTimingInput
 ): WakeTiming | null {
   const trace = input.trace;
-  if (!(trace && hasWorkstationTimingEvidence(trace))) {
+  // An unread interaction state could hide a wait for the user's input.
+  if (
+    !(trace && hasWorkstationTimingEvidence(trace)) ||
+    input.interaction?.readStatus === "unavailable"
+  ) {
     return null;
   }
   const asOfMs = Math.floor(input.asOfMs);
@@ -337,7 +344,7 @@ function buildOutcomeSegments(input: {
     const decidedStage = DECISION_ENDED_STAGES.has(lastStage)
       ? lastStage
       : "not_recorded";
-    const drafts: SegmentDraft[] = [
+    return [
       {
         endedAtMs: input.decisionAtMs,
         kind: decidedStage,
@@ -345,16 +352,14 @@ function buildOutcomeSegments(input: {
           decidedStage === "queue" ? readHeadWaitReasonCode(input.head) : null,
         startedAtMs: input.lastProgress.atMs,
       },
+      ...buildDecidedPublicationSegments({
+        asOfMs: input.asOfMs,
+        decisionAtMs: input.decisionAtMs,
+        head: input.head,
+        state: input.state,
+        visible: input.visible,
+      }),
     ];
-    if (input.visible || input.state === "in_progress") {
-      drafts.push({
-        endedAtMs: input.visible?.atMs ?? null,
-        kind: "publishing",
-        reasonCode: null,
-        startedAtMs: input.decisionAtMs,
-      });
-    }
-    return drafts;
   }
   if (input.visible) {
     return [
@@ -392,12 +397,52 @@ function buildOutcomeSegments(input: {
   });
 }
 
+// After a decision, OpenMeld posts the outcome until it is visible, until the
+// head records that publication retries were exhausted, or, while still
+// pending, until now. An exhausted wait still happened and stays counted.
+function buildDecidedPublicationSegments(input: {
+  asOfMs: number;
+  decisionAtMs: number;
+  head: FoundHeadLifecycle | null;
+  state: WakeTiming["state"];
+  visible: RecordedMilestone | null;
+}): SegmentDraft[] {
+  const publishing = (endedAtMs: number | null, reasonCode: string | null) => [
+    {
+      endedAtMs,
+      kind: "publishing" as const,
+      reasonCode,
+      startedAtMs: input.decisionAtMs,
+    },
+  ];
+  if (input.visible) {
+    return publishing(input.visible.atMs, null);
+  }
+  const exhaustion = input.head?.publicationExhaustion ?? null;
+  const exhaustedAtMs = parseIsoMs(exhaustion?.exhaustedAt);
+  if (exhaustion && exhaustedAtMs !== null) {
+    return publishing(
+      Math.max(
+        input.decisionAtMs,
+        Math.min(input.asOfMs, Math.floor(exhaustedAtMs))
+      ),
+      exhaustion.reasonCode
+    );
+  }
+  return input.state === "in_progress" ? publishing(null, null) : [];
+}
+
 function buildOpenSegments(input: {
   asOfMs: number;
   current: SegmentDraft;
   interaction: WakeTimingInteraction | null;
 }): SegmentDraft[] {
-  if (!input.interaction?.hasPendingRequest) {
+  if (
+    !(
+      input.interaction?.readStatus === "read" &&
+      input.interaction.hasPendingRequest
+    )
+  ) {
     return [input.current];
   }
   const requestArrivedAtMs = input.interaction.updatedAtMs;
@@ -573,7 +618,10 @@ function readLastEvidenceAtMs(input: {
     input.lastRecordedAtMs,
     input.trace.runtimeCoordinatorExecution?.updatedAtMs ?? null,
     parseIsoMs(input.head?.updatedAt),
-    input.interaction?.updatedAtMs ?? null,
+    parseIsoMs(input.head?.publicationExhaustion?.exhaustedAt),
+    input.interaction?.readStatus === "read"
+      ? input.interaction.updatedAtMs
+      : null,
     ...input.trace.runtimeCoordinatorEvents
       .filter((event) => LIFECYCLE_EVIDENCE_EVENT_TYPES.has(event.eventType))
       .map((event) => event.observedAtMs),

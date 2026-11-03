@@ -106,8 +106,14 @@ describe("Wake timing projection", () => {
     expect(timing.totals.endToEndMs).toBe(592_000);
   });
 
-  it.each<[string, SpaceDispatchTraceSnapshot | null]>([
-    ["a Space outbox record without a dispatch trace", null],
+  it.each<
+    [
+      string,
+      SpaceDispatchTraceSnapshot | null,
+      ProjectWakeTimingInput["interaction"],
+    ]
+  >([
+    ["a Space outbox record without a dispatch trace", null, null],
     [
       "a hosted Agent whose dispatch has a native delivery",
       {
@@ -118,6 +124,7 @@ describe("Wake timing projection", () => {
         }),
         nativeDelivery: buildNativeDelivery(),
       },
+      null,
     ],
     [
       "a workstation dispatch whose head could not be read",
@@ -130,12 +137,25 @@ describe("Wake timing projection", () => {
           targetWakeLifecycleId: "twl",
         },
       },
+      null,
     ],
-  ])("omits timing for %s", (_case, trace) => {
+    [
+      "a running Agent whose interaction state could not be read",
+      buildTrace({
+        head: buildHead({ createdAt: 1, executionLinkedAt: 2 }),
+        events: [
+          lifecycleEvent("lifecycle_accepted_local", 3),
+          lifecycleEvent("lifecycle_running", 4, { runningAtMs: at(4) }),
+        ],
+        execution: { status: "running" },
+      }),
+      { readStatus: "unavailable" },
+    ],
+  ])("omits timing for %s", (_case, trace, interaction) => {
     expect(
       projectWakeTiming({
         asOfMs: at(600),
-        interaction: null,
+        interaction,
         requestReceivedAtMs: at(0),
         summaryStatus: "pending",
         trace,
@@ -166,6 +186,36 @@ describe("Wake timing projection", () => {
       ["publishing", 500_000, null],
     ]);
     expect(timing.segments.at(-1)?.endedAt).toBeNull();
+  });
+
+  it("keeps the publication wait that ended when OpenMeld exhausted its retries", () => {
+    const timing = projectParsed({
+      asOfMs: at(600),
+      summaryStatus: "failed",
+      trace: buildTrace({
+        head: buildHead({
+          createdAt: 1,
+          executionLinkedAt: null,
+          noExecutionDecidedAt: 100,
+          publicationExhaustedAt: 550,
+          publicationIntentReadyAt: 100,
+        }),
+        events: [],
+        execution: null,
+      }),
+    });
+
+    expect(timing.state).toBe("ended");
+    expect(summarizeSegments(timing)).toEqual([
+      ["routing", 1000, null],
+      ["queue", 99_000, "daemon.profile.offline"],
+      [
+        "publishing",
+        450_000,
+        "runtime_coordinator.publication_retry_exhausted",
+      ],
+    ]);
+    expect(timing.totals.endToEndMs).toBe(550_000);
   });
 
   it("keeps a Wake that never started in the Agent queue until OpenMeld decided its outcome", () => {
@@ -231,6 +281,7 @@ describe("Wake timing projection", () => {
     const timing = projectParsed({
       asOfMs: at(600),
       interaction: {
+        readStatus: "read",
         hasPendingRequest: true,
         updatedAtMs: requestArrivedAt === null ? null : at(requestArrivedAt),
       },
@@ -353,6 +404,7 @@ function buildHead(input: {
   createdAt: number;
   executionLinkedAt: number | null;
   noExecutionDecidedAt?: number;
+  publicationExhaustedAt?: number;
   publicationIntentReadyAt?: number;
 }): HeadLifecycle {
   const targetWakeLifecycleId = "twl_v1|7:space-1|12:sig-source-1|7:agent-1";
@@ -381,6 +433,18 @@ function buildHead(input: {
           },
     ownerUserId: "owner-1",
     primaryDispatchId: "dispatch-1",
+    ...(input.publicationExhaustedAt === undefined
+      ? {}
+      : {
+          publicationExhaustion: {
+            attemptCount: 12,
+            exhaustedAt: iso(input.publicationExhaustedAt),
+            lastFailureAt: iso(input.publicationExhaustedAt),
+            lastReasonCode: "space.notice_publication_failed",
+            reasonCode: "runtime_coordinator.publication_retry_exhausted",
+            status: "publication_exhausted",
+          },
+        }),
     publicationIntent:
       input.publicationIntentReadyAt === undefined
         ? null
@@ -408,7 +472,10 @@ function buildHead(input: {
     },
     targetWakeLifecycleId,
     updatedAt: iso(
-      input.noExecutionDecidedAt ?? input.executionLinkedAt ?? input.createdAt
+      input.publicationExhaustedAt ??
+        input.noExecutionDecidedAt ??
+        input.executionLinkedAt ??
+        input.createdAt
     ),
     waitingBoundary: null,
   };

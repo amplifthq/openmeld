@@ -849,17 +849,24 @@ export const requestRuntimeTransportRuntimeCoordinatorWakeStop = async (input: {
   }
   return parsed.data;
 };
+export type RuntimeCoordinatorInteractionRead =
+  | ({
+      readStatus: "read";
+    } & RuntimeTransportRuntimeCoordinatorReadInteractionRevisionResponse)
+  | { readStatus: "unavailable" };
+
+/** Keeps a read without a pending request distinct from a failed read. */
 export const readRuntimeTransportRuntimeCoordinatorInteraction = async (input: {
   env: CoreBindings;
   ownerUserId: string;
   request: RuntimeTransportRuntimeCoordinatorReadInteractionRequest;
-}): Promise<RuntimeTransportRuntimeCoordinatorReadInteractionRevisionResponse> => {
+}): Promise<RuntimeCoordinatorInteractionRead> => {
   const parsedRequest =
     runtimeTransportRuntimeCoordinatorReadInteractionRequestSchema.safeParse(
       input.request
     );
   if (!parsedRequest.success) {
-    return { interactionUpdatedAtMs: null, pendingInteraction: null };
+    return { readStatus: "unavailable" };
   }
   const revisionResponse =
     runtimeTransportRuntimeCoordinatorReadInteractionRevisionResponseSchema.safeParse(
@@ -871,7 +878,7 @@ export const readRuntimeTransportRuntimeCoordinatorInteraction = async (input: {
       })
     );
   if (revisionResponse.success) {
-    return revisionResponse.data;
+    return { readStatus: "read", ...revisionResponse.data };
   }
   // A Hub still on an earlier build answers the revision path with
   // not_found. Keep the request visible through the frozen read; the Wake
@@ -885,13 +892,15 @@ export const readRuntimeTransportRuntimeCoordinatorInteraction = async (input: {
         body: parsedRequest.data,
       })
     );
-  return {
-    interactionUpdatedAtMs: null,
-    pendingInteraction: legacyResponse.success
-      ? legacyResponse.data.pendingInteraction
-      : null,
-  };
+  return legacyResponse.success
+    ? {
+        readStatus: "read",
+        interactionUpdatedAtMs: null,
+        pendingInteraction: legacyResponse.data.pendingInteraction,
+      }
+    : { readStatus: "unavailable" };
 };
+
 export const respondToRuntimeTransportRuntimeCoordinatorInteraction =
   async (input: {
     env: CoreBindings;

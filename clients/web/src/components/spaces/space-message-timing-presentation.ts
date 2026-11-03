@@ -93,6 +93,7 @@ const REASON_DETAILS: Readonly<Record<string, string>> = {
 		"Waiting for local agent maintenance",
 	"runtime.local_queue.starting_runtime": "Starting the local agent",
 	"runtime.agent_controller_conversation.occupied": "Waiting for another app",
+	"runtime_coordinator.publication_retry_exhausted": "Retries ran out",
 };
 
 const SUMMARY_GROUP_ORDER: readonly MessageTimingGroupKey[] = [

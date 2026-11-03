@@ -375,6 +375,7 @@ import {
 import { recordMentionDispatchPlannerDecision } from "../../../dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
 import {
   readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace,
+  type RuntimeCoordinatorInteractionRead,
   readRuntimeTransportRuntimeCoordinatorInteraction,
   readRuntimeTransportRuntimeCoordinatorPublicationWakeStopEligibility,
   recordRuntimeTransportRuntimeCoordinatorHeadPreAgentStop,
@@ -17650,19 +17651,30 @@ export class Space extends DurableObject<CoreBindings> {
       "runtimeCoordinatorExecutionId" | "openMeldServiceRuntimeId"
     >;
   }): Promise<RuntimeTransportRuntimeCoordinatorReadInteractionRevisionResponse> {
-    const unavailable = {
-      interactionUpdatedAtMs: null,
-      pendingInteraction: null,
-    };
+    const read = await this.readAgentInteraction(input);
+    return read.readStatus === "read"
+      ? {
+          interactionUpdatedAtMs: read.interactionUpdatedAtMs,
+          pendingInteraction: read.pendingInteraction,
+        }
+      : { interactionUpdatedAtMs: null, pendingInteraction: null };
+  }
+  private async readAgentInteraction(input: {
+    actorOwnerUserId?: string | null;
+    execution: Pick<
+      RuntimeCoordinatorExecutionRecord,
+      "runtimeCoordinatorExecutionId" | "openMeldServiceRuntimeId"
+    >;
+  }): Promise<RuntimeCoordinatorInteractionRead> {
     const actorOwnerUserId = normalizeOptionalText(input.actorOwnerUserId);
     if (!actorOwnerUserId) {
-      return unavailable;
+      return { readStatus: "unavailable" };
     }
     const runtimeOwnerUserId = await this.readRuntimeOwnerUserId(
       input.execution.openMeldServiceRuntimeId.value
     );
     if (!runtimeOwnerUserId) {
-      return unavailable;
+      return { readStatus: "unavailable" };
     }
     return await readRuntimeTransportRuntimeCoordinatorInteraction({
       env: this.bindings,
@@ -27423,14 +27435,18 @@ export class Space extends DurableObject<CoreBindings> {
               item.summary.status === "pending")
           ) {
             try {
-              const read = await this.readWakeProgressAgentInteraction({
+              const read = await this.readAgentInteraction({
                 actorOwnerUserId: input.viewerOwnerUserId,
                 execution,
               });
-              interaction = {
-                hasPendingRequest: read.pendingInteraction !== null,
-                updatedAtMs: read.interactionUpdatedAtMs,
-              };
+              interaction =
+                read.readStatus === "read"
+                  ? {
+                      readStatus: "read",
+                      hasPendingRequest: read.pendingInteraction !== null,
+                      updatedAtMs: read.interactionUpdatedAtMs,
+                    }
+                  : { readStatus: "unavailable" };
             } catch (error) {
               console.warn(
                 "[core.space.message_details.wake_timing_interaction_read_failed]",
@@ -27441,7 +27457,7 @@ export class Space extends DurableObject<CoreBindings> {
                   targetProfileId: item.targetProfileId,
                 }
               );
-              return null;
+              interaction = { readStatus: "unavailable" };
             }
           }
           const timing = projectWakeTiming({

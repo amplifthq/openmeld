@@ -280,13 +280,46 @@ describe("runtime transport split clients call fallback behavior", () => {
           v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
         },
       })
-    ).resolves.toEqual({ interactionUpdatedAtMs: null, pendingInteraction });
+    ).resolves.toEqual({
+      readStatus: "read",
+      interactionUpdatedAtMs: null,
+      pendingInteraction,
+    });
     expect(
       stub.fetch.mock.calls.map(([url]) => new URL(url as string).pathname)
     ).toEqual([
       "/runtime-coordinator/interaction/read-revision",
       "/runtime-coordinator/interaction/read",
     ]);
+  });
+
+  it("reports an unavailable read instead of no pending interaction when neither Hub path answers", async () => {
+    const { env, stub } = createEnv();
+    stub.fetch.mockImplementation(() =>
+      Promise.resolve(
+        Response.json(
+          {
+            code: "runtime_transport.unavailable",
+            message: "runtime transport unavailable",
+            ok: false,
+          },
+          { status: 503 }
+        )
+      )
+    );
+
+    await expect(
+      readRuntimeTransportRuntimeCoordinatorInteraction({
+        env,
+        ownerUserId: "owner-1",
+        request: {
+          actorOwnerUserId: "owner-1",
+          runtimeCoordinatorExecutionId: "rce-space-1-dispatch-1-agent-1",
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        },
+      })
+    ).resolves.toEqual({ readStatus: "unavailable" });
+    expect(stub.fetch).toHaveBeenCalledTimes(2);
   });
 
   it("uses the interaction revision when the Hub serves it", async () => {
@@ -306,6 +339,7 @@ describe("runtime transport split clients call fallback behavior", () => {
         },
       })
     ).resolves.toEqual({
+      readStatus: "read",
       interactionUpdatedAtMs: 42,
       pendingInteraction: null,
     });
