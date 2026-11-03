@@ -6,6 +6,7 @@ import { AppGlobalControls } from "#/components/app/app-global-controls";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
+import { resolveCenterAgentSectionId } from "#/lib/organizations/center-agent-navigation";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import type { SidebarPersistedState } from "#/lib/sidebar-width-cookie";
 import { APP_APPLICATION_RAIL_CLASS_NAME } from "../app/app-nav-item-style";
@@ -27,7 +28,17 @@ export function CenterAgentLayout(input: {
 			initialModuleSidebarState={input.initialOuterSidebarState}
 			moduleNavigation={<ConversationsSidebar />}
 			moduleNavigationLabel="Spaces"
-			outerRail={<AppOuterRail account={account} />}
+			outerRail={
+				<AppOuterRail
+					account={account}
+					conversationList={
+						input.currentPathname &&
+						resolveCenterAgentSectionId(input.currentPathname) === "chat"
+							? "conversation"
+							: "sidebar"
+					}
+				/>
+			}
 		>
 			<section
 				className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"

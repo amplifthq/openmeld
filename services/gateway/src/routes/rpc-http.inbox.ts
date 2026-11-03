@@ -74,6 +74,7 @@ const INBOX_ITEM_DISMISS_ROUTE = `${INBOX_ROUTE}/items/:itemId/dismiss`;
 const INBOX_ITEM_ROUTE = `${INBOX_ROUTE}/items/:itemId`;
 const SPACE_INBOX_CONVERSATION_COUNTS_VERSIONS = new Set([
   "2",
+  "3",
   OPENMELD_INBOX_SUMMARY_VERSION,
 ]);
 
@@ -419,18 +420,26 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         query.error.issues[0]?.message
       );
     }
+    const version = c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION);
+    const includePersonalUnreadCount =
+      version === OPENMELD_INBOX_SUMMARY_VERSION &&
+      query.data.presentation === "attention";
     return executeRpcRoute({
       c,
       execute: async () =>
         await c.var.coreRpc.getInboxSummary({
           includeAccountItems: supportsInboxAccountItems(c),
+          ...(includePersonalUnreadCount && {
+            includePersonalUnreadCount: true,
+          }),
           context: buildCoreRpcContext(c),
           ...query.data,
         }),
       method: "GET",
       responseSchema: inboxSummaryResponseSchema,
       resolveSuccessPayload: (result) => {
-        const parsed = inboxSummaryResponseSchema.parse(result);
+        const { personalUnreadCount, ...parsed } =
+          inboxSummaryResponseSchema.parse(result);
         const {
           priorityCount: _priority,
           needsActionCount: _action,
@@ -438,22 +447,20 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
           unreadPriorityUpdateCount: _priorityUpdates,
           ...legacyResponse
         } = parsed;
-        const requestedVersion =
-          c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ?? "";
-        const response =
-          requestedVersion === OPENMELD_INBOX_SUMMARY_VERSION &&
-          supportsInboxAccountItems(c)
-            ? parsed
-            : legacyResponse;
-        if (requestedVersion === OPENMELD_INBOX_SUMMARY_VERSION) {
-          return response;
+        if (version === "3" || version === OPENMELD_INBOX_SUMMARY_VERSION) {
+          return {
+            ...(supportsInboxAccountItems(c) ? parsed : legacyResponse),
+            ...(includePersonalUnreadCount && personalUnreadCount !== undefined
+              ? { personalUnreadCount }
+              : {}),
+          };
         }
         const {
           ordinaryUnreadCount: _ordinaryCount,
           unreadMentionCount: _mentionCount,
           ...versionTwo
-        } = response;
-        if (["1", "2"].includes(requestedVersion)) {
+        } = legacyResponse;
+        if (version === "1" || version === "2") {
           return versionTwo;
         }
         const { unreadUrgentUpdateCount: _urgentCount, ...legacy } = versionTwo;

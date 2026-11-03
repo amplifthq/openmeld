@@ -417,7 +417,7 @@ describe("Inbox routes", () => {
       ],
     };
     coreRpc.getSpaceInboxSummary.mockResolvedValue(current);
-    for (const version of ["1", "2", "3"]) {
+    for (const version of ["1", "2", "3", "4"]) {
       const response = await app.fetch(
         new Request("http://local/v1/inbox/spaces/summary", {
           headers: { "x-openmeld-inbox-summary-version": version },
@@ -611,13 +611,16 @@ describe("Inbox routes", () => {
       unreadMentionCount: 4,
       unreadUrgentUpdateCount: 3,
       ordinaryUnreadCount: 1,
+      personalUnreadCount: 5,
+      priorityCount: 5,
     });
-    for (const version of [undefined, "1", "2", "3"]) {
+    for (const version of [undefined, "1", "2", "3", "4"]) {
       const response = await app.fetch(
-        new Request("http://local/v1/inbox/summary", {
-          headers: version
-            ? { "x-openmeld-inbox-summary-version": version }
-            : {},
+        new Request("http://local/v1/inbox/summary?presentation=attention", {
+          headers: {
+            "x-openmeld-inbox-source-target-version": "9",
+            ...(version && { "x-openmeld-inbox-summary-version": version }),
+          },
         }),
         env,
         TEST_EXECUTION_CONTEXT
@@ -628,9 +631,10 @@ describe("Inbox routes", () => {
         totalUnreadCount: 8,
         unresolvedActionCount: 2,
         ...(version ? { unreadUrgentUpdateCount: 3 } : {}),
-        ...(version === "3"
-          ? { unreadMentionCount: 4, ordinaryUnreadCount: 1 }
+        ...(version === "3" || version === "4"
+          ? { unreadMentionCount: 4, ordinaryUnreadCount: 1, priorityCount: 5 }
           : {}),
+        ...(version === "4" ? { personalUnreadCount: 5 } : {}),
       });
     }
   });

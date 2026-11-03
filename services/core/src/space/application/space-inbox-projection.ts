@@ -94,7 +94,7 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   signal: SignalEnvelope;
   signalContext?: SignalPublishContext;
   spaceName: string | null;
-  threadRootAuthorUserId?: string | null;
+  replyRecipientUserId?: string | null;
   threadParticipantProfileIds?: readonly string[];
   wakeRequesterUserId?: string | null;
 }): SpaceInboxProjectionOutboxRecord | null {
@@ -125,7 +125,7 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
       activeMemberRecords: input.activeMemberRecords,
       directMessage: input.directMessage,
       mentionedProfileIds,
-      threadRootAuthorUserId: input.threadRootAuthorUserId ?? null,
+      replyRecipientUserId: input.replyRecipientUserId ?? null,
     });
   const audience = resolveAudience({
     authorUserId,
@@ -161,9 +161,9 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
         mentionedProfileIds.has(member.profileId)
       );
     const kind = isMention ? "space_mention" : audience.kind;
-    const isThreadRootAuthor =
+    const isReplyRecipient =
       !(isMention || isAuthor) &&
-      normalizeText(input.threadRootAuthorUserId) === recipientUserId;
+      normalizeText(input.replyRecipientUserId) === recipientUserId;
     candidates.push(
       inboxSourceCandidateSchema.parse({
         attention: "update",
@@ -183,8 +183,10 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
           version: 1,
           agentProfileIds: addressing.agentProfileIds,
           recipientReasons: humanRecipientReasons({
+            isAuthor,
             isMention,
-            isThreadRootAuthor,
+            isReplyRecipient,
+            inThread: input.signalContext?.threadContext !== undefined,
             isRequester: recipientUserId === input.wakeRequesterUserId,
             directMessage: input.directMessage,
           }),
@@ -194,15 +196,14 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
           kind: "space",
           signalId: focusSignalId,
           spaceId: signal.spaceId,
-          ...(isThreadRootAuthor &&
-            kind === "space_message" && { replyToRecipient: true }),
+          ...(isReplyRecipient && { replyToRecipient: true }),
           threadRootSignalId: input.signalContext?.threadContext?.rootSignalId,
         },
         title: buildTitle({
           actorName,
           isMention,
           isTerminalWakeFailure,
-          isThreadRootAuthor,
+          isReplyRecipient,
           kind,
           spaceLabel,
         }),
@@ -239,14 +240,21 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
 }
 
 function humanRecipientReasons(input: {
+  isAuthor: boolean;
   isMention: boolean;
-  isThreadRootAuthor: boolean;
+  isReplyRecipient: boolean;
+  inThread: boolean;
   isRequester: boolean;
   directMessage?: boolean;
 }): NonNullable<InboxSourceCandidate["sourceFacts"]>["recipientReasons"] {
+  if (input.isAuthor) {
+    return ["space_member"];
+  }
   return [
     ...(input.isMention ? ["human_mention" as const] : []),
-    ...(input.isThreadRootAuthor ? ["thread_reply" as const] : []),
+    ...(input.inThread && input.isReplyRecipient
+      ? ["thread_reply" as const]
+      : []),
     ...(input.isRequester ? ["requester" as const] : []),
     ...(input.directMessage ? ["direct_message" as const] : []),
     "space_member",
@@ -384,12 +392,12 @@ function resolveExplicitlyTargetedRecipientUserIds(input: {
   directMessage?: boolean;
   activeMemberRecords: readonly SpaceMemberRecord[];
   mentionedProfileIds: ReadonlySet<string>;
-  threadRootAuthorUserId: string | null;
+  replyRecipientUserId: string | null;
 }): Set<string> {
   const recipientUserIds = new Set<string>();
-  const threadRootAuthorUserId = normalizeText(input.threadRootAuthorUserId);
-  if (threadRootAuthorUserId) {
-    recipientUserIds.add(threadRootAuthorUserId);
+  const replyRecipientUserId = normalizeText(input.replyRecipientUserId);
+  if (replyRecipientUserId) {
+    recipientUserIds.add(replyRecipientUserId);
   }
   for (const member of input.activeMemberRecords) {
     const ownerUserId = normalizeText(member.ownerUserIdSnapshot);
@@ -409,7 +417,7 @@ function buildTitle(input: {
   actorName: string;
   isMention: boolean;
   isTerminalWakeFailure: boolean;
-  isThreadRootAuthor: boolean;
+  isReplyRecipient: boolean;
   kind: InboxSourceCandidate["kind"];
   spaceLabel: string;
 }): string {
@@ -419,9 +427,9 @@ function buildTitle(input: {
       INBOX_TITLE_MAX_CHARS
     );
   }
-  if (input.isThreadRootAuthor) {
+  if (input.isReplyRecipient) {
     return truncateInboxText(
-      `${input.actorName} replied to your thread in ${input.spaceLabel}`,
+      `${input.actorName} replied to you in ${input.spaceLabel}`,
       INBOX_TITLE_MAX_CHARS
     );
   }

@@ -372,6 +372,8 @@ export const listInboxItemsWireResponseSchema = z.strictObject({
 });
 
 export const inboxSummaryResponseSchema = z.strictObject({
+  // Only summary-v4 recipients request the count of messages addressed to them.
+  personalUnreadCount: z.number().int().nonnegative().optional(),
   // Opt-in version-9 source facts: priority is not synonymous with open work.
   priorityCount: z.number().int().nonnegative().optional(),
   needsActionCount: z.number().int().nonnegative().optional(),
@@ -697,6 +699,7 @@ export const listInboxItemsRpcInputSchema = listInboxItemsQuerySchema.extend({
 export const getInboxSummaryRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
   includeAccountItems: z.boolean().optional(),
+  includePersonalUnreadCount: z.literal(true).optional(),
   presentation: inboxPresentationSchema.optional(),
 });
 export const getCenterAgentInboxSummaryRpcInputSchema = z.strictObject({

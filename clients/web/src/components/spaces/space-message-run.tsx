@@ -1572,7 +1572,6 @@ function ThreadPreview(input: {
 					}}
 					onFocus={prefetch}
 					onPointerEnter={prefetch}
-					title="Only threads you start or reply to count as unread. Read the thread to clear its unread replies and reactions."
 					type={ThreadTarget === "button" ? "button" : undefined}
 				>
 					<ChatCircleIcon aria-hidden="true" className="size-3.5" />

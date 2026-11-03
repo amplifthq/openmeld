@@ -1818,10 +1818,11 @@ function SpaceLandingConversationShell({
 	const [requestedInteraction, setRequestedInteraction] = useState<
 		string | undefined
 	>();
-	const activeActionThreadId =
-		input.presentation !== "compact" && controller.isCurrentAccessConfirmed
-			? (controller.activeThread?.threadId ?? null)
+	const presentedThread =
+		!isCompactPresentation && controller.isCurrentAccessConfirmed
+			? controller.activeThread
 			: null;
+	const activeActionThreadId = presentedThread?.threadId ?? null;
 	const pendingActionsByPanel = partitionSpacePendingAgentActions(
 		pendingAgentActions.surfaceProps.items,
 		activeActionThreadId
@@ -1929,6 +1930,7 @@ function SpaceLandingConversationShell({
 							currentProfileName={currentProfileName}
 							deleteSpaceErrorMessage={controller.deleteSpaceErrorMessage}
 							directMessageOwnerVisibilityLabel={agentOwnerVisibilityLabel}
+							hasCurrentAccess={controller.isCurrentAccessConfirmed}
 							hideShareControl={currentSpaceControls.hideShareControl}
 							isAccessModePending={controller.isAccessModePending}
 							isCenterAgentDirectMessage={
@@ -1937,6 +1939,7 @@ function SpaceLandingConversationShell({
 							isDeleteSpacePending={controller.isDeleteSpacePending}
 							isLeaveSpacePending={controller.isLeaveSpacePending}
 							isSpaceNamePending={controller.isSpaceNamePending}
+							key={`${controller.spaceId}:${controller.profileId}`}
 							leaveSpaceErrorMessage={controller.leaveSpaceErrorMessage}
 							managementControl={
 								<>
@@ -1958,9 +1961,10 @@ function SpaceLandingConversationShell({
 							}
 							onSetAccessMode={controller.onSetAccessMode}
 							onUpdateSpaceName={controller.onUpdateSpaceName}
+							readingEnabled={input.readingEnabled}
+							readPosition={state.spaceInboxReadPosition}
 							renderFrame={false}
 							setupRecallAction={setupRecallAction}
-							showChatSettingsMenu={currentSpaceIsCenterAgentDirectMessage}
 							showDeleteSpaceAction={
 								controller.isCurrentAccessConfirmed &&
 								controller.showDeleteSpaceAction
@@ -2029,6 +2033,7 @@ function SpaceLandingConversationShell({
 								guideSaver={guideSaver}
 								historyErrorMessage={historyErrorMessage}
 								input={conversationInput}
+								openThreadRootSignalId={presentedThread?.rootSignalId}
 								pendingActionSurface={pendingActionSurface}
 								prepareSetupHref={prepareSetupHref}
 								state={state}
@@ -2350,9 +2355,18 @@ function SpaceFileNavigationGuards(input: {
 }
 
 function SpaceLandingHeader({
+	hasCurrentAccess,
+	readPosition,
+	readingEnabled,
 	status,
 	...props
-}: Omit<ComponentProps<typeof SpaceHeader>, "status"> & {
+}: Omit<
+	ComponentProps<typeof SpaceHeader>,
+	"status" | "onPrepareMarkAllRead"
+> & {
+	readPosition: SpaceLandingState["spaceInboxReadPosition"];
+	hasCurrentAccess: boolean;
+	readingEnabled?: boolean;
 	status: SpaceConversationController["status"];
 }) {
 	if (!status) {
@@ -2364,7 +2378,19 @@ function SpaceLandingHeader({
 			/>
 		);
 	}
-	return <SpaceHeader {...props} status={status} />;
+	return (
+		<SpaceHeader
+			{...props}
+			onPrepareMarkAllRead={
+				readingEnabled !== false &&
+				hasCurrentAccess &&
+				readPosition.totalUnreadCount > 0
+					? readPosition.prepareMarkAllRead
+					: undefined
+			}
+			status={status}
+		/>
+	);
 }
 
 function SpaceLandingConversation({
@@ -2381,6 +2407,7 @@ function SpaceLandingConversation({
 	guideSaver,
 	historyErrorMessage,
 	input,
+	openThreadRootSignalId,
 	pendingActionSurface,
 	prepareSetupHref,
 	state,
@@ -2403,6 +2430,7 @@ function SpaceLandingConversation({
 	guideSaver: SpaceGuideSaver;
 	historyErrorMessage: string | null;
 	input: SpaceLandingInput;
+	openThreadRootSignalId?: string;
 	pendingActionSurface?: ReactNode;
 	prepareSetupHref?: string;
 	state: SpaceLandingState;
@@ -2644,11 +2672,6 @@ function SpaceLandingConversation({
 			}}
 			onOpenThread={controller.onOpenThread}
 			onOpenUnreadThread={controller.onOpenUnreadThread}
-			onPrepareMarkAllRead={
-				input.readingEnabled !== false
-					? spaceInboxReadPosition.prepareMarkAllRead
-					: undefined
-			}
 			onRecoverExecution={controller.onRecoverExecution}
 			onRemoveComposerFile={controller.onRemoveComposerFile}
 			onReplyToMessage={controller.onReplyToMessage}
@@ -2665,6 +2688,7 @@ function SpaceLandingConversation({
 					: undefined
 			}
 			onWakeStopRequest={controller.onWakeStopRequest}
+			openThreadRootSignalId={openThreadRootSignalId}
 			organizationId={organizationId}
 			orgSlug={input.orgSlug}
 			pendingActionSurface={pendingActionSurface}

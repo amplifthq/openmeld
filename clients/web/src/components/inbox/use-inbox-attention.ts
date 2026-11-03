@@ -39,12 +39,14 @@ export function resolveInboxAttention(input: {
 		summary.unreadPriorityUpdateCount ?? summary.unreadUrgentUpdateCount;
 	const count = summary.priorityCount ?? actions + urgent;
 	const tone = resolveCurrentAttentionTone(summary);
-	const indicatorTone =
-		tone ?? (summary.totalUnreadCount > 0 ? "unread" : null);
-	const tabLabel =
-		summary.priorityCount !== undefined && summary.priorityCount > 0
-			? `Priority attention (${summary.priorityCount})`
-			: resolveInboxTabLabel(indicatorTone, summary);
+	// An older response cannot light the personal indicator. The Inbox preview
+	// still shows its confirmed total, including ordinary unread activity.
+	const personal = Math.min(
+		summary.totalUnreadCount,
+		summary.personalUnreadCount ?? 0
+	);
+	const indicatorTone = tone ?? (personal > 0 ? "unread" : null);
+	const tabLabel = resolveInboxTabLabel(indicatorTone, summary, personal);
 	const details = [
 		...(actions > 0
 			? [`${actions} pending ${actions === 1 ? "item" : "items"}`]
@@ -63,7 +65,7 @@ export function resolveInboxAttention(input: {
 	return {
 		count,
 		tone,
-		label: `Inbox, ${status}`,
+		label: `Inbox, ${indicatorTone === "unread" ? tabLabel : status}`,
 		status,
 		indicatorTone,
 		tabLabel,
@@ -81,15 +83,19 @@ function resolveCurrentAttentionTone(
 
 function resolveInboxTabLabel(
 	tone: "warning" | "unread" | null,
-	summary: InboxSummaryResponse
+	summary: InboxSummaryResponse,
+	personal: number
 ): string | null {
 	switch (tone) {
 		case "warning":
+			if (summary.priorityCount !== undefined) {
+				return `Priority attention (${summary.priorityCount})`;
+			}
 			return summary.unresolvedActionCount > 0
 				? `Needs action (${summary.unresolvedActionCount})`
 				: `Urgent updates (${summary.unreadUrgentUpdateCount})`;
 		case "unread":
-			return `${summary.totalUnreadCount} unread`;
+			return `${personal} unread for you`;
 		default:
 			return null;
 	}

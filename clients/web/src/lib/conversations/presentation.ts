@@ -49,7 +49,7 @@ export function presentInboxConversation(
 // Older Center Agent items replaced their source label with "Center Agent".
 // Recognize only the Space producer's templates; leave ambiguous/custom copy intact.
 const CONVERSATION_ACTION =
-	/(?: replied to your thread in | replied in | mentioned you in | addressed your agent in |^New message in |^Agent update in |^Agent couldn't finish in )/gu;
+	/(?: replied to (?:your thread|you) in | replied in | mentioned you in | addressed your agent in |^New message in |^Agent update in |^Agent couldn't finish in )/gu;
 
 function conversationTitlePrefix(
 	title: string,

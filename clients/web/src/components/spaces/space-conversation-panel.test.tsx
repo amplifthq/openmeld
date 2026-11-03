@@ -1237,7 +1237,7 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		const jumpButton = await screen.findByRole("button", {
-			name: "139 unread updates. Jump to first unread",
+			name: "139 unread · Next in main conversation. Jump to first unread",
 		});
 		expect(
 			screen.getAllByRole("button", { name: UNREAD_JUMP_PATTERN })
@@ -1299,7 +1299,7 @@ describe("SpaceConversationPanel", () => {
 		const view = renderSpaceConversationPanel(overrides);
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "1 unread update. Jump to first unread",
+				name: "1 unread in main conversation. Jump to first unread",
 			})
 		);
 		await waitFor(() => expect(recovered).toBeTypeOf("function"));
@@ -1366,7 +1366,7 @@ describe("SpaceConversationPanel", () => {
 		});
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "1 unread update. Jump to first unread",
+				name: "1 unread in main conversation. Jump to first unread",
 			})
 		);
 
@@ -1425,23 +1425,45 @@ describe("SpaceConversationPanel", () => {
 		const onOpenUnreadThread = vi.fn(async () => true);
 		const thread = { ...createThread(), rootSignalId: "thread-root" };
 		renderSpaceConversationPanel({
+			openThreadRootSignalId: "open-root",
 			onOpenUnreadThread,
-			timelineItems: [createTimelineItem({ id: "thread-root" })],
-			threads: [thread],
+			timelineItems: [
+				createTimelineItem({ id: "open-root" }),
+				createTimelineItem({ id: "thread-root" }),
+			],
+			threads: [
+				thread,
+				{ ...thread, threadId: "already-open", rootSignalId: "open-root" },
+			],
+			unreadScopes: [
+				{ threadRootSignalId: "thread-root", unreadCount: 1 },
+				{ threadRootSignalId: "open-root", unreadCount: 6 },
+			],
 			unreadTargets: [
+				{
+					occurredAtMs: 0,
+					signalId: "open-reply",
+					threadRootSignalId: "open-root",
+				},
 				{
 					occurredAtMs: 1,
 					signalId: "thread-reply",
 					threadRootSignalId: "thread-root",
 				},
 			],
-			unreadCount: 1,
+			unreadCount: 7,
 			unreadStateReady: true,
 		});
 
+		expect(
+			screen.queryByRole("button", { name: "Open thread (6 unread)" })
+		).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Open thread (1 unread)" })
+		).toBeTruthy();
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "1 unread update. Jump to first unread",
+				name: "1 unread reply in another thread. Jump to first unread",
 			})
 		);
 
@@ -2345,7 +2367,7 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.scroll(viewport);
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "1 unread update. Jump to first unread",
+				name: "1 unread in main conversation. Jump to first unread",
 			})
 		);
 		await waitFor(() => expect(viewport.scrollTop).toBe(480));
@@ -5895,7 +5917,7 @@ describe("SpaceConversationPanel", () => {
 
 			fireEvent.click(
 				await screen.findByRole("button", {
-					name: "1 unread update. Jump to first unread",
+					name: "1 unread in main conversation. Jump to first unread",
 				})
 			);
 
@@ -5939,7 +5961,7 @@ describe("SpaceConversationPanel", () => {
 			const view = renderSpaceConversationPanel(overrides);
 			fireEvent.click(
 				await screen.findByRole("button", {
-					name: "1 unread update. Jump to first unread",
+					name: "1 unread in main conversation. Jump to first unread",
 				})
 			);
 			await waitFor(() => expect(finishLoad).toBeTypeOf("function"));

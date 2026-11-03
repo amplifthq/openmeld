@@ -1964,7 +1964,7 @@ describe("ConversationsSidebar", () => {
 		).toBeTruthy();
 	});
 
-	it("[S31] keeps active Wake status visible ahead of unread while retaining unread semantics", async () => {
+	it("[S31] keeps unread navigation available alongside active Wake status", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -2020,10 +2020,10 @@ describe("ConversationsSidebar", () => {
 			getConversationRow(working).querySelector("[data-conversation-activity]")
 		).toBeTruthy();
 		expect(
-			getConversationRow(working).querySelector(
-				"[data-conversation-unread-indicator]"
-			)
-		).toBeNull();
+			within(getConversationRow(working)).getByRole("link", {
+				name: "1 unread update. Jump to first unread",
+			})
+		).toBeTruthy();
 		expect(
 			getConversationRow(unread).querySelector("[data-conversation-activity]")
 		).toBeNull();

@@ -187,6 +187,7 @@ function AppSpaceConversationPendingRoute() {
 		<SpaceCreationRoute profileId={search.profileId} spaceId={spaceId}>
 			{() => (
 				<SpaceWindowShell
+					conversationList="conversation"
 					initialOuterSidebarState={APP_SIDEBAR_DEFAULT_STATES.outer}
 					initialSidebarState={APP_SIDEBAR_DEFAULT_STATES.inner}
 					sidebar={<ConversationsSidebar />}
@@ -944,6 +945,7 @@ function AppSpaceEntryShell(input: {
 	// frame shows so the layout does not drop and restore it.
 	return (
 		<SpaceWindowShell
+			conversationList="conversation"
 			initialOuterSidebarState={outerState}
 			initialSidebarState={innerState}
 			sidebar={<ConversationsSidebar />}
