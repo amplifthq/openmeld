@@ -295,9 +295,7 @@ describe("GlobalInboxLauncher", () => {
 		});
 		renderLauncher({ open: true });
 		expect(
-			await screen.findByText(
-				"Couldn’t refresh. Showing the latest Inbox view available."
-			)
+			await screen.findByText("This Inbox view has expired.")
 		).toBeTruthy();
 		expect(
 			(
@@ -307,7 +305,7 @@ describe("GlobalInboxLauncher", () => {
 			).disabled
 		).toBe(true);
 		mocks.feed.mockResolvedValue(page([system]));
-		fireEvent.click(screen.getByText("Retry"));
+		fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 		await waitFor(() =>
 			expect(
 				(
