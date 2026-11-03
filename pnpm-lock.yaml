@@ -73,7 +73,7 @@ patchedDependencies:
     hash: 7f8f0dca8db0a032e037f83deff97aac1b9429e88c880b4cc9aa13d3d661a73a
     path: services/remote-agent/computerd/capnweb-0.12.0.patch
   img-fx@0.5.1:
-    hash: cde9f5928427d1a770d5fb30f1b48c3296e82dfca283cbda5b927be9898af3b6
+    hash: 27d886aee06ea876b2b3dae8784f75b44e566531a36233b795de6c7cc6d8ac59
     path: patches/img-fx@0.5.1.patch
   slate-react@0.126.4:
     hash: 759b7a24b0cff0bd817be905b8715d00e1a289114002509875f7e3afa4faf2ee
@@ -747,7 +747,7 @@ importers:
         version: 3.0.1
       img-fx:
         specifier: 0.5.1
-        version: 0.5.1(patch_hash=cde9f5928427d1a770d5fb30f1b48c3296e82dfca283cbda5b927be9898af3b6)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(three@0.185.1)
+        version: 0.5.1(patch_hash=27d886aee06ea876b2b3dae8784f75b44e566531a36233b795de6c7cc6d8ac59)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(three@0.185.1)
       liquid-gooey:
         specifier: 0.2.1
         version: 0.2.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -25177,7 +25177,7 @@ snapshots:
 
   image-dimensions@2.6.0: {}
 
-  img-fx@0.5.1(patch_hash=cde9f5928427d1a770d5fb30f1b48c3296e82dfca283cbda5b927be9898af3b6)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(three@0.185.1):
+  img-fx@0.5.1(patch_hash=27d886aee06ea876b2b3dae8784f75b44e566531a36233b795de6c7cc6d8ac59)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(three@0.185.1):
     dependencies:
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
