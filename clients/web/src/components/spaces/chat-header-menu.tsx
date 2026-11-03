@@ -28,6 +28,7 @@ type ChatArchiveController = {
 type ChatHeaderMenuProps = {
 	spaceId: string;
 	onOpenConversationInformation: () => void;
+	onMarkAllRead?: () => void;
 	ariaLabel?: string;
 };
 
@@ -70,6 +71,7 @@ function SessionChatHeaderMenu(
 function ChatHeaderMenuView({
 	archive,
 	ariaLabel = "Chat menu",
+	onMarkAllRead,
 	onOpenConversationInformation,
 }: ChatHeaderMenuProps & { archive: ChatArchiveController }) {
 	const [confirmOpen, setConfirmOpen] = useState(false);
@@ -83,11 +85,12 @@ function ChatHeaderMenuView({
 			<SpaceHeaderNavigationMenu
 				ariaLabel={ariaLabel}
 				items={[]}
+				onMarkAllRead={onMarkAllRead}
 				onOpenConversationInformation={onOpenConversationInformation}
 			>
 				<FluidDropdownMenuItem
 					disabled={archive.disabled}
-					index={1}
+					index={onMarkAllRead ? 2 : 1}
 					onClick={
 						archive.archived ? archive.toggle : () => setConfirmOpen(true)
 					}

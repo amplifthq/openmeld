@@ -65,7 +65,7 @@ describe("Space Inbox recipient and addressing boundaries", () => {
         threadPlacement: "thread",
       },
       threadParticipantProfileIds: ["monica"],
-      threadRootAuthorUserId: "monica",
+      replyRecipientUserId: "monica",
       wakeRequesterUserId: "monica",
     });
     const recipients = await selectSpaceInboxRecipients(

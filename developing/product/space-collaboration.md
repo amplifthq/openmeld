@@ -1905,7 +1905,9 @@ nested Thread action or date-navigation surface. Per-message times remain visibl
 
 Thread unread navigation includes only that Thread's replies. Visible-message
 acknowledgements use the existing Space read owner and update the aggregate main
-unread projection; there is no independent Thread counter. Jump to latest and
+unread projection. While the Thread panel is open, its preview keeps a neutral
+**Open thread** link, and the main shortcut navigates to unread messages outside
+that Thread. Jump to latest and
 navigation alone do not mark unseen replies read. Each Thread retains the
 viewer's reading position independently of the main conversation.
 

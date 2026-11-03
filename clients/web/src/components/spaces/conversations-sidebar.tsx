@@ -279,7 +279,7 @@ function ConversationsSidebarSearch(input: {
 							input.onValueChange("");
 						}
 					}}
-					placeholder="Search chats"
+					placeholder="Search conversations"
 					ref={input.disclosure.inputRef}
 					type="search"
 					value={input.value}
@@ -659,11 +659,7 @@ export function ConversationsSidebar(
 			<AppModuleSidebarHeader
 				ref={headerRef}
 				title={
-					<SpacesDirectoryLink
-						home={input.home}
-						onNavigate={onNavigate}
-						orgSlug={dm.org.slug}
-					/>
+					<SpacesDirectoryLink onNavigate={onNavigate} orgSlug={dm.org.slug} />
 				}
 				titleRef={titleRef}
 			>
@@ -1218,22 +1214,19 @@ export function ConversationsSidebar(
 }
 
 function SpacesDirectoryLink({
-	home,
 	onNavigate,
 	orgSlug,
 }: {
-	home?: boolean;
 	onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
 	orgSlug: string;
 }) {
 	return (
 		<Link
-			aria-label={home ? "Chats" : "Spaces"}
 			className="flex min-w-20 flex-1 items-center rounded-sm font-medium text-sm focus-visible:outline-2"
 			onClick={onNavigate}
 			to={buildOrganizationSpacesPath(orgSlug)}
 		>
-			<span className="truncate">{home ? "Chats" : "Spaces"}</span>
+			<span className="truncate">Spaces</span>
 		</Link>
 	);
 }

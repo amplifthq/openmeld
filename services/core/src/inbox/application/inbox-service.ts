@@ -31,6 +31,7 @@ import { personalAgentOwnerAccessSql } from "./inbox-agent-owner-access";
 import {
   INBOX_OPEN_REQUEST,
   INBOX_OPEN_REVIEW,
+  INBOX_PERSONAL_MESSAGE,
   INBOX_UNREAD_PRIORITY_UPDATE,
   inboxMentionSql,
   inboxPrioritySql,
@@ -126,20 +127,10 @@ const INBOX_NOTIFICATION_PREVIEW_FILTER = `
   AND (
     ${INBOX_NOTIFICATION_EFFECTIVE_MODE_SQL} = 'all_messages'
     OR importance = 'urgent'
-    OR kind IN (
-      'space_mention',
-      'space_reference',
-      'agent_reply',
-      'wake_outcome'
-    )
-    OR (
-      kind = 'space_message'
-      AND source_target_json::jsonb ->> 'kind' = 'space'
-      AND (
-        source_target_json::jsonb -> 'directMessage' = 'true'::jsonb
-        OR source_target_json::jsonb -> 'replyToRecipient' = 'true'::jsonb
-      )
-    )
+    OR (${INBOX_PERSONAL_MESSAGE})
+    OR ${currentInboxAgentFactExistsSql("inbox_items", "firstContactAgentProfileIds")}
+    OR (source_facts_json IS NULL AND kind IN ('agent_reply', 'wake_outcome')
+      AND coalesce(source_target_json::jsonb -> 'agentOwnerActivity', 'false'::jsonb) = 'false'::jsonb)
   )
 `;
 const INBOX_CENTER_AGENT_MESSAGE_FILTER = `
@@ -438,25 +429,33 @@ export function createInboxService(input: {
           ],
         })
         .then((result) => result.rows[0] ?? null);
-      const targetResult = await input.db.query<{
-        occurred_at_ms: number;
-        source_target_json: string;
-      }>({
-        text: `
+      const readTargets = async (limit: number, excludeThread?: string) => {
+        const result = await input.db.query<{
+          id: string;
+          source_key: string;
+          occurred_at_ms: number;
+          source_target_json: string;
+        }>({
+          text: `
             SELECT id, source_key, occurred_at_ms, source_target_json
             FROM "openmeld"."inbox_items"
             WHERE ${filters}
               AND ((source_target_json)::jsonb #>> '{signalId}') IS NOT NULL
+              ${excludeThread ? "AND source_target_json::jsonb ->> 'threadRootSignalId' IS DISTINCT FROM $5" : ""}
             ORDER BY occurred_at_ms ASC NULLS FIRST, id ASC NULLS FIRST
             LIMIT $4
           `,
-        values: [
-          targetInput.organizationId,
-          targetInput.recipientUserId,
-          targetInput.spaceId,
-          INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS + 1,
-        ],
-      });
+          values: [
+            targetInput.organizationId,
+            targetInput.recipientUserId,
+            targetInput.spaceId,
+            limit,
+            ...(excludeThread ? [excludeThread] : []),
+          ],
+        });
+        return result.rows;
+      };
+      const rows = await readTargets(INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS + 1);
       const scopeRows = targetInput.includeItemIds
         ? await input.db.query<{
             thread_root_signal_id: string | null;
@@ -471,40 +470,50 @@ export function createInboxService(input: {
           })
         : null;
       const totalUnreadCount = countValue(countRow?.unread_count);
-      const rows = (targetResult.rows ?? []) as Array<{
-        id: string;
-        source_key: string;
-        occurred_at_ms: number;
-        source_target_json: string;
-      }>;
+      const toTarget = (row: (typeof rows)[number]) => {
+        const parsed = inboxSourceTargetSchema.safeParse(
+          JSON.parse(row.source_target_json)
+        );
+        if (
+          !parsed.success ||
+          (parsed.data.kind !== "space" &&
+            parsed.data.kind !== "center_agent") ||
+          parsed.data.signalId === undefined
+        ) {
+          return null;
+        }
+        return {
+          ...(targetInput.includeItemIds ? { itemId: row.id } : {}),
+          ...(targetInput.includeSourceKeys
+            ? { sourceKey: row.source_key }
+            : {}),
+          occurredAtMs: nonnegativeIntegerValue(row.occurred_at_ms),
+          signalId: parsed.data.signalId,
+          threadRootSignalId:
+            parsed.data.kind === "space"
+              ? (parsed.data.threadRootSignalId ?? null)
+              : null,
+        };
+      };
       const targets = rows
         .slice(0, INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS)
-        .map((row) => {
-          const parsed = inboxSourceTargetSchema.safeParse(
-            JSON.parse(row.source_target_json)
-          );
-          if (
-            !parsed.success ||
-            (parsed.data.kind !== "space" &&
-              parsed.data.kind !== "center_agent") ||
-            parsed.data.signalId === undefined
-          ) {
-            return null;
-          }
-          return {
-            ...(targetInput.includeItemIds ? { itemId: row.id } : {}),
-            ...(targetInput.includeSourceKeys
-              ? { sourceKey: row.source_key }
-              : {}),
-            occurredAtMs: nonnegativeIntegerValue(row.occurred_at_ms),
-            signalId: parsed.data.signalId,
-            threadRootSignalId:
-              parsed.data.kind === "space"
-                ? (parsed.data.threadRootSignalId ?? null)
-                : null,
-          };
-        })
+        .map(toTarget)
         .filter((target) => target !== null);
+      const firstThread = targets[0]?.threadRootSignalId;
+      if (
+        firstThread &&
+        scopeRows &&
+        scopeRows.rows.length > 1 &&
+        targets.length === INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS &&
+        targets.every((target) => target.threadRootSignalId === firstThread)
+      ) {
+        // Keep an exact jump outside the open Thread even when it fills the page.
+        const [other] = await readTargets(1, firstThread);
+        const otherTarget = other && toTarget(other);
+        if (otherTarget) {
+          targets[targets.length - 1] = otherTarget;
+        }
+      }
       return {
         ...(joinedRows
           ? {
@@ -893,6 +902,7 @@ export function createInboxService(input: {
       return { item };
     },
     async summary(summaryInput: {
+      includePersonalUnreadCount?: boolean;
       organizationId: string;
       presentation?: InboxPresentation;
       recipientUserId: string;
@@ -907,6 +917,7 @@ export function createInboxService(input: {
           priority_update_count: number;
           mention_count: number;
           ordinary_unread_count: number;
+          personal_unread_count: number;
           unread_count: number;
           urgent_update_count: number;
         }>({
@@ -919,6 +930,7 @@ export function createInboxService(input: {
                 (${INBOX_UNREAD_PRIORITY_UPDATE}) AS priority_update,
                 (${UNREAD_URGENT_UPDATE_FILTER}) AS urgent_update,
                 (${UNREAD_MENTION_UPDATE_FILTER}) AS mention_update
+                ${summaryInput.includePersonalUnreadCount ? `, (attention = 'update' AND ${INBOX_PERSONAL_MESSAGE}) AS personal_message` : ""}
               FROM "openmeld"."inbox_items"
               WHERE ${ITEM_SCOPE_FILTER}
                 AND recipient_user_id = $2
@@ -936,6 +948,7 @@ export function createInboxService(input: {
               count(*) FILTER (WHERE urgent_update) AS urgent_update_count,
               count(*) FILTER (WHERE mention_update) AS mention_count,
               count(*) FILTER (WHERE unread AND NOT open_action AND NOT urgent_update AND NOT mention_update) AS ordinary_unread_count
+              ${summaryInput.includePersonalUnreadCount ? ", count(*) FILTER (WHERE unread AND NOT priority AND personal_message) AS personal_unread_count" : ""}
             FROM classified
           `,
           values: [summaryInput.organizationId, summaryInput.recipientUserId],
@@ -959,6 +972,9 @@ export function createInboxService(input: {
         ...(summaryInput.presentation === "attention"
           ? {
               unreadMentionCount: countValue(row?.mention_count),
+              ...(summaryInput.includePersonalUnreadCount && {
+                personalUnreadCount: countValue(row?.personal_unread_count),
+              }),
               ordinaryUnreadCount: countValue(row?.ordinary_unread_count),
             }
           : {}),

@@ -274,6 +274,7 @@ describe("Space read selections", () => {
           });
         }
       });
+      await f.item("later-main", { occurredAtMs: 2000 });
       const service = createInboxService({ db: f.db });
       const legacy = await service.spaceUnreadTargets({
         ...f.identity,
@@ -288,9 +289,14 @@ describe("Space read selections", () => {
       });
       expect(page.targets).toHaveLength(500);
       expect(page.hasMoreTargets).toBe(true);
-      expect(page.scopes).toEqual([
-        { threadRootSignalId: "root", unreadCount: 501 },
-      ]);
+      expect(page.scopes).toEqual(
+        expect.arrayContaining([
+          { threadRootSignalId: "root", unreadCount: 501 },
+          { threadRootSignalId: null, unreadCount: 1 },
+        ])
+      );
+      expect(page.targets[0]?.threadRootSignalId).toBe("root");
+      expect(page.targets.at(-1)?.signalId).toBe("later-main");
       const selection = await mutateSpaceInboxRead({
         db: f.db,
         ...f.identity,
@@ -311,7 +317,7 @@ describe("Space read selections", () => {
             snapshotId: selection.snapshotId,
           },
         })
-      ).toMatchObject({ markedReadCount: 501 });
+      ).toMatchObject({ markedReadCount: 502 });
     } finally {
       await f.close();
     }

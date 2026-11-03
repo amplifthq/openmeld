@@ -2701,7 +2701,8 @@ describe("SpaceLanding", () => {
 			)
 		).toBeNull();
 		expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		expect(screen.queryByRole("button", { name: "Leave space" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Delete space" })).toBeNull();
@@ -3196,7 +3197,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Leave space" }));
 		fireEvent.click(screen.getByRole("button", { name: "Confirm leave" }));
@@ -3275,7 +3277,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Leave space" }));
 		fireEvent.click(screen.getByRole("button", { name: "Confirm leave" }));
@@ -3346,7 +3349,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Delete space" }));
 		fireEvent.change(screen.getByLabelText(DELETE_CONFIRMATION_LABEL_TEXT), {
@@ -3421,7 +3425,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Delete space" }));
 		fireEvent.change(screen.getByLabelText(DELETE_CONFIRMATION_LABEL_TEXT), {
@@ -3496,7 +3501,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 
 		expect(screen.getByRole("button", { name: "Leave space" })).toBeTruthy();
