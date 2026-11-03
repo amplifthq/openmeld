@@ -14,7 +14,10 @@ import {
 	FluidDropdownMenuRadioItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
-import { SIDEBAR_ICON_WIDTH } from "@openmeld/ui/fluid/sidebar-state";
+import {
+	SIDEBAR_ICON_WIDTH,
+	useSidebar,
+} from "@openmeld/ui/fluid/sidebar-state";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useMatches } from "@tanstack/react-router";
@@ -58,9 +61,22 @@ import type {
 import { resolveAppOuterRailDestinationFromMatches } from "./shell-layout";
 import { SidebarDestinationActionsProvider } from "./sidebar-destination-actions";
 
-export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
+export function AppOuterRail({
+	account,
+	conversationList,
+}: {
+	account: AppOuterRailAccount;
+	conversationList?: "conversation" | "sidebar" | "home";
+}) {
 	const [newMessage, setNewMessage] = useState(false);
 	const { presentation } = useAppNavigationPresentation();
+	const sidebar = useSidebar();
+	const inlineList = presentation === "inline" ? conversationList : undefined;
+	const revealConversationList = () => {
+		if (!sidebar.open) {
+			sidebar.setOpen(true);
+		}
+	};
 	const { display, setDisplay } = useSidebarDisplayPreference();
 	const mode = presentation === "drawer" ? "expanded" : "icon";
 	const activeDestination = useMatches({
@@ -141,6 +157,14 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 					{buildAppRailGroups({
 						orgSlug: currentOrganization.slug,
 						inboxAttention,
+						conversationList: inlineList && {
+							visible:
+								inlineList === "home" || sidebar.open || sidebar.isPeeking,
+							reveal:
+								inlineList === "conversation"
+									? revealConversationList
+									: undefined,
+						},
 						centerAgentUnreadCount: Math.max(0, center.data?.unreadCount ?? 0),
 						spacesUnreadCount: Math.max(
 							0,

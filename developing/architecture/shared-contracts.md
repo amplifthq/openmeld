@@ -2275,11 +2275,13 @@ undo a projection. The additive PostgreSQL migration also narrowly repairs the r
 owner-awareness writer, and Space schema v43 persists publication/contact and
 projection-selection receipts in the source transaction boundary.
 
-Human thread reply awareness adds optional `replyToRecipient` to Space Inbox
-targets without adding an Inbox kind or changing urgency. Space emits true only
-for a different Human account replying to the recipient's retained thread root,
-after existing recipient filtering. Browser notification policy reads this fact
-instead of parsing the title or equating thread membership with addressing.
+The optional `replyToRecipient` marker identifies the active Human owner of
+the retained, unrecalled message being answered, after recipient filtering.
+Space resolves an explicit parent in the same main conversation or Thread. A
+Thread reply with no explicit parent addresses its root. An invalid explicit
+parent identifies no recipient. Human mentions keep their own addressing
+reason, and self replies do not earn a personal reminder. Notification policy
+uses these source facts rather than the text of the quotation.
 
 Source-target version `7` exposes this field. Gateway strips it for version
 `6` and older clients while preserving each version's existing target fields.
@@ -2378,8 +2380,8 @@ Inbox summary version `1` adds `unreadUrgentUpdateCount`, disjoint from
 `unresolvedActionCount`. Core derives both from the same recipient/access-filtered
 query; clients never count a list page to reconstruct them. The additive field
 is optional only for receiver-first interoperability: absent means unknown.
-Current API clients send `x-openmeld-inbox-summary-version: 3`; Gateway keeps
-the urgent summary field for versions `1` through `3` and removes it for older strict clients,
+Current API clients send `x-openmeld-inbox-summary-version: 4`; Gateway keeps
+the urgent summary field for versions `1` through `4` and removes it for older strict clients,
 including already-open Web tabs. Version `2` also exposes `chatUnreadCount`,
 `chatUnresolvedActionCount`, `chatUnreadUrgentUpdateCount`, and grouped `attention`
 on Space summaries. These are recipient/access-filtered Core aggregates across
@@ -2404,6 +2406,15 @@ emits the fields. Receiver-first order is schemas/API and Gateway, then Core,
 then Web and the matching Desktop bundle. No database migration or local
 component epoch is required. CLI, Service, Skills, setup, Wake and Space action
 contracts are unchanged.
+
+Version `4` opts the attention summary into `personalUnreadCount`. Core
+computes this count from recipient-owned unread rows, including DMs, Human
+mentions, addressed replies, and requester-directed updates. The Web Inbox
+entry, launcher and browser tab use it for ordinary blue indicators. The native
+tray retains its existing categories. An absent personal count is unknown.
+Older summary versions and raw summaries retain their previous shapes. For this
+version deploy Core before Gateway, then Web. Old Gateway calls omit the new
+RPC option, and new Gateway omits the new field for older strict clients.
 
 Each client maps only supported targets to its canonical navigation surface.
 Space unread readers opt into additive source identities with

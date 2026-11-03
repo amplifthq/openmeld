@@ -334,8 +334,11 @@ Separate Fluid hover groups own account identity, Search, actions, and sign-out.
 A compact Light/Dark/System selector follows Download Desktop App without a divider and keeps the menu
 open when changed. Settings > Appearance uses three full-size theme cards with
 labels and descriptions. Both controls share the theme choices and icon set;
-the existing theme provider owns persistence and system appearance. Spaces and its contextual sidebar heading always open
-`/o/{orgSlug}/spaces`. This home displays the shared conversation list, with
+the existing theme provider owns persistence and system appearance. The Spaces
+rail entry opens `/o/{orgSlug}/spaces` from another section. Reselecting it in a
+desktop conversation reveals the list if collapsed and keeps the current
+conversation and reading position. The contextual **Spaces** heading still opens
+home. This home displays the shared conversation list, with
 Spaces, Direct Messages, and Agent conversations interleaved in the default
 Recent view. Existing explicit Grouped, pin-layout, and preview preferences
 remain honored. The home list is primary content: it remains visible even if
@@ -5939,44 +5942,26 @@ preference starts expanded; obsolete intermediate-position preferences are not
 reused. Tasks and Files do not drive compaction, and programmatic message
 restoration does not count as user scroll input after rebinding.
 
-Message-header visibility observations update the read-through scheduler directly rather
-than publishing React state through the Space controller. Scrolling away cancels
-the pending read immediately without rerendering the transcript. Space/Profile
-changes require a fresh visible-message measurement; document visibility, access
-confirmation, loaded Core unread targets, and a brief 150 ms dwell gate persistence.
-Main conversations, Threads, and DMs share this observer. Unseen targets block
-advancing the read watermark past them, and temporary progress cannot advance it.
-After that dwell,
-the existing optimistic Inbox projection updates before the server write settles;
-failed writes retain the existing rollback and reconciliation path.
+Main conversations, Threads and DMs acknowledge visible messages using exact
+Inbox item or publication identities. The shared observer batches message
+beginnings seen in the focused viewport. Optimistic reads reconcile against
+Core and roll back on failure. See the [Space message unread
+contract](../product/inbox.md#space-message-unread-behavior).
 Web captures each main or Thread **New messages** divider from the first ready
 Core unread snapshot for that visit, including an empty snapshot. Arrivals during
 that visit never introduce a new divider. Clearing the entry batch removes its
 divider without establishing another. A new visit or explicit unread navigation
-identity captures a fresh boundary. The unread shortcut is hidden while a focused
-main view follows the live end and all outstanding targets belong to that main
-view. Older entry unread, scrolled-away updates, and Thread targets remain
-discoverable. This presentation rule does not acknowledge anything; the visible
-message observer and explicit user actions still own read receipts.
+identity captures a fresh boundary. A visible Thread owns its unread shortcut.
+The main shortcut identifies the earliest unread destination outside that Thread
+and hides while the reader follows new arrivals in the current view. Older
+unseen updates remain reachable. Navigation alone never writes a read receipt.
 Thread targets open the exact reply instead of treating the root message as the
 destination. One-to-one DMs omit redundant reply quotations; ordinary Spaces and
 multi-participant conversations retain them.
 
-When the main conversation has unread targets, the existing latest-message
-control is also the explicit catch-up action. Web first reads a fresh Core Space
-Inbox summary to freeze the accepted main-timeline cutoff, then mounts the live
-tail and settles its scroll position before writing the main watermark through
-that exact occurrence time. The activation reserves its history-navigation
-revision before the summary read begins. A newer accepted history navigation,
-unmounted view, or changed Organization/Space identity abandons the activation
-before it can switch to the live tail or start the write, and discards its
-unused cutoff. The same activation never advances a Thread watermark or
-includes messages arriving after its cutoff; only an actual failed write keeps
-the original cutoff for retry. Visible-message and explicit writes share one per-scope
-serializer that coalesces queued higher watermarks, so an older invalidation
-cannot replace a newer optimistic projection. Failures retain the cutoff for
-retry and state that the user reached the latest messages but marking them read
-failed.
+Jump to latest restores the live tail. The Space menu's **Mark all as read**
+action prepares a frozen selection and asks for confirmation before reading
+unseen messages across the main conversation and its Threads.
 Scroll events only check distance from the latest messages. Layout and preference
 writes happen at the endpoint change, never per animation frame. The viewport
 height changes once with a matching scroll offset to preserve the reading anchor.

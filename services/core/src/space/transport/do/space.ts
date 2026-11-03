@@ -23433,8 +23433,9 @@ export class Space extends DurableObject<CoreBindings> {
             input.signalContext.threadContext.threadId
           ).map((participant) => participant.profileId)
         : undefined,
-      threadRootAuthorUserId: this.resolveSpaceInboxThreadRootAuthorUserId({
+      replyRecipientUserId: this.resolveSpaceInboxReplyRecipientUserId({
         activeMemberRecords,
+        signal: input.signal,
         signalContext: input.signalContext,
       }),
       wakeRequesterUserId: this.resolveSpaceInboxWakeRequesterUserId({
@@ -23476,21 +23477,40 @@ export class Space extends DurableObject<CoreBindings> {
       return count;
     });
   }
-  private resolveSpaceInboxThreadRootAuthorUserId(input: {
+  private resolveSpaceInboxReplyRecipientUserId(input: {
     activeMemberRecords: readonly SpaceMemberRecord[];
+    signal: SignalEnvelope;
     signalContext?: SignalPublishContext;
   }): string | null {
-    const rootSignalId = input.signalContext?.threadContext?.rootSignalId;
-    if (!rootSignalId) {
+    if (input.signal.type !== "signal.text") {
       return null;
     }
-    const rootSignal = this.readSignalById(rootSignalId);
-    if (rootSignal?.profile.kind !== "human") {
+    const thread = input.signalContext?.threadContext;
+    const parentId =
+      readMessageDetailsReplyToSignalId(input.signal) ?? thread?.rootSignalId;
+    if (!parentId) {
+      return null;
+    }
+    // An explicit reply addresses its retained parent in this conversation.
+    // A missing or cross-thread parent cannot redirect attention to the root.
+    if (
+      parentId !== thread?.rootSignalId &&
+      (this.resolveThreadContextForSignal(parentId)?.threadId ?? null) !==
+        (thread?.threadId ?? null)
+    ) {
+      return null;
+    }
+    const parent = this.readSignalById(parentId);
+    if (
+      parent?.type !== "signal.text" ||
+      parent.profile.kind !== "human" ||
+      parent.data.meta?.recalledAt
+    ) {
       return null;
     }
     return resolveActiveHumanOwnerUserId(
       input.activeMemberRecords,
-      rootSignal.profile.profileId
+      parent.profile.profileId
     );
   }
   private resolveSpaceInboxWakeRequesterUserId(input: {

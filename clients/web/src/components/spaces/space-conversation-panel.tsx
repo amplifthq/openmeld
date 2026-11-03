@@ -278,10 +278,7 @@ type SpaceConversationPanelResolvedProps = {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
 	onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
-	onPrepareMarkAllRead?: () => Promise<{
-		unreadCount: number;
-		commit: () => Promise<void>;
-	}>;
+	openThreadRootSignalId?: string;
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 	onAddPeopleOrAgents?: () => void;
 	onClearComposerReplyTo: () => void;
@@ -871,7 +868,8 @@ function SpaceConversationPanelContent(
 											firstUnreadSignalId={input.firstUnreadSignalId}
 											key={`${input.spaceId}:${input.selfProfileId}`}
 											onNavigate={revealUnreadTarget}
-											onPrepareMarkAllRead={input.onPrepareMarkAllRead}
+											openThreadRootSignalId={input.openThreadRootSignalId}
+											scopes={input.unreadScopes}
 											targets={input.unreadTargets ?? []}
 										/>
 									}
@@ -1105,8 +1103,16 @@ function renderPanelConversationBody(input: {
 		timelineItems: presentation.mainTimelineItems,
 		wakeOutcomeIndex: presentation.wakeOutcomeIndex,
 		threadsByRootSignalId: presentation.threadsByRootSignalId,
-		unreadTargets: panel.unreadTargets ?? [],
-		unreadScopes: panel.unreadScopes,
+		unreadTargets: panel.openThreadRootSignalId
+			? (panel.unreadTargets ?? []).filter(
+					(target) => target.threadRootSignalId !== panel.openThreadRootSignalId
+				)
+			: (panel.unreadTargets ?? []),
+		unreadScopes: panel.openThreadRootSignalId
+			? panel.unreadScopes?.filter(
+					(scope) => scope.threadRootSignalId !== panel.openThreadRootSignalId
+				)
+			: panel.unreadScopes,
 		threadPreviewByThreadId: presentation.threadPreviewByThreadId,
 		threadWakeProgressByRootSignalId:
 			presentation.threadWakeProgressByRootSignalId,

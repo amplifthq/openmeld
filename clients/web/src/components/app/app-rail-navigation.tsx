@@ -60,6 +60,7 @@ import { SidebarDestinationActionSlot } from "./sidebar-destination-actions";
 type AppRailDestinationId = AppOuterRailDestination | SidebarShortcutId;
 
 type AppRailDestination = {
+	conversationList?: { visible: boolean; reveal?: () => void };
 	accessibleLabel?: string;
 	attentionTone?: "danger" | "warning" | null;
 	attentionCount?: number;
@@ -79,6 +80,7 @@ type AppRailGroup = {
 };
 
 export function buildAppRailGroups(input: {
+	conversationList?: AppRailDestination["conversationList"];
 	inboxAttention?: ReturnType<typeof useInboxAttention>;
 	chatUnreadCount?: number;
 	spacesAttentionTone?: "danger" | "warning" | null;
@@ -103,6 +105,7 @@ export function buildAppRailGroups(input: {
 				{
 					id: "directMessages",
 					label: "Spaces",
+					conversationList: input.conversationList,
 					unreadCount: input.spacesUnreadCount + (input.chatUnreadCount ?? 0),
 					attentionTone: input.spacesAttentionTone,
 					to: buildOrganizationSpacesPath(input.orgSlug),
@@ -256,7 +259,8 @@ export function AppRailLink(input: {
 		input.destination.id
 	);
 	if (
-		(unreadCount > 0 || input.destination.attentionTone) &&
+		((unreadCount > 0 && !input.destination.conversationList?.visible) ||
+			input.destination.attentionTone) &&
 		unreadIndicatorKind
 	) {
 		statusIndicator = {
@@ -341,7 +345,10 @@ export function AppRailLink(input: {
 					return;
 				}
 				// Repeating the current destination must not reload the auth boundary.
-				if (event.currentTarget.getAttribute("href") === currentHref) {
+				if (input.destination.conversationList?.reveal) {
+					event.preventDefault();
+					input.destination.conversationList.reveal();
+				} else if (event.currentTarget.getAttribute("href") === currentHref) {
 					event.preventDefault();
 				}
 				dismiss();
