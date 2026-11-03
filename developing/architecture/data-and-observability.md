@@ -1741,9 +1741,11 @@ Timing exists only for a workstation Wake whose dispatch trace was read and
 carries RuntimeCoordinator evidence: an execution record or a readable head
 lifecycle. A Space outbox record without a dispatch trace, a hosted native
 delivery (top-level or inside the dispatch snapshot), an unreadable head
-without an execution, a failed dispatch lookup or trace read, and a failed
-interaction read all omit the target, because elapsed time could not be
-attributed honestly.
+without an execution, a failed dispatch lookup or trace read, and an open
+execution whose interaction state could not be read for the viewer all omit
+the target, because elapsed time could not be attributed honestly. The
+interaction read reports `read` or `unavailable`; an unavailable read is never
+treated as having no pending request.
 
 Each boundary uses its earliest recorded fact. OpenMeld boundaries are fact
 times; computer boundaries are Service lifecycle times bounded by Core receipt,
@@ -1782,8 +1784,10 @@ decision, follows every recorded progress boundary, and does not follow Space
 visibility. The stage before the decision keeps its kind only for stages the
 decision itself ends (`queue`, `delivery`, `publishing`); a computer stage may
 have ended earlier, so that interval is `not_recorded`. `publishing` then runs
-from the decision to the visible outcome, or stays open while the outcome is
-not yet visible.
+from the decision to the visible outcome. Without a visible outcome, it ends at
+the head's recorded publication exhaustion with
+`runtime_coordinator.publication_retry_exhausted`, or stays open while
+publication is still pending; exhausted retries never shorten the total.
 
 The waterfall summary and the shared final-visible-outcome projection decide
 the state: `settled` once the outcome is visible, `in_progress` while the
