@@ -2363,6 +2363,15 @@ export const runtimeTransportRuntimeCoordinatorReadInteractionRevisionResponseSc
     // reaching Core, an answer, or an expiry. Wake progress revisions include
     // it so a newer interaction state outranks an older equal-lifecycle copy.
     interactionUpdatedAtMs: z.number().int().nonnegative().nullable(),
+    // Core time the still-pending request first reached Core; null when none
+    // is pending or it was stored before Core recorded arrivals. Arrival
+    // evidence, not a revision. Absent from Hubs on an earlier build.
+    pendingInteractionReceivedAtMs: z
+      .number()
+      .int()
+      .nonnegative()
+      .nullable()
+      .optional(),
   });
 
 export const runtimeTransportRuntimeCoordinatorRespondInteractionRequestSchema =

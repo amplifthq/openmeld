@@ -2833,6 +2833,37 @@ describe("gateway http forwarding", () => {
     );
   });
 
+  it.each([
+    undefined,
+    "1",
+    "2",
+  ])("forwards only the supported Message Details timing opt-in %s", async (value) => {
+    const { env, rpc } = makeEnv();
+    rpc.getSpaceMessageDetails.mockRejectedValue(
+      createCoreRpcHttpError({
+        code: "space.access_denied",
+        reason: "Access denied",
+        status: 403,
+      })
+    );
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/demo/message-details?signalId=message-1${value === undefined ? "" : `&timingVersion=${value}`}`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    if (value === "2") {
+      expect(response.status).toBe(400);
+      expect(rpc.getSpaceMessageDetails).not.toHaveBeenCalled();
+      return;
+    }
+    expect(response.status).toBe(403);
+    const [input] = rpc.getSpaceMessageDetails.mock.calls[0] ?? [];
+    expect(input).toMatchObject({ spaceId: "demo", signalId: "message-1" });
+    expect(input?.timingVersion).toBe(value === "1" ? 1 : undefined);
+  });
+
   it("asks Core to resolve exact Remote Agent runtime diagnostics for detailed traces", async () => {
     const { env, rpc } = makeEnv();
     const response = await app.fetch(

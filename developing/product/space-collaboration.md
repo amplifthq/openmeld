@@ -2230,6 +2230,19 @@ progress may enrich this one projection while the Space is open, but it remains
 transient evidence and never replaces Core or RuntimeCoordinator execution
 truth.
 
+Message details also answers where a Wake's time went. For each workstation
+Wake target, Timing separates OpenMeld routing and delivery, waiting in the
+Agent's queue or on the computer, the Agent run, waiting for the user's input,
+and time OpenMeld did not record. End-to-end time is never the sum of parallel
+targets or retried attempts, and time without evidence stays **Not recorded**
+rather than being blamed on the Agent or on OpenMeld. Agent run is the span from
+the Agent starting the request to finishing it, so it includes tool use and any
+wait the Agent did not report; it is not model thinking time. Result accepted
+and result visible are separate facts, and neither claims that the requested
+business outcome passed. Timing describes one Wake; linking several Wakes of
+one business task, Agent-reported business phases, registered wait-and-resume
+conditions, and exclusive-resource status are not part of this projection.
+
 An originating Center Agent request also exposes its explicitly declared
 delegation through Message details. Each child has one row with the permitted
 task/context summary, execution or publication state, and authorized source and

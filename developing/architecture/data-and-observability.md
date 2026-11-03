@@ -1729,6 +1729,95 @@ If the execution store is unavailable, stale, or internally invalid, the Board
 must fail or expose unavailable evidence rather than fall back to Dispatch
 Ledger, Agent Activity, service liveness, or client caches.
 
+### Wake Timing Read Model
+
+Wake timing partitions one workstation Wake target's elapsed time into
+contiguous, non-overlapping segments. Core projects it at read time from the
+same evidence Message Details already loads for the Wake trace waterfall; it
+adds no writer, table, event, or retention, and it never decides execution,
+Wakeability, or final outcome.
+
+Timing exists only for a workstation Wake whose dispatch trace was read and
+carries RuntimeCoordinator evidence: an execution record or a readable head
+lifecycle. A Space outbox record without a dispatch trace, a hosted native
+delivery (top-level or inside the dispatch snapshot), an unreadable head
+without an execution, a failed dispatch lookup or trace read, and an open
+execution whose interaction state could not be read for the viewer all omit
+the target, because elapsed time could not be attributed honestly. The
+interaction read reports `read` or `unavailable`; an unavailable read is never
+treated as having no pending request.
+
+Each boundary uses its earliest recorded fact. OpenMeld boundaries are fact
+times; computer boundaries are Service lifecycle times bounded by Core receipt,
+matching how RuntimeCoordinator records its own local progress:
+
+| Boundary | Source | Evidence |
+| --- | --- | --- |
+| Request received | OpenMeld | Space source Signal time |
+| Queued | OpenMeld | Head lifecycle `createdAt`, else Dispatch Ledger first-seen time |
+| Execution created | OpenMeld | Head `executionLinkedAt`, else RuntimeCoordinator execution creation |
+| Accepted on the computer | Computer | First `lifecycle_accepted_local` report |
+| Agent started | Computer | First recorded `runningAtMs` in a running or completed lifecycle payload |
+| Agent finished | Computer | First `lifecycle_completed_local` report |
+| Result accepted | OpenMeld | Result inbox acceptance |
+| Result visible | OpenMeld | Final visible Space message, else the reply Signal of the published result |
+
+The `result_accepted` event and `result_received` are not boundaries: the
+event can be written after Space publication, and a result can reach Core long
+after the Agent finished, for example from the Service outbox after a
+reconnect. Event observation times can also move under keepalive replacement,
+so Agent start uses only the recorded first running time. OpenMeld boundaries
+move only to stay in order and never past the read time; a computer boundary
+is kept inside the window between the surrounding OpenMeld boundaries, so clock
+skew can shift time between adjacent computer stages but never moves Space or
+Core facts. Redelivered attempts share one Agent run from the first recorded
+start; per-attempt intervals are never summed.
+
+The interval between adjacent boundaries takes that stage's kind: `routing`,
+`queue`, `delivery`, `startup`, `agent_run`, `result_delivery`, or
+`publishing`. An interval between non-adjacent boundaries is `not_recorded`;
+it is never attributed to the Agent or to OpenMeld.
+
+A RuntimeCoordinator decision ends work when it is a final execution outcome
+(not a retryable one, which leads to redelivery) or a head no-execution
+decision, follows every recorded progress boundary, and does not follow Space
+visibility. The stage before the decision keeps its kind only for stages the
+decision itself ends (`queue`, `delivery`, `publishing`); a computer stage may
+have ended earlier, so that interval is `not_recorded`. `publishing` then runs
+from the decision to the visible outcome. Without a visible outcome, it ends at
+the head's recorded publication exhaustion with
+`runtime_coordinator.publication_retry_exhausted`, or stays open while
+publication is still pending; exhausted retries never shorten the total.
+
+The waterfall summary and the shared final-visible-outcome projection decide
+the state: `settled` once the outcome is visible, `in_progress` while the
+summary is not terminal or publication is pending or retrying, otherwise
+`ended`. An in-progress Wake ends with one open segment. Without a decision,
+it keeps the last boundary's stage only when RuntimeCoordinator's current
+execution or head state reports that same stage, or when publication is pending
+after result acceptance; any other unlocated stage change is `not_recorded`.
+While RuntimeCoordinator reports an unanswered local Agent interaction for the
+viewer, the open segment splits into `waiting_for_input` at Core's recorded
+arrival time for that request (`pendingInteractionReceivedAtMs`), never the
+Service's request time or the interaction revision (`interactionUpdatedAtMs`),
+which later command writes can move. Without a recorded arrival time, the open
+segment is `not_recorded`. Resolved
+interactions are not historical evidence yet, so earlier input waits remain
+inside `agent_run`; the Agent run therefore includes tool use and any wait the
+Agent did not report.
+
+Segment reason codes reuse existing evidence: the head waiting boundary or
+no-execution reason, `runtime_coordinator.head_queued` for an Agent Profile
+queue wait, the Service local-queue and conversation-occupancy codes, and
+`runtime_coordinator.interaction_waiting`. Adjacent segments with the same kind
+and reason merge. Totals by kind always sum to the end-to-end time. The last
+evidence time includes lifecycle events, execution and head updates, and the
+latest interaction change.
+
+All timing facts are `platform_observed`. Agent- or integration-reported
+business phases, such as waiting for CI or retesting, need their own reporting
+contract with a separate source label before they can join this timeline.
+
 ## Organization Logo Data Boundary
 
 Auth is the only writer for the canonical `organizations.logo` reference. The

@@ -19521,10 +19521,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
     const ownerRead = (await ownerReadResponse.json()) as {
       interactionUpdatedAtMs: number | null;
+      pendingInteractionReceivedAtMs?: number | null;
     };
     // The revision is the Core arrival time, not the Service's clock.
     expect(ownerRead.interactionUpdatedAtMs).toBeGreaterThanOrEqual(
       requestReceivedAfterMs
+    );
+    // The pending request's recorded arrival is served separately.
+    expect(ownerRead.pendingInteractionReceivedAtMs).toBe(
+      ownerRead.interactionUpdatedAtMs
     );
     // The frozen read keeps the exact body already-deployed Spaces parse.
     const frozenReadResponse = await fetchRuntimeTransportJson(
@@ -19606,6 +19611,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     await expect(answeredRead.json()).resolves.toEqual({
       interactionUpdatedAtMs: respondReceipt.respondedAtMs,
       pendingInteraction: null,
+      pendingInteractionReceivedAtMs: null,
     });
     expect(respondReceipt.respondedAtMs).toBeGreaterThanOrEqual(
       ownerRead.interactionUpdatedAtMs ?? Number.POSITIVE_INFINITY
@@ -19684,6 +19690,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     await expect(replayRead.json()).resolves.toEqual({
       interactionUpdatedAtMs: respondReceipt.respondedAtMs,
       pendingInteraction: null,
+      pendingInteractionReceivedAtMs: null,
     });
   });
 
