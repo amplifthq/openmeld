@@ -23,6 +23,7 @@ export async function readSpaceMessageDetails(input: {
 			spaceId: input.spaceId,
 			signalId: input.signalId,
 			executionContextVersion: 1,
+			timingVersion: 1,
 			delegationVersion: 1,
 			delegationCursor: input.delegationCursor,
 			...(input.spacePassword === undefined
