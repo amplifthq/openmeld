@@ -2,6 +2,138 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "inbox-expired-snapshot-refresh",
+      "title": "Explain an expired Inbox separately from a failed refresh",
+      "kind": "fixed",
+      "areas": [
+        "inbox"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-11-03",
+      "evidence": [
+        "pr:366",
+        "workflow:41598146737"
+      ],
+      "body": "An Inbox whose saved view has expired now says so and offers one Refresh.\nThat refresh loads a new view, and open groups use the new view instead of\nretrying the expired one. A refresh that actually fails still says it could\nnot refresh."
+    },
+    {
+      "id": "claude-space-reply-repair-plan-review",
+      "title": "Keep Claude reply delivery from waiting for plan approval",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "spaces",
+        "service"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-11-03",
+      "release": "v0.3.290",
+      "evidence": [
+        "pr:362",
+        "workflow:41601722765",
+        "tag:v0.3.290"
+      ],
+      "body": "When OpenMeld asks Claude to finish delivering or repair a Space reply, it\ncan continue that work without opening a new plan approval prompt. Ordinary\nClaude execution turns still support plan review."
+    },
+    {
+      "id": "space-image-loading-without-webgl",
+      "title": "Load Space images when WebGL is unavailable",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-11-03",
+      "evidence": [
+        "pr:367",
+        "workflow:41598146737"
+      ],
+      "body": "When a browser cannot start the image loading animation, Space messages\nkeep a static placeholder while the image loads. Other images on the same\npage no longer retry the unavailable animation."
+    },
+    {
+      "id": "center-agent-space-thread-context",
+      "title": "Read earlier Space decisions from a thread",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-11-03",
+      "evidence": [
+        "pr:365",
+        "workflow:41598146737"
+      ],
+      "body": "When the Center Agent is woken inside a thread, it can read the rest of that\nSpace before answering, including the main conversation and other threads. If\nthe answer is still missing, it continues the same read with a higher limit\ninstead of stopping at the first page, and it says when the history is incomplete."
+    },
+    {
+      "id": "macos-desktop-0-1-47-inbox-and-images",
+      "title": "Refresh expired Inbox views and load Space images on macOS",
+      "kind": "fixed",
+      "areas": [
+        "desktop",
+        "inbox",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-11-03",
+      "evidence": [
+        "pr:369",
+        "commit:fe736d9a32c421e0e60f267d0338d0be1addff0a",
+        "https://openmeld.ai/desktop?candidate=ebe64bbcd6b0f9b46fffb7095b4e34e1adb96e530aabae1191834e51cb70dd39"
+      ],
+      "body": "OpenMeld Desktop 0.1.47 for Apple silicon includes the Inbox refresh and\nSpace image fixes. An expired Inbox view offers a single refresh action, and\nSpace images keep their static placeholder when the browser engine cannot\nstart the loading animation."
+    },
+    {
+      "id": "local-execution-resumes-after-previous-work",
+      "title": "Resume local work when the previous session's agents finish",
+      "kind": "fixed",
+      "areas": [
+        "service",
+        "agents"
+      ],
+      "audiences": [
+        "users",
+        "operators"
+      ],
+      "publishedAt": "2026-11-03",
+      "release": "v0.3.290",
+      "evidence": [
+        "pr:361",
+        "workflow:41601722765",
+        "tag:v0.3.290"
+      ],
+      "body": "When OpenMeld Service restarts while local agent work from its previous session\nis still finishing, this computer now accepts new tasks again automatically once\nthat work ends, instead of staying paused until a restart. Work that OpenMeld\ncannot confirm has stopped still requires restarting the computer, and the\nService log now records why local execution is paused."
+    },
+    {
+      "id": "runtime-hub-owner-service-read-diagnostics",
+      "title": "Trace individual Computer readiness lookup attempts",
+      "kind": "improved",
+      "areas": [
+        "engineering"
+      ],
+      "audiences": [
+        "contributors"
+      ],
+      "publishedAt": "2026-11-03",
+      "evidence": [
+        "pr:364",
+        "workflow:41598146737"
+      ],
+      "body": "Operators investigating a Computer readiness timeout can match each retry to\nthe Runtime Transport Hub that handled it and see whether the Hub read the\nrequest body, completed the lookup, and prepared a response."
+    },
+    {
       "id": "center-agent-space-memory",
       "title": "Center Agent remembers conversations within their Space",
       "kind": "improved",
