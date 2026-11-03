@@ -4610,9 +4610,11 @@ sources and decoding in the application; there is no artificial completion or
 reveal delay. The stable frame remains observed after loading and failure.
 Offscreen/background, reduced-motion, unavailable-WebGL, initialization-failure,
 and context-loss states retain the static frame without an active renderer.
-The small pinned package patch surfaces shared-context loss and avoids creating
-WebGL before checking the required 2D output context. Normal package cleanup
-owns GPU disposal; the application does not implement a second shader renderer.
+The pinned package checks the required 2D output before requesting WebGL2 on
+the shared renderer's own canvas. If the browser declines that context, cold
+images use the static frame for the rest of the page without retrying or
+throwing a React error. A successful context is reused by the renderer.
+The patch also surfaces later context loss; package cleanup owns GPU disposal.
 
 The effect is an explicitly emitted, content-addressed module loaded by native
 `import()` through a small failure-isolated adapter. A failed effect download
