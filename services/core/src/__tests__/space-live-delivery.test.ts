@@ -80,9 +80,13 @@ function createHarness(input: {
     authorizeStarts,
     closed,
     delivered,
-    enqueue: (sessions: TestSession[], message: string) => {
+    enqueue: (
+      sessions: TestSession[],
+      message: string,
+      gateReleased?: Promise<void>
+    ) => {
       enqueued += 1;
-      return delivery.enqueue(targets(...sessions), message);
+      return delivery.enqueue(targets(...sessions), message, gateReleased);
     },
     settle: async () => {
       while (drains.length > 0) {
@@ -95,6 +99,28 @@ function createHarness(input: {
 describe("Space live delivery", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("reserves the send order until the publishing gate releases and access is checked", async () => {
+    const alice: TestSession = { name: "alice" };
+    const gate = deferred<void>();
+    const access = deferred<SpaceLiveAccessDecision>();
+    const harness = createHarness({ authorize: () => access.promise });
+    const first = harness.enqueue([alice], "committed signal", gate.promise);
+    const second = harness.enqueue([alice], "later frame");
+    expect(harness.authorizeStarts).toEqual([]);
+    gate.resolve();
+    await flushMicrotasks();
+    expect(harness.authorizeStarts).toEqual([
+      { session: "alice", enqueuedBefore: 2 },
+    ]);
+    expect(harness.delivered.get("alice")).toBeUndefined();
+    access.resolve("authorized");
+    await Promise.all([first, second]);
+    expect(harness.delivered.get("alice")).toEqual([
+      "committed signal",
+      "later frame",
+    ]);
   });
 
   it("closes an unverifiable session without waiting on a timer a sleeping Space would drop", async () => {

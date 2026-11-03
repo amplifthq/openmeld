@@ -80,7 +80,8 @@ export class SpaceLiveDelivery<TSession extends object, TMessage> {
 
   enqueue(
     targets: Iterable<SpaceLiveDeliveryTarget<TSession>>,
-    message: TMessage
+    message: TMessage,
+    gateReleased?: Promise<void>
   ): Promise<void> {
     const receipts: Promise<void>[] = [];
     for (const target of targets) {
@@ -102,7 +103,11 @@ export class SpaceLiveDelivery<TSession extends object, TMessage> {
         pending: [pending],
       };
       this.queues.set(target.session, created);
-      const drain = this.drain(created);
+      // Reserve the FIFO position now, even if the publisher still holds
+      // an input gate and authorization must start after the gate opens.
+      const drain = gateReleased
+        ? gateReleased.then(() => this.drain(created))
+        : this.drain(created);
       this.dependencies.waitUntil?.(drain);
     }
     // This receipt covers only this message, even when later messages join
