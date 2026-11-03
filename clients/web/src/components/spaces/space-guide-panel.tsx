@@ -16,6 +16,7 @@ import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { shouldRetrySpaceQuery } from "#/query/spaces/retry";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import type { SpaceGuideDraft } from "./space-guide-draft";
 import { isSpaceGuideTooLong, type SpaceGuideSaver } from "./space-guide-save";
 
 const GUIDE_LENGTH_FORMAT = new Intl.NumberFormat("en-US");
@@ -30,14 +31,13 @@ export function SpaceGuidePanel(
 		/** Core authorizes the write; this only decides whether to offer editing. */
 		canEdit: boolean;
 		/** The unsaved edit, or null when not editing. Owned by the parent. */
-		draft: string | null;
-		onDraftChange: (draft: string | null) => void;
+		draft: SpaceGuideDraft | null;
+		onDraftChange: (draft: SpaceGuideDraft | null) => void;
 		/** The page's single guide save path, shared with "Save and leave". */
 		saver: SpaceGuideSaver;
 	}
 ) {
-	// Refetches each time the tab opens, so edits made elsewhere (another
-	// owner, or an Agent through Space settings) show up.
+	// Refetches each time the tab opens, so edits made elsewhere show up.
 	const metaQuery = useQuery<SpaceMeta, StructuredApiClientFailure>({
 		queryKey: spaceQueryKeys.meta(input.spaceId, input.openMeldProfileId),
 		queryFn: async ({ signal }) => {
@@ -72,18 +72,19 @@ export function SpaceGuidePanel(
 		return (
 			<SpaceGuideEditor
 				draft={input.draft}
+				guide={guide}
 				onDraftChange={input.onDraftChange}
 				saver={input.saver}
 			/>
 		);
 	}
-	const onEdit = input.canEdit ? () => input.onDraftChange(guide) : null;
+	const onEdit = input.canEdit
+		? () => input.onDraftChange({ previous: guide, text: guide })
+		: null;
 	return guide ? (
 		<SpaceGuideReader guide={guide} onEdit={onEdit} />
 	) : (
-		<SpaceGuideEmpty
-			onWrite={input.canEdit ? () => input.onDraftChange("") : null}
-		/>
+		<SpaceGuideEmpty onWrite={onEdit} />
 	);
 }
 
@@ -109,15 +110,17 @@ function SpaceGuideLoadError(input: { onRetry: () => void }) {
 }
 
 function SpaceGuideEditor(input: {
-	draft: string;
-	onDraftChange: (draft: string | null) => void;
+	draft: SpaceGuideDraft;
+	guide: string;
+	onDraftChange: (draft: SpaceGuideDraft | null) => void;
 	saver: SpaceGuideSaver;
 }) {
 	const saveGuide = input.saver;
 	// The cap only guards storage and Agent context; it is not shown as a
 	// running count, so it reads as unlimited until someone actually hits it.
-	const length = input.draft.trim().length;
-	const tooLong = isSpaceGuideTooLong(input.draft);
+	const length = input.draft.text.trim().length;
+	const tooLong = isSpaceGuideTooLong(input.draft.text);
+	const guideChanged = input.guide !== input.draft.previous;
 	return (
 		<div className="flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-3 px-[var(--app-page-inline-padding)] py-[var(--app-page-block-padding)]">
 			<Textarea
@@ -126,9 +129,11 @@ function SpaceGuideEditor(input: {
 				aria-label="Space guide"
 				autoFocus
 				className="min-h-0 flex-1 resize-none font-mono leading-6"
-				onChange={(event) => input.onDraftChange(event.target.value)}
+				onChange={(event) =>
+					input.onDraftChange({ ...input.draft, text: event.target.value })
+				}
 				placeholder="Describe this Space's purpose, working rules, and handoff expectations. Agents follow this guide on every Wake in this Space."
-				value={input.draft}
+				value={input.draft.text}
 			/>
 			{tooLong ? (
 				<p
@@ -140,6 +145,25 @@ function SpaceGuideEditor(input: {
 					it to {GUIDE_LENGTH_FORMAT.format(MAX_SPACE_GUIDE_LENGTH)} or fewer to
 					save.
 				</p>
+			) : null}
+			{guideChanged ? (
+				<div className="flex items-center justify-between gap-3 text-sm">
+					<p>
+						The saved guide has changed. Copy any edits you want to keep, then
+						start from the latest guide.
+					</p>
+					<Button
+						disabled={saveGuide.isPending}
+						onClick={() => {
+							saveGuide.reset();
+							input.onDraftChange({ previous: input.guide, text: input.guide });
+						}}
+						size="sm"
+						variant="outline"
+					>
+						Edit latest guide
+					</Button>
+				</div>
 			) : null}
 			{saveGuide.error ? (
 				<p className="text-destructive text-sm" role="alert">
@@ -159,7 +183,7 @@ function SpaceGuideEditor(input: {
 					Cancel
 				</Button>
 				<Button
-					disabled={saveGuide.isPending || tooLong}
+					disabled={saveGuide.isPending || tooLong || guideChanged}
 					onClick={() => {
 						// A failure shows through saveGuide.error.
 						saveGuide.save(input.draft).catch(() => undefined);

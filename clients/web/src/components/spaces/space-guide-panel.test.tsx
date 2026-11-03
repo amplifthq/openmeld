@@ -157,7 +157,7 @@ describe("SpaceGuidePanel", () => {
 		expect(await screen.findByText("Escalate blockers.")).toBeDefined();
 		expect(updateMetaMock).toHaveBeenCalledWith({
 			spaceId: "space-1",
-			guide: "Escalate blockers.",
+			guideEdit: { previous: "", text: "Escalate blockers." },
 		});
 		expect(toastSuccessMock).toHaveBeenCalledWith("Guide saved.");
 		expect(screen.queryByLabelText("Space guide")).toBeNull();
@@ -250,6 +250,48 @@ describe("SpaceGuidePanel", () => {
 		expect(await screen.findByText("Somewhere else")).toBeDefined();
 	});
 
+	it("keeps a conflicting draft until the owner chooses to edit the latest guide", async () => {
+		getMetaMock
+			.mockResolvedValueOnce(spaceMeta("Original."))
+			.mockResolvedValue(spaceMeta("Updated elsewhere."));
+		updateMetaMock
+			.mockRejectedValueOnce(
+				Object.assign(new Error("Review the latest guide."), {
+					status: 409,
+					upstreamCode: "space.guide_conflict",
+				})
+			)
+			.mockResolvedValueOnce(spaceMeta("Updated elsewhere. Use Linear."));
+
+		renderGuide({ canEdit: true });
+		fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+		const editor = screen.getByLabelText<HTMLTextAreaElement>("Space guide");
+		fireEvent.change(editor, { target: { value: "Original. Use Linear." } });
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		const review = await screen.findByRole("button", {
+			name: "Edit latest guide",
+		});
+		expect(editor.value).toBe("Original. Use Linear.");
+		expect(updateMetaMock).toHaveBeenCalledTimes(1);
+		expect(toastSuccessMock).not.toHaveBeenCalled();
+		fireEvent.click(review);
+		expect(editor.value).toBe("Updated elsewhere.");
+		fireEvent.change(editor, {
+			target: { value: "Updated elsewhere. Use Linear." },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		expect(
+			await screen.findByText("Updated elsewhere. Use Linear.")
+		).toBeDefined();
+		expect(updateMetaMock).toHaveBeenLastCalledWith({
+			spaceId: "space-1",
+			guideEdit: {
+				previous: "Updated elsewhere.",
+				text: "Updated elsewhere. Use Linear.",
+			},
+		});
+	});
+
 	it("can save an unsaved edit and then leave", async () => {
 		getMetaMock.mockResolvedValue(spaceMeta("Old rules."));
 		updateMetaMock.mockResolvedValue(spaceMeta("New rules."));
@@ -268,7 +310,7 @@ describe("SpaceGuidePanel", () => {
 		expect(await screen.findByText("Somewhere else")).toBeDefined();
 		expect(updateMetaMock).toHaveBeenCalledWith({
 			spaceId: "space-1",
-			guide: "New rules.",
+			guideEdit: { previous: "Old rules.", text: "New rules." },
 		});
 		expect(router.state.location.pathname).toBe("/privacy");
 	});
@@ -308,9 +350,12 @@ describe("SpaceGuidePanel", () => {
 		);
 
 		expect(await screen.findByText("Somewhere else")).toBeDefined();
-		expect(updateMetaMock.mock.calls.map(([request]) => request.guide)).toEqual(
-			["Version A.", "Version B."]
-		);
+		expect(
+			updateMetaMock.mock.calls.map(([request]) => request.guideEdit)
+		).toEqual([
+			{ previous: "Old rules.", text: "Version A." },
+			{ previous: "Version A.", text: "Version B." },
+		]);
 		expect(router.state.location.pathname).toBe("/privacy");
 	});
 
@@ -336,19 +381,22 @@ describe("SpaceGuidePanel", () => {
 		let leaving: Promise<boolean> | undefined;
 		await act(async () => {
 			const saver = result.current;
-			firstSave = saver.save("A");
-			await saver.save("B");
-			leaving = saveSpaceGuideBeforeLeaving("Final", saver);
+			firstSave = saver.save({ previous: "", text: "A" });
+			await saver.save({ previous: "", text: "B" });
+			leaving = saveSpaceGuideBeforeLeaving(
+				{ previous: "B", text: "Final" },
+				saver
+			);
 		});
-		expect(updateMetaMock.mock.calls.map(([request]) => request.guide)).toEqual(
-			["A", "B"]
-		);
+		expect(
+			updateMetaMock.mock.calls.map(([request]) => request.guideEdit.text)
+		).toEqual(["A", "B"]);
 		await act(async () => {
 			finishOlderSave(spaceMeta("A"));
 			await firstSave;
 			expect(await leaving).toBe(true);
 		});
-		expect(updateMetaMock.mock.lastCall?.[0].guide).toBe("Final");
+		expect(updateMetaMock.mock.lastCall?.[0].guideEdit.text).toBe("Final");
 	});
 
 	it("stays on the Space when saving before leaving fails", async () => {

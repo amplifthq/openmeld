@@ -1,9 +1,11 @@
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import { MAX_SPACE_GUIDE_LENGTH } from "@openmeld/schemas";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import type { SpaceGuideDraft } from "./space-guide-draft";
 
 /** True when a guide draft is over the server cap and cannot be saved. */
 export function isSpaceGuideTooLong(text: string) {
@@ -20,7 +22,7 @@ export type SpaceGuideSaver = {
 	isPending: boolean;
 	reset: () => void;
 	/** Starts a save. Rejects when the save fails. */
-	save: (guide: string) => Promise<unknown>;
+	save: (edit: SpaceGuideDraft) => Promise<unknown>;
 	/** Resolves once every save started so far has finished. */
 	settle: () => Promise<void>;
 };
@@ -31,14 +33,14 @@ export type SpaceGuideSaver = {
  * leave, false when the draft cannot be saved (the dialog shows an error).
  */
 export async function saveSpaceGuideBeforeLeaving(
-	draft: string | null,
+	draft: SpaceGuideDraft | null,
 	saver: Pick<SpaceGuideSaver, "save" | "settle">
 ): Promise<boolean> {
 	await saver.settle();
 	if (draft === null) {
 		return true;
 	}
-	if (isSpaceGuideTooLong(draft)) {
+	if (isSpaceGuideTooLong(draft.text)) {
 		return false;
 	}
 	try {
@@ -54,29 +56,39 @@ export function useSpaceGuideSaver(input: {
 	openMeldProfileId: string;
 	spaceId: string;
 	/** Called with the submitted text when the save succeeds. */
-	onSaved: (submitted: string) => void;
+	onSaved: (submitted: string, saved: string) => void;
 }): SpaceGuideSaver {
 	const queryClient = useQueryClient();
 	const mutation = useMutation({
-		mutationFn: async (guide: string) =>
+		mutationFn: async (guideEdit: SpaceGuideDraft) =>
 			await createUnscopedWebSpaceApi({
 				openMeldProfileId: input.openMeldProfileId,
-			}).updateMeta({ spaceId: input.spaceId, guide }),
+			}).updateMeta({ spaceId: input.spaceId, guideEdit }),
+		onError: async (error) => {
+			if (
+				toStructuredApiClientFailure(error).upstreamCode ===
+				"space.guide_conflict"
+			) {
+				await queryClient.invalidateQueries({
+					queryKey: spaceQueryKeys.meta(input.spaceId, input.openMeldProfileId),
+				});
+			}
+		},
 		onSuccess: (meta, submitted) => {
 			queryClient.setQueryData(
 				spaceQueryKeys.meta(input.spaceId, input.openMeldProfileId),
 				meta
 			);
 			// Keeps the editor open if the text changed while saving.
-			input.onSaved(submitted);
+			input.onSaved(submitted.text, meta.guide ?? "");
 			toast.success("Guide saved.");
 		},
 	});
 	const { mutateAsync } = mutation;
 	const inFlight = useRef(new Set<Promise<unknown>>());
 	const save = useCallback(
-		(guide: string) => {
-			const tracked: Promise<unknown> = mutateAsync(guide).finally(() => {
+		(edit: SpaceGuideDraft) => {
+			const tracked: Promise<unknown> = mutateAsync(edit).finally(() => {
 				inFlight.current.delete(tracked);
 			});
 			inFlight.current.add(tracked);

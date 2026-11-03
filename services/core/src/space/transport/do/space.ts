@@ -233,6 +233,7 @@ import type {
   OpenMeldDaemonDispatchQueueRecoveryReason,
   OpenMeldDaemonMentionDispatchResultPayload,
   OpenMeldRequestContext,
+  PatchSpaceMetaBody,
   RequestChain,
   PostSpaceDispatchOutboxRedriveResponse,
   PostSpaceMembersResponse,
@@ -2597,6 +2598,7 @@ type PatchSpaceMetaInput = {
   purpose?: string;
   creator?: SpaceCreator;
   guide?: string;
+  guideEdit?: PatchSpaceMetaBody["guideEdit"];
   accessMode?: SpaceAccessMode;
   linkJoinPolicy?: SpaceLinkJoinPolicy;
   organizationId?: string;
@@ -13928,6 +13930,7 @@ export class Space extends DurableObject<CoreBindings> {
           : {}),
         ...(input.creator ? { creator: input.creator } : {}),
         ...(typeof input.guide === "string" ? { guide: input.guide } : {}),
+        ...(input.guideEdit === undefined ? {} : { guideEdit: input.guideEdit }),
         ...(input.accessMode === undefined
           ? {}
           : { accessMode: input.accessMode }),

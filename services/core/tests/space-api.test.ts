@@ -85,6 +85,7 @@ import {
   rpcPostSpaceWakeStop,
   rpcPostStatusSignal,
   rpcPostSystemNoticeSignal,
+  rpcUpdateSpaceMeta,
 } from "../src/rpc/methods";
 import {
   rpcReadMessages,
@@ -6130,6 +6131,59 @@ describe("OpenMeld Core", () => {
     );
     expect(response.status).toBe(400);
     await expect(response.text()).resolves.toContain("Guide too long");
+  });
+  it("only saves a human owner's guide edit against the guide they reviewed", async () => {
+    const owner = {
+      profileId: SECOND_HUMAN_PROFILE_ID,
+      openMeldProfileId: SECOND_HUMAN_PROFILE_ID,
+      profileKind: "human" as const,
+      ownerUserId: "guide-owner",
+    };
+    const spaceId = await createSpace({ name: "Issue rules" }, owner);
+    const url = `${BASE_URL}/v1/spaces/${spaceId}/meta`;
+    const edit = (previous: string, text: string, actor: TestAuthProfile = owner) =>
+      fetchWithOpenMeldAuth(
+        url,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ guideEdit: { previous, text } }),
+        },
+        actor
+      );
+
+    for (const profileKind of ["human", "agent"] as const) {
+      const denied = await edit("", "Unauthorized rule.", {
+        profileId: "other-profile",
+        openMeldProfileId: "other-profile",
+        ownerUserId: profileKind === "agent" ? owner.ownerUserId : "non-owner",
+        profileKind,
+      });
+      expect(await readResponseStatusAndCode(denied)).toEqual({
+        status: 403,
+        code: "space.forbidden",
+      });
+    }
+    const updated = await edit("", "Use Linear.");
+    expect(updated.status).toBe(200);
+    const stale = await edit("", "File issues in GitHub.");
+    expect(await readResponseStatusAndCode(stale)).toEqual({
+      status: 409,
+      code: "space.guide_conflict",
+    });
+    const current = await fetchWithOpenMeldAuth(url, undefined, owner);
+    await expect(current.json()).resolves.toMatchObject({
+      guide: "Use Linear.",
+    });
+    const reconciled = await rpcUpdateSpaceMeta(env as CoreBindings, {
+      spaceId,
+      guideEdit: {
+        previous: "Use Linear.",
+        text: "Use Linear. Include a reproduction.",
+      },
+      context: createRpcContext({ ...owner, requestId: "save-reviewed-guide" }),
+    });
+    expect(reconciled.guide).toBe("Use Linear. Include a reproduction.");
   });
   it("stores space creator + guide on create and supports metadata updates", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
