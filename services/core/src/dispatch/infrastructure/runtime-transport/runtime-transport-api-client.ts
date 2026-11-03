@@ -144,8 +144,15 @@ export const callRuntimeTransportApi = async (input: {
   }, requestTimeoutMs);
 
   let response: Response;
+  let parsedBody: unknown | null;
   try {
     response = await fetchResponse(shard, abortController.signal);
+    // The request budget covers the body; a body that stalls after its
+    // headers times out like a request that never answered.
+    parsedBody = await readJsonBodyBeforeAbort(
+      response,
+      abortController.signal
+    );
   } catch {
     if (abortController.signal.aborted) {
       console.warn("[core.runtime_transport_client.request_timeout]", {
@@ -159,11 +166,27 @@ export const callRuntimeTransportApi = async (input: {
     clearTimeout(timeoutId);
   }
 
-  return resolveRuntimeTransportApiResponse(
-    response,
-    await parseJsonBody(response),
-    input
-  );
+  return resolveRuntimeTransportApiResponse(response, parsedBody, input);
+};
+
+const readJsonBodyBeforeAbort = (
+  response: Response,
+  signal: AbortSignal
+): Promise<unknown | null> => {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason);
+  }
+  return new Promise((resolve, reject) => {
+    const rejectOnAbort = () => {
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", rejectOnAbort, { once: true });
+    parseJsonBody(response)
+      .then(resolve)
+      .finally(() => {
+        signal.removeEventListener("abort", rejectOnAbort);
+      });
+  });
 };
 
 const resolveRuntimeTransportApiResponse = (
