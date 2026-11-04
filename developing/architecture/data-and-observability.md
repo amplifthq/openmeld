@@ -588,6 +588,15 @@ record no message text or SQL.
 
 ## Space open read path
 
+Core can obtain a new stub for the same Space and repeat a members, member
+directory, or Wake progress read once when the platform reports an inactive
+instance or a code-update reset. The replacement read repeats authorization
+and uses the original query. A short jittered delay and the replacement
+attempt must fit within ten seconds of starting the original call. A healthy
+first call may finish later. Explicit overload and non-retryable errors pass
+through. To correlate an attempted recovery with the caller's result, look up
+`space_read_recovery` by request ID.
+
 Opening a Space reads bootstrap, members, and entry resolution. Their slow
 inputs are cross-service reads (Auth Profile lineage, PostgreSQL membership,
 account images); none of the rules below changes an authorization or response
