@@ -111,6 +111,7 @@ type SpaceMessageBodyProps = {
 				| "files"
 				| "referenceTargetProfileIds"
 				| "mentionTargetProfileIds"
+				| "humanMentions"
 				| "spaceId"
 				| "wakeTargetProfileIds"
 				| "activeWakeProgress"
@@ -225,6 +226,7 @@ function useSpaceMessageReferencePresentation(input: SpaceMessageBodyProps) {
 	const profileMentionProfilesById = useMemo(
 		() =>
 			buildSpaceMessageProfileMentionProfiles({
+				humanMentions: input.item.humanMentions,
 				profilePresentationsById:
 					input.profilePresentationsById ??
 					EMPTY_SPACE_MESSAGE_PROFILE_MENTION_PROFILES,
@@ -233,6 +235,7 @@ function useSpaceMessageReferencePresentation(input: SpaceMessageBodyProps) {
 				wakeTargetProfileIds: input.item.wakeTargetProfileIds ?? [],
 			}),
 		[
+			input.item.humanMentions,
 			input.item.referenceTargetProfileIds,
 			input.item.mentionTargetProfileIds,
 			input.item.wakeTargetProfileIds,

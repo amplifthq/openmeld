@@ -1192,6 +1192,7 @@ export function resolveReplyPreviewText(
 	>
 ) {
 	const profiles = buildSpaceMessageProfileMentionProfiles({
+		humanMentions: sourceItem?.humanMentions,
 		profilePresentationsById,
 		mentionTargetProfileIds: sourceItem?.mentionTargetProfileIds ?? [],
 		wakeTargetProfileIds: sourceItem?.wakeTargetProfileIds ?? [],

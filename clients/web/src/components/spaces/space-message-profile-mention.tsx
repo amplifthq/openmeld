@@ -1,3 +1,4 @@
+import type { SpaceHumanMentionTarget } from "@openmeld/schemas/types";
 import type { ReactElement, ReactNode } from "react";
 
 export type SpaceProfileTriggerRenderer = (
@@ -46,6 +47,7 @@ type SpaceMessageProfileRelation = "reference" | "wake" | "mention";
 export type SpaceMessageProfileMentionPresentation =
 	SpaceCollaborationProfilePresentation & {
 		relation: SpaceMessageProfileRelation;
+		membershipScope?: "space" | "organization";
 	};
 
 type SpaceMessageProfileMentionRemarkOptions = {
@@ -61,6 +63,7 @@ export const EMPTY_SPACE_MESSAGE_PROFILE_MENTION_PROFILES: SpaceMessageProfileMe
 	new Map();
 
 export function buildSpaceMessageProfileMentionProfiles(input: {
+	humanMentions?: readonly SpaceHumanMentionTarget[];
 	profilePresentationsById: ReadonlyMap<
 		string,
 		SpaceCollaborationProfilePresentation
@@ -81,12 +84,31 @@ export function buildSpaceMessageProfileMentionProfiles(input: {
 			return;
 		}
 
-		const profile = input.profilePresentationsById.get(profileId);
+		const humanMention =
+			relation === "mention"
+				? input.humanMentions?.find((target) => target.profileId === profileId)
+				: undefined;
+		const profile =
+			input.profilePresentationsById.get(profileId) ??
+			(humanMention
+				? {
+						profileId,
+						profileName: humanMention.profileName,
+						profileKind: "human" as const,
+						agentControllerRef: null,
+						avatarImageUrl: null,
+						isCenterAgent: false,
+					}
+				: undefined);
 		if (
 			profile &&
 			(relation === "mention" || profile.profileKind === "agent")
 		) {
-			profilesById.set(profileId, { ...profile, relation });
+			profilesById.set(profileId, {
+				...profile,
+				relation,
+				...(humanMention ? { membershipScope: humanMention.scope } : {}),
+			});
 		}
 	};
 

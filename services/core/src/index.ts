@@ -633,6 +633,7 @@ import { acknowledgeRemoteAgentAdmission } from "./remote-agent/application/nati
 import { completeRemoteAgentNativeDelivery } from "./remote-agent/application/native-delivery-service";
 import { runPersonalRemoteAgentSpaceTool } from "./remote-agent/application/personal-remote-agent-space-tools";
 import { authorizeRemoteAgentExecutionAccess } from "./remote-agent/application/remote-agent-execution-access";
+import { resolveRemoteAgentReplyMentions } from "./remote-agent/application/reply-mentions";
 import { processRemoteAgentSlackEvent } from "./remote-agent/application/slack-signal-service";
 import {
   handleCenterAgentSlackTeammateInvitations,
@@ -3446,6 +3447,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   centerAgentReadSpaceGuide(input: unknown) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       centerAgentReadSpaceGuide(this.env, input)
+    );
+  }
+  resolveRemoteAgentReplyMentions(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      resolveRemoteAgentReplyMentions(this.env, input)
     );
   }
   suggestPermissionMode(input: unknown) {

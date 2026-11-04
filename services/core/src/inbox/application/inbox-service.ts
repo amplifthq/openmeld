@@ -1332,8 +1332,15 @@ export function mapInboxItemRow(row: InboxItemRow): InboxItem {
       cause: sourceTarget.error,
     });
   }
-  const sourceFacts = row.source_facts_json
+  const storedSourceFacts = row.source_facts_json
     ? JSON.parse(row.source_facts_json)
+    : undefined;
+  // The source-owned receipt stays internal; strict older Inbox clients keep
+  // receiving their existing facts shape and the same minimal notification.
+  const sourceFacts = storedSourceFacts
+    ? (({ organizationMentionProfileId: _receipt, ...facts }) => facts)(
+        storedSourceFacts
+      )
     : undefined;
   let target = sourceTarget.data;
   // Space association feeds the shared attention summary. Keep the existing
