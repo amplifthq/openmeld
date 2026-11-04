@@ -185,6 +185,9 @@ function OrganizationMessageChannelsContent(input: {
 		})
 	);
 	const larkPlatform = useLarkPlatformChannelManagement({
+		hasPendingFeishuSetup: activeRegistrationsQuery.data?.registrations.some(
+			(r) => r.provider === "feishu"
+		),
 		connections: channelsQuery.data?.connections ?? [],
 		organizationId: input.organizationId,
 	});
@@ -306,6 +309,7 @@ function OrganizationMessageChannelsContent(input: {
 			) : null}
 			<LarkPlatformChannelDialog
 				canManage={canManage}
+				chooseFeishuSetup={larkPlatform.chooseFeishuSetup}
 				connection={larkPlatform.connection}
 				disconnectPending={larkPlatform.disconnectPending}
 				errorMessage={larkPlatform.errorMessage}
@@ -316,6 +320,7 @@ function OrganizationMessageChannelsContent(input: {
 				onRetryPoll={larkPlatform.retryPoll}
 				onStartOver={larkPlatform.startOver}
 				open={larkPlatform.open}
+				organizationId={input.organizationId}
 				pollPending={larkPlatform.pollPending}
 				provider={larkPlatform.provider}
 				registration={larkPlatform.registration}

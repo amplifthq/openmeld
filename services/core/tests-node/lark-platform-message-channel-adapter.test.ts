@@ -8,6 +8,7 @@ import {
   LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION,
 } from "../src/remote-agent/application/lark-platform-credential-crypto";
 import { createLarkPlatformMessageChannelAdapter } from "../src/remote-agent/application/lark-platform-message-channel-adapter";
+import { setFeishuGroupHistory } from "../src/remote-agent/infrastructure/postgresql/feishu-group-history-settings";
 import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../src/remote-agent/infrastructure/postgresql/lark-platform-channel-connection-repo";
 import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
@@ -373,6 +374,73 @@ describe("Lark-platform Message Channel adapter", () => {
   });
 });
 
+it("requires an exact per-installation group opt-in before fetching Feishu group context", async () => {
+  const db = await createPostgresHarness();
+  const connection = { ...CONNECTION, provider: "feishu" as const };
+  const locator = { ...LOCATOR, provider: "feishu" as const };
+  const event = {
+    kind: "message" as const,
+    locator,
+    mention: "group_mention" as const,
+    messageId: "om_current",
+    senderId: "ou_requester",
+    sentAtMs: 1_710_000_001_000,
+    text: "earlier",
+    resources: [],
+  };
+  const fetchImpl = vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(
+      Response.json({ code: 0, expire: 7200, tenant_access_token: "fixture" })
+    )
+    .mockResolvedValueOnce(
+      Response.json({ code: 0, data: { items: [], has_more: false } })
+    );
+  try {
+    await applyConnectionMigration(db);
+    const secret = await encryptLarkPlatformCredential({
+      credential: "secret",
+      credentialName: "app secret",
+      cryptoKey: CRYPTO_KEY,
+    });
+    await seedConnection(db, secret, "feishu");
+    const adapter = createLarkPlatformMessageChannelAdapter({
+      provider: "feishu",
+      db: db.db,
+      cryptoKey: CRYPTO_KEY,
+      fetchImpl,
+    });
+    const read = () =>
+      adapter.readChannelContext({
+        connection,
+        event,
+        conversationId: "group",
+      });
+    await setFeishuGroupHistory(db.db, connection, "other", true);
+    expect((await read()).sync.status).toBe("forbidden");
+    expect(fetchImpl).not.toHaveBeenCalled();
+    await setFeishuGroupHistory(db.db, connection, locator.chatId, true);
+    expect((await read()).sync.status).toBe("complete");
+    const newer = {
+      ...connection,
+      connectionGeneration: connection.connectionGeneration + 1,
+    };
+    expect(
+      (
+        await adapter.readChannelContext({
+          connection: newer,
+          event,
+          conversationId: "group",
+        })
+      ).sync.status
+    ).toBe("forbidden");
+    await setFeishuGroupHistory(db.db, connection, locator.chatId, false);
+    expect((await read()).sync.status).toBe("forbidden");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  } finally {
+    await db.close();
+  }
+});
 async function applyConnectionMigration(
   harness: Awaited<ReturnType<typeof createPostgresHarness>>
 ): Promise<void> {
@@ -386,9 +454,11 @@ async function applyConnectionMigration(
 
 async function seedConnection(
   harness: Awaited<ReturnType<typeof createPostgresHarness>>,
-  encryptedAppSecret: string
+  encryptedAppSecret: string,
+  provider: "lark" | "feishu" = "lark"
 ): Promise<void> {
   await harness.query({
+    values: [provider],
     text: `
       INSERT INTO "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" (
         connection_id,
@@ -411,7 +481,7 @@ async function seedConnection(
       ) VALUES (
         'connection_lark_test',
         'org_1',
-        'lark',
+        $1,
         'cli_lark_test',
         'tenant_lark_test',
         'ou_bot_test',

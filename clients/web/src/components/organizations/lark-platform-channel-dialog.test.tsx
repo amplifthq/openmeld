@@ -10,6 +10,44 @@ describe("LarkPlatformChannelDialog", () => {
 	it.each([
 		true,
 		false,
+	])("offers history by default and submits the chosen Feishu setup (%s)", (history) => {
+		const chooseFeishuSetup = vi.fn();
+		render(
+			<LarkPlatformChannelDialog
+				canManage
+				chooseFeishuSetup={chooseFeishuSetup}
+				connection={null}
+				disconnectPending={false}
+				errorMessage={null}
+				onDisconnect={vi.fn()}
+				onOpenChange={vi.fn()}
+				onReauthorize={vi.fn()}
+				onRepair={vi.fn()}
+				onRetryPoll={vi.fn()}
+				onStartOver={vi.fn()}
+				open
+				pollPending={false}
+				provider="feishu"
+				registration={null}
+				repairPending={false}
+				startOverPending={false}
+			/>
+		);
+		const checkbox = screen.getByRole("checkbox", {
+			name: "Allow history in selected Feishu groups",
+		}) as HTMLInputElement;
+		expect(checkbox.checked).toBe(true);
+		if (!history) {
+			fireEvent.click(checkbox);
+		}
+		fireEvent.click(
+			screen.getByRole("button", { name: "Continue to Feishu setup" })
+		);
+		expect(chooseFeishuSetup).toHaveBeenCalledWith(history);
+	});
+	it.each([
+		true,
+		false,
 	])("preserves a setup read error and gates restart by management permission (%s)", (canManage) => {
 		const onStartOver = vi.fn();
 		render(

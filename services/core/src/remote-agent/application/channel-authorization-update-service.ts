@@ -14,6 +14,7 @@ import { listRemoteAgentLarkPlatformChannelConnectionsForOrganization } from "..
 import { readRemoteAgentSlackWorkspaceBindingByOrganization } from "../infrastructure/postgresql/slack-workspace-binding-repo";
 import { readSlackWorkspaceToken } from "../infrastructure/postgresql/slack-workspace-token-repo";
 import {
+  FEISHU_HISTORY_BUNDLE_VERSION,
   LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE,
   requiresLarkPlatformAuthorizationUpdate,
 } from "./lark-platform-permission-bundles";
@@ -199,7 +200,7 @@ export async function reconcileChannelAuthorizationUpdatesTick(input: {
     text: `
     SELECT DISTINCT organization_id FROM (
       SELECT connection.organization_id FROM "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" connection
-      WHERE ((connection.status = 'connected' AND connection.permission_bundle_version != $1)
+      WHERE ((connection.status = 'connected' AND connection.permission_bundle_version != $1 AND (connection.provider != 'feishu' OR connection.permission_bundle_version != $7))
         OR (connection.status = 'configuring' AND connection.failure_reason_code IN (connection.provider || '.application_config_permission_required', connection.provider || '.authorization_update_required', connection.provider || '.permission_bundle_mismatch')))
         AND NOT EXISTS (SELECT 1 FROM "openmeld"."inbox_items" item WHERE item.organization_id = connection.organization_id AND item.source_kind = 'system_attention_event' AND item.source_key = 'authorization-update:channel.' || connection.provider || '.' || connection.connection_id || ':' || $2)
       UNION ALL
@@ -210,7 +211,7 @@ export async function reconcileChannelAuthorizationUpdatesTick(input: {
       SELECT item.organization_id FROM "openmeld"."inbox_items" item
       WHERE item.source_kind = 'system_attention_event' AND item.source_key ILIKE 'authorization-update:channel.%' AND item.resolution_status = 'open'
       AND (
-        EXISTS (SELECT 1 FROM "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" connection WHERE connection.organization_id = item.organization_id AND strpos(item.source_key, 'authorization-update:channel.' || connection.provider || '.' || connection.connection_id || ':') = 1 AND (connection.status = 'disconnected' OR (connection.status = 'connected' AND connection.permission_bundle_version = $5)))
+        EXISTS (SELECT 1 FROM "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" connection WHERE connection.organization_id = item.organization_id AND strpos(item.source_key, 'authorization-update:channel.' || connection.provider || '.' || connection.connection_id || ':') = 1 AND (connection.status = 'disconnected' OR (connection.status = 'connected' AND (connection.permission_bundle_version = $5 OR (connection.provider = 'feishu' AND connection.permission_bundle_version = $7)))))
         OR EXISTS (SELECT 1 FROM "openmeld"."slack_workspace_tokens" token WHERE token.organization_id = item.organization_id AND strpos(item.source_key, 'authorization-update:channel.slack.' || token.slack_team_id || ':') = 1 AND token.granted_bot_scopes IS NOT NULL AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text($6::jsonb) AS required(value) WHERE strpos(',' || token.granted_bot_scopes || ',', ',' || required.value || ',') = 0))
         OR (NOT EXISTS (SELECT 1 FROM "openmeld"."openMeldRemoteAgent_lark_platform_channel_connections" connection WHERE connection.organization_id = item.organization_id AND strpos(item.source_key, 'authorization-update:channel.' || connection.provider || '.' || connection.connection_id || ':') = 1)
           AND NOT EXISTS (SELECT 1 FROM "openmeld"."openMeldRemoteAgent_slack_workspace_bindings" binding WHERE binding.organization_id = item.organization_id AND strpos(item.source_key, 'authorization-update:channel.slack.' || binding.slack_team_id || ':') = 1))
@@ -224,6 +225,7 @@ export async function reconcileChannelAuthorizationUpdatesTick(input: {
       slackVersion,
       larkVersion,
       JSON.stringify(SLACK_BOT_SCOPES),
+      FEISHU_HISTORY_BUNDLE_VERSION,
     ],
   });
   for (const row of pending.rows) {

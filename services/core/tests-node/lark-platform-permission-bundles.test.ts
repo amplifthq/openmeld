@@ -2,10 +2,25 @@ import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import {
   encodeLarkPlatformRegistrationAddons,
+  FEISHU_HISTORY_BUNDLE_VERSION,
   LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE,
+  requiresLarkPlatformAuthorizationUpdate,
 } from "../src/remote-agent/application/lark-platform-permission-bundles";
 
 describe("Lark-platform permission bundles", () => {
+  it.each([
+    LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.version,
+    FEISHU_HISTORY_BUNDLE_VERSION,
+  ])("keeps connected Feishu bots current with either permission choice: %s", (version) => {
+    expect(
+      requiresLarkPlatformAuthorizationUpdate({
+        status: "connected",
+        provider: "feishu",
+        permissionBundleVersion: version,
+        failureReasonCode: null,
+      })
+    ).toBe(false);
+  });
   it("pins the real channel-only grant without business-action permissions", () => {
     expect(LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE).toEqual({
       callbacks: ["card.action.trigger"],

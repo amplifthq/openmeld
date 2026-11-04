@@ -316,6 +316,27 @@ export async function readActiveRemoteAgentLarkPlatformRegistrationAttempt(input
     .then((result) => result.rows[0] ?? null);
   return row ? mapRegistrationAttemptRow(row) : null;
 }
+/** Only an explicit restart may carry a choice out of the last expired setup. */
+export async function readExpiredFeishuRestartBundle(input: {
+  db: PostgresDatabase;
+  organizationId: string;
+  userId: string;
+  profileId: string;
+}): Promise<string | null> {
+  const result = await input.db.query<{ permission_bundle_version: string }>({
+    text: `SELECT permission_bundle_version FROM (
+      SELECT permission_bundle_version, initiated_by_user_id, initiated_by_profile_id,
+             connection_id, failure_reason_code
+      FROM "openmeld"."openMeldRemoteAgent_lark_platform_registration_attempts"
+      WHERE organization_id = $1 AND provider = 'feishu'
+      ORDER BY created_at_ms DESC, updated_at_ms DESC, attempt_id DESC LIMIT 1
+    ) latest
+    WHERE failure_reason_code = 'feishu.registration_expired' AND connection_id IS NULL
+      AND initiated_by_user_id = $2 AND initiated_by_profile_id = $3`,
+    values: [input.organizationId, input.userId, input.profileId],
+  });
+  return result.rows[0]?.permission_bundle_version ?? null;
+}
 export async function listDueRemoteAgentLarkPlatformRegistrationAttempts(input: {
   db: PostgresDatabase;
   limit: number;

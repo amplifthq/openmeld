@@ -41,6 +41,42 @@ afterEach(() => {
 });
 
 describe("useLarkPlatformChannelManagement", () => {
+	it("waits for the Feishu scope choice before creating an app, and resumes a pending attempt without choosing again", async () => {
+		api.beginRegistration.mockReturnValue(
+			new Promise<never>(() => {
+				// Keep consent pending while the user closes and reopens the wizard.
+			})
+		);
+		const { result, rerender } = renderHook(
+			({ pending }: { pending: boolean }) =>
+				useLarkPlatformChannelManagement({
+					connections: [],
+					organizationId: "org_1",
+					hasPendingFeishuSetup: pending,
+				}),
+			{ initialProps: { pending: false }, wrapper: TestQueryClientProvider }
+		);
+		act(() => result.current.manage("feishu"));
+		expect(api.beginRegistration).not.toHaveBeenCalled();
+		act(() => result.current.chooseFeishuSetup?.(false));
+		await waitFor(() =>
+			expect(api.beginRegistration).toHaveBeenLastCalledWith({
+				organizationId: "org_1",
+				provider: "feishu",
+				mode: "setup_feishu_basic",
+			})
+		);
+		act(() => result.current.setOpen(false));
+		rerender({ pending: true });
+		act(() => result.current.manage("feishu"));
+		await waitFor(() =>
+			expect(api.beginRegistration).toHaveBeenLastCalledWith({
+				organizationId: "org_1",
+				provider: "feishu",
+				mode: "resume",
+			})
+		);
+	});
 	it("does not open or apply an authorization result after the Organization changes", async () => {
 		let resolveRegistration:
 			| ((registration: ReturnType<typeof registrationFixture>) => void)

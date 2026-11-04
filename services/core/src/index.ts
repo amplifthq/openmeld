@@ -1070,6 +1070,7 @@ import {
   rpcListCenterAgentSessions,
   rpcListCurrentOrganizationConnectorAppRequests,
   rpcListCurrentOrganizationConnectorConnections,
+  rpcListFeishuHistoryGroups,
   rpcListLocalRuntimes,
   rpcListMessageChannelConnections,
   rpcListPeopleComputers,
@@ -1110,6 +1111,7 @@ import {
   rpcReadChangelog,
   rpcReadComputerFileAccessPolicy,
   rpcReadCurrentOrganizationFeedbackReportingPolicy,
+  rpcReadFeishuGroupHistory,
   rpcReadOrganizationInformationProtectionPolicy,
   rpcReadOrganizationUsageOverview,
   rpcReadPendingGitHubAppInstallation,
@@ -1151,6 +1153,7 @@ import {
   rpcSetCurrentOpenMeldToolsMaintenance,
   rpcSetCurrentOrganizationFeedbackReportingPolicy,
   rpcSetDefaultConnection,
+  rpcSetFeishuHistoryGroup,
   rpcSetLocalRuntimeDisplayName,
   rpcSetOrganizationInformationProtectionPolicy,
   rpcSetPeopleComputerLocalAgentEnabled,
@@ -4766,6 +4769,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 type GatewaySensitiveCredential = { requestCredential?: RequestCredential };
 
 export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
+  listFeishuHistoryGroups(
+    input: Parameters<typeof rpcListFeishuHistoryGroups>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListFeishuHistoryGroups(this.env, input)
+    );
+  }
+  setFeishuHistoryGroup(input: Parameters<typeof rpcSetFeishuHistoryGroup>[1]) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetFeishuHistoryGroup(this.env, input)
+    );
+  }
   getCredentialConfirmation(
     input: Parameters<typeof rpcGetCredentialConfirmation>[1]
   ) {
@@ -6892,6 +6907,13 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
 }
 export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
+  readFeishuGroupHistory(
+    input: Parameters<typeof rpcReadFeishuGroupHistory>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadFeishuGroupHistory(this.env, input)
+    );
+  }
   remoteAgentOpenDirectMessageSpace(input: OpenDirectMessageSpaceInput) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcRemoteAgentOpenDirectMessageSpace(this.env, input)

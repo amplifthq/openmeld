@@ -2,6 +2,7 @@
 
 import type {
 	LarkPlatformProvider,
+	LarkPlatformRegistrationBeginMode,
 	LarkPlatformRegistrationResponse,
 	MessageChannelConnectionListResponse,
 	MessageChannelConnectionProjection,
@@ -45,6 +46,7 @@ async function invalidateMessageChannelReads(
 
 export function useLarkPlatformChannelManagement(input: {
 	connections: readonly MessageChannelConnectionProjection[];
+	hasPendingFeishuSetup?: boolean;
 	organizationId: string;
 }) {
 	const queryClient = useQueryClient();
@@ -54,6 +56,7 @@ export function useLarkPlatformChannelManagement(input: {
 	const [activeRegistration, setActiveRegistration] =
 		useState<LarkPlatformRegistrationResponse | null>(null);
 	const [dialogOpen, setDialogOpen] = useState(false);
+	const [choosingFeishuSetup, setChoosingFeishuSetup] = useState(false);
 	const [selectedProvider, setSelectedProvider] =
 		useState<LarkPlatformProvider | null>(null);
 	const registrationQuery = useQuery(
@@ -66,7 +69,7 @@ export function useLarkPlatformChannelManagement(input: {
 	);
 	const beginMutation = useMutation({
 		mutationFn: async (request: {
-			mode: "repair" | "restart" | "resume" | "reauthorize";
+			mode: LarkPlatformRegistrationBeginMode;
 			organizationId: string;
 			provider: LarkPlatformProvider;
 		}) => {
@@ -83,6 +86,7 @@ export function useLarkPlatformChannelManagement(input: {
 			if (request.mode === "resume") {
 				setActiveRegistration(null);
 			}
+			setChoosingFeishuSetup(false);
 			setSelectedProvider(request.provider);
 			setDialogOpen(true);
 			invalidateMessageChannelReads(queryClient, input.organizationId).catch(
@@ -98,6 +102,7 @@ export function useLarkPlatformChannelManagement(input: {
 			if (authorizationOrganizationRef.current !== request.organizationId) {
 				return;
 			}
+			setChoosingFeishuSetup(false);
 			setSelectedProvider(request.provider);
 			if (activeRegistration) {
 				queryClient.removeQueries({
@@ -213,6 +218,7 @@ export function useLarkPlatformChannelManagement(input: {
 		beginMutation.error ?? registrationQuery.error ?? disconnectMutation.error;
 
 	const manage = (provider: LarkPlatformProvider) => {
+		setChoosingFeishuSetup(false);
 		beginMutation.reset();
 		disconnectMutation.reset();
 		const providerConnection = input.connections.find(
@@ -224,6 +230,17 @@ export function useLarkPlatformChannelManagement(input: {
 			setDialogOpen(true);
 			return;
 		}
+		if (
+			provider === "feishu" &&
+			(!providerConnection || providerConnection.status === "disconnected") &&
+			!input.hasPendingFeishuSetup
+		) {
+			setSelectedProvider(provider);
+			setActiveRegistration(null);
+			setChoosingFeishuSetup(true);
+			setDialogOpen(true);
+			return;
+		}
 		beginMutation.mutate({
 			mode: "resume",
 			organizationId: input.organizationId,
@@ -231,6 +248,7 @@ export function useLarkPlatformChannelManagement(input: {
 		});
 	};
 	const openExistingConnection = (provider: LarkPlatformProvider) => {
+		setChoosingFeishuSetup(false);
 		const providerConnection = input.connections.find(
 			(candidate) =>
 				candidate.provider === provider && candidate.status !== "disconnected"
@@ -262,9 +280,25 @@ export function useLarkPlatformChannelManagement(input: {
 		}
 		setActiveRegistration(null);
 		setSelectedProvider(null);
+		setChoosingFeishuSetup(false);
 	};
 
 	return {
+		chooseFeishuSetup:
+			choosingFeishuSetup && selectedProvider === "feishu"
+				? (includeHistory: boolean) => {
+						if (beginMutation.isPending) {
+							return;
+						}
+						beginMutation.mutate({
+							mode: includeHistory
+								? "setup_feishu_with_history"
+								: "setup_feishu_basic",
+							provider: "feishu",
+							organizationId: input.organizationId,
+						});
+					}
+				: undefined,
 		cancelSetup: (provider: LarkPlatformProvider) =>
 			disconnectMutation.mutate(provider),
 		reauthorize: async () => {
@@ -350,6 +384,11 @@ export function useLarkPlatformChannelManagement(input: {
 			await registrationQuery.refetch();
 		},
 		startOver: () => {
+			if (selectedProvider === "feishu" && !registration) {
+				beginMutation.reset();
+				setChoosingFeishuSetup(true);
+				return;
+			}
 			if (selectedProvider) {
 				beginMutation.mutate({
 					mode: "restart",
@@ -359,7 +398,8 @@ export function useLarkPlatformChannelManagement(input: {
 			}
 		},
 		startOverPending:
-			beginMutation.isPending && beginMutation.variables?.mode === "restart",
+			beginMutation.isPending &&
+			(beginMutation.variables?.mode === "restart" || choosingFeishuSetup),
 		setOpen,
 	};
 }

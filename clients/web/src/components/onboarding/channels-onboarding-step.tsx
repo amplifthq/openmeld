@@ -88,6 +88,9 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 		})
 	);
 	const larkPlatform = useLarkPlatformChannelManagement({
+		hasPendingFeishuSetup: activeRegistrationsQuery.data?.registrations.some(
+			(r) => r.provider === "feishu"
+		),
 		connections: channelsQuery.data?.connections ?? [],
 		organizationId: currentOrganization.id,
 	});
@@ -296,6 +299,7 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 			/>
 			<LarkPlatformChannelDialog
 				canManage={canManage}
+				chooseFeishuSetup={larkPlatform.chooseFeishuSetup}
 				connection={larkPlatform.connection}
 				disconnectPending={larkPlatform.disconnectPending}
 				errorMessage={larkPlatform.errorMessage}
@@ -306,6 +310,7 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 				onRetryPoll={larkPlatform.retryPoll}
 				onStartOver={larkPlatform.startOver}
 				open={larkPlatform.open}
+				organizationId={currentOrganization.id}
 				pollPending={larkPlatform.pollPending}
 				provider={larkPlatform.provider}
 				registration={larkPlatform.registration}

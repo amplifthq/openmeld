@@ -31,6 +31,7 @@ import {
   persistRemoteAgentLarkPlatformRegistrationCredentials,
   type RemoteAgentLarkPlatformRegistrationAttemptRecord,
   readActiveRemoteAgentLarkPlatformRegistrationAttempt,
+  readExpiredFeishuRestartBundle,
   readRemoteAgentLarkPlatformRegistrationAttempt,
   recordClaimedLarkPlatformApplicationVersion,
   repairRemoteAgentLarkPlatformRegistrationAttempt,
@@ -42,7 +43,11 @@ import {
   encryptLarkPlatformCredential,
   LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION,
 } from "./lark-platform-credential-crypto";
-import { LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE } from "./lark-platform-permission-bundles";
+import {
+  currentMessagingBundle,
+  FEISHU_HISTORY_BUNDLE_VERSION,
+  LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE,
+} from "./lark-platform-permission-bundles";
 import { isLarkPlatformProviderEnabledForOrganization } from "./lark-platform-provider-policy";
 import {
   beginLarkPlatformRegistration,
@@ -93,6 +98,7 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
   nowMs?: number;
   provider: RemoteAgentLarkPlatformProvider;
   repairExisting?: boolean;
+  includeGroupHistory?: boolean;
   reauthorize?: boolean;
   restartPending?: boolean;
 }): Promise<LarkPlatformRegistrationResponse> {
@@ -104,6 +110,9 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
     provider: input.provider,
   });
   const createId = input.createId ?? (() => crypto.randomUUID());
+  if (input.includeGroupHistory !== undefined && input.provider !== "feishu") {
+    throw serviceError(input.provider, "invalid_history_choice", 400);
+  }
   if (input.reauthorize) {
     return await reauthorizeExistingRegistration({
       ...input,
@@ -126,6 +135,7 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
     });
     activeAttempt = null;
   }
+  const choice = await resolveRegistrationChoice(input, activeAttempt);
   if (activeAttempt) {
     assertAttemptAuthority({
       actor: input.actor,
@@ -133,9 +143,7 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
       provider: input.provider,
     });
     assertRepairableAttempt(input.repairExisting, activeAttempt);
-    if (
-      !(input.restartPending && activeAttempt.status === "pending_registration")
-    ) {
+    if (!choice.replacePending) {
       return await projectRegistrationResponse({
         attempt: activeAttempt,
         cryptoKey: configuration.cryptoKey,
@@ -165,9 +173,11 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
   if (existingConnection && !disconnectedConnection) {
     throw serviceError(input.provider, "connection_already_exists", 409);
   }
+  const { includeGroupHistory } = choice;
   let started: Awaited<ReturnType<typeof beginLarkPlatformRegistration>>;
   try {
     started = await beginLarkPlatformRegistration({
+      includeGroupHistory,
       appDescription:
         "Connect your OpenMeld Center Agent to conversations in your workspace.",
       appName: "OpenMeld Center Agent",
@@ -211,8 +221,9 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
     nextPollAtMs: started.nextPollAtMs,
     nowMs,
     organizationId: input.actor.organizationId,
-    permissionBundleVersion:
-      LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.version,
+    permissionBundleVersion: includeGroupHistory
+      ? FEISHU_HISTORY_BUNDLE_VERSION
+      : LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.version,
     permissionMode: LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.mode,
     pollIntervalMs: started.pollIntervalMs,
     provider: input.provider,
@@ -238,6 +249,32 @@ function assertRepairableAttempt(
   if (repairExisting && attempt.connectionId === null) {
     throw serviceError(attempt.provider, "repair_unavailable", 409);
   }
+}
+async function resolveRegistrationChoice(
+  input: {
+    actor: RegistrationActor;
+    db: PostgresDatabase;
+    provider: RemoteAgentLarkPlatformProvider;
+    includeGroupHistory?: boolean;
+    restartPending?: boolean;
+  },
+  attempt: { status: string; permissionBundleVersion: string } | null
+) {
+  const bundle =
+    attempt?.permissionBundleVersion ??
+    (input.restartPending && input.provider === "feishu"
+      ? await readExpiredFeishuRestartBundle({ ...input.actor, db: input.db })
+      : null);
+  const saved = bundle === FEISHU_HISTORY_BUNDLE_VERSION;
+  const includeGroupHistory =
+    input.provider === "feishu" &&
+    (input.includeGroupHistory ?? (bundle ? saved : !input.restartPending));
+  return {
+    includeGroupHistory,
+    replacePending:
+      attempt?.status === "pending_registration" &&
+      (input.restartPending || includeGroupHistory !== saved),
+  };
 }
 async function reauthorizeExistingRegistration(input: {
   actor: RegistrationActor;
@@ -267,8 +304,10 @@ async function reauthorizeExistingRegistration(input: {
       });
     if (
       connected?.status !== "connected" ||
-      connected.permissionBundleVersion ===
-        LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.version
+      currentMessagingBundle(
+        connected.provider,
+        connected.permissionBundleVersion
+      )
     ) {
       throw serviceError(input.provider, "repair_unavailable", 409);
     }
@@ -316,6 +355,8 @@ async function reauthorizeExistingRegistration(input: {
   // the normal configuration worker verifies the grant before declaring success.
   const started = await beginLarkPlatformRegistration({
     appId: connection.appId,
+    includeGroupHistory:
+      attempt.permissionBundleVersion === FEISHU_HISTORY_BUNDLE_VERSION,
     appDescription:
       "Connect your OpenMeld Center Agent to conversations in your workspace.",
     appName: "OpenMeld Center Agent",
@@ -405,7 +446,12 @@ async function replacePendingRegistrationAttempt(input: {
       ...input.attemptInput,
       replacedAttemptId: input.replacedAttemptId,
     });
-  if (!replacement || replacement.attemptId === input.replacedAttemptId) {
+  if (
+    !replacement ||
+    replacement.attemptId === input.replacedAttemptId ||
+    replacement.permissionBundleVersion !==
+      input.attemptInput.permissionBundleVersion
+  ) {
     throw serviceError(input.attemptInput.provider, "connection_changed", 409);
   }
   assertAttemptAuthority({

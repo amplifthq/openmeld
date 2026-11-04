@@ -3,6 +3,7 @@ import type {
   ChannelContext,
   MessageChannelConversationLocator,
 } from "@openmeld/schemas/types";
+import { enabledFeishuHistoryGroups } from "../infrastructure/postgresql/feishu-group-history-settings";
 import {
   type RemoteAgentLarkPlatformChannelConnectionRecord,
   readRemoteAgentLarkPlatformChannelCredentials,
@@ -16,10 +17,13 @@ import {
   createLarkPlatformStreamingCard,
   downloadLarkPlatformMessageResource,
   finalizeLarkPlatformStreamingCard,
+  listFeishuHistoryGroups,
+  notifyFeishuHistoryGroup,
   publishLarkPlatformCardReference,
   publishLarkPlatformIdentityLinkCard,
   publishLarkPlatformNavigationActionCard,
   publishLarkPlatformReply,
+  readFeishuRequesterHistory,
   readLarkPlatformChannelContext,
   readLarkPlatformPluginSourceProof,
   updateLarkPlatformStreamingCardContent,
@@ -29,6 +33,7 @@ import type {
   MessageChannelProviderAdapter,
   MessageChannelPublicationResult,
 } from "./message-channel-adapters";
+import { buildMessageChannelProviderPublicationUuid } from "./provider-publication-uuid";
 
 type LarkPlatformConversationLocator = Extract<
   MessageChannelConversationLocator,
@@ -336,6 +341,71 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         replyInThread: locator.threadId !== null,
       });
     },
+    async notifyFeishuHistoryGroup(connection, chatId) {
+      const secret = await readAppSecret(connection);
+      if (
+        input.provider !== "feishu" ||
+        connection.provider !== "feishu" ||
+        !secret
+      ) {
+        throw new Error("Feishu group is unavailable.");
+      }
+      const uuid = await buildMessageChannelProviderPublicationUuid({
+        provider: "feishu",
+        publicationKind: "group-history-notice",
+        deliveryId: JSON.stringify([
+          connection.connectionId,
+          connection.connectionGeneration,
+          chatId,
+        ]),
+      });
+      return await notifyFeishuHistoryGroup(
+        {
+          appId: connection.appId,
+          appSecret: secret,
+          fetchImpl: input.fetchImpl,
+        },
+        chatId,
+        uuid
+      );
+    },
+    async listFeishuHistoryGroups(connection, pageToken) {
+      if (
+        input.provider !== "feishu" ||
+        connection.provider !== "feishu" ||
+        connection.status !== "connected"
+      ) {
+        throw new Error("Feishu is not connected.");
+      }
+      const appSecret = await readAppSecret(connection);
+      if (!appSecret) {
+        throw new Error("Feishu app credentials are unavailable.");
+      }
+      return listFeishuHistoryGroups(
+        { appId: connection.appId, appSecret, fetchImpl: input.fetchImpl },
+        pageToken
+      );
+    },
+    async readFeishuRequesterHistory({ connection, locator, ...request }) {
+      if (
+        input.provider !== "feishu" ||
+        !requireMatchingLocator({ connection, locator, provider: "feishu" })
+      ) {
+        return { status: "forbidden" };
+      }
+      const appSecret = await readAppSecret(connection);
+      if (!appSecret) {
+        return { status: "unavailable" };
+      }
+      return readFeishuRequesterHistory({
+        ...request,
+        appId: connection.appId,
+        appSecret,
+        chatId: locator.chatId,
+        rootMessageId: locator.rootMessageId,
+        fetchImpl: input.fetchImpl,
+      });
+    },
     async readChannelContext(contextInput): Promise<ChannelContext> {
       if (contextInput.event.kind !== "message") {
         throw new Error(
@@ -351,6 +421,25 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         throw new Error(
           `${input.provider} Message Channel context target does not match its connection`
         );
+      }
+      if (
+        input.provider === "feishu" &&
+        contextInput.event.mention === "group_mention"
+      ) {
+        const enabled = await enabledFeishuHistoryGroups(
+          input.db,
+          contextInput.connection,
+          [locator.chatId]
+        );
+        if (!enabled.has(locator.chatId)) {
+          return {
+            provider: "feishu",
+            conversationId: contextInput.conversationId,
+            currentMessageId: contextInput.event.messageId,
+            messages: [],
+            sync: { mode: "snapshot", status: "forbidden" },
+          };
+        }
       }
       const appSecret = await readAppSecret(contextInput.connection);
       if (!appSecret) {
