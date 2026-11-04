@@ -68,7 +68,11 @@ describe("Lark-platform OpenAPI publication", () => {
       deleted: false,
       updated: false,
     });
-    const trigger = item("om_trigger", end);
+    const trigger = {
+      ...item("om_trigger", end),
+      updated: true,
+      update_time: String(end + 120),
+    };
     const pages: URL[] = [];
     const fetchImpl = vi.fn<typeof fetch>((url) => {
       const u = new URL(String(url));
@@ -103,7 +107,11 @@ describe("Lark-platform OpenAPI publication", () => {
                 page_token: "second",
                 items: [
                   trigger,
-                  item("om_marker", end - 1200),
+                  {
+                    ...item("om_marker", end - 1200),
+                    updated: true,
+                    update_time: String(end - 900),
+                  },
                   item("om_private", end - 1210, "ou_other"),
                   {
                     ...item("om_wrong_group", end - 1210),
@@ -111,6 +119,11 @@ describe("Lark-platform OpenAPI publication", () => {
                   },
                   { ...item("om_reply", end - 1210), root_id: "om_another" },
                   { ...item("om_deleted", end - 1210), deleted: true },
+                  {
+                    ...item("om_later_edit", end - 3000),
+                    updated: true,
+                    update_time: String(end + 500),
+                  },
                   item("om_future", end + 1),
                 ],
               },
@@ -137,7 +150,7 @@ describe("Lark-platform OpenAPI publication", () => {
       "om_boundary",
       "om_marker",
     ]);
-    expect(result.context.sync.status).toBe("complete");
+    expect(result.context.sync.status).toBe("truncated");
     expect(
       pages.map((p) => [
         p.searchParams.get("container_id"),

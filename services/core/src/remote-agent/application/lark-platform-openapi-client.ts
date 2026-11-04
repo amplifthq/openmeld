@@ -204,15 +204,20 @@ async function feishuAppRequest(
   }
   const url = new URL(path, apiHost);
   url.search = params.toString();
-  const response = await fetchImpl(url, {
-    headers: {
-      ...JSON_HEADERS,
-      Authorization: `Bearer ${token.tenantAccessToken}`,
-    },
-    method: message ? "POST" : "GET",
-    ...(message ? { body: JSON.stringify(message) } : {}),
-    signal: AbortSignal.timeout(8000),
-  });
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      headers: {
+        ...JSON_HEADERS,
+        Authorization: `Bearer ${token.tenantAccessToken}`,
+      },
+      method: message ? "POST" : "GET",
+      ...(message ? { body: JSON.stringify(message) } : {}),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {
+    return { status: "unavailable" as const, data: null };
+  }
   const body = await readJsonObject(response);
   const code = readProviderCode(body);
   const status =
@@ -365,6 +370,16 @@ function collectFeishuRequesterRoots(
     ) {
       continue;
     }
+    // Feishu also marks freshly delivered messages as updated. Only return a
+    // historical body whose latest known revision existed when the user asked.
+    const updatedMs = readNonnegativeInteger(item, "update_time");
+    if (
+      (item.updated === true && !updatedMs) ||
+      (updatedMs !== null && updatedMs > endMs)
+    ) {
+      partial = true;
+      continue;
+    }
     const message = normalizeHistoricalMessage(item);
     if (!message) {
       partial = true;
@@ -460,7 +475,6 @@ function feishuMessageFromRequester(item: JsonObject, openId: string) {
   const sender = readObject(item, "sender");
   return (
     item.deleted !== true &&
-    item.updated !== true &&
     sender?.sender_type === "user" &&
     sender.id_type === "open_id" &&
     sender.id === openId

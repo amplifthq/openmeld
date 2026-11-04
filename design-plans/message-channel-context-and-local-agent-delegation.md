@@ -151,6 +151,8 @@ Run the handoff in a consenting Feishu group first. Repeat it in a Slack channel
 
 Enable broader reads only for providers that pass their own checks. A provider without sufficient history evidence can still support work from an explicit brief. Revisit a saved Space preference or separate bot identities only if repeated use demonstrates a need.
 
+**Candidate reader verification, 2026-11-04.** The PR reader issued its current-group, 30-minute query anchored at the original top-level mention. We executed its parameters against the real production Feishu app using the official API Explorer; short-lived credentials stayed in the explorer. The returned page had three items. After withholding unrelated text and pseudonymizing authors for local transport, the candidate returned exactly one requester-authored root message with the original synthetic marker. The first attempt exposed a real provider detail: the trigger had an update timestamp 120 ms after creation. Source identity checks now use its immutable message, author, chat, root and creation time and reject recalled sources. Historical bodies revised after the cutoff are withheld. This verifies the candidate reader against a real provider response. The production bot has not run the PR's tool or published a post-deployment answer to this probe.
+
 ## References
 
 - [Message Channel admission, Slack context and audience rules](../developing/product/remote-agent-runtime.md), [Center Agent delegation and continuation](../developing/product/organizations-and-center-agent.md#goal-fulfillment-and-delegated-continuation) and [workstation execution ownership](../developing/architecture/agent-transport-contract.md)
