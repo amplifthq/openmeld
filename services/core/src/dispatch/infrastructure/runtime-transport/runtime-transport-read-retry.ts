@@ -1,6 +1,7 @@
 import type { CoreBindings } from "../../../lib/bindings";
 import type { RuntimeTransportHub } from "../../../runtime-transport/transport/do/runtime-transport-hub";
 import { CORE_LOG_EVENTS } from "../../../shared/observability/log-events";
+import { durableObjectReplacementReason } from "../../../shared/rpc/durable-object-errors";
 import {
   RUNTIME_TRANSPORT_READ_MAX_ATTEMPTS,
   RUNTIME_TRANSPORT_READ_RETRY_BASE_DELAY_MS,
@@ -14,11 +15,6 @@ export type RuntimeTransportReadOperation =
   | "/lookup-route"
   | "/lookup-routes-batch"
   | "/lookup-owner-service";
-
-// Cloudflare support confirmed this exact infrastructure error is transient
-// even when the propagated exception does not retain its retryable property.
-const INACTIVE_INSTANCE_MESSAGE =
-  "Connection closed: this Durable Object instance is no longer active. Reconnect or retry the request.";
 
 export class RuntimeTransportReadTimeoutError extends Error {
   readonly retryable = false;
@@ -56,7 +52,7 @@ function readExceptionProperties(error: unknown) {
         ? source.remote
         : null,
     inactiveInstance:
-      "message" in source && source.message === INACTIVE_INSTANCE_MESSAGE,
+      durableObjectReplacementReason(source) === "inactive_instance",
   };
 }
 

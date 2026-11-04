@@ -6,6 +6,7 @@ export const CORE_LOG_EVENTS = {
   runtimeTransportOwnerReadStage: "runtime_transport_owner_read_stage",
   runtimeTransportGatePhase: "runtime_transport_gate_phase",
   spaceInputGate: "space_input_gate",
+  spaceReadRecovery: "space_read_recovery",
   runtimeTransportConnectionGenerationResultRejected:
     "runtime_transport_connection_generation_result_rejected",
   runtimeTransportDeliveryRouteAssessed:

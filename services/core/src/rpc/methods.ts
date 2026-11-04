@@ -1455,6 +1455,7 @@ import {
   requireAcceptedLocalAgentUpdatePayload,
 } from "./local-agent-control-policy";
 import { callRequiredAuthWorkerRpc } from "./required-auth-worker-rpc";
+import { withSpaceReadRecovery } from "./space-read-recovery";
 import {
   isHexSpaceId,
   resolveNamedSpaceId,
@@ -22350,16 +22351,15 @@ export async function rpcGetSpaceMembers(
   env: CoreBindings,
   input: GetSpaceMembersInput
 ): Promise<SpaceMembersSnapshot> {
-  const spaceAccess = resolveRpcSpaceAccess(input);
-  const context = getSpaceAccessRequestContext(spaceAccess) ?? undefined;
-  const password = getSpaceAccessPassword(spaceAccess);
-  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  return await stub.rpcGetMembers({
-    spaceId,
-    ...(password === undefined ? {} : { password }),
-    ...(context ? { context } : {}),
-    spaceAccess,
-  });
+  const access = resolveRpcSpaceAccessForwarding(input);
+  return await withSpaceReadRecovery(
+    "rpcGetMembers",
+    access.spaceAccess,
+    () => {
+      const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+      return stub.rpcGetMembers({ spaceId, ...access });
+    }
+  );
 }
 export async function rpcGetSpaceIdentityDirectory(
   env: CoreBindings,
@@ -22380,16 +22380,15 @@ export async function rpcGetSpaceMemberDirectory(
   env: CoreBindings,
   input: GetSpaceMembersInput
 ): Promise<SpaceMemberDirectory> {
-  const spaceAccess = resolveRpcSpaceAccess(input);
-  const context = getSpaceAccessRequestContext(spaceAccess) ?? undefined;
-  const password = getSpaceAccessPassword(spaceAccess);
-  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  return await stub.rpcGetMemberDirectory({
-    spaceId,
-    ...(password === undefined ? {} : { password }),
-    ...(context ? { context } : {}),
-    spaceAccess,
-  });
+  const access = resolveRpcSpaceAccessForwarding(input);
+  return await withSpaceReadRecovery(
+    "rpcGetMemberDirectory",
+    access.spaceAccess,
+    () => {
+      const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+      return stub.rpcGetMemberDirectory({ spaceId, ...access });
+    }
+  );
 }
 export async function rpcGetSpaceViewerMembership(
   env: CoreBindings,
@@ -23664,12 +23663,7 @@ export async function rpcGetSpaceWakeProgress(
     });
   }
   const access = resolveRpcSpaceAccessForwarding(input);
-  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(
-    env,
-    parsed.data.spaceId
-  );
   const request = {
-    spaceId,
     clientMessageId: parsed.data.clientMessageId,
     includeDeviceWait: parsed.data.includeDeviceWait,
     ...(parsed.data.includeTiming === undefined
@@ -23697,7 +23691,20 @@ export async function rpcGetSpaceWakeProgress(
       : {}),
     ...access,
   };
-  return await stub.rpcGetWakeProgress(request, directAccountUserId);
+  return await withSpaceReadRecovery(
+    "rpcGetWakeProgress",
+    access.spaceAccess,
+    () => {
+      const { spaceId, stub } = resolveRpcSpaceStubOrThrow(
+        env,
+        parsed.data.spaceId
+      );
+      return stub.rpcGetWakeProgress(
+        { ...request, spaceId },
+        directAccountUserId
+      );
+    }
+  );
 }
 export async function rpcGetActiveSpaceWakeProgress(
   env: CoreBindings,
