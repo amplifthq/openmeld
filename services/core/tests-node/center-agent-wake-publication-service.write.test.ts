@@ -17,6 +17,7 @@ import {
   prepareCenterAgentWakePublicationBatch,
   retryPendingCenterAgentWakePublications,
 } from "../src/center-agent/application/center-agent-wake-publication-service";
+import { recordCenterAgentWakeAudit } from "../src/center-agent/center-agent-repository";
 import {
   claimCenterAgentWakePublication,
   markCenterAgentWakePublicationAccepted,
@@ -406,6 +407,10 @@ describe("Center Agent Wake publication recovery", () => {
         state: "active",
       });
       await harness.db.query({
+        text: 'UPDATE "openmeld"."center_agent_audit_journal" SET source_native_delivery_id = NULL WHERE id=$1',
+        values: [`center-agent-wake:${CLIENT_MESSAGE_ID}`],
+      });
+      await harness.db.query({
         text: `UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET status='completed' WHERE delivery_id=$1`,
         values: ["delivery-parent"],
       });
@@ -469,6 +474,17 @@ describe("Center Agent Wake publication recovery", () => {
           source_native_delivery_id: "delivery-parent",
         },
       ]);
+      await expect(
+        recordCenterAgentWakeAudit({
+          attribution: buildCommand(prepared).attribution,
+          clientMessageId: CLIENT_MESSAGE_ID,
+          db: harness.db,
+          nowMs: 61_030,
+          organizationId: "org-1",
+          spaceId: "space-child",
+          sourceNativeDeliveryId: "different-parent",
+        })
+      ).rejects.toThrow("provenance conflicted");
     } finally {
       await harness.close();
     }
