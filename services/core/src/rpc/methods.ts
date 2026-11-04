@@ -979,13 +979,12 @@ import {
 import {
   type CenterAgentDesignationRecord,
   insertCenterAgentAuditJournalEntry,
-  insertCenterAgentAuditJournalEntryIfMissing,
   listCenterAgentAuditJournalEntries,
   readCenterAgentDesignationRecord,
-  readCenterAgentWakeAuditAttribution,
   readResolvedOrganizationDirectorySpaceMember,
   readResolvedOrganizationOwnerHumanSpaceMember,
   readResolvedOrganizationSpaceMember,
+  recordCenterAgentWakeAudit,
   resolveCenterAgentAttribution,
   toCenterAgentAuditJournalEntryDto,
   toCenterAgentDesignationDto,
@@ -18747,32 +18746,16 @@ async function recordCenterAgentDirectWakeAttribution(input: {
     authorization: input.authorization,
     onBehalfOfProfileId: input.onBehalfOfProfileId,
   });
-  await insertCenterAgentAuditJournalEntryIfMissing({
-    action: "wake_agent_profiles_in_space",
-    actorProfileId: input.authorization.actorProfileId,
+  const root = await readCenterAgentRequestChainRoot(input.authorization);
+  await recordCenterAgentWakeAudit({
     attribution,
     db: input.authorization.db,
-    id: `center-agent-wake:${input.clientMessageId}`,
+    clientMessageId: input.clientMessageId,
     nowMs: Date.now(),
     organizationId: input.authorization.activeOrganization.organizationId,
-    resource: { type: "space", id: input.spaceId },
+    spaceId: input.spaceId,
+    sourceNativeDeliveryId: root?.nativeDeliveryId ?? null,
   });
-  const recorded = await readCenterAgentWakeAuditAttribution({
-    clientMessageId: input.clientMessageId,
-    db: input.authorization.db,
-  });
-  if (
-    recorded?.organizationId !==
-      input.authorization.activeOrganization.organizationId ||
-    recorded.actorProfileId !== input.authorization.actorProfileId ||
-    recorded.resourceType !== "space" ||
-    recorded.resourceId !== input.spaceId ||
-    recorded.onBehalfOfProfileId !==
-      (attribution.onBehalfOf?.profileId ?? null) ||
-    recorded.onBehalfOfUserId !== (attribution.onBehalfOf?.userId ?? null)
-  ) {
-    throw new Error("Center Agent Wake requester provenance conflicted");
-  }
   return attribution;
 }
 function buildCenterAgentWakeAgentProfilesInSpaceResponse(input: {

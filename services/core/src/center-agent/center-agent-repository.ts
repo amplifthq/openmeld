@@ -364,6 +364,42 @@ export async function insertCenterAgentAuditJournalEntryIfMissing(
     prepareCenterAgentAuditJournalEntryIfMissingStatement(input)
   );
 }
+export async function recordCenterAgentWakeAudit(input: {
+  db: PostgresDatabase;
+  nowMs: number;
+  organizationId: string;
+  clientMessageId: string;
+  attribution: CenterAgentAttribution;
+  spaceId: string;
+  sourceNativeDeliveryId: string | null;
+}): Promise<void> {
+  const insert = prepareCenterAgentAuditJournalEntryStatement({
+    ...input,
+    action: "wake_agent_profiles_in_space",
+    actorProfileId: input.attribution.actorProfileId,
+    id: `center-agent-wake:${input.clientMessageId}`,
+    resource: { type: "space", id: input.spaceId },
+  });
+  // A pre-upgrade Wake may already have an audit row without a source.
+  // Bind it once and only if every immutable attribution field still matches.
+  const result = await input.db.query({
+    ...insert,
+    text: `${insert.text}
+    ON CONFLICT (id) DO UPDATE SET source_native_delivery_id = EXCLUDED.source_native_delivery_id
+    WHERE center_agent_audit_journal.action = EXCLUDED.action
+      AND center_agent_audit_journal.organization_id = EXCLUDED.organization_id
+      AND center_agent_audit_journal.actor_profile_id = EXCLUDED.actor_profile_id
+      AND center_agent_audit_journal.resource_type = EXCLUDED.resource_type
+      AND center_agent_audit_journal.resource_id = EXCLUDED.resource_id
+      AND center_agent_audit_journal.on_behalf_of_profile_id IS NOT DISTINCT FROM EXCLUDED.on_behalf_of_profile_id
+      AND center_agent_audit_journal.on_behalf_of_user_id IS NOT DISTINCT FROM EXCLUDED.on_behalf_of_user_id
+      AND (center_agent_audit_journal.source_native_delivery_id IS NULL
+        OR center_agent_audit_journal.source_native_delivery_id = EXCLUDED.source_native_delivery_id)`,
+  });
+  if (result.rowCount !== 1) {
+    throw new Error("Center Agent Wake requester provenance conflicted");
+  }
+}
 export async function listCenterAgentAuditJournalEntries(input: {
   db: PostgresDatabase;
   excludedActions?: readonly CenterAgentAction[];

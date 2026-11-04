@@ -179,6 +179,10 @@ import {
   REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_ROUTINE_REASON,
 } from "../../usage/ai-usage-policy";
 import {
+  completeFeishuDelegationHandoff,
+  takeFeishuDelegationCard,
+} from "../infrastructure/postgresql/feishu-delegation-handoff";
+import {
   blockRemoteAgentRoutineRecoveryForTargetMismatch,
   claimRemoteAgentAcceptedDeliveryProbeSchedule,
   claimRemoteAgentFinalPublication,
@@ -267,6 +271,7 @@ import type { MessageChannelProviderRegistry } from "./message-channel-adapters"
 import { publishRemoteAgentMessageChannelAdmissionFailure } from "./message-channel-admission-watchdog-publication";
 import { createConfiguredMessageChannelProviderRegistry } from "./message-channel-provider-runtime";
 import {
+  assertMessageChannelCallbackAuthority,
   buildComputerSetupGuidanceText,
   publishRemoteAgentMessageChannelCallback,
   publishRemoteAgentMessageChannelIdentityGuidanceAfterResult,
@@ -2704,6 +2709,18 @@ async function stageTaskContinuationDelivery(input: {
     triggerMessageId: observer.triggerMessageId,
     triggerText: null,
   });
+  if (
+    messageChannelLocator?.provider === "feishu" &&
+    input.input.delegation?.barrier === "all_terminal" &&
+    !input.input.summaryOnly &&
+    !routineRunId
+  ) {
+    await takeFeishuDelegationCard({
+      db: input.input.db,
+      parentId: observer.deliveryId,
+      nextId: stagedDelivery.deliveryId,
+    });
+  }
   return stagedDelivery;
 }
 async function claimRoutineContinuationFinalResultOwnership(input: {
@@ -9732,6 +9749,27 @@ async function completeRemoteAgentMessageChannelCallback(input: {
   options: CenterAgentMemoryRuntimeOptions;
   registry: MessageChannelProviderRegistry;
 }): Promise<RemoteAgentCoreCallbackResponse> {
+  if (
+    input.delivery.messageChannelLocator?.provider === "feishu" &&
+    !input.delivery.routineRunId &&
+    !isRemoteAgentFailedCallback(input.body)
+  ) {
+    assertMessageChannelCallbackAuthority(input);
+    const handedOff = await completeFeishuDelegationHandoff({
+      db: input.db,
+      delivery: input.delivery,
+      nowMs: input.clock(),
+    });
+    if (handedOff) {
+      await projectRemoteAgentNativeDeliveryTerminalEffects({
+        db: input.db,
+        delivery: handedOff,
+        env: input.env,
+        nowMs: input.clock(),
+      });
+      return { status: "accepted", publishedSignalId: null };
+    }
+  }
   const outcome = await publishRemoteAgentMessageChannelCallback({
     body: input.body,
     clock: input.clock,
