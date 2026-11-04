@@ -6951,9 +6951,9 @@ receiver fails closed with null rather than granting a client-side fallback.
 
 `packages/schemas/src/schemas/http/space-wake-stop.ts` owns the shared POST
 contract for Wake Stop. Clients may submit only Space-visible selectors:
-`sourceSignalId` or `clientMessageId + targetProfileId`. `dispatchId`, local
-task ids, execution tokens, and adapter ids stay internal to Core,
-RuntimeCoordinator, RuntimeTransportHub, and the local OpenMeld Service.
+a source signal or client message ID with the target Profile, optionally narrowed
+by the dispatch ID returned in progress. Core verifies the whole selector.
+Local task IDs, execution tokens, and adapter IDs are not Stop selectors.
 
 `packages/schemas/src/schemas/http/space-wake-progress.ts` owns the Wake
 progress read model, including the optional `startedAtMs` timing projection and
@@ -6962,8 +6962,12 @@ a viewer-scoped projection of authorization and stopping capability. Null means
 no Stop control is available to this viewer; omission means it was not projected
 and must not grant authority. Core filters eligibility through the same policy
 that protects `POST /v1/spaces/:spaceId/wake-stop`. Unauthorized Stop requests use
-the existing HTTP 403 error envelope with `space.wake_stop.forbidden`. No new
-runtime payload or local-component contract is introduced.
+the existing HTTP 403 error envelope with `space.wake_stop.forbidden`. For a
+direct Human Organization owner, the same eligibility and Stop response shapes
+apply only to an undelivered Wake in a joined ordinary Space. The private
+Core-to-Space RPC may forward the authenticated caller principal separately;
+omission confers no Organization-owner authority. There is no public payload
+change or local-component rollout.
 
 A caller may also opt into
 `sourceContext`, which contains only the Space-owned requester Profile ID, kind,

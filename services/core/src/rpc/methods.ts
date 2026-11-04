@@ -2296,13 +2296,16 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
     input: GetSpaceDispatchLookupInput
   ): Promise<GetSpaceDispatchLookupResponse>;
   rpcGetWakeProgress(
-    input: GetSpaceWakeProgressInput
+    input: GetSpaceWakeProgressInput,
+    directAccountUserId?: string
   ): Promise<GetSpaceWakeProgressResponse>;
   rpcGetActiveWakeProgress(
-    input: GetActiveSpaceWakeProgressInput
+    input: GetActiveSpaceWakeProgressInput,
+    directAccountUserId?: string
   ): Promise<GetActiveSpaceWakeProgressResponse>;
   rpcPostWakeStop(
-    input: PostSpaceWakeStopInput
+    input: PostSpaceWakeStopInput,
+    directAccountUserId?: string
   ): Promise<PostSpaceWakeStopResponse>;
   rpcRespondToAgentInteraction(input: {
     spaceId: string;
@@ -23622,7 +23625,8 @@ export async function rpcGetSpaceDispatchLookup(
 }
 export async function rpcGetSpaceWakeProgress(
   env: CoreBindings,
-  input: GetSpaceWakeProgressInput
+  input: GetSpaceWakeProgressInput,
+  directAccountUserId?: string
 ): Promise<GetSpaceWakeProgressResponse> {
   const parsed = getSpaceWakeProgressInputSchema.safeParse({
     spaceId: input.spaceId,
@@ -23664,7 +23668,7 @@ export async function rpcGetSpaceWakeProgress(
     env,
     parsed.data.spaceId
   );
-  return await stub.rpcGetWakeProgress({
+  const request = {
     spaceId,
     clientMessageId: parsed.data.clientMessageId,
     includeDeviceWait: parsed.data.includeDeviceWait,
@@ -23685,16 +23689,20 @@ export async function rpcGetSpaceWakeProgress(
       : { includeWaitReason: parsed.data.includeWaitReason }),
     ...(parsed.data.includeWakeStopEligibility === undefined
       ? {}
-      : { includeWakeStopEligibility: parsed.data.includeWakeStopEligibility }),
+      : {
+          includeWakeStopEligibility: parsed.data.includeWakeStopEligibility,
+        }),
     ...(parsed.data.targetProfileId
       ? { targetProfileId: parsed.data.targetProfileId }
       : {}),
     ...access,
-  });
+  };
+  return await stub.rpcGetWakeProgress(request, directAccountUserId);
 }
 export async function rpcGetActiveSpaceWakeProgress(
   env: CoreBindings,
-  input: GetActiveSpaceWakeProgressInput
+  input: GetActiveSpaceWakeProgressInput,
+  directAccountUserId?: string
 ): Promise<GetActiveSpaceWakeProgressResponse> {
   const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
     spaceId: input.spaceId,
@@ -23741,7 +23749,7 @@ export async function rpcGetActiveSpaceWakeProgress(
     env,
     parsed.data.spaceId
   );
-  return await stub.rpcGetActiveWakeProgress({
+  const request = {
     spaceId,
     includeDeviceWait: parsed.data.includeDeviceWait,
     ...(parsed.data.includePageInfo === undefined
@@ -23764,7 +23772,9 @@ export async function rpcGetActiveSpaceWakeProgress(
       : { includeWaitReason: parsed.data.includeWaitReason }),
     ...(parsed.data.includeWakeStopEligibility === undefined
       ? {}
-      : { includeWakeStopEligibility: parsed.data.includeWakeStopEligibility }),
+      : {
+          includeWakeStopEligibility: parsed.data.includeWakeStopEligibility,
+        }),
     ...(parsed.data.sourceProfileId
       ? { sourceProfileId: parsed.data.sourceProfileId }
       : {}),
@@ -23772,11 +23782,13 @@ export async function rpcGetActiveSpaceWakeProgress(
       ? { targetProfileId: parsed.data.targetProfileId }
       : {}),
     ...access,
-  });
+  };
+  return await stub.rpcGetActiveWakeProgress(request, directAccountUserId);
 }
 export async function rpcPostSpaceWakeStop(
   env: CoreBindings,
-  input: PostSpaceWakeStopInput
+  input: PostSpaceWakeStopInput,
+  directAccountUserId?: string
 ): Promise<PostSpaceWakeStopResponse> {
   const parsed = postSpaceWakeStopInputSchema.safeParse({
     spaceId: input.spaceId,
@@ -23795,11 +23807,12 @@ export async function rpcPostSpaceWakeStop(
     env,
     parsed.data.spaceId
   );
-  return await stub.rpcPostWakeStop({
+  const request = {
     spaceId,
     body: parsed.data.body,
     ...access,
-  });
+  };
+  return await stub.rpcPostWakeStop(request, directAccountUserId);
 }
 export async function rpcRespondToSpaceAgentInteraction(
   env: CoreBindings,

@@ -7861,6 +7861,22 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
     sentFrames.length = 0;
 
+    const lateStop = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/pre-agent-stop",
+      buildRuntimeCoordinatorHeadPreAgentStopRequest({
+        targetWakeLifecycleIdentity: acceptRequest.targetWakeLifecycleIdentity,
+      })
+    );
+    await expect(lateStop.json()).resolves.toMatchObject({
+      ok: false,
+      status: "conflict",
+      reasonCode: "runtime_coordinator.head_already_terminal",
+    });
+    expect(
+      findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
+    ).toBeUndefined();
+
     const samePayloadResponse = await fetchRuntimeTransportJson(
       hub,
       "/runtime-coordinator/head/accept",
