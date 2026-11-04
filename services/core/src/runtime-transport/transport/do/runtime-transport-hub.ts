@@ -12413,7 +12413,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
   }
   private async readMatchingRuntimeCoordinatorTerminalAuthorityForHead(
-    request: RuntimeTransportRuntimeCoordinatorHeadNoExecutionRequest
+    request: Pick<
+      RuntimeTransportRuntimeCoordinatorHeadNoExecutionRequest,
+      "dispatchId" | "targetWakeLifecycleIdentity"
+    >
   ): Promise<RuntimeCoordinatorExecutionTokenAuthorityRecord | null> {
     const identity = request.targetWakeLifecycleIdentity;
     const runtimeCoordinatorExecutionId = buildRuntimeCoordinatorExecutionId({
@@ -13353,6 +13356,21 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         identity.targetWakeLifecycleId
       );
     if (!existing) {
+      const terminal =
+        await this.readMatchingRuntimeCoordinatorTerminalAuthorityForHead(
+          request
+        );
+      if (terminal) {
+        return {
+          ok: false,
+          primaryDispatchId: request.dispatchId,
+          publicationIntentId: null,
+          reasonCode: "runtime_coordinator.head_already_terminal",
+          runtimeCoordinatorExecutionId: terminal.runtimeCoordinatorExecutionId,
+          status: "conflict",
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+        };
+      }
       const nextRecord: RuntimeCoordinatorHeadLifecycleRecord = {
         createdAtMs: nowMs,
         duplicateDispatches: [],

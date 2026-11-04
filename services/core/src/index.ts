@@ -5638,17 +5638,33 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   getActiveSpaceWakeProgress(
     input: GetActiveSpaceWakeProgressInput
   ): Promise<GetActiveSpaceWakeProgressResponse> {
-    return super.getActiveSpaceWakeProgress(input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetActiveSpaceWakeProgress(
+        this.env,
+        input,
+        input.context?.actorContext.callerPrincipalId
+      )
+    );
   }
   getSpaceWakeProgress(
     input: GetSpaceWakeProgressInput
   ): Promise<GetSpaceWakeProgressResponse> {
-    return super.getSpaceWakeProgress(input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceWakeProgress(
+        this.env,
+        input,
+        input.context?.actorContext.callerPrincipalId
+      )
+    );
   }
   postSpaceWakeStop(
     input: PostSpaceWakeStopInput
   ): Promise<PostSpaceWakeStopResponse> {
-    return super.postSpaceWakeStop(input);
+    return rpcPostSpaceWakeStop(
+      this.env,
+      input,
+      input.context?.actorContext.callerPrincipalId
+    );
   }
   respondToSpaceAgentInteraction(
     input: RespondToSpaceAgentInteractionInput & GatewaySensitiveCredential

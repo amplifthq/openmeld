@@ -6382,9 +6382,10 @@ reply and spinner, shows that OpenMeld could not confirm whether the final reply
 was posted, and asks the user to inspect the Space before trying again.
 
 Web opts in to `wakeStopEligibility` when reading Wake progress and active Wake
-progress. This is a viewer-scoped Core projection: only the Wake requester's
-account or the target Agent Profile's owner, with writable Space access, may
-receive Stop eligibility. Null or missing eligibility hides Stop in the timeline,
+progress. Core projects Stop eligibility for the Wake requester and target
+Agent's owner, and for a joined Organization owner only before delivery in
+an ordinary Space. Web uses the same control for all three. Null or missing
+eligibility hides Stop in the timeline,
 details, and multi-target controls. A sent message, its age, a previous Stop
 response, and other accounts signed in on the same computer never grant Stop
 authority. Progress caches remain scoped to the current acting Profile.
@@ -6393,8 +6394,8 @@ pre-agent, controller, or native-delivery cancellation. Web must not infer
 stopped, cancelled, or controller support from local browser state or labels.
 
 The Wake Stop request path is `POST /v1/spaces/:spaceId/wake-stop`. Web sends
-only `sourceSignalId` or `clientMessageId + targetProfileId`, never
-`dispatchId`, task ids, or RuntimeCoordinator execution ids. A typed
+the source signal or client message ID with the target Profile and, when
+available, its exact dispatch ID. A typed
 `unsupported`, `not_stoppable`, `not_found`, or `retry_later` response is product
 state. HTTP 403 with `space.wake_stop.forbidden` means the current account is
 neither the requester nor the Agent owner. A raw HTTP 404 is a route/deployment/proxy

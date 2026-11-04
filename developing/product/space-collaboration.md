@@ -2046,14 +2046,13 @@ including after refresh; private thinking and transient work are not retained.
 An empty stopped response shows the target identity and `(Request stopped)` alone. Stop
 does not imply that earlier actions were undone.
 
-For ordinary account-owned Profiles, only the account that authored the Wake's
-source message or the target Agent Profile's owner may stop that Wake, and they
-must still have writable Space access. Space membership, Space creation, or
-Organization administration alone
-does not grant this permission. Other members can follow progress but cannot
-interrupt the work. Signing in to several accounts on one computer does not
-combine their permissions. This rule covers queued, running, and native-delivery
-Wakes; each target of a multi-Agent Wake is authorized separately.
+With writable Space access, the account that authored a Wake's source message
+or owns its target Agent Profile may stop that Wake. A signed-in Organization
+owner may also stop an undelivered Wake in an ordinary Space they have joined
+with their Human Profile. The Space rechecks each target on Stop. Once a
+workstation execution is linked or hosted admission has begun, the Organization
+owner role grants no Stop authority. This permission does not extend to Direct
+Messages, welcoming Spaces, delegated Agent requests, or member removal.
 
 The currently designated Center Agent may also stop its own request in an
 Agent Direct Message. Before publication, it must still be the exact private

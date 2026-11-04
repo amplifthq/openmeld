@@ -930,12 +930,21 @@ Important execution rules:
 - Caller authority, owner evidence, Binding evidence, and execution truth come
   from verified Gateway/Core context, not request-body trust.
 - Space owns user-requested Wake Stop authorization. For ordinary Stop, after
-  writable Space access, only the authenticated source-message account or target
+  writable Space access, the authenticated source-message account or target
   Agent Profile owner may stop the exact target Wake. Resolve the source from
   the Space's persisted Signal and account ownership from Auth; caller selectors,
   member names, and other signed-in accounts are not ownership evidence. Use
   this ordinary policy for viewer-scoped progress eligibility and the ordinary
   Stop mutation, before native or workstation cancellation side effects.
+- A direct Human account request has one additional pre-delivery Stop path in
+  an ordinary Space: the actor must be an active Human member of that Space
+  and an owner in its current Organization. Gateway-authenticated calls carry
+  the direct principal to Space; delegated, Task and older callers confer no
+  additional authority. Space projects and rechecks eligibility for the exact
+  persisted source, target and dispatch. RuntimeCoordinator's pre-agent Stop
+  must never escalate this permission into controller Stop if linking wins a
+  race. For hosted Wakes, Space must prove the exact outbox is unexposed at
+  the cancellation write; missing or legacy exposure cannot authorize Stop.
 - Progress may carry an exact `dispatchId` within the source/Profile selector.
   Space verifies that dispatch against the same source, Space and target before
   invoking its existing execution owner. This lets a resumed parent stop its

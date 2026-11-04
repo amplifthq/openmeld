@@ -28,6 +28,8 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
   messageReadQuerySchema,
+  projectTargetWakeLifecycleIdentity,
+  RUNTIME_TRANSPORT_SCHEMA_VERSION,
 } from "@openmeld/schemas";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
@@ -55,6 +57,7 @@ import {
   registerAgentTaskCompletionSubscription,
 } from "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import { writeDispatchResult } from "../src/dispatch/application/dispatch-result-service";
+import { acceptRuntimeTransportRuntimeCoordinatorHead } from "../src/dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   markRemoteAgentNativeDeliveryAck,
@@ -107,6 +110,10 @@ import {
   readSpaceMemberRecord,
   upsertSpaceMemberRecord,
 } from "../src/space/infrastructure/sql/space-member-repo";
+import {
+  readSpaceMetaRecordFromSql,
+  upsertSpaceMetaRecord,
+} from "../src/space/infrastructure/sql/space-meta-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import { Space } from "../src/space/transport/do/space";
 import {
@@ -1673,6 +1680,239 @@ describe("OpenMeld Core", () => {
     });
     expect(await stub.rpcGetEntryAccess({ spaceId, context })).toMatchObject({
       activeMember: false,
+    });
+  });
+  it.each([
+    "builtin:codex",
+    "hosted:remote-agent",
+    "hosted:center-agent",
+  ])("lets a joined Organization owner stop only the undelivered %s Wake", async (agentControllerRef) => {
+    const organizationId = `org-stop-${randomUUID()}`;
+    const ownerUserId = "moderating-owner";
+    const profileId = THIRD_HUMAN_PROFILE_ID;
+    const context = createRpcContext({
+      activeOrganizationId: organizationId,
+      profileId,
+      ownerUserId,
+      profileKind: "human",
+      requestId: "owner-stop",
+    });
+    const spaceId = await createSpace(undefined, undefined, {
+      activeOrganizationId: organizationId,
+    });
+    await ensureTestOrganizationMembership({
+      organizationId,
+      userId: ownerUserId,
+    });
+    const setRole = (role: string, userId = ownerUserId) =>
+      getPostgresDatabase(env).query({
+        text: 'UPDATE "openmeld"."members" SET role = $3 WHERE organization_id = $1 AND user_id = $2',
+        values: [organizationId, userId, role],
+      });
+    await setRole("owner", "owner-test-default");
+    await setRole("owner");
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const sourceSignalId = randomUUID();
+    const clientMessageId = randomUUID();
+    const targetProfileId = `agt_${randomUUID()}`;
+    const source = {
+      kind: "human",
+      profileId: DEFAULT_HUMAN_PROFILE_ID,
+      profileName: "Requester",
+    } as const;
+    const dispatch = await runInDurableObject(stub, (_, state) => {
+      insertSignalRecord(state.storage.sql, {
+        v: 1,
+        id: sourceSignalId,
+        spaceId,
+        ts: Date.now(),
+        type: "signal.text",
+        profile: source,
+        data: { text: "Run", meta: { clientMessageId } },
+      });
+      const record = createDispatchOutboxRecord({
+        bindingState: "bound",
+        bindingEnabled: true,
+        agentControllerRef,
+        dispatchOwner: { kind: "owner_account", id: "runner-owner" },
+        dispatchPolicy: "mention_only",
+        ruleId: "test",
+        ruleReason: "test",
+        ruleSource: "system",
+        sourceSignalSnapshot: {
+          profileId: source.profileId,
+          profileKind: "human",
+          text: "Run",
+        },
+        senderProfileId: source.profileId,
+        spaceId,
+        organizationId,
+        sourceEventId: sourceSignalId,
+        sourceClientMessageId: clientMessageId,
+        targetProfileId,
+        nowMs: Date.now(),
+      });
+      insertDispatchOutboxRecord(state.storage.sql, record);
+      if (agentControllerRef === "builtin:codex") {
+        markDispatchOutboxHandedOff(state.storage.sql, {
+          dispatchId: record.dispatchId,
+          handedOffAtMs: Date.now(),
+        });
+      }
+      return record.dispatchId;
+    });
+    if (agentControllerRef === "builtin:codex") {
+      // Reproduce the reported FIFO wait with a previous Wake occupying the slot.
+      const admit = (dispatchId: string, sourceId: string, clientId: string) =>
+        acceptRuntimeTransportRuntimeCoordinatorHead({
+          env: env as CoreBindings,
+          ownerUserId: "runner-owner",
+          head: {
+            v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+            ownerUserId: "runner-owner",
+            dispatchId,
+            idempotencyKey: dispatchId,
+            targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+              dispatchId,
+              sourceSignalId: sourceId,
+              clientMessageId: clientId,
+              targetProfileId,
+              spaceId,
+            }),
+          },
+        });
+      expect(
+        (await admit(randomUUID(), randomUUID(), randomUUID())).status
+      ).toBe("accepted");
+      expect(
+        (await admit(dispatch, sourceSignalId, clientMessageId)).status
+      ).toBe("queued");
+    }
+    const target = {
+      by: "client_message" as const,
+      clientMessageId,
+      targetProfileId,
+      dispatchId: dispatch,
+    };
+    await runInDurableObject(stub, async (instance, state) => {
+      class AuthProfiles extends RpcTarget {
+        resolveProfileById({
+          openMeldProfileId,
+        }: {
+          openMeldProfileId: string;
+        }) {
+          const agent = openMeldProfileId === targetProfileId;
+          return {
+            ok: true,
+            profile: {
+              profileId: openMeldProfileId,
+              profileKind: agent ? "agent" : "human",
+              profileName: "Profile",
+              profileHandle: "profile",
+              status: "active",
+              ownerUserId: agent ? "runner-owner" : "requester-owner",
+            },
+          };
+        }
+      }
+      using auth = new RpcStub(new AuthProfiles());
+      const space = new Space(state, {
+        ...env,
+        OPENMELD_AUTH_WORKER: auth,
+      } as unknown as CoreBindings);
+      const stop = (principal?: string) =>
+        space.rpcPostWakeStop(
+          { spaceId, context, body: { target } },
+          principal
+        );
+      const read = () =>
+        space.rpcGetWakeProgress(
+          {
+            spaceId,
+            context,
+            clientMessageId,
+            targetProfileId,
+            includeWakeStopEligibility: true,
+          },
+          ownerUserId
+        );
+      // Being the Organization owner without this Space's own Human membership is insufficient.
+      await expect(stop(ownerUserId)).rejects.toThrow("HTTP 403");
+      upsertJoinedSpaceMember({
+        sql: state.storage.sql,
+        spaceId,
+        profile: { kind: "human", profileId, profileName: "Owner" },
+        ownerUserId,
+      });
+      await expect(stop()).rejects.toThrow(WAKE_STOP_FORBIDDEN_RPC_ERROR_REGEX);
+      await setRole("admin");
+      expect((await read()).items[0]?.wakeStopEligibility).toBeNull();
+      await expect(stop(ownerUserId)).rejects.toThrow(
+        WAKE_STOP_FORBIDDEN_RPC_ERROR_REGEX
+      );
+      await setRole("owner");
+      const meta = readSpaceMetaRecordFromSql(state.storage.sql, spaceId);
+      if (!meta) {
+        throw new Error("Missing Space fixture");
+      }
+      for (const purpose of ["openmeld_dm_space", "openmeld_welcoming_space"]) {
+        upsertSpaceMetaRecord(state.storage.sql, { ...meta, purpose });
+        expect((await read()).items[0]?.wakeStopEligibility).toBeNull();
+        await expect(stop(ownerUserId)).rejects.toThrow(
+          WAKE_STOP_FORBIDDEN_RPC_ERROR_REGEX
+        );
+      }
+      upsertSpaceMetaRecord(state.storage.sql, meta);
+      expect((await read()).items[0]?.wakeStopEligibility?.status).toBe(
+        "eligible"
+      );
+      if (agentControllerRef === "hosted:remote-agent") {
+        // Admit the real native Wake after the Stop handler's permission check
+        // but before the cancellation write. A stale button must not stop it.
+        const query = { spaceId, dispatchId: dispatch, targetProfileId };
+        const nativeStop = Reflect.get(
+          space,
+          "requestRemoteAgentNativeDeliveryStop"
+        ).bind(space);
+        Reflect.set(
+          space,
+          "requestRemoteAgentNativeDeliveryStop",
+          async (selection: unknown) => {
+            expect(
+              (await instance.rpcAuthorizeNativeWakeAdmission(query)).status
+            ).toBe("not_requested");
+            return nativeStop(selection);
+          }
+        );
+        await expect(stop(ownerUserId)).resolves.toMatchObject({
+          ok: false,
+          status: "not_stoppable",
+        });
+        expect((await instance.rpcReadWakeStopIntent(query)).status).toBe(
+          "not_requested"
+        );
+        expect((await read()).items[0]?.wakeStopEligibility).toBeNull();
+      } else {
+        const workstation = agentControllerRef === "builtin:codex";
+        if (workstation) {
+          expect((await read()).items[0]?.phase).toBe("queued");
+        }
+        await expect(stop(ownerUserId)).resolves.toMatchObject({
+          ok: true,
+          status: "cancelled",
+          stopMode: workstation
+            ? "openmeld_owned_pre_agent"
+            : "remote_agent_native_delivery",
+        });
+        await expect(
+          instance.rpcReadFinalReplyClaimOutcome({
+            spaceId,
+            dispatchId: dispatch,
+            profileId: targetProfileId,
+          })
+        ).resolves.toMatchObject({ outcome: "stopped" });
+      }
     });
   });
   it("routes Wake Stop POST requests to a typed response instead of 404", async () => {

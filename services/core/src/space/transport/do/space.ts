@@ -13,6 +13,7 @@ import {
   withPostgresRequest,
 } from "@openmeld/db/postgresql";
 import {
+  OPENMELD_HEADER_CALLER_PRINCIPAL_ID,
   OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
   OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
   OPENMELD_SPACE_ADDRESSING_VERSION,
@@ -324,6 +325,7 @@ import {
   isAutomaticWakeSpace,
   isDirectMessageSpace,
   isOneHumanAgentConversation,
+  OPENMELD_WELCOMING_SPACE_PURPOSE,
   resolveSpaceMemberDeparture,
   resolveThreadAutomaticWakeTarget,
   resolveThreadWakeContinuation,
@@ -2128,6 +2130,7 @@ type SpaceDispatchAccessOptions = {
   lineageLoader?: SpaceBootstrapLineageLoader;
   finalOutcomeAuthority?: SignalPublishContext["finalOutcomeAuthority"];
   requireActiveActorMembership?: boolean;
+  directAccountUserId?: string | undefined;
   spaceAccess?: SpaceAccessContext;
   supportsCurrentSpaceAddressing?: boolean;
 };
@@ -3185,6 +3188,10 @@ export class Space extends DurableObject<CoreBindings> {
           if (url.pathname === INTERNAL_SPACE_INDEX_REPROJECT_PATH) {
             return this.dispatchInternalSpaceIndexReprojectRequest(request);
           }
+          const directWakeAccess = () => ({
+            directAccountUserId:
+              request.headers.get(OPENMELD_HEADER_CALLER_PRINCIPAL_ID) ?? undefined,
+          });
           return dispatchSpaceHttpRequest({
             pathName: url.pathname,
             request,
@@ -3206,13 +3213,13 @@ export class Space extends DurableObject<CoreBindings> {
               dispatchDispatchResultRequest: (nextRequest) =>
                 this.dispatchDispatchResultRequest(nextRequest),
               dispatchActiveWakeProgressRequest: (nextRequest) =>
-                this.dispatchActiveWakeProgressRequest(nextRequest),
+                this.dispatchActiveWakeProgressRequest(nextRequest, directWakeAccess()),
               dispatchAgentInteractionResponseRequest: (nextRequest) =>
                 this.dispatchAgentInteractionResponseRequest(nextRequest),
               dispatchWakeStopRequest: (nextRequest) =>
-                this.dispatchWakeStopRequest(nextRequest),
+                this.dispatchWakeStopRequest(nextRequest, directWakeAccess()),
               dispatchWakeProgressRequest: (nextRequest) =>
-                this.dispatchWakeProgressRequest(nextRequest),
+                this.dispatchWakeProgressRequest(nextRequest, directWakeAccess()),
               dispatchWakeTraceWaterfallRequest: (nextRequest) =>
                 this.dispatchWakeTraceWaterfallRequest(nextRequest),
               dispatchMessageDetailsRequest: (nextRequest) =>
@@ -12277,7 +12284,8 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcGetWakeProgress(
-    input: GetSpaceWakeProgressInput
+    input: GetSpaceWakeProgressInput,
+    directAccountUserId?: string
   ): Promise<GetSpaceWakeProgressResponse> {
     return await this.withPostgresRequest(
       async () => {
@@ -12319,22 +12327,24 @@ export class Space extends DurableObject<CoreBindings> {
         });
         const response = await this.dispatchWakeProgressRequest(
           request,
-          pickSpaceDispatchAccessOptions(input)
+          { ...pickSpaceDispatchAccessOptions(input), directAccountUserId }
         );
         return readSpaceRpcJsonOrThrow(response);
       }
     );
   }
   async rpcGetActiveWakeProgress(
-    input: GetActiveSpaceWakeProgressInput
+    input: GetActiveSpaceWakeProgressInput,
+    directAccountUserId?: string
   ): Promise<GetActiveSpaceWakeProgressResponse> {
     return await this.withPostgresRequest(() =>
-      Space.#executeRpcGetActiveWakeProgress(this, input)
+      Space.#executeRpcGetActiveWakeProgress(this, input, directAccountUserId)
     );
   }
   static async #executeRpcGetActiveWakeProgress(
     owner: Space,
-    input: GetActiveSpaceWakeProgressInput
+    input: GetActiveSpaceWakeProgressInput,
+    directAccountUserId?: string
   ): Promise<GetActiveSpaceWakeProgressResponse> {
     owner.applySpaceRef(input.spaceId);
     const url = new URL("https://openmeld.local/active-wake-progress");
@@ -12379,7 +12389,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
     const response = await owner.dispatchActiveWakeProgressRequest(
       request,
-      pickSpaceDispatchAccessOptions(input)
+      { ...pickSpaceDispatchAccessOptions(input), directAccountUserId }
     );
     return readSpaceRpcJsonOrThrow(response);
   }
@@ -12389,7 +12399,7 @@ export class Space extends DurableObject<CoreBindings> {
     password?: string;
     context?: CoreRpcContextInput;
     spaceAccess?: SpaceAccessContext;
-  }): Promise<PostSpaceWakeStopResponse> {
+  }, directAccountUserId?: string): Promise<PostSpaceWakeStopResponse> {
     return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
@@ -12405,7 +12415,7 @@ export class Space extends DurableObject<CoreBindings> {
         });
         const response = await this.dispatchWakeStopRequest(
           request,
-          pickSpaceDispatchAccessOptions(input)
+          { ...pickSpaceDispatchAccessOptions(input), directAccountUserId }
         );
         return readSpaceRpcJsonOrThrow(response);
       }
@@ -16479,7 +16489,8 @@ export class Space extends DurableObject<CoreBindings> {
                   ? { sourceProfileId: parsed.data.sourceProfileId }
                   : {}),
               }),
-              resolved.spaceAccess
+              resolved.spaceAccess,
+              options.directAccountUserId
             )
           );
         } catch (err) {
@@ -16675,14 +16686,19 @@ export class Space extends DurableObject<CoreBindings> {
     }
     const response = await this.handlePostWakeStop(
       parsed.data.body,
-      requireWritableSpaceActor(resolved.spaceAccess)
+      requireWritableSpaceActor(resolved.spaceAccess),
+      undefined,
+      resolved.spaceAccess.actor.kind === "authenticated"
+        ? options.directAccountUserId
+        : undefined
     );
     return Response.json(response);
   }
   private async handlePostWakeStop(
     body: PostSpaceWakeStopBody,
     context: OpenMeldRequestContext,
-    taskCancellation?: SpaceTaskDelivery
+    taskCancellation?: SpaceTaskDelivery,
+    directAccountUserId?: string
   ): Promise<PostSpaceWakeStopResponse> {
     if (
       taskCancellation &&
@@ -16743,27 +16759,60 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileId: body.target.targetProfileId,
       });
     }
-    if (
-      !(
-        ordinaryStopAuthorized ||
-        isAuthorizedSpaceTaskStop({
-          actorOwnerUserId: context.actorContext.ownerUserId,
-          actorProfileId: context.actorContext.openMeldProfileId,
-          delivery: taskCancellation,
-          wake: lookupMatch,
-          taskRepository: new SpaceTaskRepository(this.ctx.storage.sql),
-          deliveryRepository: new SpaceTaskDeliveryRepository(
-            this.ctx.storage.sql
-          ),
-        })
-      )
-    ) {
-      throw createCoreRpcHttpError({
-        status: 403,
-        code: "space.wake_stop.forbidden",
-        reason:
-          "You can't stop this Wake from this request. Ask its requester or the target Agent's owner to stop it in OpenMeld Web.",
+    const ordinaryOrTaskStop =
+      ordinaryStopAuthorized ||
+      isAuthorizedSpaceTaskStop({
+        actorOwnerUserId: context.actorContext.ownerUserId,
+        actorProfileId: context.actorContext.openMeldProfileId,
+        delivery: taskCancellation,
+        wake: lookupMatch,
+        taskRepository: new SpaceTaskRepository(this.ctx.storage.sql),
+        deliveryRepository: new SpaceTaskDeliveryRepository(
+          this.ctx.storage.sql
+        ),
       });
+    if (!ordinaryOrTaskStop) {
+      if (
+        !(await this.isJoinedOrganizationOwner(context, directAccountUserId))
+      ) {
+        throw createCoreRpcHttpError({
+          status: 403,
+          code: "space.wake_stop.forbidden",
+          reason:
+            "You can't stop this Wake. Ask its requester or the Agent's owner to stop it.",
+        });
+      }
+      const progress = await this.readSpaceWakeProgress({
+        ...(body.target.by === "client_message"
+          ? { clientMessageId: body.target.clientMessageId }
+          : {}),
+        sourceSignalId: lookupMatch.sourceSignalId,
+        targetProfileId: lookupMatch.targetProfileId,
+        includeWakeStopEligibility: true,
+      });
+      const item = progress.items.find(
+        (candidate) =>
+          candidate.dispatchId === lookupMatch.dispatchId &&
+          candidate.sourceSignalId === lookupMatch.sourceSignalId &&
+          candidate.targetProfileId === lookupMatch.targetProfileId
+      );
+      const family = item ? await this.readUndeliveredWakeFamily(item) : null;
+      if (family === "workstation") {
+        return this.requestPreAgentWakeStop({
+          body,
+          lookupMatch,
+          beforeDeliveryOwner: context,
+        });
+      }
+      if (family === "hosted") {
+        const stop = await this.requestRemoteAgentNativeDeliveryStop({
+          body,
+          lookupMatch,
+          beforeDeliveryOwner: context,
+        });
+        if (stop) return stop;
+      }
+      return wakeStopBeforeDeliveryUnavailable(lookupMatch.targetProfileId);
     }
 
     const finalSignalId =
@@ -16798,7 +16847,6 @@ export class Space extends DurableObject<CoreBindings> {
       lookupMatch,
     });
   }
-
   private async tryStopUnreceivedWake(
     body: PostSpaceWakeStopBody,
     context: OpenMeldRequestContext
@@ -17074,11 +17122,134 @@ export class Space extends DurableObject<CoreBindings> {
       ? provenance.actorProfileId
       : null;
   }
+  private isJoinedOrdinarySpaceMember(
+    context: OpenMeldRequestContext
+  ): boolean {
+    const meta = this.readSpaceMetaRecord();
+    if (
+      !meta ||
+      meta.deletedAt ||
+      context.activeOrganizationId !== meta.organizationId ||
+      meta.purpose === OPENMELD_WELCOMING_SPACE_PURPOSE ||
+      isDirectMessageSpace({
+        purpose: meta.purpose,
+        directMessageConvertedAt: meta.directMessage?.convertedAt,
+      })
+    ) {
+      return false;
+    }
+    const member = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      context.actorContext.openMeldProfileId
+    );
+    return (
+      member?.status === "active" &&
+      member.profileKindSnapshot === "human" &&
+      member.ownerUserIdSnapshot === context.actorContext.ownerUserId
+    );
+  }
+
+  private async isJoinedOrganizationOwner(
+    context: OpenMeldRequestContext,
+    directAccountUserId?: string
+  ): Promise<boolean> {
+    // Only the account-facing Core entrypoints pass the authenticated principal.
+    // Represented Human and Task contexts retain their existing Stop authority.
+    if (
+      !directAccountUserId ||
+      context.actorContext.profileKind !== "human" ||
+      context.actorContext.ownerUserId !== directAccountUserId ||
+      context.actorContext.callerPrincipalId !== directAccountUserId ||
+      !context.activeOrganizationId ||
+      !this.isJoinedOrdinarySpaceMember(context)
+    ) {
+      return false;
+    }
+    const membership = await this.organizationMembershipReads.read({
+      env: this.bindings,
+      organizationId: context.activeOrganizationId,
+      userId: directAccountUserId,
+    });
+    if (!membership.ok && membership.status === 503) {
+      throw createCoreRpcHttpError({
+        status: 503,
+        code: membership.code,
+        reason: membership.message,
+      });
+    }
+    return (
+      membership.ok &&
+      membership.role.split(",").includes("owner") &&
+      this.isJoinedOrdinarySpaceMember(context)
+    );
+  }
+
+  private async readUndeliveredWakeFamily(
+    item: WakeProgressItem
+  ): Promise<"workstation" | "hosted" | null> {
+    if (
+      !item.dispatchId ||
+      !item.sourceSignalId ||
+      item.terminal ||
+      item.runtimeCoordinatorExecutionId
+    ) {
+      return null;
+    }
+    const mode = item.wakeStopEligibility?.controlMode;
+    if (mode !== "openmeld_owned_pre_agent_cancel" && mode !== "cancel") {
+      return null;
+    }
+    const outbox = readDispatchOutboxRecordByDispatchId(
+      this.ctx.storage.sql,
+      item.dispatchId
+    );
+    if (mode === "openmeld_owned_pre_agent_cancel") {
+      if (outbox?.controllerSnapshot?.agentControllerRef) {
+        return outbox.outboxStatus !== "cancelled" &&
+          !isHostedAgentControllerRef(
+            outbox.controllerSnapshot.agentControllerRef
+          )
+          ? "workstation"
+          : null;
+      }
+      // A legacy Wake can outlive its outbox. Absence alone does not prove it
+      // was never delivered; require the surviving workstation head.
+      const { trace } = await this.readSpaceDispatchTrace(item.dispatchId, {
+        responseContractVersion: SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
+      });
+      const head = trace?.runtimeCoordinatorHeadLifecycle;
+      return !trace?.nativeDelivery &&
+        !trace?.runtimeCoordinatorExecution &&
+        head?.readStatus === "found" &&
+        (head.status === "queued" ||
+          head.status === "accepted" ||
+          head.status === "waiting") &&
+        !head.runtimeCoordinatorExecutionId
+        ? "workstation"
+        : null;
+    }
+    return isHostedAgentControllerRef(
+      outbox?.controllerSnapshot?.agentControllerRef
+    ) &&
+      outbox?.outboxStatus !== "cancelled" &&
+      isSpaceNativeWakeUnexposed(this.ctx.storage.sql, {
+        spaceId: this.spaceId,
+        dispatchId: item.dispatchId,
+        targetProfileId: item.targetProfileId,
+      })
+      ? "hosted"
+      : null;
+  }
+
   private async projectWakeStopEligibilityForViewer<
     T extends {
       items: WakeProgressItem[];
     },
-  >(response: T, spaceAccess: SpaceAccessContext): Promise<T> {
+  >(
+    response: T,
+    spaceAccess: SpaceAccessContext,
+    directAccountUserId?: string
+  ): Promise<T> {
     if (!response.items.some((item) => item.wakeStopEligibility != null)) {
       return response;
     }
@@ -17086,6 +17257,7 @@ export class Space extends DurableObject<CoreBindings> {
     const context = getSpaceAccessRequestContext(spaceAccess);
     // Reuse ownership reads only inside this viewer's request, never across accounts.
     const profileOwnership = new Map<string, Promise<boolean>>();
+    let joinedOwner: Promise<boolean> | undefined;
     const items = await Promise.all(
       response.items.map(async (item) => {
         if (item.wakeStopEligibility == null) {
@@ -17102,12 +17274,39 @@ export class Space extends DurableObject<CoreBindings> {
             },
             profileOwnership
           ));
-        return authorized ? item : { ...item, wakeStopEligibility: null };
+        if (authorized) {
+          return item;
+        }
+        if (
+          access.ok &&
+          context &&
+          directAccountUserId &&
+          spaceAccess.actor.kind === "authenticated" &&
+          !item.runtimeCoordinatorExecutionId &&
+          !item.terminal &&
+          item.wakeStopEligibility.status === "eligible" &&
+          (item.wakeStopEligibility.controlMode ===
+            "openmeld_owned_pre_agent_cancel" ||
+            item.wakeStopEligibility.controlMode === "cancel")
+        ) {
+          joinedOwner ??= this.isJoinedOrganizationOwner(
+            context,
+            directAccountUserId
+          );
+          if (
+            (await joinedOwner) &&
+            (await this.readUndeliveredWakeFamily(item))
+          ) {
+            return item;
+          }
+        }
+        return { ...item, wakeStopEligibility: null };
       })
     );
     return { ...response, items };
   }
   private async requestRemoteAgentNativeDeliveryStop(input: {
+    beforeDeliveryOwner?: OpenMeldRequestContext | undefined;
     body: PostSpaceWakeStopBody;
     lookupMatch: SpaceDispatchLookupMatch;
   }): Promise<PostSpaceWakeStopResponse | null> {
@@ -17156,6 +17355,17 @@ export class Space extends DurableObject<CoreBindings> {
       spaceId: this.spaceId,
       storage: this.ctx.storage,
     });
+    if (
+      input.beforeDeliveryOwner &&
+      !(await this.isJoinedOrganizationOwner(
+        input.beforeDeliveryOwner,
+        input.beforeDeliveryOwner.actorContext.callerPrincipalId
+      ))
+    ) {
+      return wakeStopBeforeDeliveryUnavailable(
+        input.lookupMatch.targetProfileId
+      );
+    }
     // Final publication and Stop compete at Space's existing claim boundary.
     // This synchronous check/write cannot race a Space publication in between.
     const settled = this.readHostedWakeStopFinalOutcome({
@@ -17164,6 +17374,19 @@ export class Space extends DurableObject<CoreBindings> {
     });
     if (settled) {
       return settled;
+    }
+    if (
+      input.beforeDeliveryOwner &&
+      (delivery?.submissionId ||
+        !isSpaceNativeWakeUnexposed(this.ctx.storage.sql, {
+          spaceId: this.spaceId,
+          dispatchId: input.lookupMatch.dispatchId,
+          targetProfileId: input.lookupMatch.targetProfileId,
+        }))
+    ) {
+      return wakeStopBeforeDeliveryUnavailable(
+        input.lookupMatch.targetProfileId
+      );
     }
     outbox =
       readDispatchOutboxRecordByDispatchId(
@@ -17480,6 +17703,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
   }
   private async requestPreAgentWakeStop(input: {
+    beforeDeliveryOwner?: OpenMeldRequestContext | undefined;
     body: PostSpaceWakeStopBody;
     lookupMatch: SpaceDispatchLookupMatch;
   }): Promise<PostSpaceWakeStopResponse> {
@@ -17514,6 +17738,21 @@ export class Space extends DurableObject<CoreBindings> {
     const targetDisplay = this.resolveWakeStopTargetDisplay(
       input.lookupMatch.targetProfileId
     );
+    if (
+      input.beforeDeliveryOwner &&
+      (!(await this.isJoinedOrganizationOwner(
+        input.beforeDeliveryOwner,
+        input.beforeDeliveryOwner.actorContext.callerPrincipalId
+      )) ||
+        readFinalReplyClaimSignalId(this.ctx.storage.sql, {
+          dispatchId: input.lookupMatch.dispatchId,
+          profileId: input.lookupMatch.targetProfileId,
+        }))
+    ) {
+      return wakeStopBeforeDeliveryUnavailable(
+        input.lookupMatch.targetProfileId
+      );
+    }
     const stopResponse =
       await recordRuntimeTransportRuntimeCoordinatorHeadPreAgentStop({
         env: this.bindings,
@@ -17550,6 +17789,7 @@ export class Space extends DurableObject<CoreBindings> {
       });
     }
     if (
+      !input.beforeDeliveryOwner &&
       !stopResponse.ok &&
       stopResponse.status === "execution_linked" &&
       stopResponse.runtimeCoordinatorExecutionId
@@ -17848,7 +18088,8 @@ export class Space extends DurableObject<CoreBindings> {
                 ? { targetProfileId: parsed.data.targetProfileId }
                 : {}),
             }),
-            resolved.spaceAccess
+            resolved.spaceAccess,
+            options.directAccountUserId
           )
         );
       },
@@ -28916,6 +29157,14 @@ function buildRequestedHostedWakeStop(
     cancellationStatus: "requested",
     reasonCode,
     status: "cancellation_requested",
+    targetProfileId,
+  });
+}
+function wakeStopBeforeDeliveryUnavailable(targetProfileId: string) {
+  return buildSpaceWakeStopFailureResponse({
+    reasonCode: "space.wake_stop_before_delivery_unavailable",
+    status: "not_stoppable",
+    runtimeCoordinatorExecutionId: null,
     targetProfileId,
   });
 }

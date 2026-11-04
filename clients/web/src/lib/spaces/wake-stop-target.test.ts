@@ -431,6 +431,7 @@ describe("resolveSpaceMessageWakeStopTarget", () => {
 	] as const)("allows OpenMeld-owned pre-agent Wake Stop targets during %s", (phase) => {
 		const target = resolveSpaceMessageWakeStopTarget({
 			item: createTimelineItem(),
+			viewerProfileId: "joined-owner-who-did-not-send-the-wake",
 			wakeProgressItems: [
 				createWakeProgressItem({
 					phase,
