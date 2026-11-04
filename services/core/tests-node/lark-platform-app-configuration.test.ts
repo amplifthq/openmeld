@@ -59,15 +59,16 @@ describe("Lark-platform persistent app configuration", () => {
   });
 
   it.each([
-    false,
-    true,
-  ])("accepts published Feishu setup grants with optional group history: %s", async (includeHistory) => {
+    undefined,
+    0,
+    1,
+  ])("keeps the existing Feishu messaging grant usable with optional group-history grant status %s", async (historyGrantStatus) => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json(token))
       .mockResolvedValueOnce(
         Response.json(
-          includeHistory
+          historyGrantStatus !== undefined
             ? {
                 ...capturedScopes,
                 data: {
@@ -77,7 +78,7 @@ describe("Lark-platform persistent app configuration", () => {
                     {
                       scope_name: "im:message.group_msg",
                       scope_type: "tenant",
-                      grant_status: 1,
+                      grant_status: historyGrantStatus,
                     },
                   ],
                 },

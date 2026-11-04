@@ -359,7 +359,7 @@ export function createLarkPlatformMessageChannelAdapter(input: {
           chatId,
         ]),
       });
-      await notifyFeishuHistoryGroup(
+      return await notifyFeishuHistoryGroup(
         {
           appId: connection.appId,
           appSecret: secret,

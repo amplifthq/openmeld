@@ -14,6 +14,7 @@ import type {
   NormalizedMessageChannelEvent,
 } from "@openmeld/schemas/types";
 import { readLarkPlatformMessageSnapshot } from "./lark-platform-event-normalizer";
+import { FEISHU_GROUP_HISTORY_SCOPE } from "./lark-platform-permission-bundles";
 import { readLarkPlatformPostContent } from "./lark-platform-post-content";
 import type {
   LarkPlatformMessageChannelProvider,
@@ -236,19 +237,19 @@ export async function notifyFeishuHistoryGroup(
     "/open-apis/application/v6/scopes",
     new URLSearchParams()
   );
+  if (grant.status || !Array.isArray(grant.data?.scopes)) {
+    throw new Error("Feishu could not verify the app permissions. Try again.");
+  }
   if (
-    grant.status ||
-    !readArray(grant.data, "scopes").some(
-      (s) =>
+    !grant.data.scopes.some(
+      (s: unknown) =>
         isJsonObject(s) &&
-        s.scope_name === "im:message.group_msg" &&
+        s.scope_name === FEISHU_GROUP_HISTORY_SCOPE &&
         s.grant_status === 1 &&
         (s.scope_type === "tenant" || s.scope_type === undefined)
     )
   ) {
-    throw new Error(
-      "Enable and publish the Feishu app permission to read group messages before enabling group history."
-    );
+    return "permission_required" as const;
   }
   const { status, data } = await feishuAppRequest(
     credentials,
@@ -268,6 +269,7 @@ export async function notifyFeishuHistoryGroup(
       "Feishu could not confirm the group notice. History was not enabled by this request."
     );
   }
+  return "notified" as const;
 }
 export async function listFeishuHistoryGroups(
   credentials: FeishuReadCredentials,

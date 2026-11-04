@@ -20,7 +20,45 @@ import {
 } from "../src/remote-agent/application/plugin-channel-source-proof";
 
 describe("Lark-platform OpenAPI publication", () => {
-  it("does not announce group history on a user grant or when the provider rejects access", async () => {
+  it("uses the verified existing tenant grant and sends the group notice without starting another authorization", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ code: 0, expire: 7200, tenant_access_token: "fixture" })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          code: 0,
+          data: {
+            scopes: [
+              {
+                scope_name: "im:message.group_msg",
+                grant_status: 1,
+                scope_type: "tenant",
+              },
+            ],
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({ code: 0, data: { message_id: "om_notice" } })
+      );
+    await expect(
+      notifyFeishuHistoryGroup(
+        { appId: "app", appSecret: "fixture", fetchImpl },
+        "oc_group",
+        "notice-id"
+      )
+    ).resolves.toBe("notified");
+    const [url, init] = fetchImpl.mock.calls[2] ?? [];
+    expect(new URL(String(url)).pathname).toBe("/open-apis/im/v1/messages");
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      receive_id: "oc_group",
+      uuid: "notice-id",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+  it("requires a tenant grant and keeps the group off when only a user grant is present", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -46,7 +84,7 @@ describe("Lark-platform OpenAPI publication", () => {
         "oc_group",
         "test-id"
       )
-    ).rejects.toThrow("Enable and publish");
+    ).resolves.toBe("permission_required");
     expect(
       fetchImpl.mock.calls.every(
         ([, options]) =>

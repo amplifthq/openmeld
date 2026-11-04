@@ -5660,6 +5660,8 @@ Agent consumer.
 
 ### Channel Context Contracts
 
+New Feishu registration accepts explicit `setup_feishu_with_history` and `setup_feishu_basic` begin modes. Core persists the requested bundle revision for resumable attempts. Both revisions satisfy the basic messaging requirement; the effective group-history permission is checked live at enablement. Lark uses its channel-only template. When an existing Feishu app lacks the optional tenant grant, the group setting PUT can return `permission_required` with a validated official same-app consent URL. It writes no opt-in and publishes no notice until a later authorized retry verifies the grant. Deploy Core before Gateway and Web: older strict readers may reject the new modes or the new unsuccessful-enable response.
+
 Feishu's on-demand group history read uses the current active native delivery. Core owns the Organization, connection, requester, chat, root and source timestamp. The tool accepts only a lookback duration (default 30 minutes, maximum two hours). The result identifies the requester's own top-level messages, the requested interval and truncated, denied, unavailable or rate-limited coverage. Revalidate the bot's access and an exact matching, undeleted source message before reading. History grants neither execution authority nor permission to disclose records in another Space. The requester-only slice has no policy evidence for other authors' cross-topic messages.
 
 

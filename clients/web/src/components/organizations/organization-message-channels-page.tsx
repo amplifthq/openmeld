@@ -185,6 +185,9 @@ function OrganizationMessageChannelsContent(input: {
 		})
 	);
 	const larkPlatform = useLarkPlatformChannelManagement({
+		hasPendingFeishuSetup: activeRegistrationsQuery.data?.registrations.some(
+			(r) => r.provider === "feishu"
+		),
 		connections: channelsQuery.data?.connections ?? [],
 		organizationId: input.organizationId,
 	});
@@ -306,6 +309,7 @@ function OrganizationMessageChannelsContent(input: {
 			) : null}
 			<LarkPlatformChannelDialog
 				canManage={canManage}
+				chooseFeishuSetup={larkPlatform.chooseFeishuSetup}
 				connection={larkPlatform.connection}
 				disconnectPending={larkPlatform.disconnectPending}
 				errorMessage={larkPlatform.errorMessage}

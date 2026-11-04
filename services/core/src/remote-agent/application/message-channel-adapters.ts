@@ -84,7 +84,7 @@ export type MessageChannelProviderAdapter = {
   notifyFeishuHistoryGroup?(
     connection: RemoteAgentLarkPlatformChannelConnectionRecord,
     chatId: string
-  ): Promise<void>;
+  ): Promise<"permission_required" | "notified">;
   listFeishuHistoryGroups?(
     connection: RemoteAgentLarkPlatformChannelConnectionRecord,
     pageToken?: string

@@ -214,6 +214,7 @@ import {
   type FeishuHistoryGroupsQuery,
   feishuGroupHistoryReadSchema,
   feishuGroupHistoryResultSchema,
+  feishuHistoryGroupSettingResultSchema,
   feishuHistoryGroupSettingSchema,
   feishuHistoryGroupsQuerySchema,
   feishuHistoryGroupsSchema,
@@ -1193,6 +1194,7 @@ import {
   resolveRemoteAgentConnectorRequester,
 } from "../remote-agent/application/delegated-requester";
 import { listLarkPlatformProvidersEnabledForOrganization } from "../remote-agent/application/lark-platform-provider-policy";
+import { beginLarkPlatformRegistration } from "../remote-agent/application/lark-platform-registration-client";
 import {
   beginRemoteAgentLarkPlatformRegistration,
   disconnectRemoteAgentLarkPlatformRegistration,
@@ -10184,9 +10186,26 @@ export async function rpcSetFeishuHistoryGroup(
     setting.enabled &&
     !(await enabledFeishuHistoryGroups(db, connection, [setting.chatId])).has(
       setting.chatId
-    )
+    ) &&
+    (await adapter.notifyGroup(connection, setting.chatId)) ===
+      "permission_required"
   ) {
-    await adapter.notifyGroup(connection, setting.chatId);
+    // This consent is scoped to the saved app. Its live grant is the only
+    // authority on retry; keep the healthy Channel and group setting intact.
+    const consent = await beginLarkPlatformRegistration({
+      appId: connection.appId,
+      appName: connection.botName ?? "OpenMeld Center Agent",
+      appDescription:
+        "Connect your OpenMeld Center Agent to conversations in your workspace.",
+      expectedProvider: "feishu",
+      includeGroupHistory: true,
+      nowMs: Date.now(),
+      source: "openmeld-core",
+    });
+    return feishuHistoryGroupSettingResultSchema.parse({
+      status: "permission_required",
+      authorizationUrl: consent.registrationUrl,
+    });
   }
   await setFeishuGroupHistory(db, connection, setting.chatId, setting.enabled);
   return setting;
@@ -10318,6 +10337,11 @@ export async function rpcBeginLarkPlatformRegistration(
   try {
     const response = await beginRemoteAgentLarkPlatformRegistration({
       ...request,
+      includeGroupHistory:
+        input.mode === "setup_feishu_basic" ||
+        input.mode === "setup_feishu_with_history"
+          ? input.mode === "setup_feishu_with_history"
+          : undefined,
       repairExisting: input.mode === "repair",
       reauthorize: input.mode === "reauthorize",
       env,

@@ -1,7 +1,8 @@
 import {
 	type FeishuHistoryGroupSetting,
+	type FeishuHistoryGroupSettingResult,
 	type FeishuHistoryGroups,
-	feishuHistoryGroupSettingSchema,
+	feishuHistoryGroupSettingResultSchema,
 	feishuHistoryGroupsSchema,
 } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
@@ -12,6 +13,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { useState } from "react";
+import { AuthorizationLink } from "#/desktop/authorization-link";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 const route =
@@ -56,15 +58,16 @@ export function FeishuGroupHistorySettings({
 	});
 	const change = useMutation({
 		mutationFn: (setting: FeishuHistoryGroupSetting) =>
-			api.requestJson<FeishuHistoryGroupSetting>({
+			api.requestJson<FeishuHistoryGroupSettingResult>({
 				invalidMessage: "Invalid Feishu group setting.",
 				url: route,
 				method: "PUT",
 				body: JSON.stringify(setting),
-				schema: feishuHistoryGroupSettingSchema,
+				schema: feishuHistoryGroupSettingResultSchema,
 				operation: "feishu.history.set",
 			}),
-		onSuccess: () => client.invalidateQueries({ queryKey }),
+		onSuccess: (result) =>
+			"status" in result ? undefined : client.invalidateQueries({ queryKey }),
 	});
 	return (
 		<section className="space-y-2">
@@ -134,6 +137,35 @@ export function FeishuGroupHistorySettings({
 						>
 							More groups
 						</Button>
+					)}
+					{change.data && "status" in change.data && change.variables && (
+						<div className="space-y-2" role="alert">
+							<p>
+								Your Feishu app needs permission to read group messages. Approve
+								the update for your existing bot, then check again to enable
+								this group.
+							</p>
+							<AuthorizationLink
+								className="underline"
+								href={change.data.authorizationUrl}
+								rel="noopener noreferrer"
+								target="_blank"
+							>
+								Update Feishu permissions
+							</AuthorizationLink>
+							<Button
+								disabled={change.isPending}
+								onClick={() => {
+									if (change.variables) {
+										change.mutate(change.variables);
+									}
+								}}
+								type="button"
+								variant="outline"
+							>
+								I’ve updated permissions. Check again
+							</Button>
+						</div>
 					)}
 					{change.isError && (
 						<p role="alert">

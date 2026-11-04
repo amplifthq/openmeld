@@ -67,6 +67,8 @@ export const messageChannelIdentityLinkIdSchema = nonEmptyStringSchema
   .regex(/^channel_identity_[0-9a-f]{64}$/u);
 export const larkPlatformProviderSchema = z.enum(["lark", "feishu"]);
 export const larkPlatformRegistrationBeginModeSchema = z.enum([
+  "setup_feishu_with_history",
+  "setup_feishu_basic",
   "resume",
   "restart",
   "repair",

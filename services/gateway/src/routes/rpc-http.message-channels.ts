@@ -1,4 +1,5 @@
 import {
+  feishuHistoryGroupSettingResultSchema,
   feishuHistoryGroupSettingSchema,
   feishuHistoryGroupsQuerySchema,
   feishuHistoryGroupsSchema,
@@ -72,7 +73,7 @@ export function registerMessageChannelRoutes(app: Hono<HonoBindings>): void {
       c,
       route: historyGroups,
       method: "PUT",
-      responseSchema: feishuHistoryGroupSettingSchema,
+      responseSchema: feishuHistoryGroupSettingResultSchema,
       execute: async () =>
         await c.var.coreRpc.setFeishuHistoryGroup({
           context: buildCoreRpcContext(c),

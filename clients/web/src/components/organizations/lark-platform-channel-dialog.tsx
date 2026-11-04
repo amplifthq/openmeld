@@ -33,6 +33,7 @@ import { requiresLarkPlatformSetupAuthorization } from "./lark-platform-setup-au
 export function LarkPlatformChannelDialog(input: {
 	canManage: boolean;
 	cleanupOnly?: boolean;
+	chooseFeishuSetup?: (includeHistory: boolean) => void;
 	organizationId?: string;
 	connection: MessageChannelConnectionProjection | null;
 	disconnectPending: boolean;
@@ -120,6 +121,7 @@ export function LarkPlatformChannelDialog(input: {
 					) : (
 						<ConnectionSummary
 							canManage={manageGroups}
+							chooseFeishuSetup={input.chooseFeishuSetup}
 							connection={connection}
 							errorMessage={input.errorMessage}
 							onRepair={input.onRepair}
@@ -134,6 +136,7 @@ export function LarkPlatformChannelDialog(input: {
 							startOverPending={input.startOverPending}
 						/>
 					)}
+
 					<GroupHistoryControl
 						canManage={manageGroups}
 						confirmingDisconnect={confirmingDisconnect}
@@ -181,6 +184,40 @@ export function LarkPlatformChannelDialog(input: {
 	);
 }
 
+function FeishuSetupChoice({
+	onContinue,
+	pending,
+}: {
+	pending: boolean;
+	onContinue: (history: boolean) => void;
+}) {
+	const [history, setHistory] = useState(true);
+	return (
+		<section className="space-y-3">
+			<label className="flex items-start gap-2 text-sm">
+				<input
+					checked={history}
+					disabled={pending}
+					onChange={(e) => setHistory(e.currentTarget.checked)}
+					type="checkbox"
+				/>
+				Allow history in selected Feishu groups
+			</label>
+			<p className="text-muted-foreground text-sm">
+				Feishu will ask for permission to read messages in groups the bot joins.
+				An OpenMeld admin still turns history on for each group. With this
+				unchecked, the bot can answer direct messages and group mentions.
+			</p>
+			<Button
+				disabled={pending}
+				onClick={() => onContinue(history)}
+				type="button"
+			>
+				{pending ? "Starting Feishu setup…" : "Continue to Feishu setup"}
+			</Button>
+		</section>
+	);
+}
 function GroupHistoryControl(input: {
 	confirmingDisconnect: boolean;
 	organizationId?: string;
@@ -536,6 +573,7 @@ function RegistrationStartError(input: {
 }
 
 function ConnectionSummary(input: {
+	chooseFeishuSetup?: (includeHistory: boolean) => void;
 	canManage: boolean;
 	connection: MessageChannelConnectionProjection | null;
 	errorMessage: string | null;
@@ -546,6 +584,14 @@ function ConnectionSummary(input: {
 	repairDisabled: boolean;
 	repairPending: boolean;
 }) {
+	if (input.chooseFeishuSetup && input.canManage) {
+		return (
+			<FeishuSetupChoice
+				onContinue={input.chooseFeishuSetup}
+				pending={input.startOverPending}
+			/>
+		);
+	}
 	if (!input.connection) {
 		return input.errorMessage ? (
 			<RegistrationStartError

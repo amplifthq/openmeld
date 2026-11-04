@@ -28,6 +28,37 @@ export const feishuHistoryGroupSettingSchema = z.strictObject({
   pageToken: providerId.optional(),
   enabled: z.boolean(),
 });
+export const feishuHistoryGroupSettingResultSchema = z.union([
+  feishuHistoryGroupSettingSchema,
+  z.strictObject({
+    status: z.literal("permission_required"),
+    authorizationUrl: z
+      .string()
+      .trim()
+      .max(16_384)
+      .url()
+      .refine((value) => {
+        const u = URL.parse(value);
+        if (!u) {
+          return false;
+        }
+        return (
+          u.origin === "https://open.feishu.cn" &&
+          !u.username &&
+          !u.password &&
+          !u.hash &&
+          u.pathname === "/page/launcher" &&
+          u.searchParams.getAll("clientID").length === 1 &&
+          Boolean(u.searchParams.get("clientID")?.trim()) &&
+          u.searchParams.getAll("user_code").length === 1 &&
+          Boolean(u.searchParams.get("user_code")?.trim())
+        );
+      }),
+  }),
+]);
+export type FeishuHistoryGroupSettingResult = z.output<
+  typeof feishuHistoryGroupSettingResultSchema
+>;
 export const feishuHistoryGroupsSchema = z.strictObject({
   generation: z.number().int().positive(),
   groups: z

@@ -4,6 +4,7 @@ import {
   requestLarkPlatformTenantAccessToken,
 } from "./lark-platform-openapi-client";
 import {
+  FEISHU_GROUP_HISTORY_SCOPE,
   LARK_PLATFORM_APP_CONFIGURATION_SCOPE,
   LARK_PLATFORM_APP_SELF_MANAGE_SCOPE,
   LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE,
@@ -242,6 +243,16 @@ async function verifyChannelOnlyPermissionBundle(input: {
     ) {
       throw configurationError(input.provider, "permission_scope_read_failed");
     }
+    // This extra tenant scope is requested by choice. A pending/declined
+    // history permission must not prevent ordinary DMs and mentions.
+    if (
+      input.provider === "feishu" &&
+      scopeName === FEISHU_GROUP_HISTORY_SCOPE &&
+      scopeType !== "user" &&
+      grantStatus !== 1
+    ) {
+      continue;
+    }
     if (
       grantStatus !== 1 ||
       scopeType === "user" ||
@@ -257,7 +268,7 @@ async function verifyChannelOnlyPermissionBundle(input: {
   actualScopeNames.delete(LARK_PLATFORM_APP_SELF_MANAGE_SCOPE);
   // The optional Feishu group-history grant may already be active on repair.
   if (input.provider === "feishu") {
-    actualScopeNames.delete("im:message.group_msg");
+    actualScopeNames.delete(FEISHU_GROUP_HISTORY_SCOPE);
   }
   if (
     actualScopeNames.size !== expectedScopes.length ||
