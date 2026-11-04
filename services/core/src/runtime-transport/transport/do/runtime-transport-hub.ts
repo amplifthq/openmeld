@@ -14960,6 +14960,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               nowMs,
             }),
           pendingInteraction,
+          pendingInteractionReceivedAtMs: pending?.requestReceivedAtMs ?? null,
         }
       )
     );

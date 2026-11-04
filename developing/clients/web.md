@@ -5826,6 +5826,20 @@ separate Replies section, a detached `Why this failed` summary, or an extra
 that presentation model but cannot become a second status source or final
 outcome.
 
+Message details requests the `timingVersion: 1` projection and renders a
+**Timing** section after Activity for each Wake target that has timing. Each
+target shows its end-to-end time (`Total`, `so far`, or `Ended after`), the
+last platform update while open, a proportional bar, and grouped totals:
+Agent run, Waiting for input, Queued and starting, OpenMeld routing and
+delivery, and Not recorded. A collapsed timeline lists each segment with its
+start time, duration, and a plain-language wait reason when one is recorded.
+Web renders only Core's segments and totals; it does not recompute, extend, or
+sum timing across targets, and the open segment refreshes only through the
+existing Message Details polling. The section states that OpenMeld measured
+the times and that Agent run includes tool use and unreported waits. **Copy
+timing** copies the viewer-authorized timing JSON for structured export.
+Targets without timing, such as hosted Agents, show no Timing entry.
+
 Visible originating Center Agent requests read the
 optional Message Details delegation projection for a compact progress summary.
 Message details expands the same projection into declared child rows and

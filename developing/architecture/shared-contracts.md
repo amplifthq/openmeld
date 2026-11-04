@@ -210,6 +210,31 @@ Service, managed Skills, setup, Wake admission, Space mutations, Stop,
 result recovery, and trace contracts are unchanged. No local-component epoch
 or required update is introduced by this read projection.
 
+## Message Details timing opt-in
+
+Message Details accepts optional `timingVersion: 1`. Only an opted-in response
+adds `timing` to a Wake target, using the shared `wakeTimingSchema`
+(`openmeld.wake_timing.v1`). The schema requires the eight boundaries in
+canonical order, contiguous segments with at most one open final segment, and
+totals that equal the sum of their segments. Its projection rules are owned by
+the Wake Timing Read Model in `data-and-observability.md`. Timing contains only
+times, stage kinds, and existing reason codes; it carries no paths, account
+identifiers, message text, credentials, or raw logs. A target without timing
+means the projection was not attributable, not that the Wake took no time.
+
+The Gateway forwards only the literal `1` and rejects other values. Older
+Gateways drop the query and older Core ignores the field, so both keep the
+original response; Web treats absent timing as unavailable. Core emits timing
+only when a receiver forwarded the opt-in, and that receiver validates the
+response with the same schema, so Web, Gateway, and Core may deploy in any
+order. No database migration is required.
+
+Contract impact: CLI commands, Service transport, managed Skills, setup, Wake
+admission, Stop, trace, and diagnostics payloads are unchanged, and no CLI
+command reads this field. The CLI and Service bundles still include the
+additive shared schema, so the release that ships them records an `available`
+decision; no compatibility floor or required update is introduced.
+
 ## Approved Plugin action recovery
 
 Hosted issue creation may send `issueActionRecovery` with the complete provider
@@ -9263,6 +9288,14 @@ the lifecycle record is unchanged, so a client holding an older copy of the
 same lifecycle revision, such as a per-message poll taken before the request,
 cannot outrank the newer interaction state. The Service's `requestedAtMs`
 stays display data and never orders progress.
+
+The revision read also returns optional `pendingInteractionReceivedAtMs`: the
+Core time the still-pending request first reached Core, or null when no request
+is pending or it was stored before Core recorded arrivals. It is arrival
+evidence for Wake timing, not a revision; Wake progress keeps ordering by
+`interactionUpdatedAtMs`. A reader on an earlier build rejects the new field and
+uses the original-read fallback above until the rollout completes; a new reader
+treats an absent field as no recorded arrival.
 
 Provider adapters map native protocols into this contract without creating
 provider-specific approval truth:

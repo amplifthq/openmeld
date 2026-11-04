@@ -1849,7 +1849,15 @@ function resolveRuntimeCoordinatorLocalQueueReasonCode(
   if (conversationOccupancyReasonCode) {
     return conversationOccupancyReasonCode;
   }
-  const localQueue = readLatestAcceptedLocalQueue(trace);
+  return resolveLocalQueuePayloadReasonCode(
+    readLatestAcceptedLocalQueue(trace)
+  );
+}
+
+/** The reason code for one Service `localQueue` lifecycle payload. */
+export function resolveLocalQueuePayloadReasonCode(
+  localQueue: Record<string, unknown> | null
+): string | null {
   if (!localQueue) {
     return null;
   }
@@ -2158,7 +2166,7 @@ function normalizeOptionalText(
   return normalized.length > 0 ? normalized : null;
 }
 
-function parseRuntimeCoordinatorEventPayload(
+export function parseRuntimeCoordinatorEventPayload(
   event: SpaceDispatchTraceSnapshot["runtimeCoordinatorEvents"][number]
 ): Record<string, unknown> | null {
   try {
@@ -2171,7 +2179,7 @@ function parseRuntimeCoordinatorEventPayload(
   }
 }
 
-function readPayloadObject(
+export function readPayloadObject(
   payload: Record<string, unknown> | null,
   fieldName: string
 ): Record<string, unknown> | null {

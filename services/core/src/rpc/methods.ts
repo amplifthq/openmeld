@@ -2930,6 +2930,7 @@ export type GetSpaceMessageDetailsInput = {
   spaceId: string;
   signalId: string;
   executionContextVersion?: 1;
+  timingVersion?: 1;
   password?: string;
   context?: CoreRpcContextInput;
   spaceAccess?: SpaceAccessContext;
@@ -23955,6 +23956,7 @@ export async function rpcGetSpaceMessageDetails(
     ...(input.executionContextVersion
       ? { executionContextVersion: input.executionContextVersion }
       : {}),
+    ...(input.timingVersion ? { timingVersion: input.timingVersion } : {}),
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -23976,6 +23978,9 @@ export async function rpcGetSpaceMessageDetails(
     signalId: parsed.data.signalId,
     ...(parsed.data.executionContextVersion
       ? { executionContextVersion: parsed.data.executionContextVersion }
+      : {}),
+    ...(parsed.data.timingVersion
+      ? { timingVersion: parsed.data.timingVersion }
       : {}),
     ...access,
   });

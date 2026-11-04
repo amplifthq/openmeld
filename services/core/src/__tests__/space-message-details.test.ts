@@ -1,6 +1,7 @@
 import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import type {
   MessageEnvelope,
+  WakeTiming,
   WakeTraceWaterfallItem,
   WakeTraceWaterfallStepName,
   WakeTraceWaterfallSummaryStatus,
@@ -390,6 +391,7 @@ describe("space Message Details projection", () => {
       },
     });
 
+    const codexTiming = createRoutingWakeTiming();
     const details = projectSpaceMessageDetails({
       replySignal: null,
       signal: wakeSourceSignal,
@@ -397,6 +399,7 @@ describe("space Message Details projection", () => {
       visibleReplySignal: null,
       visibleSignal: wakeSourceSignal,
       wakeSourceSignal,
+      wakeTimingByTargetProfileId: new Map([["agt-codex", codexTiming]]),
       wakeTraceItems: [
         createWakeTraceItem({
           reasonCode: null,
@@ -431,6 +434,8 @@ describe("space Message Details projection", () => {
         reasonCode: null,
       },
     ]);
+    expect(details.wakeContext.targets[0]?.timing).toEqual(codexTiming);
+    expect(details.wakeContext.targets[1]).not.toHaveProperty("timing");
     expect(details.diagnostics.traceSelectors).toEqual([
       {
         kind: "signal",
@@ -618,6 +623,41 @@ function agentProfile(input: Partial<Profile>): Profile {
     kind: "agent",
     profileId: "agt-codex",
     ...input,
+  };
+}
+
+function createRoutingWakeTiming(): WakeTiming {
+  const startedAt = new Date(SENT_AT_MS).toISOString();
+  return {
+    modelVersion: "openmeld.wake_timing.v1",
+    factSource: "platform_observed",
+    state: "in_progress",
+    asOf: new Date(SENT_AT_MS + 5000).toISOString(),
+    lastEvidenceAt: startedAt,
+    milestones: [],
+    segments: [
+      {
+        kind: "routing",
+        startedAt,
+        endedAt: null,
+        durationMs: 5000,
+        reasonCode: null,
+      },
+    ],
+    totals: {
+      endToEndMs: 5000,
+      byKind: {
+        routing: 5000,
+        queue: 0,
+        delivery: 0,
+        startup: 0,
+        agent_run: 0,
+        waiting_for_input: 0,
+        result_delivery: 0,
+        publishing: 0,
+        not_recorded: 0,
+      },
+    },
   };
 }
 

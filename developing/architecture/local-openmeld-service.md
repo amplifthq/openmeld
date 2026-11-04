@@ -2656,6 +2656,9 @@ clears its timer. Late completion cannot settle a later attempt. When the
 remaining overall budget is shorter, the overall deadline takes precedence.
 Direct RPC reads do not use this per-attempt timeout because they cannot abort
 their transport; they retain retries only for the classified exceptions above.
+Other Runtime Transport HTTP calls make one attempt whose deadline likewise
+covers fetch and response-body consumption; a body that stalls past it is a
+timeout, not a late success.
 A replacement gap covering the entire total budget can still make the read fail.
 The member directory caps its batch prefetch at five seconds as well, so a
 single unavailable Hub cannot outlast the directory's client request budget.

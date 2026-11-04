@@ -3022,6 +3022,19 @@ export {
   spaceWakeStopSelectorSchema,
 } from "./http/space-wake-stop";
 export {
+  WAKE_TIMING_MILESTONE_NAMES,
+  WAKE_TIMING_MODEL_VERSION,
+  WAKE_TIMING_SEGMENT_KINDS,
+  wakeTimingMilestoneNameSchema,
+  wakeTimingMilestoneSchema,
+  wakeTimingSchema,
+  wakeTimingSegmentKindSchema,
+  wakeTimingSegmentSchema,
+  wakeTimingStateSchema,
+  wakeTimingTotalsByKindSchema,
+  wakeTimingTotalsSchema,
+} from "./http/space-wake-timing";
+export {
   getSpaceWakeTraceWaterfallInputSchema,
   getSpaceWakeTraceWaterfallResponseSchema,
   WAKE_TRACE_WATERFALL_STEP_NAMES,
