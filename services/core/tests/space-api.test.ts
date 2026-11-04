@@ -106,6 +106,7 @@ import {
   recordDispatchOutboxCandidateFailure,
 } from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
 import { SpaceFileRepository } from "../src/space/infrastructure/sql/space-file-repo";
+import { readSpaceInboxProjectionOutboxRecord } from "../src/space/infrastructure/sql/space-inbox-projection-outbox-repo";
 import {
   readSpaceMemberRecord,
   upsertSpaceMemberRecord,
@@ -7075,6 +7076,122 @@ describe("OpenMeld Core", () => {
       signals?: unknown[];
     };
     expect(list.signals).toEqual([]);
+  });
+  it.each([
+    true,
+    false,
+  ])("validates Organization Human Mentions without granting Space membership (same Organization: %s)", async (sameOrganization) => {
+    const spaceId = await createSpace({
+      accessMode: "members_only",
+      visibility: "private",
+    });
+    const profileId = randomUUID();
+    const userId = randomUUID();
+    await ensureTestOrganizationMembership({
+      organizationId: sameOrganization
+        ? DEFAULT_TEST_ORGANIZATION_ID
+        : randomUUID(),
+      userId,
+    });
+    await getPostgresDatabase(env).query({
+      text: `INSERT INTO "openmeld"."openmeld_profiles"
+        (profile_id, profile_name, profile_handle, profile_kind, owner_user_id, source)
+        VALUES ($1, 'Organization colleague', $2, 'human', $3, 'migration')`,
+      values: [profileId, `colleague-${profileId}`, userId],
+    });
+    const text = "@Organization colleague please review";
+    const response = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profile: {
+            kind: "human",
+            profileId: DEFAULT_HUMAN_PROFILE_ID,
+            profileName: "Test User",
+          },
+          type: "signal.text",
+          data: {
+            text,
+            messageEnvelope: {
+              text,
+              activationTargets: [],
+              referenceTargets: [],
+              mentionTargets: [profileId],
+            },
+            meta: {
+              clientMessageId: randomUUID(),
+              humanMentions: [
+                { profileId, profileName: "Forged name", scope: "space" },
+              ],
+            },
+          },
+        }),
+      }
+    );
+    expect(response.status).toBe(sameOrganization ? 200 : 422);
+    const responseBody = (await response.json()) as { id?: string };
+    if (sameOrganization) {
+      expect(responseBody).toMatchObject({
+        data: {
+          messageEnvelope: { mentionTargets: [profileId] },
+          meta: {
+            humanMentions: [
+              {
+                profileId,
+                profileName: "Organization colleague",
+                scope: "organization",
+              },
+            ],
+          },
+        },
+      });
+      const denied = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+        undefined,
+        {
+          profileId,
+          openMeldProfileId: profileId,
+          ownerUserId: userId,
+          profileKind: "human",
+          profileName: "Organization colleague",
+        }
+      );
+      expect(denied.status).toBe(403);
+    } else {
+      expect(responseBody).toMatchObject({
+        code: "space.addressing.target_invalid",
+      });
+    }
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    await runInDurableObject(stub, (_instance, state) => {
+      if (sameOrganization) {
+        expect(responseBody.id).toEqual(expect.any(String));
+        const outbox = readSpaceInboxProjectionOutboxRecord(
+          state.storage.sql,
+          responseBody.id ?? ""
+        );
+        const recipient = outbox?.candidates.find(
+          (candidate) => candidate.recipientUserId === userId
+        );
+        expect(recipient).toMatchObject({
+          kind: "space_mention",
+          contextLabel: "Organization mention",
+          sourceFacts: { organizationMentionProfileId: profileId },
+        });
+        expect(JSON.stringify(recipient)).not.toContain(text);
+      }
+      expect(
+        state.storage.sql
+          .exec(
+            "SELECT profile_id FROM space_members WHERE profile_id = ?",
+            profileId
+          )
+          .toArray()
+      ).toEqual([]);
+    });
   });
   it("accepts Reference targets that are active Agent Space members", async () => {
     const spaceId = await createSpace();

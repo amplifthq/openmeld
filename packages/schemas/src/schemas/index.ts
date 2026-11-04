@@ -110,6 +110,12 @@ export {
   spaceHistoryNavigationQuerySchema,
   spaceHistoryNavigationSchema,
 } from "./http/space-history-navigation";
+export {
+  MAX_ORGANIZATION_MENTION_TARGETS,
+  remoteAgentResolveReplyMentionsRequestSchema,
+  remoteAgentResolveReplyMentionsResponseSchema,
+  spaceHumanMentionTargetSchema,
+} from "./http/space-human-mentions";
 export { agentFailureFactsSchema } from "./runtime/agent-failure";
 export {
   CENTER_AGENT_SESSION_TITLE_INPUT_MAX_LENGTH,

@@ -245,6 +245,12 @@ function mergeSpaceInboxRecipient(
       ? {
           sourceFacts: {
             version: 1,
+            ...(preferred.sourceFacts?.organizationMentionProfileId
+              ? {
+                  organizationMentionProfileId:
+                    preferred.sourceFacts.organizationMentionProfileId,
+                }
+              : {}),
             agentProfileIds: union("agentProfileIds"),
             personalAgentProfileIds: union("personalAgentProfileIds"),
             mentionedAgentProfileIds: union("mentionedAgentProfileIds"),
@@ -289,7 +295,12 @@ export async function resolveSpaceInboxRecipientEligibility(input: {
   hasActiveSpaceMembership: boolean;
   readAccountIdentity: () => Promise<AuthRpcResolveOrganizationAccountIdentityResult | null>;
 }): Promise<boolean> {
-  if (!input.hasActiveSpaceMembership) {
+  const organizationMention =
+    input.candidate.kind === "space_mention" &&
+    input.candidate.sourceKind === "space_signal" &&
+    input.candidate.sourceFacts?.recipientReasons.includes("human_mention") &&
+    input.candidate.sourceFacts.organizationMentionProfileId;
+  if (!(input.hasActiveSpaceMembership || organizationMention)) {
     return false;
   }
   const identity = await input.readAccountIdentity();

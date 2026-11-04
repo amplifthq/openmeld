@@ -49,8 +49,10 @@ import {
   resolveCenterAgentCompletedCallbackMessage,
   resolveSpaceFileContentResponseSchema,
   routineWorkflowContinuationEventPayloadSchema,
+  SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
   SPACE_MESSAGE_FILE_MAX_COUNT,
+  SPACE_REPLY_MENTION_INVALID_PUBLIC_COPY,
   spaceCodeWorkHandoffSchema,
   spaceMessageAttachmentsSchema,
 } from "@openmeld/schemas";
@@ -7949,7 +7951,7 @@ export async function completeRemoteAgentNativeDelivery(
       reasonCode: "remote_agent.callback_invalid",
     });
   }
-  const body = canonicalizeRemoteAgentCallbackBody(parsed.data);
+  let body = canonicalizeRemoteAgentCallbackBody(parsed.data);
   const db = getPostgresDatabase(env);
   if (!db) {
     return remoteAgentCoreCallbackResponseSchema.parse({
@@ -8030,6 +8032,7 @@ export async function completeRemoteAgentNativeDelivery(
     delivery,
     nowMs,
   });
+  body = resolveRetainedPublicationCallback(body, delivery);
   if (isRemoteAgentWorkLoopContinuationCallback(body)) {
     return await continueRemoteAgentNativeDeliveryWorkLoop({
       body,
@@ -9076,12 +9079,19 @@ async function completeRemoteAgentCompletedCallback(input: {
       env,
     });
   } catch (error) {
-    if (
-      resolveRemoteAgentPublicationErrorCode(error) ===
-      SPACE_FINAL_OUTCOME_STOPPED_ERROR_CODE
-    ) {
+    const publicationErrorCode = resolveRemoteAgentPublicationErrorCode(error);
+    if (publicationErrorCode === SPACE_FINAL_OUTCOME_STOPPED_ERROR_CODE) {
       return await settleRemoteAgentStoppedCallback({
         body,
+        db,
+        delivery,
+        env,
+        nowMs,
+      });
+    }
+    if (publicationErrorCode === SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE) {
+      return await completeRemoteAgentFailedCallback({
+        body: buildInvalidMentionPublicationCallback(body),
         db,
         delivery,
         env,
@@ -9377,6 +9387,39 @@ function resolveRemoteAgentPublicationErrorCode(error: unknown): string | null {
   return jsonStart >= 0
     ? (parseRpcErrorPayload(message.slice(jsonStart))?.code ?? null)
     : null;
+}
+function resolveRetainedPublicationCallback(
+  body: RemoteAgentCoreCallbackEvent,
+  delivery: RemoteAgentNativeDeliveryRecord
+): RemoteAgentCoreCallbackEvent {
+  // A rejected recipient cannot become valid by replaying the completed body.
+  // If publishing the failure notice was interrupted, resume that same notice.
+  return delivery.conversationKind === "space" &&
+    delivery.finalPublicationPayload?.failureCode ===
+      SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
+    ? buildInvalidMentionPublicationCallback(body)
+    : body;
+}
+function buildInvalidMentionPublicationCallback(
+  body: RemoteAgentCoreCallbackEvent
+): RemoteAgentFailedCallbackBody {
+  const failureMessage = SPACE_REPLY_MENTION_INVALID_PUBLIC_COPY;
+  return {
+    agentProfileId: body.agentProfileId,
+    bindingId: body.bindingId,
+    callbackAttempt: body.callbackAttempt,
+    dispatchId: body.dispatchId,
+    idempotencyKey: body.idempotencyKey,
+    organizationId: body.organizationId,
+    spaceId: body.spaceId,
+    submissionId: body.submissionId,
+    triggerMessageId: body.triggerMessageId,
+    status: "failed",
+    failureCode: SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
+    failureDetail: failureMessage,
+    failureMessage,
+    ...("files" in body && body.files ? { files: body.files } : {}),
+  };
 }
 function buildRemoteAgentFinalPublicationPayload(input: {
   body: RemoteAgentCoreCallbackBody;
@@ -13948,6 +13991,11 @@ async function projectRemoteAgentNativeDeliveryTerminalEffects(input: {
       db: routineOwnerDb,
       failureCode:
         input.delivery.status === "failed" ? input.delivery.failureCode : null,
+      failureDetail:
+        input.delivery.failureCode ===
+        SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
+          ? input.delivery.failureDetail
+          : null,
       nowMs: input.nowMs,
       publishedSignalId: input.delivery.publishedSignalId,
       runId: routineRunId,
