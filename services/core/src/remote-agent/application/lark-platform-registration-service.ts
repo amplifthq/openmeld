@@ -31,6 +31,7 @@ import {
   persistRemoteAgentLarkPlatformRegistrationCredentials,
   type RemoteAgentLarkPlatformRegistrationAttemptRecord,
   readActiveRemoteAgentLarkPlatformRegistrationAttempt,
+  readExpiredFeishuRestartBundle,
   readRemoteAgentLarkPlatformRegistrationAttempt,
   recordClaimedLarkPlatformApplicationVersion,
   repairRemoteAgentLarkPlatformRegistrationAttempt,
@@ -134,7 +135,7 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
     });
     activeAttempt = null;
   }
-  const choice = resolveRegistrationChoice(input, activeAttempt);
+  const choice = await resolveRegistrationChoice(input, activeAttempt);
   if (activeAttempt) {
     assertAttemptAuthority({
       actor: input.actor,
@@ -249,19 +250,25 @@ function assertRepairableAttempt(
     throw serviceError(attempt.provider, "repair_unavailable", 409);
   }
 }
-function resolveRegistrationChoice(
+async function resolveRegistrationChoice(
   input: {
+    actor: RegistrationActor;
+    db: PostgresDatabase;
     provider: RemoteAgentLarkPlatformProvider;
     includeGroupHistory?: boolean;
     restartPending?: boolean;
   },
   attempt: { status: string; permissionBundleVersion: string } | null
 ) {
-  const saved =
-    attempt?.permissionBundleVersion === FEISHU_HISTORY_BUNDLE_VERSION;
+  const bundle =
+    attempt?.permissionBundleVersion ??
+    (input.restartPending && input.provider === "feishu"
+      ? await readExpiredFeishuRestartBundle({ ...input.actor, db: input.db })
+      : null);
+  const saved = bundle === FEISHU_HISTORY_BUNDLE_VERSION;
   const includeGroupHistory =
     input.provider === "feishu" &&
-    (input.includeGroupHistory ?? (attempt ? saved : !input.restartPending));
+    (input.includeGroupHistory ?? (bundle ? saved : !input.restartPending));
   return {
     includeGroupHistory,
     replacePending:

@@ -79,6 +79,7 @@ describe("Lark-platform registration service", () => {
         options: {
           includeGroupHistory?: boolean;
           restartPending?: boolean;
+          nowMs?: number;
         } = {}
       ) =>
         beginRemoteAgentLarkPlatformRegistration({
@@ -99,15 +100,34 @@ describe("Lark-platform registration service", () => {
       expect(scopes(first.attempt.registrationUrl)).toContain(
         "im:message.group_msg"
       );
-      const basic = await begin({ includeGroupHistory: false });
+      const expiredAt = Date.parse(first.attempt.expiresAt);
+      const restarted = await begin({ restartPending: true, nowMs: expiredAt });
+      expect(restarted.attempt.id).not.toBe(first.attempt.id);
+      expect(scopes(restarted.attempt.registrationUrl)).toContain(
+        "im:message.group_msg"
+      );
+      const basic = await begin({
+        includeGroupHistory: false,
+        nowMs: expiredAt + 1,
+      });
       expect(basic.attempt.id).not.toBe(first.attempt.id);
       expect(scopes(basic.attempt.registrationUrl)).not.toContain(
         "im:message.group_msg"
       );
       expect((await begin()).attempt.id).toBe(basic.attempt.id);
-      expect(
-        scopes((await begin({ restartPending: true })).attempt.registrationUrl)
-      ).not.toContain("im:message.group_msg");
+      const basicExpiry = Date.parse(basic.attempt.expiresAt);
+      await expireRemoteAgentLarkPlatformRegistrationAttempt({
+        db: h.db,
+        attemptId: basic.attempt.id,
+        nowMs: basicExpiry,
+      });
+      const restartedBasic = await begin({
+        restartPending: true,
+        nowMs: basicExpiry,
+      });
+      expect(scopes(restartedBasic.attempt.registrationUrl)).not.toContain(
+        "im:message.group_msg"
+      );
     } finally {
       await h.close();
     }

@@ -38,8 +38,10 @@ export const feishuHistoryGroupSettingResultSchema = z.union([
       .max(16_384)
       .url()
       .refine((value) => {
-        const u = URL.parse(value);
-        if (!u) {
+        let u: URL;
+        try {
+          u = new URL(value);
+        } catch {
           return false;
         }
         return (

@@ -289,16 +289,12 @@ export async function listFeishuHistoryGroups(
   }
   return {
     groups: data.items.map((item: unknown) => {
-      if (
-        !(
-          isJsonObject(item) &&
-          readString(item, "chat_id") &&
-          readString(item, "name")
-        )
-      ) {
+      const group = isJsonObject(item) ? item : null;
+      const chatId = readString(group, "chat_id");
+      if (!chatId) {
         throw new Error("Feishu returned incomplete group details.");
       }
-      return { chatId: String(item.chat_id), name: String(item.name) };
+      return { chatId, name: readString(group, "name") ?? chatId };
     }),
     nextPageToken:
       data.has_more === true ? readString(data, "page_token") : null,

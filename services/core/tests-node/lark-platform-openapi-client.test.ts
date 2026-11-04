@@ -3,6 +3,7 @@ import {
   createLarkPlatformStreamingCard,
   downloadLarkPlatformMessageResource,
   finalizeLarkPlatformStreamingCard,
+  listFeishuHistoryGroups,
   notifyFeishuHistoryGroup,
   publishLarkPlatformCardReference,
   publishLarkPlatformIdentityLinkCard,
@@ -20,6 +21,34 @@ import {
 } from "../src/remote-agent/application/plugin-channel-source-proof";
 
 describe("Lark-platform OpenAPI publication", () => {
+  it("keeps joined groups selectable when Feishu omits a display name", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ code: 0, expire: 7200, tenant_access_token: "fixture" })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          code: 0,
+          data: {
+            items: [
+              { chat_id: "oc_unnamed" },
+              { chat_id: "oc_named", name: "Named group" },
+            ],
+            has_more: false,
+          },
+        })
+      );
+    await expect(
+      listFeishuHistoryGroups({ appId: "app", appSecret: "fixture", fetchImpl })
+    ).resolves.toEqual({
+      groups: [
+        { chatId: "oc_unnamed", name: "oc_unnamed" },
+        { chatId: "oc_named", name: "Named group" },
+      ],
+      nextPageToken: null,
+    });
+  });
   it("uses the verified existing tenant grant and sends the group notice without starting another authorization", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
