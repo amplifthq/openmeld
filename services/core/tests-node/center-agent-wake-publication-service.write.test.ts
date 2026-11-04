@@ -23,6 +23,14 @@ import {
   prepareCenterAgentWakePublicationRecords,
   readCenterAgentWakePublication,
 } from "../src/center-agent/infrastructure/postgresql/center-agent-wake-publication-repo";
+import {
+  completeFeishuDelegationHandoff,
+  takeFeishuDelegationCard,
+} from "../src/remote-agent/infrastructure/postgresql/feishu-delegation-handoff";
+import {
+  readRemoteAgentNativeDeliveryByDeliveryId,
+  upsertRemoteAgentNativeDeliveryRecord,
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const CENTER_AGENT_PROFILE_ID = "agt_00000000-0000-4000-8000-000000000001";
@@ -217,6 +225,119 @@ describe("Center Agent Wake publication recovery", () => {
     }
   });
 
+  it("hands the original Feishu card to exactly one all-terminal continuation", async () => {
+    const harness = await createHarness();
+    const db = harness.db;
+    try {
+      await insertAuditIdentity(db);
+      await insertParentDelivery(db);
+      const locator = {
+        provider: "feishu" as const,
+        connectionId: "connection",
+        appId: "app",
+        chatId: "chat",
+        rootMessageId: "signal-parent",
+        tenantKey: "tenant",
+        threadId: null,
+      };
+      const conversation = "feishu:connection:chat:signal-parent";
+      const ledger = '"openmeld"."openMeldRemoteAgent_native_delivery_ledger"';
+      await db.query({
+        text: `UPDATE ${ledger} SET conversation_kind='message_channel', space_id=$1, message_channel_provider='feishu',
+        message_channel_connection_id='connection', message_channel_locator_json=$2,
+        provider_publication_idempotency_key='11111111-1111-5111-8111-111111111111', provider_progress_card_id='card',
+        provider_progress_message_id='visible', provider_progress_state='sent',provider_progress_sequence=4
+        WHERE delivery_id='delivery-parent'`,
+        values: [conversation, JSON.stringify(locator)],
+      });
+      const delivery = await readRemoteAgentNativeDeliveryByDeliveryId({
+        db,
+        deliveryId: "delivery-parent",
+      });
+      if (!delivery) {
+        throw new Error("missing parent");
+      }
+      const handoff = () =>
+        completeFeishuDelegationHandoff({ db, delivery, nowMs: 1100 });
+      expect(await handoff()).toBeNull();
+      const plan = planCenterAgentWakeDelegation({
+        childSpaceId: "space-child",
+        clientMessageId: CLIENT_MESSAGE_ID,
+        targetProfileIds: [CHILD_PROFILE_ID],
+      });
+      await prepareCenterAgentWakePublication({
+        db,
+        nowMs: 1000,
+        command: buildCommand(plan),
+      });
+      await executeCenterAgentWakePublication({
+        db,
+        nowMs: 1010,
+        destinationNeutralContinuations: true,
+        publicationId: CLIENT_MESSAGE_ID,
+        publishSignal: async () => {
+          const audit = await db.query({
+            text: 'SELECT source_native_delivery_id FROM "openmeld"."center_agent_audit_journal" WHERE id=$1',
+            values: [`center-agent-wake:${CLIENT_MESSAGE_ID}`],
+          });
+          expect(audit.rows).toEqual([
+            { source_native_delivery_id: "delivery-parent" },
+          ]);
+          return buildSignal();
+        },
+        resolveSignal: async () => null,
+      });
+      expect(await handoff()).toMatchObject({
+        status: "completed",
+        finalPublicationState: null,
+      });
+      for (const nextId of ["one", "two"]) {
+        await upsertRemoteAgentNativeDeliveryRecord({
+          db,
+          deliveryId: nextId,
+          nowMs: 1200,
+          organizationId: "org-1",
+          spaceId: conversation,
+          conversationKind: "message_channel",
+          profileId: CENTER_AGENT_PROFILE_ID,
+          bindingId: "binding-parent",
+          triggerMessageId: "signal-parent",
+          dispatchId: nextId,
+          attemptId: null,
+          idempotencyKey: nextId,
+          status: "submitted",
+          messageChannelLocator: locator,
+          providerPublicationIdempotencyKey: crypto.randomUUID(),
+          onBehalfOfProfileId: HUMAN_PROFILE_ID,
+          onBehalfOfUserId: "user-parent",
+        });
+      }
+      await Promise.all(
+        ["one", "two"].map((nextId) =>
+          takeFeishuDelegationCard({
+            db,
+            parentId: delivery.deliveryId,
+            nextId,
+          })
+        )
+      );
+      const owners = await db.query({
+        text: `SELECT provider_progress_message_id,provider_progress_sequence FROM ${ledger} WHERE provider_progress_card_id='card'`,
+        values: [],
+      });
+      expect(owners.rows).toHaveLength(1);
+      expect(owners.rows[0]?.provider_progress_message_id).toBe("visible");
+      expect(Number(owners.rows[0]?.provider_progress_sequence)).toBe(4);
+      expect(
+        await readRemoteAgentNativeDeliveryByDeliveryId({
+          db,
+          deliveryId: delivery.deliveryId,
+        })
+      ).toMatchObject({ providerProgressCardId: null });
+    } finally {
+      await harness.close();
+    }
+  });
   it("redrives an outcome-unknown Space publication and completes coordination once", async () => {
     const harness = await createHarness();
     const publishSignal = vi
@@ -332,14 +453,16 @@ describe("Center Agent Wake publication recovery", () => {
       const auditRows = await harness.db.query<{
         action: string;
         id: string;
+        source_native_delivery_id: string;
       }>({
-        text: 'SELECT id, action FROM "openmeld"."center_agent_audit_journal" ORDER BY id ASC',
+        text: 'SELECT id, action, source_native_delivery_id FROM "openmeld"."center_agent_audit_journal" ORDER BY id ASC',
         values: [],
       });
       expect(auditRows.rows).toEqual([
         {
           action: "wake_agent_profiles_in_space",
           id: `center-agent-wake:${CLIENT_MESSAGE_ID}`,
+          source_native_delivery_id: "delivery-parent",
         },
       ]);
     } finally {

@@ -2275,6 +2275,13 @@ instruction, while Core remains responsible for returning the final result to
 the original conversation. Ordinary Space and Center Agent DM collaboration
 continue through this same path without any Channel dependency.
 
+For a Feishu delegation that resumes after all children finish, the scheduling turn
+leaves its working card open. The authorized continuation takes ownership of that
+card and publishes the result in the original topic. Channel continuations have
+no Space-owned work target. Core records the originating native delivery in the
+Wake audit before posting the Space signal so workstation admission can verify
+the human requester even if it runs immediately.
+
 The requester and the interaction environment are separate facts. A verified
 member remains the same requester across Center Agent Chat, a Space, Slack,
 Lark, Feishu, a Task continuation, and a future Local Agent carrier. Core may

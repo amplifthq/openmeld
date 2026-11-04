@@ -123,7 +123,9 @@ export async function prepareCenterAgentWakeDelegation(input: {
   parentSubmissionId: string;
   targetProfileIds: string[];
   text: string;
-}): Promise<PreparedCenterAgentWakeDelegation> {
+}): Promise<
+  PreparedCenterAgentWakeDelegation & { sourceNativeDeliveryId: string }
+> {
   const prepared = planCenterAgentWakeDelegation(input);
   const resumesParent = input.completionMode !== "child_reports_directly";
   const parentDelivery = await requireCenterAgentContinuationParent({
@@ -208,7 +210,7 @@ export async function prepareCenterAgentWakeDelegation(input: {
     }
     throw error;
   }
-  return prepared;
+  return { ...prepared, sourceNativeDeliveryId: parentDelivery.deliveryId };
 }
 export async function requireCenterAgentContinuationParent(input: {
   allowCompletedParent?: boolean;

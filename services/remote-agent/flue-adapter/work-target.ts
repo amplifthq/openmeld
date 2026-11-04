@@ -1,5 +1,8 @@
 import { useAgentStart } from "@flue/runtime";
-import { centerAgentWorkTargetResponseSchema } from "@openmeld/schemas";
+import {
+  centerAgentWorkTargetResponseSchema,
+  MESSAGE_CHANNEL_PROVIDERS,
+} from "@openmeld/schemas";
 import type {
   CenterAgentWorkTargetRequest,
   CenterAgentWorkTargetResponse,
@@ -75,6 +78,11 @@ export function supportsCenterAgentWorkTarget(input: {
   return (
     !(input.personalAgent || input.replyRecovery) &&
     Boolean(envelope) &&
+    // External continuations keep the provider's namespaced conversation ID.
+    // Only a native OpenMeld Space owns a selectable work target.
+    !MESSAGE_CHANNEL_PROVIDERS.some((provider) =>
+      envelope?.space.id.startsWith(`${provider}:`)
+    ) &&
     !(envelope?.sender.kind === "member" && !envelope.sender.verified) &&
     !(
       envelope?.trigger.source === "task_continuation" &&

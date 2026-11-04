@@ -18747,7 +18747,9 @@ async function recordCenterAgentDirectWakeAttribution(input: {
     authorization: input.authorization,
     onBehalfOfProfileId: input.onBehalfOfProfileId,
   });
+  const root = await readCenterAgentRequestChainRoot(input.authorization);
   await insertCenterAgentAuditJournalEntryIfMissing({
+    sourceNativeDeliveryId: root?.nativeDeliveryId,
     action: "wake_agent_profiles_in_space",
     actorProfileId: input.authorization.actorProfileId,
     attribution,

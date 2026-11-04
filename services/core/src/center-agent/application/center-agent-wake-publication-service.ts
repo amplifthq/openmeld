@@ -88,7 +88,7 @@ async function prepareCenterAgentWakePublicationDelegation(input: {
   if (!root) {
     throw new Error("Wake delegation has no publication destinations");
   }
-  await prepareCenterAgentWakeDelegation({
+  const { sourceNativeDeliveryId } = await prepareCenterAgentWakeDelegation({
     actorProfileId: root.attribution.actorProfileId,
     childSpaceId: root.spaceId,
     clientMessageId: root.clientMessageId,
@@ -111,6 +111,20 @@ async function prepareCenterAgentWakePublicationDelegation(input: {
     targetProfileIds: root.activationTargets,
     text: publication.command.text,
   });
+  // The Space outbox can admit the Wake as soon as the signal is posted.
+  await input.db.query(
+    prepareCenterAgentAuditJournalEntryIfMissingStatement({
+      action: "wake_agent_profiles_in_space",
+      actorProfileId: publication.command.attribution.actorProfileId,
+      attribution: publication.command.attribution,
+      db: input.db,
+      id: buildAuditEntryId(publication.publicationId),
+      nowMs: input.nowMs,
+      organizationId: publication.command.organizationId,
+      resource: { id: publication.command.spaceId, type: "space" },
+      sourceNativeDeliveryId,
+    })
+  );
 }
 
 export async function executeCenterAgentWakePublication(input: {
@@ -575,21 +589,7 @@ async function finalizeAcceptedPublication(input: {
       (child) => child.task
     ),
   });
-  await input.db.query(
-    prepareCenterAgentAuditJournalEntryIfMissingStatement({
-      action: "wake_agent_profiles_in_space",
-      actorProfileId: input.publication.command.attribution.actorProfileId,
-      attribution: input.publication.command.attribution,
-      db: input.db,
-      id: buildAuditEntryId(input.publication.publicationId),
-      nowMs: input.nowMs,
-      organizationId: input.publication.command.organizationId,
-      resource: {
-        id: input.publication.command.spaceId,
-        type: "space",
-      },
-    })
-  );
+  // Audit provenance is already durable before the first Space post.
   await markCenterAgentWakePublicationCompleted({
     claimId: input.claimId,
     db: input.db,
