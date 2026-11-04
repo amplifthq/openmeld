@@ -243,6 +243,7 @@ export {
 } from "./desktop-release";
 export * from "./desktop-transport-diagnostics";
 export * from "./desktop-updater";
+export * from "./feishu-group-history";
 export {
   grokBotAccountSchema,
   grokBotConversationIdSchema,

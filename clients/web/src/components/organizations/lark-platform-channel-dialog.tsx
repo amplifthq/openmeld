@@ -27,11 +27,13 @@ import {
 } from "@phosphor-icons/react";
 import { useState } from "react";
 import { AuthorizationLink } from "#/desktop/authorization-link";
+import { FeishuGroupHistorySettings } from "./feishu-group-history-settings";
 import { requiresLarkPlatformSetupAuthorization } from "./lark-platform-setup-authorization";
 
 export function LarkPlatformChannelDialog(input: {
 	canManage: boolean;
 	cleanupOnly?: boolean;
+	organizationId?: string;
 	connection: MessageChannelConnectionProjection | null;
 	disconnectPending: boolean;
 	errorMessage: string | null;
@@ -50,6 +52,7 @@ export function LarkPlatformChannelDialog(input: {
 }) {
 	const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
 	const providerLabel = resolveProviderLabel(input.provider);
+	const manageGroups = input.canManage && !input.cleanupOnly;
 	const connection = input.registration?.connection ?? input.connection ?? null;
 	const connected = connection?.status === "connected";
 	const needsRepair =
@@ -116,7 +119,7 @@ export function LarkPlatformChannelDialog(input: {
 						/>
 					) : (
 						<ConnectionSummary
-							canManage={input.canManage && !input.cleanupOnly}
+							canManage={manageGroups}
 							connection={connection}
 							errorMessage={input.errorMessage}
 							onRepair={input.onRepair}
@@ -131,6 +134,12 @@ export function LarkPlatformChannelDialog(input: {
 							startOverPending={input.startOverPending}
 						/>
 					)}
+					<GroupHistoryControl
+						canManage={manageGroups}
+						confirmingDisconnect={confirmingDisconnect}
+						connection={connection}
+						organizationId={input.organizationId}
+					/>
 					<DialogFooter className="items-stretch border-t pt-4 empty:hidden sm:items-center sm:justify-between">
 						{canDisconnect && input.canManage ? (
 							<DisconnectControl
@@ -172,6 +181,28 @@ export function LarkPlatformChannelDialog(input: {
 	);
 }
 
+function GroupHistoryControl(input: {
+	confirmingDisconnect: boolean;
+	organizationId?: string;
+	canManage: boolean;
+	connection: MessageChannelConnectionProjection | null;
+}) {
+	if (
+		input.confirmingDisconnect ||
+		!(input.organizationId && input.canManage) ||
+		input.connection?.provider !== "feishu" ||
+		input.connection.status !== "connected"
+	) {
+		return null;
+	}
+	return (
+		<FeishuGroupHistorySettings
+			connectionId={input.connection.id}
+			key={input.connection.id}
+			organizationId={input.organizationId}
+		/>
+	);
+}
 function resolveDialogTitle(input: {
 	connected: boolean;
 	needsRepair: boolean;

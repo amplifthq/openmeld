@@ -1,4 +1,7 @@
-import type { NavigationAction } from "@openmeld/schemas";
+import type {
+  FeishuGroupHistoryResult,
+  NavigationAction,
+} from "@openmeld/schemas";
 import {
   CHANNEL_CONTEXT_MAX_MESSAGES,
   CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS,
@@ -170,6 +173,298 @@ export async function readLarkPlatformChannelContext(input: {
       status: truncated ? "truncated" : "complete",
     },
   });
+}
+type FeishuReadCredentials = {
+  appId: string;
+  appSecret: string;
+  fetchImpl?: typeof fetch;
+};
+async function feishuAppRequest(
+  credentials: FeishuReadCredentials,
+  path: string,
+  params: URLSearchParams,
+  message?: {
+    receive_id: string;
+    msg_type: "text";
+    content: string;
+    uuid: string;
+  }
+) {
+  const provider = "feishu";
+  const apiHost = getLarkPlatformApiHost(provider);
+  const fetchImpl = credentials.fetchImpl ?? fetch;
+  const token = await requestLarkPlatformTenantAccessToken({
+    ...credentials,
+    provider,
+    apiHost,
+    fetchImpl,
+  });
+  if (token.status !== "ready") {
+    return { status: "unavailable" as const, data: null };
+  }
+  const url = new URL(path, apiHost);
+  url.search = params.toString();
+  const response = await fetchImpl(url, {
+    headers: {
+      ...JSON_HEADERS,
+      Authorization: `Bearer ${token.tenantAccessToken}`,
+    },
+    method: message ? "POST" : "GET",
+    ...(message ? { body: JSON.stringify(message) } : {}),
+    signal: AbortSignal.timeout(8000),
+  });
+  const body = await readJsonObject(response);
+  const code = readProviderCode(body);
+  const status =
+    code === 230_027 || code === 230_073
+      ? "forbidden"
+      : resolveChannelContextFailureStatus({ providerCode: code, response });
+  return { status, data: readObject(body, "data") };
+}
+export async function notifyFeishuHistoryGroup(
+  credentials: FeishuReadCredentials,
+  chatId: string,
+  uuid: string
+) {
+  const grant = await feishuAppRequest(
+    credentials,
+    "/open-apis/application/v6/scopes",
+    new URLSearchParams()
+  );
+  if (
+    grant.status ||
+    !readArray(grant.data, "scopes").some(
+      (s) =>
+        isJsonObject(s) &&
+        s.scope_name === "im:message.group_msg" &&
+        s.grant_status === 1 &&
+        (s.scope_type === "tenant" || s.scope_type === undefined)
+    )
+  ) {
+    throw new Error(
+      "Enable and publish the Feishu app permission to read group messages before enabling group history."
+    );
+  }
+  const { status, data } = await feishuAppRequest(
+    credentials,
+    "/open-apis/im/v1/messages",
+    new URLSearchParams({ receive_id_type: "chat_id" }),
+    {
+      receive_id: chatId,
+      msg_type: "text",
+      uuid,
+      content: JSON.stringify({
+        text: "An admin is enabling OpenMeld history for this group. When mentioned, the Center Agent can use earlier replies in the topic. When asked to look across topics, it can read the requester's own recent top-level messages. An OpenMeld organization admin can turn this off in Feishu Channel settings.",
+      }),
+    }
+  );
+  if (status || !readString(data, "message_id")) {
+    throw new Error(
+      "Feishu could not confirm the group notice. History was not enabled by this request."
+    );
+  }
+}
+export async function listFeishuHistoryGroups(
+  credentials: FeishuReadCredentials,
+  pageToken?: string
+) {
+  const params = new URLSearchParams({ page_size: "50", types: "group" });
+  if (pageToken) {
+    params.set("page_token", pageToken);
+  }
+  const { status, data } = await feishuAppRequest(
+    credentials,
+    "/open-apis/im/v1/chats",
+    params
+  );
+  if (status || !Array.isArray(data?.items)) {
+    throw new Error("Could not list groups joined by the Feishu app.");
+  }
+  return {
+    groups: data.items.map((item: unknown) => {
+      if (
+        !(
+          isJsonObject(item) &&
+          readString(item, "chat_id") &&
+          readString(item, "name")
+        )
+      ) {
+        throw new Error("Feishu returned incomplete group details.");
+      }
+      return { chatId: String(item.chat_id), name: String(item.name) };
+    }),
+    nextPageToken:
+      data.has_more === true ? readString(data, "page_token") : null,
+  };
+}
+
+/** The tenant credential may see much more than the author of the mention.
+ * Cross-root evidence is restricted to that author's own ordinary root messages. */
+type FeishuSource = {
+  chatId: string;
+  rootMessageId: string;
+  triggerMessageId: string;
+  requesterOpenId: string;
+  conversationId: string;
+  lookbackMinutes: number;
+};
+export async function readFeishuRequesterHistory(
+  input: FeishuReadCredentials & FeishuSource
+): Promise<FeishuGroupHistoryResult> {
+  const source = await feishuAppRequest(
+    input,
+    `/open-apis/im/v1/messages/${encodeURIComponent(input.triggerMessageId)}`,
+    new URLSearchParams({ user_id_type: "open_id" })
+  );
+  if (source.status) {
+    return { status: source.status };
+  }
+  const trigger = readArray(source.data, "items").find(
+    (item) => isJsonObject(item) && item.message_id === input.triggerMessageId
+  );
+  if (
+    !isJsonObject(trigger) ||
+    trigger.chat_id !== input.chatId ||
+    (readString(trigger, "root_id") ?? input.triggerMessageId) !==
+      input.rootMessageId ||
+    !feishuMessageFromRequester(trigger, input.requesterOpenId)
+  ) {
+    return { status: "forbidden" };
+  }
+  const endMs = readNonnegativeInteger(trigger, "create_time");
+  if (
+    !(endMs && Number.isInteger(input.lookbackMinutes)) ||
+    input.lookbackMinutes < 1 ||
+    input.lookbackMinutes > 120
+  ) {
+    return { status: "unavailable" };
+  }
+  const startMs = Math.max(0, endMs - input.lookbackMinutes * 60_000);
+  return readFeishuHistoryWindow(input, startMs, endMs);
+}
+function collectFeishuRequesterRoots(
+  items: unknown[],
+  input: FeishuSource,
+  startMs: number,
+  endMs: number,
+  records: Map<string, ChannelContextMessage>
+) {
+  let partial = false;
+  for (const item of items) {
+    if (!isJsonObject(item)) {
+      partial = true;
+      continue;
+    }
+    if (
+      item.chat_id !== input.chatId ||
+      item.message_id === input.triggerMessageId ||
+      (readString(item, "root_id") !== null &&
+        item.root_id !== item.message_id) ||
+      readString(item, "parent_id") ||
+      !feishuMessageFromRequester(item, input.requesterOpenId)
+    ) {
+      continue;
+    }
+    const message = normalizeHistoricalMessage(item);
+    if (!message) {
+      partial = true;
+      continue;
+    }
+    if (message.sentAtMs >= startMs && message.sentAtMs < endMs) {
+      records.set(message.id, message);
+      if (message.text.length === CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS) {
+        partial = true;
+      }
+    }
+  }
+  return partial;
+}
+async function readFeishuHistoryWindow(
+  input: FeishuReadCredentials & FeishuSource,
+  startMs: number,
+  endMs: number
+): Promise<FeishuGroupHistoryResult> {
+  const params = new URLSearchParams({
+    container_id_type: "chat",
+    container_id: input.chatId,
+    start_time: String(Math.floor(startMs / 1000)),
+    end_time: String(Math.ceil(endMs / 1000)),
+    page_size: String(CHANNEL_CONTEXT_MAX_MESSAGES),
+    sort_type: "ByCreateTimeDesc",
+    with_sender_name: "true",
+  });
+  const records = new Map<string, ChannelContextMessage>();
+  let partial = false;
+  for (let page = 0; page < 3; page++) {
+    const { data, status } = await feishuAppRequest(
+      input,
+      "/open-apis/im/v1/messages",
+      params
+    );
+    if (status || !Array.isArray(data?.items)) {
+      if (status === "forbidden" || records.size === 0) {
+        return { status: status ?? "unavailable" };
+      }
+      partial = true;
+      break;
+    }
+    if (
+      collectFeishuRequesterRoots(data.items, input, startMs, endMs, records)
+    ) {
+      partial = true;
+    }
+    if (data.has_more === false) {
+      break;
+    }
+    const cursor = nextFeishuHistoryPage(data, params, page, records.size);
+    if (!cursor) {
+      partial = true;
+      break;
+    }
+    params.set("page_token", cursor);
+  }
+  const bounded = boundHistoricalMessages([...records.values()]);
+  return {
+    status: "read",
+    scope: "requester_top_level_messages",
+    startMs,
+    endMs,
+    context: channelContextSchema.parse({
+      conversationId: input.conversationId,
+      currentMessageId: input.triggerMessageId,
+      provider: "feishu",
+      messages: bounded.messages,
+      sync: {
+        mode: "snapshot",
+        status: partial || bounded.truncated ? "truncated" : "complete",
+      },
+    }),
+  };
+}
+function nextFeishuHistoryPage(
+  data: JsonObject,
+  params: URLSearchParams,
+  page: number,
+  count: number
+) {
+  const cursor = readString(data, "page_token");
+  return data.has_more === true &&
+    cursor &&
+    cursor !== params.get("page_token") &&
+    page < 2 &&
+    count < CHANNEL_CONTEXT_MAX_MESSAGES
+    ? cursor
+    : null;
+}
+function feishuMessageFromRequester(item: JsonObject, openId: string) {
+  const sender = readObject(item, "sender");
+  return (
+    item.deleted !== true &&
+    item.updated !== true &&
+    sender?.sender_type === "user" &&
+    sender.id_type === "open_id" &&
+    sender.id === openId
+  );
 }
 export async function readLarkPlatformPluginSourceProof(input: {
   appId: string;
@@ -1662,7 +1957,7 @@ function readNonnegativeInteger(
 function resolveChannelContextFailureStatus(input: {
   providerCode: number | null;
   response: Response;
-}): ChannelContext["sync"]["status"] | null {
+}): "forbidden" | "rate_limited" | "unavailable" | null {
   if (input.response.ok && input.providerCode === 0) {
     return null;
   }

@@ -255,6 +255,10 @@ async function verifyChannelOnlyPermissionBundle(input: {
   // Explicit app-configuration consent is setup authority, not a Channel tool grant.
   actualScopeNames.delete(LARK_PLATFORM_APP_CONFIGURATION_SCOPE);
   actualScopeNames.delete(LARK_PLATFORM_APP_SELF_MANAGE_SCOPE);
+  // The optional Feishu group-history grant may already be active on repair.
+  if (input.provider === "feishu") {
+    actualScopeNames.delete("im:message.group_msg");
+  }
   if (
     actualScopeNames.size !== expectedScopes.length ||
     expectedScopes.some((scopeName) => !actualScopeNames.has(scopeName))

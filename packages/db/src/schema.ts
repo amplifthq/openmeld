@@ -163,6 +163,7 @@ export const {
   openMeldRemoteAgentWorkLoopAttempts,
   openMeldRemoteAgentDailyAdmissions,
   openMeldRemoteAgentConversationGenerations,
+  feishuGroupHistorySettings,
   openMeldRemoteAgentLarkPlatformChannelConnections,
   openMeldRemoteAgentLarkPlatformChannelCredentials,
   openMeldRemoteAgentLarkPlatformContextCursors,

@@ -589,3 +589,19 @@ export const openMeldRemoteAgentMessageChannelEventIngress = applicationTable(
     ),
   ]
 );
+
+/** An opt-in belongs to one installation generation, even when its chat ID is reused. */
+export const feishuGroupHistorySettings = applicationTable(
+  "feishu_group_history_settings",
+  {
+    connectionId: text("connection_id")
+      .notNull()
+      .references(
+        () => openMeldRemoteAgentLarkPlatformChannelConnections.connectionId,
+        { onDelete: "cascade" }
+      ),
+    generation: bigint("generation", { mode: "number" }).notNull(),
+    chatId: text("chat_id").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.connectionId, t.generation, t.chatId] })]
+);

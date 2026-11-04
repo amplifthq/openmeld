@@ -316,6 +316,7 @@ function OrganizationMessageChannelsContent(input: {
 				onRetryPoll={larkPlatform.retryPoll}
 				onStartOver={larkPlatform.startOver}
 				open={larkPlatform.open}
+				organizationId={input.organizationId}
 				pollPending={larkPlatform.pollPending}
 				provider={larkPlatform.provider}
 				registration={larkPlatform.registration}

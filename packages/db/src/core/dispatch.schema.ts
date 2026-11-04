@@ -110,6 +110,7 @@ import {
   inboxSpaceThreadReadWatermarks,
 } from "./inbox.schema.ts";
 import {
+  feishuGroupHistorySettings,
   openMeldRemoteAgentLarkPlatformChannelConnections,
   openMeldRemoteAgentLarkPlatformChannelCredentials,
   openMeldRemoteAgentLarkPlatformContextCursors,
@@ -1896,6 +1897,7 @@ export const coreSchema = {
   openMeldRemoteAgentDailyAdmissions,
   openMeldRemoteAgentConversationGenerations,
   organizationMessageChannelSetupRequests,
+  feishuGroupHistorySettings,
   openMeldRemoteAgentLarkPlatformChannelConnections,
   openMeldRemoteAgentLarkPlatformChannelCredentials,
   openMeldRemoteAgentLarkPlatformContextCursors,

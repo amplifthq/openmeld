@@ -208,6 +208,15 @@ import {
   ensureSlackWorkspaceMemberOrganizationMembershipRpcResponseSchema,
   executeAgentProfileWorkRecoveryBodySchema,
   executeAgentProfileWorkRecoveryResponseSchema,
+  type FeishuGroupHistoryRead,
+  type FeishuGroupHistoryResult,
+  type FeishuHistoryGroupSetting,
+  type FeishuHistoryGroupsQuery,
+  feishuGroupHistoryReadSchema,
+  feishuGroupHistoryResultSchema,
+  feishuHistoryGroupSettingSchema,
+  feishuHistoryGroupsQuerySchema,
+  feishuHistoryGroupsSchema,
   firstWorkResponseSchema,
   forgetComputerResponseSchema,
   forgetComputerRouteParamsSchema,
@@ -1251,6 +1260,10 @@ import {
   createSlackOAuthState,
 } from "../remote-agent/application/slack-oauth-state";
 import { decryptSlackSearchAuthorization } from "../remote-agent/application/slack-search-authorization";
+import {
+  enabledFeishuHistoryGroups,
+  setFeishuGroupHistory,
+} from "../remote-agent/infrastructure/postgresql/feishu-group-history-settings";
 import { readRemoteAgentLarkPlatformChannelConnection } from "../remote-agent/infrastructure/postgresql/lark-platform-channel-connection-repo";
 import { readRemoteAgentLarkPlatformIdentityLink } from "../remote-agent/infrastructure/postgresql/lark-platform-identity-link-repo";
 import {
@@ -10107,6 +10120,195 @@ export async function rpcConsumeMessageChannelIdentityLink(
     replacedExistingLink: consumeResult.replacedExistingLink,
     openMeldUserId: ensuredMembership.membership.userId,
   });
+}
+export async function rpcListFeishuHistoryGroups(
+  env: CoreBindings,
+  input: { context?: CoreRpcContextInput; query: FeishuHistoryGroupsQuery }
+) {
+  const query = feishuHistoryGroupsQuerySchema.parse(input.query);
+  const { actor, db } = await requireLarkPlatformRegistrationRequest(env, {
+    context: input.context,
+    provider: "feishu",
+  });
+  const { connection, adapter } = await requireFeishuHistoryConnection(
+    env,
+    db,
+    actor.organizationId,
+    query.connectionId
+  );
+  const page = await adapter.listGroups(connection, query.pageToken);
+  const enabled = await enabledFeishuHistoryGroups(
+    db,
+    connection,
+    page.groups.map((g) => g.chatId)
+  );
+  return feishuHistoryGroupsSchema.parse({
+    ...page,
+    generation: connection.connectionGeneration,
+    groups: page.groups.map((g) => ({ ...g, enabled: enabled.has(g.chatId) })),
+  });
+}
+export async function rpcSetFeishuHistoryGroup(
+  env: CoreBindings,
+  input: { context?: CoreRpcContextInput; setting: FeishuHistoryGroupSetting }
+) {
+  const setting = feishuHistoryGroupSettingSchema.parse(input.setting);
+  const { actor, db } = await requireLarkPlatformRegistrationRequest(env, {
+    context: input.context,
+    provider: "feishu",
+  });
+  const { connection, adapter } = await requireFeishuHistoryConnection(
+    env,
+    db,
+    actor.organizationId,
+    setting.connectionId
+  );
+  if (connection.connectionGeneration !== setting.generation) {
+    throw createCoreRpcHttpError({
+      code: "message_channel.connection_changed",
+      status: 409,
+      reason: "The Feishu connection changed. Reload its group settings.",
+    });
+  }
+  if (setting.enabled) {
+    const page = await adapter.listGroups(connection, setting.pageToken);
+    if (!page.groups.some((g) => g.chatId === setting.chatId)) {
+      throw createCoreRpcHttpError({
+        code: "message_channel.group_unavailable",
+        status: 403,
+        reason: "The Feishu app must be a member of the selected group.",
+      });
+    }
+  }
+  if (
+    setting.enabled &&
+    !(await enabledFeishuHistoryGroups(db, connection, [setting.chatId])).has(
+      setting.chatId
+    )
+  ) {
+    await adapter.notifyGroup(connection, setting.chatId);
+  }
+  await setFeishuGroupHistory(db, connection, setting.chatId, setting.enabled);
+  return setting;
+}
+async function requireFeishuHistoryConnection(
+  env: CoreBindings,
+  db: PostgresDatabase,
+  organizationId: string,
+  connectionId: string
+) {
+  const connection = await readRemoteAgentLarkPlatformChannelConnection({
+    db,
+    connectionId,
+  });
+  const registry = createConfiguredMessageChannelProviderRegistry({ env, db });
+  if (
+    !connection ||
+    connection.provider !== "feishu" ||
+    !connection.tenantKey ||
+    connection.organizationId !== organizationId ||
+    connection.status !== "connected" ||
+    !registry ||
+    !listLarkPlatformProvidersEnabledForOrganization({
+      env,
+      organizationId,
+    }).includes("feishu")
+  ) {
+    throw createCoreRpcHttpError({
+      code: "message_channel.connection_unavailable",
+      status: 403,
+      reason: "An active Feishu connection is required for this Organization.",
+    });
+  }
+  const adapter = registry.require("feishu");
+  if (
+    !(
+      adapter.listFeishuHistoryGroups &&
+      adapter.readFeishuRequesterHistory &&
+      adapter.notifyFeishuHistoryGroup
+    )
+  ) {
+    throw createCoreRpcHttpError({
+      code: "message_channel.history_unavailable",
+      status: 503,
+      reason: "Feishu history is unavailable.",
+    });
+  }
+  return {
+    connection,
+    adapter: {
+      listGroups: adapter.listFeishuHistoryGroups,
+      readHistory: adapter.readFeishuRequesterHistory,
+      notifyGroup: adapter.notifyFeishuHistoryGroup,
+    },
+  };
+}
+export async function rpcReadFeishuGroupHistory(
+  env: CoreBindings,
+  input: { context?: CoreRpcContextInput; request: FeishuGroupHistoryRead }
+): Promise<FeishuGroupHistoryResult> {
+  const request = feishuGroupHistoryReadSchema.parse(input.request);
+  const auth = await requireCurrentDesignatedCenterAgentCaller({
+    context: requireRpcContext(input.context),
+    env,
+  });
+  const submissionId = auth.context.agentControllerConversationId;
+  if (!submissionId) {
+    return { status: "forbidden" };
+  }
+  const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db: auth.db,
+    submissionId,
+  });
+  const locator = delivery?.messageChannelLocator;
+  const frozen = (
+    delivery?.executionRecoverySubmitRequest ?? delivery?.workerSubmitRequest
+  )?.turnEnvelope;
+  const sender = frozen?.sender;
+  if (
+    !(delivery && ["accepted", "retry_observed"].includes(delivery.status)) ||
+    delivery.routineRunId ||
+    delivery.conversationKind !== "message_channel" ||
+    delivery.organizationId !== auth.activeOrganization.organizationId ||
+    delivery.profileId !== auth.actorProfileId ||
+    locator?.provider !== "feishu" ||
+    frozen?.trigger.source !== "message_channel" ||
+    frozen.trigger.provider !== "feishu" ||
+    frozen.space.kind !== "space" ||
+    sender?.kind !== "member" ||
+    sender.messageChannelIdentity?.provider !== "feishu" ||
+    sender.messageChannelIdentity.connectionId !== locator.connectionId
+  ) {
+    return { status: "forbidden" };
+  }
+  const { connection, adapter } = await requireFeishuHistoryConnection(
+    env,
+    auth.db,
+    delivery.organizationId,
+    locator.connectionId
+  );
+  if (
+    connection.appId !== locator.appId ||
+    connection.tenantKey !== locator.tenantKey
+  ) {
+    return { status: "forbidden" };
+  }
+  const enabled = await enabledFeishuHistoryGroups(auth.db, connection, [
+    locator.chatId,
+  ]);
+  if (!enabled.has(locator.chatId)) {
+    return { status: "disabled" };
+  }
+  return feishuGroupHistoryResultSchema.parse(
+    await adapter.readHistory({
+      connection,
+      locator,
+      triggerMessageId: delivery.triggerMessageId,
+      requesterOpenId: sender.messageChannelIdentity.providerUserId,
+      conversationId: frozen.trigger.conversationId,
+      lookbackMinutes: request.lookbackMinutes,
+    })
+  );
 }
 export async function rpcBeginLarkPlatformRegistration(
   env: CoreBindings,

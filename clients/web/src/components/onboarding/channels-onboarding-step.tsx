@@ -306,6 +306,7 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 				onRetryPoll={larkPlatform.retryPoll}
 				onStartOver={larkPlatform.startOver}
 				open={larkPlatform.open}
+				organizationId={currentOrganization.id}
 				pollPending={larkPlatform.pollPending}
 				provider={larkPlatform.provider}
 				registration={larkPlatform.registration}

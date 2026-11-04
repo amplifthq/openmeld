@@ -5660,6 +5660,9 @@ Agent consumer.
 
 ### Channel Context Contracts
 
+Feishu's on-demand group history read uses the current active native delivery. Core owns the Organization, connection, requester, chat, root and source timestamp. The tool accepts only a lookback duration (default 30 minutes, maximum two hours). The result identifies the requester's own top-level messages, the requested interval and truncated, denied, unavailable or rate-limited coverage. Revalidate the bot's access and an exact matching, undeleted source message before reading. History grants neither execution authority nor permission to disclose records in another Space. The requester-only slice has no policy evidence for other authors' cross-topic messages.
+
+
 `packages/schemas/src/schemas/runtime/channel-context.ts` owns the
 provider-neutral `ChannelContext` projection that a channel adapter may attach
 to one Remote Agent turn envelope. Slack, future chat providers, and future

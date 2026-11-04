@@ -556,6 +556,71 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
   });
 
+  it("offers the requester-only reader for an admitted Feishu group and never accepts a model-supplied chat ID", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        space: { ...base.turnEnvelope.space, kind: "space" },
+        sender: {
+          kind: "member",
+          id: "ou_requester",
+          displayName: "Member",
+          verified: false,
+          messageChannelIdentity: {
+            provider: "feishu",
+            providerUserId: "ou_requester",
+            connectionId: "connection",
+          },
+        },
+        trigger: {
+          source: "message_channel",
+          provider: "feishu",
+          conversationId: "conversation",
+          connectionId: "connection",
+        },
+      },
+    });
+    const coreWorker = {
+      centerAgentAuthorizeAnonymousMemberTool: vi.fn().mockResolvedValue({
+        authorized: true,
+        sourceNativeDeliveryId: "native",
+      }),
+      readFeishuGroupHistory: vi.fn().mockResolvedValue({ status: "disabled" }),
+    };
+    const storage = await createStorageWithPendingContext(request);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker,
+      storage,
+      turnEnvelope: request.turnEnvelope,
+    });
+    await expect(
+      executeTool(tools, "openmeld_read_feishu_group_history", {
+        chatId: "other",
+      })
+    ).rejects.toThrow();
+    expect(coreWorker.readFeishuGroupHistory).not.toHaveBeenCalled();
+    await expect(
+      executeTool(tools, "openmeld_read_feishu_group_history", {})
+    ).resolves.toEqual({ status: "disabled" });
+    expect(coreWorker.readFeishuGroupHistory).toHaveBeenCalledWith({
+      context: expect.objectContaining({
+        agentControllerConversationId: ACK.submissionId,
+      }),
+      request: { lookbackMinutes: 30 },
+    });
+    const dm = {
+      ...request.turnEnvelope,
+      space: { ...request.turnEnvelope.space, kind: "dm" as const },
+    };
+    expect(
+      getRemoteAgentOpenMeldToolDefinitions({
+        coreWorker,
+        storage,
+        turnEnvelope: dm,
+      }).some((t) => t.name === "openmeld_read_feishu_group_history")
+    ).toBe(false);
+  });
   it("rechecks an anonymous member's exact provider delivery before every allowed tool", async () => {
     const base = createSubmitTurnRequest();
     const request = createSubmitTurnRequest({

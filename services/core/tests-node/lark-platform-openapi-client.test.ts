@@ -3,9 +3,11 @@ import {
   createLarkPlatformStreamingCard,
   downloadLarkPlatformMessageResource,
   finalizeLarkPlatformStreamingCard,
+  notifyFeishuHistoryGroup,
   publishLarkPlatformCardReference,
   publishLarkPlatformIdentityLinkCard,
   publishLarkPlatformReply,
+  readFeishuRequesterHistory,
   readLarkPlatformChannelContext,
   readLarkPlatformPluginSourceProof,
   requestLarkPlatformTenantAccessToken,
@@ -18,6 +20,142 @@ import {
 } from "../src/remote-agent/application/plugin-channel-source-proof";
 
 describe("Lark-platform OpenAPI publication", () => {
+  it("does not announce group history on a user grant or when the provider rejects access", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ code: 0, expire: 7200, tenant_access_token: "fixture" })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          code: 0,
+          data: {
+            scopes: [
+              {
+                scope_type: "user",
+                scope_name: "im:message.group_msg",
+                grant_status: 1,
+              },
+            ],
+          },
+        })
+      );
+    await expect(
+      notifyFeishuHistoryGroup(
+        { appId: "app", appSecret: "fixture", fetchImpl },
+        "oc_group",
+        "test-id"
+      )
+    ).rejects.toThrow("Enable and publish");
+    expect(
+      fetchImpl.mock.calls.every(
+        ([, options]) =>
+          options?.method !== "POST" ||
+          !String(options.body).includes("receive_id")
+      )
+    ).toBe(true);
+  });
+  it("reads only the requester's own top-level Feishu evidence across roots, bounded by the verified mention", async () => {
+    // Fields follow the November 4 production history and exact-message responses.
+    const end = 1_793_787_619_768;
+    const item = (id: string, ts: number, author = "ou_requester") => ({
+      chat_id: "oc_chat",
+      message_id: id,
+      create_time: String(ts),
+      sender: { id: author, id_type: "open_id", sender_type: "user" },
+      msg_type: "text",
+      body: { content: JSON.stringify({ text: id }) },
+      deleted: false,
+      updated: false,
+    });
+    const trigger = item("om_trigger", end);
+    const pages: URL[] = [];
+    const fetchImpl = vi.fn<typeof fetch>((url) => {
+      const u = new URL(String(url));
+      if (u.pathname.includes("tenant_access_token")) {
+        return Promise.resolve(
+          Response.json({
+            code: 0,
+            expire: 7200,
+            tenant_access_token: "fixture",
+          })
+        );
+      }
+      if (u.pathname.endsWith("/om_trigger")) {
+        return Promise.resolve(
+          Response.json({ code: 0, data: { items: [trigger] } })
+        );
+      }
+      pages.push(u);
+      return Promise.resolve(
+        Response.json({
+          code: 0,
+          data: u.searchParams.has("page_token")
+            ? {
+                has_more: false,
+                items: [
+                  item("om_boundary", end - 30 * 60_000),
+                  item("om_expired", end - 30 * 60_000 - 1),
+                ],
+              }
+            : {
+                has_more: true,
+                page_token: "second",
+                items: [
+                  trigger,
+                  item("om_marker", end - 1200),
+                  item("om_private", end - 1210, "ou_other"),
+                  {
+                    ...item("om_wrong_group", end - 1210),
+                    chat_id: "oc_other",
+                  },
+                  { ...item("om_reply", end - 1210), root_id: "om_another" },
+                  { ...item("om_deleted", end - 1210), deleted: true },
+                  item("om_future", end + 1),
+                ],
+              },
+        })
+      );
+    });
+    const input = {
+      appId: "app",
+      appSecret: "fixture",
+      chatId: "oc_chat",
+      conversationId: "test",
+      rootMessageId: "om_trigger",
+      triggerMessageId: "om_trigger",
+      requesterOpenId: "ou_requester",
+      lookbackMinutes: 30,
+      fetchImpl,
+    };
+    const result = await readFeishuRequesterHistory(input);
+    expect(result.status).toBe("read");
+    if (result.status !== "read") {
+      throw new Error("expected a history read");
+    }
+    expect(result.context.messages.map((m) => m.id)).toEqual([
+      "om_boundary",
+      "om_marker",
+    ]);
+    expect(result.context.sync.status).toBe("complete");
+    expect(
+      pages.map((p) => [
+        p.searchParams.get("container_id"),
+        p.searchParams.get("end_time"),
+        p.searchParams.get("page_token"),
+      ])
+    ).toEqual([
+      ["oc_chat", String(Math.ceil(end / 1000)), null],
+      ["oc_chat", String(Math.ceil(end / 1000)), "second"],
+    ]);
+    expect(
+      await readFeishuRequesterHistory({
+        ...input,
+        requesterOpenId: "ou_other",
+      })
+    ).toEqual({ status: "forbidden" });
+    expect(pages).toHaveLength(2);
+  });
   it.each([
     "feishu",
     "lark",

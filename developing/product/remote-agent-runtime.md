@@ -2326,6 +2326,8 @@ the environment from its frozen result destination, revalidates the requester,
 and recalls current bounded memory again. Core does not copy a parent turn's
 already-materialized memory into a child or resumed turn.
 
+Feishu admins can opt a joined group into history under its current installation in Channels settings. Enabling sends a notice to that group. Automatic context remains scoped to the current root. When the group requester refers to an earlier discussion, the Center Agent can ask Core for up to two hours of their own earlier top-level text or rich-text messages. Core filters out other authors, replies, recalled or edited records, future messages and other chats; partial coverage is reported. Ordinary traffic never starts a turn. Group toggles are independent of the Feishu tenant permission. An inactive connection or new installation generation does not inherit an older opt-in.
+
 Channel context is not Slack-specific even though Slack is the first producer.
 Each provider adapter must translate its thread or conversation into the shared
 contract. The worker renders historical records as untrusted reference content

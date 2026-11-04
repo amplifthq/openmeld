@@ -2691,6 +2691,8 @@ violates the single-status contract above. Do not extend this compatibility
 input to another surface or provider; remove it once every Channel consumer
 reads the canonical projection.
 
+For a connected Feishu app, Organization owners and admins can open **Group history** in Manage Feishu. Core lists groups the bot has joined and owns the per-installation history choice. New groups start off. Enabling posts a group notice and permits the Center Agent's bounded requester-only cross-topic read; the Feishu app's group-history permission must also be active. Disabling takes effect for new reads. The Personal Workspace and Lark dialogs do not offer this control.
+
 Lark and Feishu use an in-page Personal Agent wizard:
 
 The selected entry fixes the provider. Setup copy asks for that provider's
