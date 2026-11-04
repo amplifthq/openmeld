@@ -6,6 +6,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { personalAgentOwnerAccessSql } from "./inbox-agent-owner-access";
 import { InboxServiceError } from "./inbox-service";
+import { inboxOrganizationMentionAccessSql } from "./inbox-source-access";
 
 type PreferenceIdentity = {
   organizationId: string;
@@ -31,6 +32,13 @@ export function createInboxMessageNotificationPreferencesService(
             WHERE member.space_id = space.space_id AND member.status = 'active'
               AND member.owner_user_id_snapshot = $3 AND member.profile_kind_snapshot = 'human')
           OR ${personalAgentOwnerAccessSql("space.space_id", "$3")}
+          OR EXISTS (
+            SELECT 1 FROM "openmeld"."inbox_items" AS items
+            WHERE items.organization_id = $2 AND items.recipient_user_id = $3
+              AND items.source_target_json::jsonb ->> 'spaceId' = space.space_id
+              AND items.cleared_at_ms IS NULL
+              AND ${inboxOrganizationMentionAccessSql("items")}
+          )
         )
       LIMIT 1
     `,

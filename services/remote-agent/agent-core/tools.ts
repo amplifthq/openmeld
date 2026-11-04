@@ -189,6 +189,7 @@ import {
   postSpaceWakeStopResponseSchema,
   recordCenterAgentMemberResearchComputerFileResponseSchema,
   remoteAgentReadTeamFileResponseSchema,
+  remoteAgentResolveReplyMentionsResponseSchema,
   remoteAgentSaveTeamFileResponseSchema,
   remoteAgentSaveTeamFileRpcInputSchema,
   resolveSpaceFileContentResponseSchema,
@@ -5542,26 +5543,45 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_set_final_reply_mentions",
       description:
-        "Set the exact Human Profile IDs to notify when your final reply is published in the current Space, including Routine reports. This replaces any earlier selection; [] clears it. Use IDs from current Space membership, never infer identities from names. This prepares the final reply and does not publish a message yet. Plain @Name text alone does not notify anyone. It never wakes Agents.",
+        "Prepare exact Human Profile IDs for the final reply in the current Space, including Routine reports. Core validates each target and returns whether they are a Space member or an Organization member who has not joined. A mention never grants Space access. This replaces any earlier selection; [] clears it. Never infer identities from names. This does not publish a message or wake Agents. Plain @Name text alone does not notify anyone.",
       input: finalReplyMentionsToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
           finalReplyMentionsToolInputSchema,
           payload
         );
-        await buildRepresentedMemberAttributionToolContext({
+        const { context } = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_set_final_reply_mentions",
         });
+        const rpc = requireCoreRpc(
+          input.coreWorker.resolveRemoteAgentReplyMentions,
+          "resolveRemoteAgentReplyMentions"
+        );
+        const resolved = remoteAgentResolveReplyMentionsResponseSchema.parse(
+          await rpc({ context, mentionProfileIds: request.mentionProfileIds })
+        );
+        const requestedIds = new Set(request.mentionProfileIds);
+        if (
+          resolved.targets.length !== requestedIds.size ||
+          resolved.targets.some(
+            (target) => !requestedIds.delete(target.profileId)
+          )
+        ) {
+          throw new Error(
+            "OpenMeld returned different mention targets. The earlier selection was preserved."
+          );
+        }
         await recordRemoteAgentReplyMentions({
           storage: input.storage,
           submissionId: input.submissionId,
-          mentionTargets: request.mentionProfileIds,
+          mentionTargets: resolved.targets.map((target) => target.profileId),
         });
         return {
           status: "prepared",
-          mentionProfileIds: request.mentionProfileIds,
+          mentionProfileIds: resolved.targets.map((target) => target.profileId),
+          targets: resolved.targets,
         };
       },
     }),

@@ -362,6 +362,7 @@ export {
   resolvePublicAgentAvailabilityCopy,
   resolvePublicAgentFailureRecovery,
   resolvePublicFailureCodeCategory,
+  SPACE_REPLY_MENTION_INVALID_PUBLIC_COPY,
   sanitizeDispatchErrorSummary,
   shouldPreferMappedPublicAgentFailureReason,
 } from "./public-agent-failure-reason";

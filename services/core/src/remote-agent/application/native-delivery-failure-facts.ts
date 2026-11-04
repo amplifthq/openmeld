@@ -119,7 +119,10 @@ export function buildRoutineExecutionFailureFacts(input: {
   return agentFailureFactsSchema.parse({
     v: 1,
     reasonCode: resolveHostedAgentCallbackFailureReasonCode(input),
-    stage: "execution",
+    stage:
+      input.failureCode === "space.addressing.target_invalid"
+        ? "publication"
+        : "execution",
     result: { status: unavailable ? "unavailable" : "unknown" },
     retry: { status: "none" },
     recovery: { status: "none" },

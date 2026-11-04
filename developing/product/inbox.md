@@ -354,6 +354,16 @@ data.
 A structured Human Mention produces one `space_mention` update for that person.
 It replaces the ordinary Space-message update for the same source and recipient,
 so one message never creates duplicate Inbox or browser notifications.
+An explicitly resolved Organization-only Human Mention has a source-owned
+`organizationMentionProfileId` receipt in its stored source facts. This permits
+only the minimal Inbox item and that recipient's own conversation notification
+settings; it never permits reading the Space. It contains no Space name, message
+body, file preview, or thread preview. Current active Organization membership,
+Human Profile ownership/status, source Space status, and history deletion are
+checked on reads. Ordinary historical mentions without this receipt still require
+their existing Space access. The internal receipt is removed from public item
+responses, preserving strict older clients. Muting and browser permission still
+apply; a mention is not proof of notification delivery or reading.
 During the bounded receiver-first rollout, readers may still encounter the
 retired wire discriminator `space_reference`. They normalize it to
 `space_mention` before product behavior or UI rendering. This is transport and
