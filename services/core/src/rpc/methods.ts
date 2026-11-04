@@ -208,11 +208,11 @@ import {
   ensureSlackWorkspaceMemberOrganizationMembershipRpcResponseSchema,
   executeAgentProfileWorkRecoveryBodySchema,
   executeAgentProfileWorkRecoveryResponseSchema,
-  type FeishuGroupHistoryRead,
+  type FeishuGroupHistoryCall,
   type FeishuGroupHistoryResult,
   type FeishuHistoryGroupSetting,
   type FeishuHistoryGroupsQuery,
-  feishuGroupHistoryReadSchema,
+  feishuGroupHistoryCallSchema,
   feishuGroupHistoryResultSchema,
   feishuHistoryGroupSettingResultSchema,
   feishuHistoryGroupSettingSchema,
@@ -10264,9 +10264,10 @@ async function requireFeishuHistoryConnection(
 }
 export async function rpcReadFeishuGroupHistory(
   env: CoreBindings,
-  input: { context?: CoreRpcContextInput; request: FeishuGroupHistoryRead }
+  input: FeishuGroupHistoryCall & { context?: CoreRpcContextInput }
 ): Promise<FeishuGroupHistoryResult> {
-  const request = feishuGroupHistoryReadSchema.parse(input.request);
+  const { request, includeCoverage } =
+    feishuGroupHistoryCallSchema.parse(input);
   const auth = await requireCurrentDesignatedCenterAgentCaller({
     context: requireRpcContext(input.context),
     env,
@@ -10326,6 +10327,7 @@ export async function rpcReadFeishuGroupHistory(
       requesterOpenId: sender.messageChannelIdentity.providerUserId,
       conversationId: frozen.trigger.conversationId,
       lookbackMinutes: request.lookbackMinutes,
+      includeCoverage,
     })
   );
 }

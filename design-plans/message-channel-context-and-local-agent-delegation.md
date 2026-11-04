@@ -82,6 +82,8 @@ Define the cross-service request and result in [shared schemas](../packages/sche
 
 **Exit evidence.** On an admitted turn, the tool cannot select another conversation, recover earlier history by moving the cutoff, or use a previous sender's authority. An old consumer still accepts an ordinary turn. A forbidden read yields no history and can still lead to an answer from the supplied brief. Provider-specific visibility evidence is a prerequisite to enabling that provider's operation.
 
+**Feishu implementation.** The requester-only reader now reports a conservative examined interval and the reasons evidence is missing. A fully examined interval can still have unreadable revisions or shortened messages. Neither an exhausted scan nor an empty result describes other participants or topic replies. The original turn and Local Agent Wake contracts are unchanged.
+
 ### 3. Build the optional history grant and group control once for Feishu and Lark
 
 **Reuse directly.** Extend the existing [permission bundle handling](../services/core/src/remote-agent/application/lark-platform-permission-bundles.ts), registration/reauthorization flow, [connection storage](../packages/db/src/core/message-channel.schema.ts) and [Channels setup dialog](../clients/web/src/components/organizations/lark-platform-channel-dialog.tsx). Keep the standard bundle installable without the optional history scope.

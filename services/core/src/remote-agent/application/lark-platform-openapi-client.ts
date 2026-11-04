@@ -1,5 +1,6 @@
 import type {
   FeishuGroupHistoryResult,
+  FeishuHistoryGap,
   NavigationAction,
 } from "@openmeld/schemas";
 import {
@@ -310,6 +311,7 @@ type FeishuSource = {
   requesterOpenId: string;
   conversationId: string;
   lookbackMinutes: number;
+  includeCoverage?: true;
 };
 export async function readFeishuRequesterHistory(
   input: FeishuReadCredentials & FeishuSource
@@ -350,12 +352,12 @@ function collectFeishuRequesterRoots(
   input: FeishuSource,
   startMs: number,
   endMs: number,
-  records: Map<string, ChannelContextMessage>
+  records: Map<string, ChannelContextMessage>,
+  gaps: Set<FeishuHistoryGap>
 ) {
-  let partial = false;
   for (const item of items) {
     if (!isJsonObject(item)) {
-      partial = true;
+      gaps.add("unreadable_message");
       continue;
     }
     if (
@@ -370,27 +372,35 @@ function collectFeishuRequesterRoots(
     }
     // Feishu also marks freshly delivered messages as updated. Only return a
     // historical body whose latest known revision existed when the user asked.
+    const sentAtMs = readNonnegativeInteger(item, "create_time");
+    if (sentAtMs !== null && (sentAtMs < startMs || sentAtMs >= endMs)) {
+      continue;
+    }
     const updatedMs = readNonnegativeInteger(item, "update_time");
     if (
       (item.updated === true && !updatedMs) ||
       (updatedMs !== null && updatedMs > endMs)
     ) {
-      partial = true;
+      gaps.add("revision_unavailable");
       continue;
     }
-    const message = normalizeHistoricalMessage(item);
+    const message = normalizeHistoricalMessage(
+      item,
+      CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS + 1
+    );
     if (!message) {
-      partial = true;
+      gaps.add("unreadable_message");
       continue;
     }
-    if (message.sentAtMs >= startMs && message.sentAtMs < endMs) {
-      records.set(message.id, message);
-      if (message.text.length === CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS) {
-        partial = true;
-      }
+    if (message.text.length > CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS) {
+      message.text = message.text.slice(
+        0,
+        CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS
+      );
+      gaps.add("result_limit");
     }
+    records.set(message.id, message);
   }
-  return partial;
 }
 async function readFeishuHistoryWindow(
   input: FeishuReadCredentials & FeishuSource,
@@ -407,7 +417,8 @@ async function readFeishuHistoryWindow(
     with_sender_name: "true",
   });
   const records = new Map<string, ChannelContextMessage>();
-  let partial = false;
+  const gaps = new Set<FeishuHistoryGap>();
+  let exhausted = false;
   for (let page = 0; page < 3; page++) {
     const { data, status } = await feishuAppRequest(
       input,
@@ -415,33 +426,50 @@ async function readFeishuHistoryWindow(
       params
     );
     if (status || !Array.isArray(data?.items)) {
-      if (status === "forbidden" || records.size === 0) {
+      if (status === "forbidden" || page === 0) {
         return { status: status ?? "unavailable" };
       }
-      partial = true;
+      gaps.add(
+        status === "rate_limited" ? "rate_limited" : "provider_unavailable"
+      );
       break;
     }
-    if (
-      collectFeishuRequesterRoots(data.items, input, startMs, endMs, records)
-    ) {
-      partial = true;
-    }
+    collectFeishuRequesterRoots(
+      data.items,
+      input,
+      startMs,
+      endMs,
+      records,
+      gaps
+    );
     if (data.has_more === false) {
+      exhausted = true;
       break;
     }
-    const cursor = nextFeishuHistoryPage(data, params, page, records.size);
-    if (!cursor) {
-      partial = true;
+    const next = nextFeishuHistoryPage(data, params, page, records.size);
+    if ("gap" in next) {
+      gaps.add(next.gap);
       break;
     }
-    params.set("page_token", cursor);
+    params.set("page_token", next.cursor);
   }
   const bounded = boundHistoricalMessages([...records.values()]);
+  if (bounded.truncated) {
+    gaps.add("result_limit");
+  }
+  const examinedFromMs = feishuExaminedFromMs(
+    exhausted,
+    startMs,
+    bounded.messages[0]
+  );
   return {
     status: "read",
     scope: "requester_top_level_messages",
     startMs,
     endMs,
+    ...(input.includeCoverage && {
+      coverage: { examinedFromMs, gaps: [...gaps] },
+    }),
     context: channelContextSchema.parse({
       conversationId: input.conversationId,
       currentMessageId: input.triggerMessageId,
@@ -449,25 +477,41 @@ async function readFeishuHistoryWindow(
       messages: bounded.messages,
       sync: {
         mode: "snapshot",
-        status: partial || bounded.truncated ? "truncated" : "complete",
+        status: gaps.size > 0 ? "truncated" : "complete",
       },
     }),
   };
+}
+function feishuExaminedFromMs(
+  exhausted: boolean,
+  startMs: number,
+  oldest: ChannelContextMessage | undefined
+) {
+  if (exhausted) {
+    return startMs;
+  }
+  // Ties can continue on the next descending page. Withheld messages
+  // must not disclose other participants' activity through the boundary.
+  return oldest ? oldest.sentAtMs + 1 : null;
 }
 function nextFeishuHistoryPage(
   data: JsonObject,
   params: URLSearchParams,
   page: number,
   count: number
-) {
+): { cursor: string } | { gap: FeishuHistoryGap } {
   const cursor = readString(data, "page_token");
-  return data.has_more === true &&
-    cursor &&
-    cursor !== params.get("page_token") &&
-    page < 2 &&
-    count < CHANNEL_CONTEXT_MAX_MESSAGES
-    ? cursor
-    : null;
+  if (
+    data.has_more !== true ||
+    !cursor ||
+    cursor === params.get("page_token")
+  ) {
+    return { gap: "invalid_page" };
+  }
+  if (count >= CHANNEL_CONTEXT_MAX_MESSAGES) {
+    return { gap: "result_limit" };
+  }
+  return page < 2 ? { cursor } : { gap: "page_limit" };
 }
 function feishuMessageFromRequester(item: JsonObject, openId: string) {
   const sender = readObject(item, "sender");
@@ -1869,7 +1913,8 @@ function belongsToCurrentConversation(
   );
 }
 function normalizeHistoricalMessage(
-  item: JsonObject
+  item: JsonObject,
+  textLimit = CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS
 ): ChannelContextMessage | null {
   const id = readString(item, "message_id");
   const sentAtMs = readNonnegativeInteger(item, "create_time");
@@ -1905,7 +1950,7 @@ function normalizeHistoricalMessage(
     author,
     id,
     sentAtMs,
-    text: text.slice(0, CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS),
+    text: text.slice(0, textLimit),
   };
 }
 function replaceMentionKeys(
