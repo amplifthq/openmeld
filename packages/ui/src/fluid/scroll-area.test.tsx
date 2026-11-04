@@ -1,0 +1,28 @@
+import { cleanup, render } from "@testing-library/react";
+import { createRef } from "react";
+import { afterEach, describe, expect, it } from "vitest";
+import { ScrollArea } from "./scroll-area";
+
+afterEach(cleanup);
+
+describe("ScrollArea", () => {
+  it("attaches both viewportProps.ref and viewportRef to the viewport", () => {
+    const viewportPropsRef = createRef<HTMLDivElement>();
+    const viewportRef = createRef<HTMLDivElement>();
+    const { container } = render(
+      <ScrollArea
+        viewportProps={{ ref: viewportPropsRef }}
+        viewportRef={viewportRef}
+      >
+        <div>Rows</div>
+      </ScrollArea>
+    );
+
+    const viewport = container.querySelector(
+      '[data-slot="scroll-area-viewport"]'
+    );
+    expect(viewport).toBeInstanceOf(HTMLDivElement);
+    expect(viewportPropsRef.current).toBe(viewport);
+    expect(viewportRef.current).toBe(viewport);
+  });
+});
