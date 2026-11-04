@@ -228,7 +228,22 @@ export async function requireCenterAgentContinuationParent(input: {
     db: input.db,
     submissionId: input.parentSubmissionId,
   });
+  // A scheduling turn may finish before a durable Space post is retried.
+  // Only that previously registered delegation may reuse its completed parent.
+  const previous =
+    parentDelivery?.status === "completed" && input.continuationDelegationId
+      ? await readAgentDelegation({
+          db: input.db,
+          delegationId: input.continuationDelegationId,
+        })
+      : null;
+  const resumesRecordedDelegation =
+    previous?.state === "active" &&
+    previous.organizationId === input.organizationId &&
+    previous.parentTask.kind === "native_delivery" &&
+    previous.parentTask.deliveryId === parentDelivery?.deliveryId;
   const isActiveParent =
+    resumesRecordedDelegation ||
     parentDelivery?.status === "accepted" ||
     parentDelivery?.status === "retry_observed" ||
     (input.allowCompletedParent === true &&

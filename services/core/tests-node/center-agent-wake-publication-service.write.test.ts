@@ -405,6 +405,10 @@ describe("Center Agent Wake publication recovery", () => {
         children: [{ state: "planned" }],
         state: "active",
       });
+      await harness.db.query({
+        text: `UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET status='completed' WHERE delivery_id=$1`,
+        values: ["delivery-parent"],
+      });
       await expect(
         retryPendingCenterAgentWakePublications({
           db: harness.db,
