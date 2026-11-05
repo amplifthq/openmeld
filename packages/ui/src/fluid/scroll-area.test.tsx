@@ -45,4 +45,17 @@ describe("ScrollArea", () => {
     expect(callbackRef).not.toHaveBeenCalledWith(null);
     expect(viewportRef.current).toBeNull();
   });
+
+  it("calls callback refs without a cleanup with null on unmount", () => {
+    const callbackRef = vi.fn();
+    const { unmount } = render(
+      <ScrollArea viewportProps={{ ref: callbackRef }}>
+        <div>Rows</div>
+      </ScrollArea>
+    );
+
+    expect(callbackRef).toHaveBeenLastCalledWith(expect.any(HTMLDivElement));
+    unmount();
+    expect(callbackRef).toHaveBeenLastCalledWith(null);
+  });
 });
