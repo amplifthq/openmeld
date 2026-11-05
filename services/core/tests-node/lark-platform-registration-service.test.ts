@@ -61,7 +61,10 @@ const ENV = {
 const classifyOrganizationWorkspace = async () =>
   ({ ok: true, personal: false }) as const;
 describe("Lark-platform registration service", () => {
-  it("defaults new Feishu apps to group history and preserves an explicit basic choice through resume and restart", async () => {
+  it.each([
+    false,
+    true,
+  ])("defaults fresh Feishu setup to history (restart=%s) and preserves an existing basic choice", async (restartPending) => {
     const h = await createRegistrationHarness();
     try {
       const common = {
@@ -96,7 +99,7 @@ describe("Lark-platform registration service", () => {
             )
           ).toString()
         ).scopes.tenant as string[];
-      const first = await begin();
+      const first = await begin({ restartPending });
       expect(scopes(first.attempt.registrationUrl)).toContain(
         "im:message.group_msg"
       );

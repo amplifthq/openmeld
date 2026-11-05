@@ -3430,7 +3430,7 @@ clients never receive unknown enum values.
 
 ### Lark-platform connection and credential ownership
 
-Core owns Feishu's per-group history consent in PostgreSQL. Row presence enables the exact connection generation and chat; the production migration is 0055. Gateway only transports the authorized Organization admin's choice. The provider grant, bot membership and the group's OpenMeld setting are independent. History bodies are not copied into this settings table or diagnostic logs. No Space, group membership or activity state is inferred from the setting.
+The per-group history preference introduced in migration 0055 is retired. Existing rows are retained for rollback and have no effect on current readers. Core owns the active request, connection and requester checks; provider permissions and bot membership constrain access. No replacement global or organization setting is stored. The deprecated group-setting endpoints return HTTP 410 so older clients cannot report a successful toggle.
 
 
 Core owns Lark and Feishu Personal Agent registration, connection lifecycle,

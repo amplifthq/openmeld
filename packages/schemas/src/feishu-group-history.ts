@@ -54,34 +54,45 @@ export const feishuHistoryGroupSettingSchema = z.strictObject({
   pageToken: providerId.optional(),
   enabled: z.boolean(),
 });
+export const feishuHistoryAuthorizationRequestSchema = z.strictObject({
+  connectionId: providerId,
+});
+export const feishuHistoryAuthorizationSchema = z.strictObject({
+  authorizationUrl: z
+    .string()
+    .trim()
+    .max(16_384)
+    .url()
+    .refine((value) => {
+      let u: URL;
+      try {
+        u = new URL(value);
+      } catch {
+        return false;
+      }
+      return (
+        u.origin === "https://open.feishu.cn" &&
+        !u.username &&
+        !u.password &&
+        !u.hash &&
+        u.pathname === "/page/launcher" &&
+        u.searchParams.getAll("clientID").length === 1 &&
+        Boolean(u.searchParams.get("clientID")?.trim()) &&
+        u.searchParams.getAll("user_code").length === 1 &&
+        Boolean(u.searchParams.get("user_code")?.trim())
+      );
+    }),
+});
+export type FeishuHistoryAuthorizationRequest = z.output<
+  typeof feishuHistoryAuthorizationRequestSchema
+>;
+
+// Retained for older Gateway clients during rolling deployment. The retired
+// per-group endpoints return an explicit error and never change policy.
 export const feishuHistoryGroupSettingResultSchema = z.union([
   feishuHistoryGroupSettingSchema,
-  z.strictObject({
+  feishuHistoryAuthorizationSchema.extend({
     status: z.literal("permission_required"),
-    authorizationUrl: z
-      .string()
-      .trim()
-      .max(16_384)
-      .url()
-      .refine((value) => {
-        let u: URL;
-        try {
-          u = new URL(value);
-        } catch {
-          return false;
-        }
-        return (
-          u.origin === "https://open.feishu.cn" &&
-          !u.username &&
-          !u.password &&
-          !u.hash &&
-          u.pathname === "/page/launcher" &&
-          u.searchParams.getAll("clientID").length === 1 &&
-          Boolean(u.searchParams.get("clientID")?.trim()) &&
-          u.searchParams.getAll("user_code").length === 1 &&
-          Boolean(u.searchParams.get("user_code")?.trim())
-        );
-      }),
   }),
 ]);
 export type FeishuHistoryGroupSettingResult = z.output<
