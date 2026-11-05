@@ -3,8 +3,6 @@ import {
   createLarkPlatformStreamingCard,
   downloadLarkPlatformMessageResource,
   finalizeLarkPlatformStreamingCard,
-  listFeishuHistoryGroups,
-  notifyFeishuHistoryGroup,
   publishLarkPlatformCardReference,
   publishLarkPlatformIdentityLinkCard,
   publishLarkPlatformReply,
@@ -21,107 +19,6 @@ import {
 } from "../src/remote-agent/application/plugin-channel-source-proof";
 
 describe("Lark-platform OpenAPI publication", () => {
-  it("keeps joined groups selectable when Feishu omits a display name", async () => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        Response.json({ code: 0, expire: 7200, tenant_access_token: "fixture" })
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          code: 0,
-          data: {
-            items: [
-              { chat_id: "oc_unnamed" },
-              { chat_id: "oc_named", name: "Named group" },
-            ],
-            has_more: false,
-          },
-        })
-      );
-    await expect(
-      listFeishuHistoryGroups({ appId: "app", appSecret: "fixture", fetchImpl })
-    ).resolves.toEqual({
-      groups: [
-        { chatId: "oc_unnamed", name: "oc_unnamed" },
-        { chatId: "oc_named", name: "Named group" },
-      ],
-      nextPageToken: null,
-    });
-  });
-  it("uses the verified existing tenant grant and sends the group notice without starting another authorization", async () => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        Response.json({ code: 0, expire: 7200, tenant_access_token: "fixture" })
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          code: 0,
-          data: {
-            scopes: [
-              {
-                scope_name: "im:message.group_msg",
-                grant_status: 1,
-                scope_type: "tenant",
-              },
-            ],
-          },
-        })
-      )
-      .mockResolvedValueOnce(
-        Response.json({ code: 0, data: { message_id: "om_notice" } })
-      );
-    await expect(
-      notifyFeishuHistoryGroup(
-        { appId: "app", appSecret: "fixture", fetchImpl },
-        "oc_group",
-        "notice-id"
-      )
-    ).resolves.toBe("notified");
-    const [url, init] = fetchImpl.mock.calls[2] ?? [];
-    expect(new URL(String(url)).pathname).toBe("/open-apis/im/v1/messages");
-    expect(JSON.parse(String(init?.body))).toMatchObject({
-      receive_id: "oc_group",
-      uuid: "notice-id",
-    });
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
-  });
-  it("requires a tenant grant and keeps the group off when only a user grant is present", async () => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        Response.json({ code: 0, expire: 7200, tenant_access_token: "fixture" })
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          code: 0,
-          data: {
-            scopes: [
-              {
-                scope_type: "user",
-                scope_name: "im:message.group_msg",
-                grant_status: 1,
-              },
-            ],
-          },
-        })
-      );
-    await expect(
-      notifyFeishuHistoryGroup(
-        { appId: "app", appSecret: "fixture", fetchImpl },
-        "oc_group",
-        "test-id"
-      )
-    ).resolves.toBe("permission_required");
-    expect(
-      fetchImpl.mock.calls.every(
-        ([, options]) =>
-          options?.method !== "POST" ||
-          !String(options.body).includes("receive_id")
-      )
-    ).toBe(true);
-  });
   it("reads only the requester's own top-level Feishu evidence across roots, bounded by the verified mention", async () => {
     // Fields follow the November 4 production history and exact-message responses.
     const end = 1_793_787_619_768;
@@ -218,6 +115,7 @@ describe("Lark-platform OpenAPI publication", () => {
       "om_marker",
     ]);
     expect(result.context.sync.status).toBe("truncated");
+    expect(result).not.toHaveProperty("coverage"); // Older Remote Agents use the strict original result.
     expect(
       pages.map((p) => [
         p.searchParams.get("container_id"),
@@ -235,6 +133,62 @@ describe("Lark-platform OpenAPI publication", () => {
       })
     ).toEqual({ status: "forbidden" });
     expect(pages).toHaveLength(2);
+
+    const requested = { ...input, includeCoverage: true as const };
+    await expect(readFeishuRequesterHistory(requested)).resolves.toMatchObject({
+      coverage: {
+        examinedFromMs: end - 30 * 60_000,
+        gaps: ["revision_unavailable"],
+      },
+    });
+
+    // The first page still has a usable marker. No timestamp from the other
+    // member, later edit or omitted reply can become the reported boundary.
+    const interrupted = (status: number) =>
+      readFeishuRequesterHistory({
+        ...requested,
+        fetchImpl: (url) =>
+          new URL(String(url)).searchParams.has("page_token")
+            ? Promise.resolve(new Response(null, { status }))
+            : fetchImpl(url),
+      });
+    await expect(interrupted(429)).resolves.toMatchObject({
+      context: {
+        sync: { status: "truncated" },
+        messages: [{ id: "om_marker" }],
+      },
+      coverage: {
+        examinedFromMs: end - 1199,
+        gaps: ["revision_unavailable", "rate_limited"],
+      },
+    });
+    await expect(interrupted(403)).resolves.toEqual({ status: "forbidden" });
+
+    let pagesRead = 0;
+    const otherAuthorsOnly = await readFeishuRequesterHistory({
+      ...requested,
+      fetchImpl: (url) => {
+        if (!new URL(String(url)).searchParams.has("container_id")) {
+          return fetchImpl(url);
+        }
+        pagesRead++;
+        return Promise.resolve(
+          Response.json({
+            code: 0,
+            data: {
+              items: [item("om_private", end - pagesRead, "ou_other")],
+              has_more: true,
+              page_token: String(pagesRead),
+            },
+          })
+        );
+      },
+    });
+    expect(pagesRead).toBe(3);
+    expect(otherAuthorsOnly).toMatchObject({
+      coverage: { examinedFromMs: null, gaps: ["page_limit"] },
+      context: { messages: [], sync: { status: "truncated" } },
+    });
   });
   it.each([
     "feishu",

@@ -81,17 +81,7 @@ type MessageChannelAdapterTarget = {
 
 export type MessageChannelProviderAdapter = {
   provider: LarkPlatformMessageChannelProvider;
-  notifyFeishuHistoryGroup?(
-    connection: RemoteAgentLarkPlatformChannelConnectionRecord,
-    chatId: string
-  ): Promise<"permission_required" | "notified">;
-  listFeishuHistoryGroups?(
-    connection: RemoteAgentLarkPlatformChannelConnectionRecord,
-    pageToken?: string
-  ): Promise<{
-    groups: { chatId: string; name: string }[];
-    nextPageToken: string | null;
-  }>;
+
   readFeishuRequesterHistory?(input: {
     connection: RemoteAgentLarkPlatformChannelConnectionRecord;
     locator: Extract<MessageChannelConversationLocator, { provider: "feishu" }>;
@@ -99,6 +89,7 @@ export type MessageChannelProviderAdapter = {
     requesterOpenId: string;
     conversationId: string;
     lookbackMinutes: number;
+    includeCoverage?: true;
   }): Promise<FeishuGroupHistoryResult>;
   // Optional only for compatibility with older adapters. Continuation refuses
   // to proceed if current source evidence cannot be read.

@@ -20,6 +20,7 @@ export const MESSAGE_CHANNEL_CONNECTION_STATUSES = [
 ] as const;
 export const MESSAGE_CHANNEL_ERROR_CODES = [
   "message_channel.actor_required",
+  "message_channel.history_settings_removed",
   "message_channel.already_connected",
   "message_channel.connection_changed",
   "message_channel.identity_already_linked",

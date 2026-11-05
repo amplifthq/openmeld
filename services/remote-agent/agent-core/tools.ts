@@ -3038,7 +3038,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           await callCoreRpc(
             input.coreWorker,
             "readFeishuGroupHistory",
-            { context, request },
+            { context, request, includeCoverage: true as const },
             (binding, i) => binding.readFeishuGroupHistory?.(i)
           )
         );

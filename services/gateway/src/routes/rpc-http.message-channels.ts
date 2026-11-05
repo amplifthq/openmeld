@@ -1,4 +1,6 @@
 import {
+  feishuHistoryAuthorizationRequestSchema,
+  feishuHistoryAuthorizationSchema,
   feishuHistoryGroupSettingResultSchema,
   feishuHistoryGroupSettingSchema,
   feishuHistoryGroupsQuerySchema,
@@ -40,6 +42,27 @@ export const MESSAGE_CHANNEL_IDENTITY_LINK_CONSUME_ROUTE =
 export const MESSAGE_CHANNEL_IDENTITY_LINK_ROUTE = `${MESSAGE_CHANNEL_CONNECTIONS_ROUTE}/identity-links/:identityLinkId`;
 
 export function registerMessageChannelRoutes(app: Hono<HonoBindings>): void {
+  const authorization = `${MESSAGE_CHANNEL_CONNECTIONS_ROUTE}/feishu/history-authorization`;
+  app.post(authorization, async (c) => {
+    const body = await parseJsonBody(
+      c,
+      feishuHistoryAuthorizationRequestSchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      route: authorization,
+      method: "POST",
+      responseSchema: feishuHistoryAuthorizationSchema,
+      execute: async () =>
+        await c.var.coreRpc.authorizeFeishuHistory({
+          context: buildCoreRpcContext(c),
+          request: body.data,
+        }),
+    });
+  });
   const historyGroups = `${MESSAGE_CHANNEL_CONNECTIONS_ROUTE}/feishu/history-groups`;
   app.get(historyGroups, (c) => {
     const q = feishuHistoryGroupsQuerySchema.safeParse(c.req.query());

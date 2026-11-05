@@ -208,16 +208,15 @@ import {
   ensureSlackWorkspaceMemberOrganizationMembershipRpcResponseSchema,
   executeAgentProfileWorkRecoveryBodySchema,
   executeAgentProfileWorkRecoveryResponseSchema,
-  type FeishuGroupHistoryRead,
+  type FeishuGroupHistoryCall,
   type FeishuGroupHistoryResult,
+  type FeishuHistoryAuthorizationRequest,
   type FeishuHistoryGroupSetting,
   type FeishuHistoryGroupsQuery,
-  feishuGroupHistoryReadSchema,
+  feishuGroupHistoryCallSchema,
   feishuGroupHistoryResultSchema,
-  feishuHistoryGroupSettingResultSchema,
-  feishuHistoryGroupSettingSchema,
-  feishuHistoryGroupsQuerySchema,
-  feishuHistoryGroupsSchema,
+  feishuHistoryAuthorizationRequestSchema,
+  feishuHistoryAuthorizationSchema,
   firstWorkResponseSchema,
   forgetComputerResponseSchema,
   forgetComputerRouteParamsSchema,
@@ -1261,10 +1260,6 @@ import {
   createSlackOAuthState,
 } from "../remote-agent/application/slack-oauth-state";
 import { decryptSlackSearchAuthorization } from "../remote-agent/application/slack-search-authorization";
-import {
-  enabledFeishuHistoryGroups,
-  setFeishuGroupHistory,
-} from "../remote-agent/infrastructure/postgresql/feishu-group-history-settings";
 import { readRemoteAgentLarkPlatformChannelConnection } from "../remote-agent/infrastructure/postgresql/lark-platform-channel-connection-repo";
 import { readRemoteAgentLarkPlatformIdentityLink } from "../remote-agent/infrastructure/postgresql/lark-platform-identity-link-repo";
 import {
@@ -10122,92 +10117,68 @@ export async function rpcConsumeMessageChannelIdentityLink(
     openMeldUserId: ensuredMembership.membership.userId,
   });
 }
-export async function rpcListFeishuHistoryGroups(
-  env: CoreBindings,
-  input: { context?: CoreRpcContextInput; query: FeishuHistoryGroupsQuery }
-) {
-  const query = feishuHistoryGroupsQuerySchema.parse(input.query);
-  const { actor, db } = await requireLarkPlatformRegistrationRequest(env, {
-    context: input.context,
-    provider: "feishu",
-  });
-  const { connection, adapter } = await requireFeishuHistoryConnection(
-    env,
-    db,
-    actor.organizationId,
-    query.connectionId
-  );
-  const page = await adapter.listGroups(connection, query.pageToken);
-  const enabled = await enabledFeishuHistoryGroups(
-    db,
-    connection,
-    page.groups.map((g) => g.chatId)
-  );
-  return feishuHistoryGroupsSchema.parse({
-    ...page,
-    generation: connection.connectionGeneration,
-    groups: page.groups.map((g) => ({ ...g, enabled: enabled.has(g.chatId) })),
+/** Rolling-deploy tombstones: old clients must not display a successful toggle. */
+export function rpcListFeishuHistoryGroups(
+  _env: CoreBindings,
+  _input: { context?: CoreRpcContextInput; query: FeishuHistoryGroupsQuery }
+): never {
+  throw retiredFeishuHistorySetting();
+}
+export function rpcSetFeishuHistoryGroup(
+  _env: CoreBindings,
+  _input: { context?: CoreRpcContextInput; setting: FeishuHistoryGroupSetting }
+): never {
+  throw retiredFeishuHistorySetting();
+}
+function retiredFeishuHistorySetting() {
+  return createCoreRpcHttpError({
+    code: "message_channel.history_settings_removed",
+    status: 410,
+    reason:
+      "Group history settings have been removed. History is available when Feishu permits it. Refresh OpenMeld.",
   });
 }
-export async function rpcSetFeishuHistoryGroup(
+export async function rpcAuthorizeFeishuHistory(
   env: CoreBindings,
-  input: { context?: CoreRpcContextInput; setting: FeishuHistoryGroupSetting }
+  input: {
+    context?: CoreRpcContextInput;
+    request: FeishuHistoryAuthorizationRequest;
+  }
 ) {
-  const setting = feishuHistoryGroupSettingSchema.parse(input.setting);
+  const request = feishuHistoryAuthorizationRequestSchema.parse(input.request);
   const { actor, db } = await requireLarkPlatformRegistrationRequest(env, {
     context: input.context,
     provider: "feishu",
   });
-  const { connection, adapter } = await requireFeishuHistoryConnection(
-    env,
+  const connection = await readRemoteAgentLarkPlatformChannelConnection({
     db,
-    actor.organizationId,
-    setting.connectionId
-  );
-  if (connection.connectionGeneration !== setting.generation) {
-    throw createCoreRpcHttpError({
-      code: "message_channel.connection_changed",
-      status: 409,
-      reason: "The Feishu connection changed. Reload its group settings.",
-    });
-  }
-  if (setting.enabled) {
-    const page = await adapter.listGroups(connection, setting.pageToken);
-    if (!page.groups.some((g) => g.chatId === setting.chatId)) {
-      throw createCoreRpcHttpError({
-        code: "message_channel.group_unavailable",
-        status: 403,
-        reason: "The Feishu app must be a member of the selected group.",
-      });
-    }
-  }
+    connectionId: request.connectionId,
+  });
   if (
-    setting.enabled &&
-    !(await enabledFeishuHistoryGroups(db, connection, [setting.chatId])).has(
-      setting.chatId
-    ) &&
-    (await adapter.notifyGroup(connection, setting.chatId)) ===
-      "permission_required"
+    !connection ||
+    connection.provider !== "feishu" ||
+    connection.organizationId !== actor.organizationId ||
+    connection.status !== "connected"
   ) {
-    // This consent is scoped to the saved app. Its live grant is the only
-    // authority on retry; keep the healthy Channel and group setting intact.
-    const consent = await beginLarkPlatformRegistration({
-      appId: connection.appId,
-      appName: connection.botName ?? "OpenMeld Center Agent",
-      appDescription:
-        "Connect your OpenMeld Center Agent to conversations in your workspace.",
-      expectedProvider: "feishu",
-      includeGroupHistory: true,
-      nowMs: Date.now(),
-      source: "openmeld-core",
-    });
-    return feishuHistoryGroupSettingResultSchema.parse({
-      status: "permission_required",
-      authorizationUrl: consent.registrationUrl,
+    throw createCoreRpcHttpError({
+      code: "message_channel.connection_unavailable",
+      status: 403,
+      reason: "An active Feishu connection is required for this Organization.",
     });
   }
-  await setFeishuGroupHistory(db, connection, setting.chatId, setting.enabled);
-  return setting;
+  const consent = await beginLarkPlatformRegistration({
+    appId: connection.appId,
+    appName: connection.botName ?? "OpenMeld Center Agent",
+    appDescription:
+      "Connect your OpenMeld Center Agent to conversations in your workspace.",
+    expectedProvider: "feishu",
+    includeGroupHistory: true,
+    nowMs: Date.now(),
+    source: "openmeld-core",
+  });
+  return feishuHistoryAuthorizationSchema.parse({
+    authorizationUrl: consent.registrationUrl,
+  });
 }
 async function requireFeishuHistoryConnection(
   env: CoreBindings,
@@ -10239,13 +10210,7 @@ async function requireFeishuHistoryConnection(
     });
   }
   const adapter = registry.require("feishu");
-  if (
-    !(
-      adapter.listFeishuHistoryGroups &&
-      adapter.readFeishuRequesterHistory &&
-      adapter.notifyFeishuHistoryGroup
-    )
-  ) {
+  if (!adapter.readFeishuRequesterHistory) {
     throw createCoreRpcHttpError({
       code: "message_channel.history_unavailable",
       status: 503,
@@ -10254,18 +10219,15 @@ async function requireFeishuHistoryConnection(
   }
   return {
     connection,
-    adapter: {
-      listGroups: adapter.listFeishuHistoryGroups,
-      readHistory: adapter.readFeishuRequesterHistory,
-      notifyGroup: adapter.notifyFeishuHistoryGroup,
-    },
+    adapter: { readHistory: adapter.readFeishuRequesterHistory },
   };
 }
 export async function rpcReadFeishuGroupHistory(
   env: CoreBindings,
-  input: { context?: CoreRpcContextInput; request: FeishuGroupHistoryRead }
+  input: FeishuGroupHistoryCall & { context?: CoreRpcContextInput }
 ): Promise<FeishuGroupHistoryResult> {
-  const request = feishuGroupHistoryReadSchema.parse(input.request);
+  const { request, includeCoverage } =
+    feishuGroupHistoryCallSchema.parse(input);
   const auth = await requireCurrentDesignatedCenterAgentCaller({
     context: requireRpcContext(input.context),
     env,
@@ -10311,13 +10273,8 @@ export async function rpcReadFeishuGroupHistory(
   ) {
     return { status: "forbidden" };
   }
-  const enabled = await enabledFeishuHistoryGroups(auth.db, connection, [
-    locator.chatId,
-  ]);
-  if (!enabled.has(locator.chatId)) {
-    return { status: "disabled" };
-  }
-  return feishuGroupHistoryResultSchema.parse(
+
+  const result = feishuGroupHistoryResultSchema.parse(
     await adapter.readHistory({
       connection,
       locator,
@@ -10325,8 +10282,28 @@ export async function rpcReadFeishuGroupHistory(
       requesterOpenId: sender.messageChannelIdentity.providerUserId,
       conversationId: frozen.trigger.conversationId,
       lookbackMinutes: request.lookbackMinutes,
+      includeCoverage,
     })
   );
+  console.info("[core.message_channel.history_read]", {
+    event: "message_channel.history_read",
+    provider: "feishu",
+    submissionId,
+    organizationId: delivery.organizationId,
+    status: result.status,
+    ...(result.status === "read"
+      ? {
+          scope: result.scope,
+          requestedFromMs: result.startMs,
+          cutoffMs: result.endMs,
+          returnedMessageCount: result.context.messages.length,
+          syncStatus: result.context.sync.status,
+          examinedFromMs: result.coverage?.examinedFromMs,
+          gaps: result.coverage?.gaps,
+        }
+      : {}),
+  });
+  return result;
 }
 export async function rpcBeginLarkPlatformRegistration(
   env: CoreBindings,

@@ -268,7 +268,7 @@ async function resolveRegistrationChoice(
   const saved = bundle === FEISHU_HISTORY_BUNDLE_VERSION;
   const includeGroupHistory =
     input.provider === "feishu" &&
-    (input.includeGroupHistory ?? (bundle ? saved : !input.restartPending));
+    (input.includeGroupHistory ?? (bundle ? saved : true));
   return {
     includeGroupHistory,
     replacePending:
