@@ -605,6 +605,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       executeTool(tools, "openmeld_read_feishu_group_history", {})
     ).resolves.toEqual({ status: "disabled" });
     expect(coreWorker.readFeishuGroupHistory).toHaveBeenCalledWith({
+      includeCoverage: true,
       context: expect.objectContaining({
         agentControllerConversationId: ACK.submissionId,
       }),

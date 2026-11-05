@@ -99,6 +99,7 @@ export type MessageChannelProviderAdapter = {
     requesterOpenId: string;
     conversationId: string;
     lookbackMinutes: number;
+    includeCoverage?: true;
   }): Promise<FeishuGroupHistoryResult>;
   // Optional only for compatibility with older adapters. Continuation refuses
   // to proceed if current source evidence cannot be read.

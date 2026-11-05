@@ -218,6 +218,7 @@ describe("Lark-platform OpenAPI publication", () => {
       "om_marker",
     ]);
     expect(result.context.sync.status).toBe("truncated");
+    expect(result).not.toHaveProperty("coverage"); // Older Remote Agents use the strict original result.
     expect(
       pages.map((p) => [
         p.searchParams.get("container_id"),
@@ -235,6 +236,62 @@ describe("Lark-platform OpenAPI publication", () => {
       })
     ).toEqual({ status: "forbidden" });
     expect(pages).toHaveLength(2);
+
+    const requested = { ...input, includeCoverage: true as const };
+    await expect(readFeishuRequesterHistory(requested)).resolves.toMatchObject({
+      coverage: {
+        examinedFromMs: end - 30 * 60_000,
+        gaps: ["revision_unavailable"],
+      },
+    });
+
+    // The first page still has a usable marker. No timestamp from the other
+    // member, later edit or omitted reply can become the reported boundary.
+    const interrupted = (status: number) =>
+      readFeishuRequesterHistory({
+        ...requested,
+        fetchImpl: (url) =>
+          new URL(String(url)).searchParams.has("page_token")
+            ? Promise.resolve(new Response(null, { status }))
+            : fetchImpl(url),
+      });
+    await expect(interrupted(429)).resolves.toMatchObject({
+      context: {
+        sync: { status: "truncated" },
+        messages: [{ id: "om_marker" }],
+      },
+      coverage: {
+        examinedFromMs: end - 1199,
+        gaps: ["revision_unavailable", "rate_limited"],
+      },
+    });
+    await expect(interrupted(403)).resolves.toEqual({ status: "forbidden" });
+
+    let pagesRead = 0;
+    const otherAuthorsOnly = await readFeishuRequesterHistory({
+      ...requested,
+      fetchImpl: (url) => {
+        if (!new URL(String(url)).searchParams.has("container_id")) {
+          return fetchImpl(url);
+        }
+        pagesRead++;
+        return Promise.resolve(
+          Response.json({
+            code: 0,
+            data: {
+              items: [item("om_private", end - pagesRead, "ou_other")],
+              has_more: true,
+              page_token: String(pagesRead),
+            },
+          })
+        );
+      },
+    });
+    expect(pagesRead).toBe(3);
+    expect(otherAuthorsOnly).toMatchObject({
+      coverage: { examinedFromMs: null, gaps: ["page_limit"] },
+      context: { messages: [], sync: { status: "truncated" } },
+    });
   });
   it.each([
     "feishu",

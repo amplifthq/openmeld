@@ -557,10 +557,11 @@ export type RemoteAgentCoreWorkerBinding = {
       context: OpenMeldRequestContext;
     }
   ): Promise<CenterAgentReadSlackFileResponse>;
-  readFeishuGroupHistory?(input: {
-    context: OpenMeldRequestContext;
-    request: import("@openmeld/schemas").FeishuGroupHistoryRead;
-  }): Promise<import("@openmeld/schemas").FeishuGroupHistoryResult>;
+  readFeishuGroupHistory?(
+    input: import("@openmeld/schemas").FeishuGroupHistoryCall & {
+      context: OpenMeldRequestContext;
+    }
+  ): Promise<import("@openmeld/schemas").FeishuGroupHistoryResult>;
   centerAgentReadChannelFile?(
     input: CenterAgentReadChannelFileBody & { context: OpenMeldRequestContext }
   ): Promise<CenterAgentReadChannelFileResponse>;

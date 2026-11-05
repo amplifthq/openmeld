@@ -5,12 +5,38 @@ const providerId = z.string().trim().min(1).max(512);
 export const feishuGroupHistoryReadSchema = z.strictObject({
   lookbackMinutes: z.number().int().min(1).max(120).default(30),
 });
+// The projection flag belongs to the RPC caller, never to model-supplied input.
+export const feishuGroupHistoryCallSchema = z.object({
+  request: feishuGroupHistoryReadSchema,
+  includeCoverage: z.literal(true).optional(),
+});
+export type FeishuGroupHistoryCall = z.output<
+  typeof feishuGroupHistoryCallSchema
+>;
+const feishuHistoryGapSchema = z.enum([
+  "page_limit",
+  "result_limit",
+  "invalid_page",
+  "rate_limited",
+  "provider_unavailable",
+  "revision_unavailable",
+  "unreadable_message",
+]);
+export type FeishuHistoryGap = z.output<typeof feishuHistoryGapSchema>;
 export const feishuGroupHistoryResultSchema = z.discriminatedUnion("status", [
   z.strictObject({
     status: z.literal("read"),
     scope: z.literal("requester_top_level_messages"),
     startMs: z.number().int().nonnegative(),
     endMs: z.number().int().nonnegative(),
+    coverage: z
+      .strictObject({
+        // Conservative lower bound of the examined suffix ending at endMs.
+        // null means no safe time boundary can be reported.
+        examinedFromMs: z.number().int().nonnegative().nullable(),
+        gaps: z.array(feishuHistoryGapSchema),
+      })
+      .optional(),
     context: channelContextSchema,
   }),
   z.strictObject({
