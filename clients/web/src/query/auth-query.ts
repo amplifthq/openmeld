@@ -87,7 +87,8 @@ function throwAuthError(
 		});
 	}
 
-	throw new Error(getAuthErrorMessage(error, fallback));
+	const message = getAuthErrorMessage(error, fallback);
+	throw Object.assign(new Error(message), error, { message });
 }
 
 export const getSession = readCurrentAccountSession;
@@ -170,10 +171,10 @@ export async function listSessions(): Promise<AuthSessionRecord[]> {
 				fallbackMessage,
 			});
 	if (error) {
-		throw Object.assign(new Error(fallbackMessage), error);
+		throwAuthError(error, fallbackMessage);
 	}
 	if (!Array.isArray(data)) {
-		throw new Error(fallbackMessage);
+		throw new Error("Invalid session list response.");
 	}
 	return data;
 }
