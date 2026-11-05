@@ -152,6 +152,7 @@ describe("local service dispatch bootstrap prompt", () => {
         "within the current permissions and execution mode"
       );
       expect(instructions).toContain("Keep separate assignments separate");
+      expect(instructions).toContain("share a verified milestone");
       expect(instructions).toContain(
         "promptly use report_progress when available"
       );

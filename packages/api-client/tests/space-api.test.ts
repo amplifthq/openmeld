@@ -692,7 +692,7 @@ describe("api-client space api", () => {
     expect(transport).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        operation: "space.files.upload",
+        operation: "space.files.upload.direct",
         url: "https://gateway.openmeld.invalid/v1/spaces/space-123/files?clientMutationId=mutation-1&name=launch+notes.md&origin=artifact",
         init: expect.objectContaining({
           method: "POST",

@@ -9,7 +9,10 @@ export async function fetchSpaceRequestWithTimeout(input: {
   init?: RequestInit;
   timeoutMs?: number;
 }): Promise<Response> {
-  const timeoutMs = resolveSpaceRequestTimeoutMs(input.timeoutMs);
+  const timeoutMs = resolveSpaceRequestTimeoutMs(
+    input.timeoutMs,
+    input.operation
+  );
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const composed = composeAbortSignals(input.init?.signal, timeoutSignal);
 
