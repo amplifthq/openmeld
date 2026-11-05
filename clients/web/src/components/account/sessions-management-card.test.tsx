@@ -112,6 +112,43 @@ it("asks for fresh sign-in when session management is forbidden and shows the cu
 	}
 });
 
+it("offers regular sign-in when the session list reports an expired session", async () => {
+	const client = new QueryClient({
+		defaultOptions: { queries: { retryDelay: 0 } },
+	});
+	client.setQueryData(userQueryKeys.session, currentAccount);
+	const originalPath = window.location.href;
+	const settingsPath = "/o/test/spaces?appSettings=account";
+	window.history.replaceState(null, "", settingsPath);
+	fetchSessions.mockImplementation(() =>
+		Promise.resolve(
+			Response.json(
+				{ code: "UNAUTHORIZED", message: "Unauthorized" },
+				{ status: 401 }
+			)
+		)
+	);
+
+	try {
+		render(
+			<QueryClientProvider client={client}>
+				<SessionsManagementCard />
+			</QueryClientProvider>
+		);
+
+		const signIn = await screen.findByRole("link", { name: "Sign in again" });
+		const href = new URL((signIn as HTMLAnchorElement).href);
+		expect(href.pathname).toBe("/login");
+		expect(href.searchParams.get("redirect")).toBe(settingsPath);
+		expect(href.searchParams.has("intent")).toBe(false);
+		expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+		expect(fetchSessions).toHaveBeenCalledTimes(1);
+	} finally {
+		client.clear();
+		window.history.replaceState(null, "", originalPath);
+	}
+});
+
 it("identifies the current session by its safe ID and revokes another session with its separate vendor token", async () => {
 	const client = new QueryClient({
 		defaultOptions: {
