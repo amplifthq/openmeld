@@ -1,6 +1,6 @@
 # Message Channel context and Local Agent delegation
 
-**Status:** Design proposal. Deliver the broader-history handoff on Feishu first. Include Slack and Lark in the same release when their incremental implementation, verification and operating costs are low.
+**Status:** Feishu delivery in progress. The self-contained Feishu-to-workstation-to-topic path passed production acceptance on 2026-11-05 after PR #380. PR #378 adds coverage reporting for bounded history. Slack and Lark remain conditional on separate authorized pilots and requester-visibility evidence.
 
 ## First-release scope and cost decision
 
@@ -63,6 +63,17 @@ Feishu's history API checks the caller's credential. With a group that hides pri
 The Feishu candidate implements the evidence available without individual OAuth: the requester’s own ordinary top-level messages, identified by their exact provider open ID and a live source-message check. It excludes other authors and topic replies from the on-demand result. Feishu's chat metadata did not expose a reliable member-history interval in the pilot. New Feishu setup requests the optional app-level group-history grant by default. The admin can choose messaging only before proceeding. Existing bots continue to work with the original bundle. When an admin tries to enable a group without the grant, OpenMeld offers Feishu consent pinned to the same app, then checks the live grant again for that same group. Existing Feishu group history reads also require that group's opt-in. Slack, Lark, personal OAuth, and automatic provisioning of the optional provider grant remain outside this candidate.
 
 **Candidate rollout.** Apply migration 0055, deploy Core before Gateway and Remote Agent, then expose the Web group control. Existing groups start off; the app-level grant alone does not select a group. Enable the consenting pilot group in Manage Feishu before the first group mention. Older clients continue using the same ChannelContext, setup, Space and workstation wire contracts. The new RPC is used only by the updated hosted Agent; deploy Core first. The local component gate detects rebuilt CLI/Service artifacts from shared code, but this feature does not require a workstation update for an existing Wake. A later local-component release must follow its version/policy gate. The production ingress can only exercise deployed code; a candidate tested against real provider responses must be reported separately from an in-group final reply.
+
+## Delivery status
+
+| Item | Implementation and evidence | Remaining acceptance or prerequisite |
+| --- | --- | --- |
+| Self-contained Feishu delegation | PR #380 is deployed. A fresh group mention generated one Space Wake to the requested Local Agent, produced the independently checked full SHA-256 on the workstation, and updated the original Feishu card. The topic showed one reply. | Repeat using facts from earlier top-level messages. |
+| Feishu app grant and group controls | PR #377 supplies default-on optional setup consent, same-app reauthorization, generation-scoped opt-in, notice and disable. Database and Core are deployed. | Publish the Gateway and Web controls and exercise enable/disable in the consenting pilot. |
+| Bounded requester-only history | The live Core supports the current requester's top-level messages with a 30-minute default and two-hour maximum. | Enable the consenting pilot group through the product and verify a fresh cross-topic request. |
+| Coverage and diagnosis | PR #378 reports conservative examined coverage, gap reasons and body-free read diagnostics. The hosted guidance permits useful delegation from partial evidence and separates the Space brief's audience from the final topic's audience. | Merge, deploy and check a recap against known pilot messages. |
+| Other authors and topic replies | Withheld from the broader reader under the agreed first-release scope. | A provider-backed visibility proof is required before expanding the admitted evidence. Bot access alone is insufficient. |
+| Slack and Lark range extensions | Existing mention, thread, linking and publication features are reuse targets. This release's authorized live test surface is Feishu. | Qualify an authorized provider pilot, prove requester visibility and estimate extra API calls before enabling the new range operation. |
 
 ## Implementation sequence
 

@@ -10318,7 +10318,7 @@ export async function rpcReadFeishuGroupHistory(
   if (!enabled.has(locator.chatId)) {
     return { status: "disabled" };
   }
-  return feishuGroupHistoryResultSchema.parse(
+  const result = feishuGroupHistoryResultSchema.parse(
     await adapter.readHistory({
       connection,
       locator,
@@ -10329,6 +10329,25 @@ export async function rpcReadFeishuGroupHistory(
       includeCoverage,
     })
   );
+  console.info("[core.message_channel.history_read]", {
+    event: "message_channel.history_read",
+    provider: "feishu",
+    submissionId,
+    organizationId: delivery.organizationId,
+    status: result.status,
+    ...(result.status === "read"
+      ? {
+          scope: result.scope,
+          requestedFromMs: result.startMs,
+          cutoffMs: result.endMs,
+          returnedMessageCount: result.context.messages.length,
+          syncStatus: result.context.sync.status,
+          examinedFromMs: result.coverage?.examinedFromMs,
+          gaps: result.coverage?.gaps,
+        }
+      : {}),
+  });
+  return result;
 }
 export async function rpcBeginLarkPlatformRegistration(
   env: CoreBindings,
