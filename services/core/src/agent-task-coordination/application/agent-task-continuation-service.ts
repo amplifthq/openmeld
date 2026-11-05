@@ -93,7 +93,8 @@ export async function processAgentTaskContinuationQueueMessage(input: {
   }
   if (
     current.observerTask.kind === "native_delivery" &&
-    (await isRoutineObserverStillRunning({
+    (await isResultOwnerStillRunning({
+      resumesDelegation: current.continuation?.kind === "resume_agent",
       db: input.db,
       deliveryId: current.observerTask.deliveryId,
     }))
@@ -157,13 +158,16 @@ export async function processAgentTaskContinuationQueueMessage(input: {
     throw error;
   }
 }
-async function isRoutineObserverStillRunning(input: {
+async function isResultOwnerStillRunning(input: {
+  resumesDelegation: boolean;
   db: PostgresDatabase;
   deliveryId: string;
 }): Promise<boolean> {
   const observer = await readRemoteAgentNativeDeliveryByDeliveryId(input);
   return (
-    observer?.routineRunId !== null &&
+    (observer?.routineRunId != null ||
+      (input.resumesDelegation &&
+        observer?.messageChannelLocator?.provider === "feishu")) &&
     (observer?.status === "accepted" || observer?.status === "retry_observed")
   );
 }

@@ -1252,11 +1252,24 @@ text; its name and input contract remain distinct from Computer file transfers.
 Center Agent final Space replies and Space Routine reports may prepare explicit
 Human Profile recipients with `openmeld_set_final_reply_mentions`. The latest
 selection replaces the earlier selection for that turn; an empty list clears it.
-The native completion callback carries `mentionTargets`, and the existing Space
-publication boundary validates active Human membership and creates normal Mention
-notifications with the final message. Preparation is not publication, and plain
+`resolveRemoteAgentReplyMentions` rechecks the admitted execution, derives its
+destination from the delivery, and resolves every selected Human Profile before
+the tool changes that selection. A failed or incomplete resolution preserves the
+previous selection. The result distinguishes Space members from active people
+who belong only to the Organization. The native completion callback carries
+`mentionTargets`; Space repeats target validation at publication and seals display
+scope. Organization-only recipients receive a content-free mention receipt, with
+normal Space access unchanged. Preparation is not publication, and plain
 names never create notifications or Agent Wakes. Web renders explicit recipients
 even when the message prose does not contain an inline mention.
+
+A `space.addressing.target_invalid` publication rejection is deterministic. Core
+freezes a specific failure notice through the existing final-publication claim,
+instead of returning a retryable success-publication failure. Callback replays
+resume that frozen notice and never resend the rejected completed body. Temporary
+transport/publication failures keep their existing retry behavior. Routine Run
+history receives the bounded, public-safe addressing explanation, not the raw
+Worker exception or callback content.
 
 Contract Impact Audit: the optional callback field is Core/Remote Agent only.
 Deploy the accepting Core before a Remote Agent build can send this field; older
@@ -2274,6 +2287,13 @@ contract requires one. The model receives a destination-neutral continuation
 instruction, while Core remains responsible for returning the final result to
 the original conversation. Ordinary Space and Center Agent DM collaboration
 continue through this same path without any Channel dependency.
+
+For a Feishu delegation that resumes after all children finish, the scheduling turn
+leaves its working card open. The authorized continuation takes ownership of that
+card and publishes the result in the original topic. Channel continuations have
+no Space-owned work target. Core records the originating native delivery in the
+Wake audit before posting the Space signal so workstation admission can verify
+the human requester even if it runs immediately.
 
 The requester and the interaction environment are separate facts. A verified
 member remains the same requester across Center Agent Chat, a Space, Slack,

@@ -5,6 +5,7 @@ import { createSubmitTurnRequest } from "../../remote-agent/tests/fixtures";
 import { centerAgentWorkTarget } from "../src/center-agent/application/work-target";
 import type { CoreBindings } from "../src/lib/bindings";
 import { authorizeRemoteAgentExecutionAccess } from "../src/remote-agent/application/remote-agent-execution-access";
+import { resolveRemoteAgentReplyMentions } from "../src/remote-agent/application/reply-mentions";
 import { rpcRemoteAgentReadMessages } from "../src/search/message-read";
 
 const owners = vi.hoisted(() => ({
@@ -18,6 +19,10 @@ const owners = vi.hoisted(() => ({
   delegated: vi.fn(),
   computer: vi.fn(),
   workTarget: vi.fn(),
+  organizationProfile: vi.fn(),
+}));
+vi.mock("../src/center-agent/center-agent-repository", () => ({
+  readResolvedOrganizationSpaceMember: owners.organizationProfile,
 }));
 vi.mock("../src/rpc/space-ref", () => ({
   resolveSpaceStub: () => ({ rpcCenterAgentWorkTarget: owners.workTarget }),
@@ -118,6 +123,50 @@ describe("current execution access is an owner projection, not a cached grant", 
           createdAtMs: 1,
         })
     );
+  });
+
+  it("resolves final reply mentions only inside the admitted Space and rejects a revoked execution", async () => {
+    const colleagueId = "77777777-7777-4777-8777-777777777777";
+    owners.organizationProfile.mockResolvedValue({
+      profileId: colleagueId,
+      profileName: "Colleague",
+      profileKind: "human",
+      ownerUserId: "colleague-owner",
+    });
+    const env = {
+      OPENMELD_POSTGRESQL: {
+        connectionString:
+          "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+      },
+    } as CoreBindings;
+    const selected = await resolveRemoteAgentReplyMentions(env, {
+      context: input.context,
+      mentionProfileIds: [colleagueId],
+    });
+    expect(selected).toEqual({
+      spaceId: record.spaceId,
+      targets: [
+        {
+          profileId: colleagueId,
+          profileName: "Colleague",
+          scope: "organization",
+        },
+      ],
+    });
+    expect(owners.organizationProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: record.organizationId,
+        profileId: colleagueId,
+      })
+    );
+    owners.delivery.mockResolvedValue({ ...record, status: "completed" });
+    await expect(
+      resolveRemoteAgentReplyMentions(env, {
+        context: input.context,
+        mentionProfileIds: [colleagueId],
+      })
+    ).rejects.toThrow();
+    expect(owners.organizationProfile).toHaveBeenCalledOnce();
   });
 
   it.each([

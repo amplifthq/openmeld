@@ -130,6 +130,40 @@ it.each([
   );
 });
 
+it("resumes an external task without reading a Space-owned work target", async () => {
+  const { context, ...deps } = await fixture();
+  if (!context.turnEnvelope) {
+    throw new Error("expected an admitted turn");
+  }
+  const env = context.turnEnvelope;
+  const facts = await readCenterAgentWorkTargetFacts({
+    ...deps,
+    personalAgent: false,
+    context: {
+      ...context,
+      turnEnvelope: {
+        ...env,
+        space: { ...env.space, id: "feishu:connection:chat:root" },
+        trigger: {
+          source: "task_continuation",
+          subscriptionId: "sub",
+          delegationId: "delegation",
+          watchedTask: { v: 1, kind: "native_delivery", deliveryId: "child" },
+          outcome: {
+            errorCode: null,
+            eventId: "done",
+            occurredAtMs: 10,
+            publishedSignalId: "reply",
+            status: "succeeded",
+          },
+        },
+      },
+    },
+  });
+  expect(facts).toBe("");
+  expect(deps.coreWorker.centerAgentWorkTarget).not.toHaveBeenCalled();
+});
+
 it("refreshes facts from the Space owner on every generation and blocks tool work until a new Human request selects or inherits", async () => {
   const input = await fixture();
   expect(

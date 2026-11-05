@@ -18,6 +18,7 @@ import {
 } from "./member-identity-index";
 
 export type SpaceMessageReadTargetRef = {
+  membershipScope?: "space" | "organization";
   profileId: string;
   profileKind: "human" | "agent" | "system" | null;
   displayName: string;
@@ -110,7 +111,24 @@ export function buildSignalMessageReadProjection(input: {
     mentionTargets: resolveTargetRefs(
       envelope?.mentionTargets,
       memberIdentityIndex
-    ),
+    ).map((target) => {
+      const identity =
+        input.signal.type === "signal.text"
+          ? input.signal.data.meta?.humanMentions?.find(
+              (mention) => mention.profileId === target.profileId
+            )
+          : undefined;
+      if (!identity) {
+        return target;
+      }
+      return {
+        profileId: target.profileId,
+        profileKind: "human" as const,
+        displayName: identity.profileName,
+        displaySource: "signal_history" as const,
+        membershipScope: identity.scope,
+      };
+    }),
     replyToSignalId,
     replyToContext: resolveReplyToContext({
       replyToSignalId,

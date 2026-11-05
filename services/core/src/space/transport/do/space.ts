@@ -348,7 +348,9 @@ import {
   readCenterAgentDesignationRecord,
   readCenterAgentWakeAuditAttribution,
   readResolvedOrganizationOwnerHumanSpaceMember,
+  readResolvedOrganizationSpaceMember,
 } from "../../../center-agent/center-agent-repository";
+import { resolveSpaceHumanMentionTargets } from "../../application/human-mention-targets";
 import { projectSpaceDiagnosticReportPointers } from "../../../diagnostics/application/space-diagnostic-report-pointer";
 import { writeSpaceDiagnosticReport } from "../../../diagnostics/infrastructure/postgresql/space-diagnostic-report-repo";
 import {
@@ -1922,7 +1924,7 @@ function assertEditedMessageTargetsAreActiveMembers(
     return;
   }
   const before = previous.data.messageEnvelope;
-  assertCurrentSpaceAddressingTargetsAreActiveMembers({
+  assertCurrentSpaceAddressingTargets({
     sql,
     messageEnvelope: {
       ...envelope,
@@ -1938,7 +1940,8 @@ function assertEditedMessageTargetsAreActiveMembers(
     },
   });
 }
-const assertCurrentSpaceAddressingTargetsAreActiveMembers = (input: {
+const assertCurrentSpaceAddressingTargets = (input: {
+  resolvedHumanMentions?: SignalPublishContext["resolvedHumanMentions"];
   messageEnvelope: SignalTextBuildOptions["messageEnvelope"];
   sql: SqlStorage;
 }): void => {
@@ -1984,6 +1987,13 @@ const assertCurrentSpaceAddressingTargetsAreActiveMembers = (input: {
   }
   for (const targetProfileId of input.messageEnvelope.mentionTargets ?? []) {
     const member = readSpaceMemberRecord(input.sql, targetProfileId);
+    const organizationMention = input.resolvedHumanMentions?.find(
+      (target) =>
+        target.profileId === targetProfileId && target.scope === "organization"
+    );
+    if (organizationMention) {
+      continue;
+    }
     if (member?.status === "active" && member.profileKindSnapshot === "human") {
       continue;
     }
@@ -22940,8 +22950,9 @@ export class Space extends DurableObject<CoreBindings> {
     > | null = null;
     const persistNowMs = Date.now();
     if (signal.type === "signal.text") {
-      assertCurrentSpaceAddressingTargetsAreActiveMembers({
+      assertCurrentSpaceAddressingTargets({
         messageEnvelope: signal.data.messageEnvelope,
+        resolvedHumanMentions: signalContext?.resolvedHumanMentions,
         sql: this.ctx.storage.sql,
       });
     }
@@ -23299,8 +23310,9 @@ export class Space extends DurableObject<CoreBindings> {
     let repostedSource: SignalEnvelope | null = null;
     const persistNowMs = Date.now();
     if (signal.type === "signal.text") {
-      assertCurrentSpaceAddressingTargetsAreActiveMembers({
+      assertCurrentSpaceAddressingTargets({
         messageEnvelope: signal.data.messageEnvelope,
+        resolvedHumanMentions: signalContext?.resolvedHumanMentions,
         sql: this.ctx.storage.sql,
       });
     }
@@ -28477,7 +28489,7 @@ export class Space extends DurableObject<CoreBindings> {
     this.assertActiveSpaceForPublication();
     // Freeze legacy HTTP/RPC/WebSocket input here, before ordinary dispatch or
     // active Steer. Queue promotion already carries its original accepted anchor.
-    const signalContext =
+    let signalContext =
       signal.type === "signal.text" && !signalContextInput?.requestTimeContext
         ? {
             ...signalContextInput,
@@ -28547,6 +28559,48 @@ export class Space extends DurableObject<CoreBindings> {
       signal,
       signalContext,
     });
+    if (normalizedSignal.type === "signal.text") {
+      const profileIds =
+        normalizedSignal.data.messageEnvelope?.mentionTargets ?? [];
+      const resolvedHumanMentions = await resolveSpaceHumanMentionTargets({
+        profileIds,
+        readSpaceMember: (profileId) => {
+          const member = readSpaceMemberRecord(this.ctx.storage.sql, profileId);
+          return member?.status === "active"
+            ? {
+                profileId,
+                profileName: member.profileNameSnapshot,
+                profileKind: member.profileKindSnapshot,
+                ownerUserId: member.ownerUserIdSnapshot,
+              }
+            : null;
+        },
+        readOrganizationProfile: (profileId) => {
+          const organizationId = this.readSpaceMetaRecord()?.organizationId;
+          if (!organizationId) {
+            throw new Error("Space Organization is unavailable.");
+          }
+          return readResolvedOrganizationSpaceMember({
+            db: this.requireSpaceIndexDb(),
+            organizationId,
+            profileId,
+          });
+        },
+      });
+      signalContext = { ...signalContext, resolvedHumanMentions };
+      const { humanMentions: _untrustedMentions, ...meta } =
+        normalizedSignal.data.meta ?? {};
+      normalizedSignal.data.meta = {
+        ...meta,
+        ...(resolvedHumanMentions.length
+          ? {
+              humanMentions: resolvedHumanMentions.map(
+                ({ ownerUserId: _ownerUserId, ...target }) => target
+              ),
+            }
+          : {}),
+      };
+    }
     let signalWithAgentActivity = normalizedSignal;
     try {
       signalWithAgentActivity = await attachAgentActivityToFinalReply({

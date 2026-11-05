@@ -1608,10 +1608,24 @@ executable relation inside Space Message Addressing.
 Reference is collaboration context only. If a message only references an Agent
 Profile, the user should not expect local work or an agent reply.
 
-Every newly authored Wake, Reference, or Human Mention target must be an active member of the
-current Space at the Space write boundary. A removed member or a Profile that
-belongs only to the Organization cannot be used as a current addressing target,
-because the resulting message could not resolve that target from Space truth.
+Every newly authored Wake or Reference target must be an active member of the
+current Space at the Space write boundary. Human Mentions in ordinary message
+publication, including Agent final replies and Routine reports, may also target
+an active Human Profile in the same Organization. Space resolves these targets
+against its current membership and the Organization identity owner before writing
+the message. It seals each person's display identity and `space` or `organization`
+scope in message metadata; clients cannot supply this proof. The badge describes
+membership when the message was sent, not current authorization.
+
+An Organization-only mention does not add membership or grant any content access.
+Its recipient receives a minimal Inbox mention with no Space name, message body,
+attachment preview, or thread preview. Current Organization membership and Profile
+identity gate that receipt. Opening the link still uses normal Space authorization.
+The ordinary Composer picker and `@all` continue selecting current Space members;
+this change enables explicit Agent/Routine recipients and their displayed tokens,
+not Organization-wide automatic recipient expansion. Editing a historical message
+does not issue a new notification, and newly added edit targets retain the current
+Space-member authoring rule.
 Mentioning an Agent that has no Profile in the Space is not an addressing
 target: the owner's own mention adds the default Profile through the atomic
 owner join first, and anyone else's mention creates the owner request described
@@ -1628,7 +1642,9 @@ create Human Mention, so Web
 shows a fixed `@Name` mark instead of a meaningless Wake/Reference selector.
 Each inline Agent token shows its own Wake or Reference relation, so Web does
 not repeat those relations in a bottom count summary. Human Mentions stay
-visible in the message itself without an Agent relation label. Every Composer
+visible in the message itself without an Agent relation label. Published Human
+Mentions with sealed scope show `Space member` or `Organization · not in this Space`.
+Every Composer
 inline target provides a direct remove action in addition to keyboard deletion.
 The `@all` picker lets a member choose People, Agents, or Both. The Composer
 shows that selection as one `@everyone`, `@agents`, or `@all` token, respectively,

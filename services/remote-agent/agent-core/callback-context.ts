@@ -344,6 +344,7 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  resolveRemoteAgentReplyMentions?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceGuide?(
     input: import("@openmeld/schemas/types").CenterAgentReadSpaceGuideRequest
   ): Promise<

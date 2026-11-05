@@ -1758,6 +1758,32 @@ caller before its receivers. CLI, Service, Skills, setup, Wake, Space actions,
 and diagnostics keep their existing contracts; no migration or local component
 release is required.
 
+### Routine Human Mention resolution
+
+`resolveRemoteAgentReplyMentions` is an additive Core service-binding read. The
+request contains the admitted execution context and selected Profile IDs, never a
+caller-selected destination. Core derives Organization and Space from the durable
+delivery and applies the shared Human Mention resolver. Deploy this Core receiver
+before the Remote Agent caller; a missing receiver fails preparation explicitly.
+Existing callback `mentionTargets` and final-publication response shapes do not
+change. Old Remote Agent callbacks remain accepted.
+
+Space-owned optional `meta.humanMentions` contains display identity and membership
+scope at publication. Both authored metadata schemas omit it; Space seals it from
+current reads. Older signal readers strip this optional display data and retain
+the message. No CLI, Service, Skills, setup, Wake, or diagnostics contract version
+or forced local component update changes. New Web renders the scope badge; the
+normal Composer picker remains scoped to Space members.
+
+Minimal Organization mention notifications reuse `space_mention`, the Space
+outbox, and Inbox source ownership. Their optional stored source-facts receipt is
+stripped before public Inbox item projection, so existing Gateway and client
+schemas keep their wire shapes. No database migration is required. After these
+receipts are written, a Core rollback must retain the compatible stored-facts
+reader; do not strip persisted provenance to roll back. Space content and membership
+authorization are unchanged. Notification settings access permits only the
+recipient's own settings for a currently authorized minimal receipt.
+
 ### Personal Agent owner Inbox activity
 
 Inbox source-target version 6 adds optional `agentOwnerActivity` to Space targets.

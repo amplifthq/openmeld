@@ -11,6 +11,7 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   organizationDirectoryResponseSchema,
+  remoteAgentResolveReplyMentionsRequestSchema,
 } from "@openmeld/schemas";
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
 import {
@@ -5653,14 +5654,48 @@ describe("remote agent OpenMeld tool catalog", () => {
             },
           });
     const storage = await createStorageWithPendingContext(request);
+    const resolveRemoteAgentReplyMentions = vi.fn((payload: unknown) => {
+      const { mentionProfileIds } =
+        remoteAgentResolveReplyMentionsRequestSchema.parse(payload);
+      return Promise.resolve({
+        spaceId: SPACE_ID,
+        targets: [...new Set(mentionProfileIds)].map((profileId) => ({
+          profileId,
+          profileName: "Reporter",
+          scope:
+            kind === "routine" ? ("organization" as const) : ("space" as const),
+        })),
+      });
+    });
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: {},
+      coreWorker: { resolveRemoteAgentReplyMentions },
       storage,
       turnEnvelope: request.turnEnvelope,
     });
     await executeTool(tools, "openmeld_set_final_reply_mentions", {
       mentionProfileIds: [HUMAN_PROFILE_ID, HUMAN_PROFILE_ID],
     });
+    expect(
+      (await readRemoteAgentCallbackContext(storage, ACK.submissionId))
+        ?.mentionTargets
+    ).toEqual([HUMAN_PROFILE_ID]);
+    resolveRemoteAgentReplyMentions.mockResolvedValueOnce({
+      spaceId: SPACE_ID,
+      targets: [],
+    });
+    await expect(
+      executeTool(tools, "openmeld_set_final_reply_mentions", {
+        mentionProfileIds: [HUMAN_PROFILE_ID],
+      })
+    ).rejects.toThrow("different mention targets");
+    resolveRemoteAgentReplyMentions.mockRejectedValueOnce(
+      new Error("space.addressing.target_invalid")
+    );
+    await expect(
+      executeTool(tools, "openmeld_set_final_reply_mentions", {
+        mentionProfileIds: ["33333333-3333-4333-8333-333333333333"],
+      })
+    ).rejects.toThrow("space.addressing.target_invalid");
     expect(
       (await readRemoteAgentCallbackContext(storage, ACK.submissionId))
         ?.mentionTargets

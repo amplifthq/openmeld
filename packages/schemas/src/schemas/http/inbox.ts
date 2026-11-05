@@ -56,9 +56,21 @@ export const inboxSourceFactsSchema = z
     mentionedAgentProfileIds: inboxAgentProfileIdsSchema.optional(),
     firstContactAgentProfileIds: inboxAgentProfileIdsSchema.optional(),
     recipientReasons: z.array(inboxRecipientReasonSchema).min(1).max(7),
+    // Internal receipt for a minimal, content-free mention sent outside Space membership.
+    organizationMentionProfileId: identifierSchema.optional(),
     requestCategory: z.enum(["action", "review"]).optional(),
   })
   .superRefine((facts, context) => {
+    if (
+      facts.organizationMentionProfileId &&
+      !facts.recipientReasons.includes("human_mention")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Organization mentions require an explicit Human Mention.",
+        path: ["organizationMentionProfileId"],
+      });
+    }
     const agents = new Set(facts.agentProfileIds ?? []);
     const personalAgents = new Set(facts.personalAgentProfileIds ?? []);
     for (const field of [

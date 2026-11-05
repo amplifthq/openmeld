@@ -28,6 +28,27 @@ describe("owner-supplied public failure facts", () => {
   it.each([
     "en",
     "zh-Hans",
+  ])("explains a deterministic mention publication rejection in %s", (languageTag) => {
+    const presentation = formatPublicAgentFailureFacts({
+      ...exhausted,
+      languageTag,
+      stage: "publication",
+      reasonCode: "space.addressing.target_invalid",
+      retry: { status: "none" },
+    });
+    expect(presentation.body).toContain(
+      languageTag === "en" ? "mention target" : "提及对象"
+    );
+    expect(presentation.body).toContain(
+      languageTag === "en" ? "not restarted" : "没有重新执行"
+    );
+    expect(presentation.body).not.toContain(
+      languageTag === "en" ? "could not confirm" : "无法确认"
+    );
+  });
+  it.each([
+    "en",
+    "zh-Hans",
   ])("explains interrupted processing without guessing its cause or replaying child work in %s", (languageTag) => {
     const facts = agentFailureFactsSchema.parse({
       ...exhausted,
