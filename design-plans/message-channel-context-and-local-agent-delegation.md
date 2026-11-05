@@ -1,6 +1,6 @@
 # Message Channel context and Local Agent delegation
 
-**Status:** Feishu delivery in progress. The self-contained Feishu-to-workstation-to-topic path passed production acceptance on 2026-11-05 after PR #380. PR #378 adds coverage reporting for bounded history. Slack and Lark remain conditional on separate authorized pilots and requester-visibility evidence.
+**Status:** The agreed Feishu requester-only release is deployed. The self-contained and cross-topic history handoffs both passed production acceptance on 2026-11-05. A recap reported its exact supported scope and missing material. Slack and Lark range extensions remain conditional on separate authorized pilots and requester-visibility evidence.
 
 ## First-release scope and cost decision
 
@@ -37,7 +37,7 @@ This design uses one Center Agent entry point on each connected provider. A Loca
 
 ## Provider behavior and work required
 
-| Provider | What OpenMeld already has | Work for this proposal |
+| Provider | Baseline before this proposal | Work for this proposal |
 | --- | --- | --- |
 | Slack | An admitted mention gets bounded thread context. A top-level mention can also get recent preceding top-level messages in the same channel. Thread cursors advance after admission. Exact same-channel links can add quoted context. A separate tool reads pages of a joined channel's history. | Use automatic context first. For “the last half hour,” reuse the Slack history client with the delivery's verified channel ID and cutoff. The existing named-channel tool takes a cursor and limit, with no time-range inputs. Add bounded range handling where needed and report coverage. Preserve the current mention, search and link behavior. Use current Slack sharing metadata, including Slack Connect, to determine reply audience. |
 | Feishu | DMs and group mentions reach the Center Agent. Automatic history reads one page and keeps only records belonging to the same chat and root. A new top-level mention therefore misses earlier independent messages. The standard installation omits `im:message.group_msg`. | Offer the additional provider grant through Channel reauthorization and a revocable per-group history setting. Add an explicit, bounded read of the current chat across roots. In an ordinary group, a chat listing gives top-level messages and topic roots; topic replies need separate reads. Feishu groups keep the externally shared disclosure rule until stronger audience evidence is available. |
@@ -66,12 +66,12 @@ The Feishu candidate implements the evidence available without individual OAuth:
 
 ## Delivery status
 
-| Item | Implementation and evidence | Remaining acceptance or prerequisite |
+| Item | Implementation and evidence | Scope and remaining prerequisite |
 | --- | --- | --- |
-| Self-contained Feishu delegation | PR #380 is deployed. A fresh group mention generated one Space Wake to the requested Local Agent, produced the independently checked full SHA-256 on the workstation, and updated the original Feishu card. The topic showed one reply. | Repeat using facts from earlier top-level messages. |
-| Feishu app grant and group controls | PR #377 supplies default-on optional setup consent, same-app reauthorization, generation-scoped opt-in, notice and disable. Database and Core are deployed. | Publish the Gateway and Web controls and exercise enable/disable in the consenting pilot. |
-| Bounded requester-only history | The live Core supports the current requester's top-level messages with a 30-minute default and two-hour maximum. | Enable the consenting pilot group through the product and verify a fresh cross-topic request. |
-| Coverage and diagnosis | PR #378 reports conservative examined coverage, gap reasons and body-free read diagnostics. The hosted guidance permits useful delegation from partial evidence and separates the Space brief's audience from the final topic's audience. | Merge, deploy and check a recap against known pilot messages. |
+| Feishu delegation | PR #380 is deployed. A fresh group mention generated one Space Wake to the requested Local Agent, produced the independently checked SHA-256 on the workstation, and updated the original Feishu card. The cross-topic test subsequently passed the same path with two earlier independent messages. | Production acceptance passed for both explicit and recalled briefs. |
+| Feishu app grant and group controls | PR #377 supplies optional setup consent, same-app reauthorization, generation-scoped opt-in, notice and disable. The database, Core, Gateway and Web are deployed. The pilot was enabled through the product and its notice was visible in the group. | Only the consenting test group was enabled. Provider-wide revocation and fresh installation remain covered by focused tests, not a destructive live tenant change. |
+| Bounded requester-only history | The live Core supports the requester's top-level messages with a 30-minute default and two-hour maximum. A new top-level mention recovered both earlier input fragments and their failed-workaround detail, then delegated without asking for repeated context. | Production acceptance passed for the agreed requester-only scope. |
+| Coverage and diagnosis | PR #378 is deployed with conservative examined coverage, gap reasons and body-free diagnostics. A real recap returned the four supported requester-authored roots in its two-hour window and explicitly excluded other authors and topic replies. | Bounded-result and rate-limit behavior also passed focused provider-reader tests. |
 | Other authors and topic replies | Withheld from the broader reader under the agreed first-release scope. | A provider-backed visibility proof is required before expanding the admitted evidence. Bot access alone is insufficient. |
 | Slack and Lark range extensions | Existing mention, thread, linking and publication features are reuse targets. This release's authorized live test surface is Feishu. | Qualify an authorized provider pilot, prove requester visibility and estimate extra API calls before enabling the new range operation. |
 
@@ -165,6 +165,24 @@ Run the handoff in a consenting Feishu group first. Repeat it in a Slack channel
 Enable broader reads only for providers that pass their own checks. A provider without sufficient history evidence can still support work from an explicit brief. Revisit a saved Space preference or separate bot identities only if repeated use demonstrates a need.
 
 **Candidate reader verification, 2026-11-04.** The PR reader issued its current-group, 30-minute query anchored at the original top-level mention. We executed its parameters against the real production Feishu app using the official API Explorer; short-lived credentials stayed in the explorer. The returned page had three items. After withholding unrelated text and pseudonymizing authors for local transport, the candidate returned exactly one requester-authored root message with the original synthetic marker. The first attempt exposed a real provider detail: the trigger had an update timestamp 120 ms after creation. Source identity checks now use its immutable message, author, chat, root and creation time and reject recalled sources. Historical bodies revised after the cutoff are withheld. This verifies the candidate reader against a real provider response. The production bot has not run the PR's tool or published a post-deployment answer to this probe.
+
+## Production acceptance, 2026-11-05
+
+The pilot used one consenting Feishu group and a private OpenMeld Space with the requester, Center Agent and the requester's Local Agent. All inputs were synthetic and required no project-file access.
+
+| Probe | Observed result |
+| --- | --- |
+| Explicit brief after PR #380 | The workstation published the independently checked SHA-256 result. The formal trace reported `reply.delivered`. The original Feishu topic contained one updated card, with hash prefix `e61805d5bc2b`. |
+| Earlier independent roots after PR #378 | Two ordinary top-level messages carried separate input fragments and a failed-workaround detail. A later mention referenced the discussion without repeating either fragment. The Space brief contained both exact fragments and the workaround detail. The workstation's full hash matched the independent result, and the original topic showed one final card with prefix `a5f65db088fb`, naming the two source messages used. |
+| Complete recap | The reply called itself partial, gave the exact two-hour window and four requester-authored root messages, and stated that other members' messages and topic replies were unavailable. It did not infer the Local Agent outcomes from unavailable replies. |
+| Group notice and isolation | The product posted its enablement notice. The pilot's switch was on and the other joined group's switch stayed off. |
+| Disable and self-contained request | After disabling the pilot through the product, a fresh ordinary message introduced a new synthetic code. A later mention could not retrieve that code and explicitly reported disabled history, while correctly echoing a different code supplied in the current request. No delegation was requested or reported. |
+
+At the end of acceptance, the pilot history switch was restored to its original off state. An administrator can opt in again from Manage Feishu. Tenant-wide permission revocation, reconnection and multi-provider routing were not exercised against other users' production conversations.
+
+Delivery evidence is [PR #380](https://github.com/amplifthq/openmeld/pull/380), [its production run](https://github.com/amplifthq/openmeld/actions/runs/41844610834), [PR #378](https://github.com/amplifthq/openmeld/pull/378), and [the Core, Gateway, Remote Agent and Web release](https://github.com/amplifthq/openmeld/actions/runs/41961130085).
+
+The broader original proposal is conditional beyond this slice. Cross-author or cross-topic-reply visibility needs a provider-backed proof before access can expand. Lark was not connected in the pilot Organization. Slack's range extension needs a separately authorized test channel and visibility validation.
 
 ## References
 
