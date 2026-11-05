@@ -5,10 +5,20 @@ const providerId = z.string().trim().min(1).max(512);
 export const feishuGroupHistoryReadSchema = z.strictObject({
   lookbackMinutes: z.number().int().min(1).max(120).default(30),
 });
-// The projection flag belongs to the RPC caller, never to model-supplied input.
+export const feishuGroupHistoryScopeSchema = z.enum([
+  "requester_top_level_messages",
+  "current_thread_messages",
+]);
+export type FeishuGroupHistoryScope = z.output<
+  typeof feishuGroupHistoryScopeSchema
+>;
+
+// Target identities stay outside model input. Older Core ignores the outer
+// scope field; the hosted caller rejects a response for a different scope.
 export const feishuGroupHistoryCallSchema = z.object({
   request: feishuGroupHistoryReadSchema,
   includeCoverage: z.literal(true).optional(),
+  scope: feishuGroupHistoryScopeSchema.optional(),
 });
 export type FeishuGroupHistoryCall = z.output<
   typeof feishuGroupHistoryCallSchema
@@ -26,7 +36,7 @@ export type FeishuHistoryGap = z.output<typeof feishuHistoryGapSchema>;
 export const feishuGroupHistoryResultSchema = z.discriminatedUnion("status", [
   z.strictObject({
     status: z.literal("read"),
-    scope: z.literal("requester_top_level_messages"),
+    scope: feishuGroupHistoryScopeSchema,
     startMs: z.number().int().nonnegative(),
     endMs: z.number().int().nonnegative(),
     coverage: z

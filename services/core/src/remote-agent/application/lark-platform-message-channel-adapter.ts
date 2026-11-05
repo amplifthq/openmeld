@@ -20,7 +20,7 @@ import {
   publishLarkPlatformIdentityLinkCard,
   publishLarkPlatformNavigationActionCard,
   publishLarkPlatformReply,
-  readFeishuRequesterHistory,
+  readFeishuHistory,
   readLarkPlatformChannelContext,
   readLarkPlatformPluginSourceProof,
   updateLarkPlatformStreamingCardContent,
@@ -338,7 +338,7 @@ export function createLarkPlatformMessageChannelAdapter(input: {
       });
     },
 
-    async readFeishuRequesterHistory({ connection, locator, ...request }) {
+    async readFeishuHistory({ connection, locator, ...request }) {
       if (
         input.provider !== "feishu" ||
         !requireMatchingLocator({ connection, locator, provider: "feishu" })
@@ -349,12 +349,13 @@ export function createLarkPlatformMessageChannelAdapter(input: {
       if (!appSecret) {
         return { status: "unavailable" };
       }
-      return readFeishuRequesterHistory({
+      return readFeishuHistory({
         ...request,
         appId: connection.appId,
         appSecret,
         chatId: locator.chatId,
         rootMessageId: locator.rootMessageId,
+        threadId: locator.threadId,
         fetchImpl: input.fetchImpl,
       });
     },

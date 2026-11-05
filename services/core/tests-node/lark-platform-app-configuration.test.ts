@@ -80,6 +80,11 @@ describe("Lark-platform persistent app configuration", () => {
                       scope_type: "tenant",
                       grant_status: historyGrantStatus,
                     },
+                    {
+                      scope_name: "im:chat.members:read",
+                      scope_type: "tenant",
+                      grant_status: historyGrantStatus,
+                    },
                   ],
                 },
               }

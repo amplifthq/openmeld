@@ -4,7 +4,7 @@ import {
   requestLarkPlatformTenantAccessToken,
 } from "./lark-platform-openapi-client";
 import {
-  FEISHU_GROUP_HISTORY_SCOPE,
+  FEISHU_HISTORY_SCOPES,
   LARK_PLATFORM_APP_CONFIGURATION_SCOPE,
   LARK_PLATFORM_APP_SELF_MANAGE_SCOPE,
   LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE,
@@ -243,11 +243,11 @@ async function verifyChannelOnlyPermissionBundle(input: {
     ) {
       throw configurationError(input.provider, "permission_scope_read_failed");
     }
-    // This extra tenant scope is requested by choice. A pending/declined
-    // history permission must not prevent ordinary DMs and mentions.
+    // Pending or declined history permissions must not prevent ordinary
+    // DMs and mentions. The reader verifies the required grants at use time.
     if (
       input.provider === "feishu" &&
-      scopeName === FEISHU_GROUP_HISTORY_SCOPE &&
+      FEISHU_HISTORY_SCOPES.some((name) => name === scopeName) &&
       scopeType !== "user" &&
       grantStatus !== 1
     ) {
@@ -263,15 +263,16 @@ async function verifyChannelOnlyPermissionBundle(input: {
     actualScopeNames.add(scopeName);
   }
   const expectedScopes = LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.scopes;
-  // Explicit app-configuration consent is setup authority, not a Channel tool grant.
-  actualScopeNames.delete(LARK_PLATFORM_APP_CONFIGURATION_SCOPE);
-  actualScopeNames.delete(LARK_PLATFORM_APP_SELF_MANAGE_SCOPE);
-  // The optional Feishu group-history grant may already be active on repair.
-  if (input.provider === "feishu") {
-    actualScopeNames.delete(FEISHU_GROUP_HISTORY_SCOPE);
-  }
+  // Setup authority and optional Feishu history grants do not change the
+  // required basic messaging bundle. All other extra scopes still fail closed.
+  const allowedScopes: readonly string[] = [
+    ...expectedScopes,
+    LARK_PLATFORM_APP_CONFIGURATION_SCOPE,
+    LARK_PLATFORM_APP_SELF_MANAGE_SCOPE,
+    ...(input.provider === "feishu" ? FEISHU_HISTORY_SCOPES : []),
+  ];
   if (
-    actualScopeNames.size !== expectedScopes.length ||
+    [...actualScopeNames].some((scope) => !allowedScopes.includes(scope)) ||
     expectedScopes.some((scopeName) => !actualScopeNames.has(scopeName))
   ) {
     throw configurationError(input.provider, "permission_bundle_mismatch");

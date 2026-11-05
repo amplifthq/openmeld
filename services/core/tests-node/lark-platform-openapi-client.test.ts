@@ -6,7 +6,7 @@ import {
   publishLarkPlatformCardReference,
   publishLarkPlatformIdentityLinkCard,
   publishLarkPlatformReply,
-  readFeishuRequesterHistory,
+  readFeishuHistory,
   readLarkPlatformChannelContext,
   readLarkPlatformPluginSourceProof,
   requestLarkPlatformTenantAccessToken,
@@ -19,6 +19,182 @@ import {
 } from "../src/remote-agent/application/plugin-channel-source-proof";
 
 describe("Lark-platform OpenAPI publication", () => {
+  it("reads other authors only in a proven current Feishu thread and fails closed without current membership", async () => {
+    // Thread fields follow the November 5 openmeld测试 API capture. Member
+    // fields follow Feishu's documented GET /im/v1/chats/:chat_id/members.
+    const end = 1_793_857_900_000;
+    const item = (id: string, ts: number, author = "ou_peer") => ({
+      chat_id: "oc_chat",
+      message_id: id,
+      root_id: "om_root",
+      parent_id: "om_root",
+      thread_id: "omt_topic",
+      create_time: String(ts),
+      update_time: String(ts),
+      sender: { id: author, id_type: "open_id", sender_type: "user" },
+      msg_type: "text",
+      body: { content: JSON.stringify({ text: id }) },
+      deleted: false,
+      updated: false,
+    });
+    let trigger = item("om_trigger", end, "ou_requester");
+    let membership: "present" | "absent" | "denied" | "capped" = "present";
+    let laterPageStatus = 0;
+    const historyRequests: URL[] = [];
+    let memberRequests = 0;
+    const fetchImpl = vi.fn<typeof fetch>((url) => {
+      const json = (...args: Parameters<typeof Response.json>) =>
+        Promise.resolve(Response.json(...args));
+      const u = new URL(String(url));
+      if (u.pathname.includes("tenant_access_token")) {
+        return json({
+          code: 0,
+          expire: 7200,
+          tenant_access_token: "fixture",
+        });
+      }
+      if (u.pathname.endsWith("/om_trigger")) {
+        return json({ code: 0, data: { items: [trigger] } });
+      }
+      if (u.pathname.endsWith("/members")) {
+        memberRequests++;
+        if (membership === "denied") {
+          return json({ code: 99_991_672 }, { status: 400 });
+        }
+        const second = u.searchParams.has("page_token");
+        return json({
+          code: 0,
+          data: {
+            has_more: membership === "capped" || !second,
+            page_token: second ? "third" : "second",
+            items:
+              membership === "present" && second
+                ? [
+                    {
+                      member_id_type: "open_id",
+                      member_id: "ou_requester",
+                      name: "Requester",
+                      tenant_key: "tenant",
+                    },
+                  ]
+                : [],
+          },
+        });
+      }
+      historyRequests.push(u);
+      if (u.searchParams.has("page_token")) {
+        return Promise.resolve(new Response(null, { status: laterPageStatus }));
+      }
+      return json({
+        code: 0,
+        data: {
+          has_more: laterPageStatus !== 0,
+          page_token: "next",
+          items: [
+            trigger,
+            {
+              ...item("om_root", end - 4000),
+              root_id: undefined,
+              parent_id: undefined,
+            },
+            item("om_peer_reply", end - 3000),
+            item("om_own_reply", end - 2000, "ou_requester"),
+            { ...item("om_sibling", end - 1000), thread_id: "omt_other" },
+            { ...item("om_wrong_root", end - 1000), root_id: "om_other" },
+            { ...item("om_wrong_chat", end - 1000), chat_id: "oc_other" },
+            { ...item("om_deleted", end - 1000), deleted: true },
+            {
+              ...item("om_later_edit", end - 1000),
+              updated: true,
+              update_time: String(end + 1),
+            },
+            item("om_future", end + 1),
+            item("om_old", end - 30 * 60_000 - 1),
+          ],
+        },
+      });
+    });
+    const input = {
+      appId: "app",
+      appSecret: "fixture",
+      chatId: "oc_chat",
+      rootMessageId: "om_root",
+      threadId: "omt_topic",
+      triggerMessageId: "om_trigger",
+      requesterOpenId: "ou_requester",
+      conversationId: "test",
+      lookbackMinutes: 30,
+      scope: "current_thread_messages" as const,
+      includeCoverage: true as const,
+      fetchImpl,
+    };
+    const result = await readFeishuHistory(input);
+    expect(result).toMatchObject({
+      status: "read",
+      scope: "current_thread_messages",
+      coverage: {
+        examinedFromMs: end - 30 * 60_000,
+        gaps: ["revision_unavailable"],
+      },
+      context: {
+        messages: [
+          { id: "om_root" },
+          { id: "om_peer_reply" },
+          { id: "om_own_reply" },
+        ],
+      },
+    });
+    expect(memberRequests).toBe(2);
+    expect(historyRequests[0]?.searchParams.get("container_id_type")).toBe(
+      "thread"
+    );
+    expect(historyRequests[0]?.searchParams.get("container_id")).toBe(
+      "omt_topic"
+    );
+    // Feishu ignores time bounds for thread listings; the reader must filter locally.
+    expect(historyRequests[0]?.searchParams.has("start_time")).toBe(false);
+    expect(historyRequests[0]?.searchParams.has("end_time")).toBe(false);
+
+    laterPageStatus = 403;
+    await expect(readFeishuHistory(input)).resolves.toEqual({
+      status: "forbidden",
+    });
+    historyRequests.length = 0;
+    for (const [proof, status] of [
+      ["absent", "forbidden"],
+      ["denied", "forbidden"],
+      ["capped", "unavailable"],
+    ] as const) {
+      membership = proof;
+      memberRequests = 0;
+      await expect(readFeishuHistory(input)).resolves.toEqual({ status });
+      expect(memberRequests).toBeLessThanOrEqual(2);
+      expect(historyRequests).toHaveLength(0);
+    }
+    membership = "present";
+    memberRequests = 0;
+    for (const invalidSource of [
+      { ...trigger, deleted: true },
+      { ...trigger, thread_id: "" },
+      { ...trigger, thread_id: "omt_other" },
+      { ...trigger, parent_id: "" },
+      { ...trigger, root_id: "om_other" },
+      { ...trigger, sender: { ...trigger.sender, id: "ou_other" } },
+    ]) {
+      const valid = trigger;
+      trigger = invalidSource;
+      await expect(readFeishuHistory(input)).resolves.toEqual({
+        status: "forbidden",
+      });
+      trigger = valid;
+    }
+    trigger = { ...trigger, root_id: "om_trigger" };
+    await expect(
+      readFeishuHistory({ ...input, rootMessageId: "om_trigger" })
+    ).resolves.toEqual({ status: "forbidden" });
+    expect(memberRequests).toBe(0);
+    expect(historyRequests).toHaveLength(0);
+  });
   it("reads only the requester's own top-level Feishu evidence across roots, bounded by the verified mention", async () => {
     // Fields follow the November 4 production history and exact-message responses.
     const end = 1_793_787_619_768;
@@ -105,7 +281,7 @@ describe("Lark-platform OpenAPI publication", () => {
       lookbackMinutes: 30,
       fetchImpl,
     };
-    const result = await readFeishuRequesterHistory(input);
+    const result = await readFeishuHistory(input);
     expect(result.status).toBe("read");
     if (result.status !== "read") {
       throw new Error("expected a history read");
@@ -127,7 +303,7 @@ describe("Lark-platform OpenAPI publication", () => {
       ["oc_chat", String(Math.ceil(end / 1000)), "second"],
     ]);
     expect(
-      await readFeishuRequesterHistory({
+      await readFeishuHistory({
         ...input,
         requesterOpenId: "ou_other",
       })
@@ -135,7 +311,7 @@ describe("Lark-platform OpenAPI publication", () => {
     expect(pages).toHaveLength(2);
 
     const requested = { ...input, includeCoverage: true as const };
-    await expect(readFeishuRequesterHistory(requested)).resolves.toMatchObject({
+    await expect(readFeishuHistory(requested)).resolves.toMatchObject({
       coverage: {
         examinedFromMs: end - 30 * 60_000,
         gaps: ["revision_unavailable"],
@@ -145,7 +321,7 @@ describe("Lark-platform OpenAPI publication", () => {
     // The first page still has a usable marker. No timestamp from the other
     // member, later edit or omitted reply can become the reported boundary.
     const interrupted = (status: number) =>
-      readFeishuRequesterHistory({
+      readFeishuHistory({
         ...requested,
         fetchImpl: (url) =>
           new URL(String(url)).searchParams.has("page_token")
@@ -165,7 +341,7 @@ describe("Lark-platform OpenAPI publication", () => {
     await expect(interrupted(403)).resolves.toEqual({ status: "forbidden" });
 
     let pagesRead = 0;
-    const otherAuthorsOnly = await readFeishuRequesterHistory({
+    const otherAuthorsOnly = await readFeishuHistory({
       ...requested,
       fetchImpl: (url) => {
         if (!new URL(String(url)).searchParams.has("container_id")) {

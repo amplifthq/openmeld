@@ -1,5 +1,6 @@
 import type {
   FeishuGroupHistoryResult,
+  FeishuGroupHistoryScope,
   FeishuHistoryGap,
   NavigationAction,
 } from "@openmeld/schemas";
@@ -221,8 +222,8 @@ async function feishuAppRequest(
   return { status, data: readObject(body, "data") };
 }
 
-/** The tenant credential may see much more than the author of the mention.
- * Cross-root evidence is restricted to that author's own ordinary root messages. */
+/** The tenant credential may see much more than the requester. Cross-root
+ * reads remain author-only; other authors require current-thread participation. */
 type FeishuSource = {
   chatId: string;
   rootMessageId: string;
@@ -231,8 +232,10 @@ type FeishuSource = {
   conversationId: string;
   lookbackMinutes: number;
   includeCoverage?: true;
+  scope?: FeishuGroupHistoryScope;
+  threadId?: string | null;
 };
-export async function readFeishuRequesterHistory(
+export async function readFeishuHistory(
   input: FeishuReadCredentials & FeishuSource
 ): Promise<FeishuGroupHistoryResult> {
   const source = await feishuAppRequest(
@@ -264,29 +267,110 @@ export async function readFeishuRequesterHistory(
     return { status: "unavailable" };
   }
   const startMs = Math.max(0, endMs - input.lookbackMinutes * 60_000);
+  if (input.scope === "current_thread_messages") {
+    const threadId = readString(trigger, "thread_id");
+    if (
+      !(threadId?.startsWith("omt_") && readString(trigger, "parent_id")) ||
+      input.rootMessageId === input.triggerMessageId ||
+      (input.threadId && input.threadId !== threadId)
+    ) {
+      return { status: "forbidden" };
+    }
+    const membership = await verifyFeishuRequesterMembership(input);
+    if (membership) {
+      return { status: membership };
+    }
+    return readFeishuHistoryWindow(input, startMs, endMs, threadId);
+  }
   return readFeishuHistoryWindow(input, startMs, endMs);
 }
-function collectFeishuRequesterRoots(
+async function verifyFeishuRequesterMembership(
+  input: FeishuReadCredentials & FeishuSource
+) {
+  const params = new URLSearchParams({
+    member_id_type: "open_id",
+    page_size: "100",
+  });
+  for (let page = 0; page < 2; page++) {
+    const { status, data } = await feishuAppRequest(
+      input,
+      `/open-apis/im/v1/chats/${encodeURIComponent(input.chatId)}/members`,
+      params
+    );
+    if (status) {
+      return status;
+    }
+    if (!Array.isArray(data?.items)) {
+      return "unavailable" as const;
+    }
+    if (
+      data.items.some(
+        (member: unknown) =>
+          isJsonObject(member) &&
+          member.member_id_type === "open_id" &&
+          member.member_id === input.requesterOpenId
+      )
+    ) {
+      return null;
+    }
+    if (data.has_more === false) {
+      return "forbidden" as const;
+    }
+    const next = readString(data, "page_token");
+    if (
+      !(data.has_more === true && next && next !== params.get("page_token"))
+    ) {
+      return "unavailable" as const;
+    }
+    params.set("page_token", next);
+  }
+  return "unavailable" as const;
+}
+
+function belongsToFeishuHistoryScope(
+  item: JsonObject,
+  input: FeishuSource,
+  threadId?: string
+) {
+  if (
+    item.chat_id !== input.chatId ||
+    item.message_id === input.triggerMessageId ||
+    item.deleted === true
+  ) {
+    return false;
+  }
+  if (threadId) {
+    // The current human reply proves visibility of this thread. Never widen it
+    // to sibling threads just because the tenant credential can read them.
+    return (
+      readString(item, "thread_id") === threadId &&
+      (readString(item, "root_id") ?? readString(item, "message_id")) ===
+        input.rootMessageId
+    );
+  }
+  return (
+    (readString(item, "root_id") === null ||
+      item.root_id === item.message_id) &&
+    !readString(item, "parent_id") &&
+    feishuMessageFromRequester(item, input.requesterOpenId)
+  );
+}
+
+function collectFeishuHistoryMessages(
   items: unknown[],
   input: FeishuSource,
   startMs: number,
   endMs: number,
   records: Map<string, ChannelContextMessage>,
-  gaps: Set<FeishuHistoryGap>
+  gaps: Set<FeishuHistoryGap>,
+  threadId?: string
 ) {
   for (const item of items) {
     if (!isJsonObject(item)) {
       gaps.add("unreadable_message");
       continue;
     }
-    if (
-      item.chat_id !== input.chatId ||
-      item.message_id === input.triggerMessageId ||
-      (readString(item, "root_id") !== null &&
-        item.root_id !== item.message_id) ||
-      readString(item, "parent_id") ||
-      !feishuMessageFromRequester(item, input.requesterOpenId)
-    ) {
+    if (!belongsToFeishuHistoryScope(item, input, threadId)) {
       continue;
     }
     // Feishu also marks freshly delivered messages as updated. Only return a
@@ -321,20 +405,38 @@ function collectFeishuRequesterRoots(
     records.set(message.id, message);
   }
 }
-async function readFeishuHistoryWindow(
-  input: FeishuReadCredentials & FeishuSource,
+function buildFeishuHistoryQuery(
+  chatId: string,
   startMs: number,
-  endMs: number
-): Promise<FeishuGroupHistoryResult> {
-  const params = new URLSearchParams({
-    container_id_type: "chat",
-    container_id: input.chatId,
-    start_time: String(Math.floor(startMs / 1000)),
-    end_time: String(Math.ceil(endMs / 1000)),
+  endMs: number,
+  threadId?: string
+) {
+  return new URLSearchParams({
+    container_id_type: threadId ? "thread" : "chat",
+    container_id: threadId ?? chatId,
+    ...(threadId
+      ? {}
+      : {
+          start_time: String(Math.floor(startMs / 1000)),
+          end_time: String(Math.ceil(endMs / 1000)),
+        }),
     page_size: String(CHANNEL_CONTEXT_MAX_MESSAGES),
     sort_type: "ByCreateTimeDesc",
     with_sender_name: "true",
   });
+}
+async function readFeishuHistoryWindow(
+  input: FeishuReadCredentials & FeishuSource,
+  startMs: number,
+  endMs: number,
+  threadId?: string
+): Promise<FeishuGroupHistoryResult> {
+  const params = buildFeishuHistoryQuery(
+    input.chatId,
+    startMs,
+    endMs,
+    threadId
+  );
   const records = new Map<string, ChannelContextMessage>();
   const gaps = new Set<FeishuHistoryGap>();
   let exhausted = false;
@@ -353,13 +455,14 @@ async function readFeishuHistoryWindow(
       );
       break;
     }
-    collectFeishuRequesterRoots(
+    collectFeishuHistoryMessages(
       data.items,
       input,
       startMs,
       endMs,
       records,
-      gaps
+      gaps,
+      threadId
     );
     if (data.has_more === false) {
       exhausted = true;
@@ -383,7 +486,9 @@ async function readFeishuHistoryWindow(
   );
   return {
     status: "read",
-    scope: "requester_top_level_messages",
+    scope: threadId
+      ? "current_thread_messages"
+      : "requester_top_level_messages",
     startMs,
     endMs,
     ...(input.includeCoverage && {
@@ -1940,7 +2045,8 @@ function resolveChannelContextFailureStatus(input: {
   if (
     input.response.status === 403 ||
     input.providerCode === 230_027 ||
-    input.providerCode === 230_073
+    input.providerCode === 230_073 ||
+    input.providerCode === 99_991_672
   ) {
     return "forbidden";
   }
