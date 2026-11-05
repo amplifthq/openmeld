@@ -30,7 +30,7 @@ jobs:
           bun-version: 1.4.2
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.401
+          dotnet-version: 10.0.403
       - run: pnpm install --frozen-lockfile
       - name: Build the self-contained native process helper
         # Build metadata uses the repository's shared schema contract.
@@ -131,7 +131,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.401
+          dotnet-version: 10.0.403
       - name: Build the self-contained native process helper
         run: node scripts/release/build-windows-process-helper.mjs
       - name: Build the actual CLI and its Windows process contracts
