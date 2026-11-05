@@ -10210,7 +10210,7 @@ async function requireFeishuHistoryConnection(
     });
   }
   const adapter = registry.require("feishu");
-  if (!adapter.readFeishuRequesterHistory) {
+  if (!adapter.readFeishuHistory) {
     throw createCoreRpcHttpError({
       code: "message_channel.history_unavailable",
       status: 503,
@@ -10219,14 +10219,14 @@ async function requireFeishuHistoryConnection(
   }
   return {
     connection,
-    adapter: { readHistory: adapter.readFeishuRequesterHistory },
+    adapter: { readHistory: adapter.readFeishuHistory },
   };
 }
 export async function rpcReadFeishuGroupHistory(
   env: CoreBindings,
   input: FeishuGroupHistoryCall & { context?: CoreRpcContextInput }
 ): Promise<FeishuGroupHistoryResult> {
-  const { request, includeCoverage } =
+  const { request, includeCoverage, scope } =
     feishuGroupHistoryCallSchema.parse(input);
   const auth = await requireCurrentDesignatedCenterAgentCaller({
     context: requireRpcContext(input.context),
@@ -10283,6 +10283,7 @@ export async function rpcReadFeishuGroupHistory(
       conversationId: frozen.trigger.conversationId,
       lookbackMinutes: request.lookbackMinutes,
       includeCoverage,
+      scope,
     })
   );
   console.info("[core.message_channel.history_read]", {

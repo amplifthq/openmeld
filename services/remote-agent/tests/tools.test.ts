@@ -557,7 +557,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
   });
 
-  it("offers the requester-only reader for an admitted Feishu group and never accepts a model-supplied chat ID", async () => {
+  it("offers bounded Feishu history with exact UTC times and rejects target IDs or a mismatched scope", async () => {
     const base = createSubmitTurnRequest();
     const request = createSubmitTurnRequest({
       turnEnvelope: {
@@ -606,6 +606,73 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).resolves.toEqual({ status: "disabled" });
     expect(coreWorker.readFeishuGroupHistory).toHaveBeenCalledWith({
       includeCoverage: true,
+      context: expect.objectContaining({
+        agentControllerConversationId: ACK.submissionId,
+      }),
+      request: { lookbackMinutes: 30 },
+    });
+    const historyResult = {
+      status: "read",
+      scope: "requester_top_level_messages",
+      startMs: Date.parse("2026-11-05T03:09:00Z"),
+      endMs: Date.parse("2026-11-05T05:09:00Z"),
+      coverage: {
+        examinedFromMs: Date.parse("2026-11-05T03:09:00Z"),
+        gaps: [],
+      },
+      context: {
+        provider: "feishu",
+        conversationId: "conversation",
+        currentMessageId: "om_trigger",
+        sync: { mode: "snapshot", status: "complete" },
+        messages: [
+          {
+            id: "om_n1_a",
+            author: { kind: "human", id: "ou_requester" },
+            // Captured from the N1 source through Feishu's history API.
+            sentAtMs: 1_793_852_817_114,
+            text: "N1 source A",
+          },
+        ],
+      },
+    };
+    coreWorker.readFeishuGroupHistory.mockResolvedValue(historyResult);
+    await expect(
+      executeTool(tools, "openmeld_read_feishu_group_history", {})
+    ).resolves.toMatchObject({
+      startUtc: "2026-11-05T03:09:00.000Z",
+      endUtc: "2026-11-05T05:09:00.000Z",
+      coverage: { examinedFromUtc: "2026-11-05T03:09:00.000Z" },
+      context: {
+        messages: [
+          {
+            sentAtMs: 1_793_852_817_114,
+            sentAtUtc: "2026-11-05T04:26:57.114Z",
+          },
+        ],
+      },
+    });
+    // An older Core ignores the outer scope; never mislabel its own-root result.
+    await expect(
+      executeTool(tools, "openmeld_read_feishu_group_history", {
+        scope: "current_thread_messages",
+      })
+    ).resolves.toEqual({ status: "unavailable" });
+    coreWorker.readFeishuGroupHistory.mockResolvedValue({
+      ...historyResult,
+      scope: "current_thread_messages",
+    });
+    await expect(
+      executeTool(tools, "openmeld_read_feishu_group_history", {
+        scope: "current_thread_messages",
+      })
+    ).resolves.toMatchObject({
+      status: "read",
+      scope: "current_thread_messages",
+    });
+    expect(coreWorker.readFeishuGroupHistory).toHaveBeenLastCalledWith({
+      includeCoverage: true,
+      scope: "current_thread_messages",
       context: expect.objectContaining({
         agentControllerConversationId: ACK.submissionId,
       }),
