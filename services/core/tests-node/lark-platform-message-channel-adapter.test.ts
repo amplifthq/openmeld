@@ -8,7 +8,6 @@ import {
   LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION,
 } from "../src/remote-agent/application/lark-platform-credential-crypto";
 import { createLarkPlatformMessageChannelAdapter } from "../src/remote-agent/application/lark-platform-message-channel-adapter";
-import { setFeishuGroupHistory } from "../src/remote-agent/infrastructure/postgresql/feishu-group-history-settings";
 import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../src/remote-agent/infrastructure/postgresql/lark-platform-channel-connection-repo";
 import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
@@ -374,7 +373,7 @@ describe("Lark-platform Message Channel adapter", () => {
   });
 });
 
-it("requires an exact per-installation group opt-in before fetching Feishu group context", async () => {
+it("reads Feishu group context without a group setting and preserves provider permission failures", async () => {
   const db = await createPostgresHarness();
   const connection = { ...CONNECTION, provider: "feishu" as const };
   const locator = { ...LOCATOR, provider: "feishu" as const };
@@ -416,27 +415,15 @@ it("requires an exact per-installation group opt-in before fetching Feishu group
         event,
         conversationId: "group",
       });
-    await setFeishuGroupHistory(db.db, connection, "other", true);
-    expect((await read()).sync.status).toBe("forbidden");
-    expect(fetchImpl).not.toHaveBeenCalled();
-    await setFeishuGroupHistory(db.db, connection, locator.chatId, true);
     expect((await read()).sync.status).toBe("complete");
-    const newer = {
-      ...connection,
-      connectionGeneration: connection.connectionGeneration + 1,
-    };
-    expect(
-      (
-        await adapter.readChannelContext({
-          connection: newer,
-          event,
-          conversationId: "group",
-        })
-      ).sync.status
-    ).toBe("forbidden");
-    await setFeishuGroupHistory(db.db, connection, locator.chatId, false);
+    fetchImpl.mockResolvedValueOnce(
+      Response.json(
+        { code: 230_027, msg: "permission denied" },
+        { status: 400 }
+      )
+    );
     expect((await read()).sync.status).toBe("forbidden");
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
   } finally {
     await db.close();
   }

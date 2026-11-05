@@ -889,6 +889,7 @@ import {
   rpcArchiveProject,
   rpcAssertCurrentDesignatedCenterAgent,
   rpcAuthorizeConnectorDisconnect,
+  rpcAuthorizeFeishuHistory,
   rpcBeginCurrentMemberConnectorAuthorization,
   rpcBeginCurrentOrganizationGitHubAppInstallation,
   rpcBeginCurrentOrganizationSharedConnectorAuthorization,
@@ -4775,6 +4776,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 type GatewaySensitiveCredential = { requestCredential?: RequestCredential };
 
 export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
+  authorizeFeishuHistory(
+    input: Parameters<typeof rpcAuthorizeFeishuHistory>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcAuthorizeFeishuHistory(this.env, input)
+    );
+  }
   listFeishuHistoryGroups(
     input: Parameters<typeof rpcListFeishuHistoryGroups>[1]
   ) {

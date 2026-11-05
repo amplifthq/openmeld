@@ -15,7 +15,6 @@ import type {
   NormalizedMessageChannelEvent,
 } from "@openmeld/schemas/types";
 import { readLarkPlatformMessageSnapshot } from "./lark-platform-event-normalizer";
-import { FEISHU_GROUP_HISTORY_SCOPE } from "./lark-platform-permission-bundles";
 import { readLarkPlatformPostContent } from "./lark-platform-post-content";
 import type {
   LarkPlatformMessageChannelProvider,
@@ -184,13 +183,7 @@ type FeishuReadCredentials = {
 async function feishuAppRequest(
   credentials: FeishuReadCredentials,
   path: string,
-  params: URLSearchParams,
-  message?: {
-    receive_id: string;
-    msg_type: "text";
-    content: string;
-    uuid: string;
-  }
+  params: URLSearchParams
 ) {
   const provider = "feishu";
   const apiHost = getLarkPlatformApiHost(provider);
@@ -213,8 +206,7 @@ async function feishuAppRequest(
         ...JSON_HEADERS,
         Authorization: `Bearer ${token.tenantAccessToken}`,
       },
-      method: message ? "POST" : "GET",
-      ...(message ? { body: JSON.stringify(message) } : {}),
+      method: "GET",
       signal: AbortSignal.timeout(8000),
     });
   } catch {
@@ -222,84 +214,11 @@ async function feishuAppRequest(
   }
   const body = await readJsonObject(response);
   const code = readProviderCode(body);
-  const status =
-    code === 230_027 || code === 230_073
-      ? "forbidden"
-      : resolveChannelContextFailureStatus({ providerCode: code, response });
+  const status = resolveChannelContextFailureStatus({
+    providerCode: code,
+    response,
+  });
   return { status, data: readObject(body, "data") };
-}
-export async function notifyFeishuHistoryGroup(
-  credentials: FeishuReadCredentials,
-  chatId: string,
-  uuid: string
-) {
-  const grant = await feishuAppRequest(
-    credentials,
-    "/open-apis/application/v6/scopes",
-    new URLSearchParams()
-  );
-  if (grant.status || !Array.isArray(grant.data?.scopes)) {
-    throw new Error("Feishu could not verify the app permissions. Try again.");
-  }
-  if (
-    !grant.data.scopes.some(
-      (s: unknown) =>
-        isJsonObject(s) &&
-        s.scope_name === FEISHU_GROUP_HISTORY_SCOPE &&
-        s.grant_status === 1 &&
-        (s.scope_type === "tenant" || s.scope_type === undefined)
-    )
-  ) {
-    return "permission_required" as const;
-  }
-  const { status, data } = await feishuAppRequest(
-    credentials,
-    "/open-apis/im/v1/messages",
-    new URLSearchParams({ receive_id_type: "chat_id" }),
-    {
-      receive_id: chatId,
-      msg_type: "text",
-      uuid,
-      content: JSON.stringify({
-        text: "An admin is enabling OpenMeld history for this group. When mentioned, the Center Agent can use earlier replies in the topic. When asked to look across topics, it can read the requester's own recent top-level messages. An OpenMeld organization admin can turn this off in Feishu Channel settings.",
-      }),
-    }
-  );
-  if (status || !readString(data, "message_id")) {
-    throw new Error(
-      "Feishu could not confirm the group notice. History was not enabled by this request."
-    );
-  }
-  return "notified" as const;
-}
-export async function listFeishuHistoryGroups(
-  credentials: FeishuReadCredentials,
-  pageToken?: string
-) {
-  const params = new URLSearchParams({ page_size: "50", types: "group" });
-  if (pageToken) {
-    params.set("page_token", pageToken);
-  }
-  const { status, data } = await feishuAppRequest(
-    credentials,
-    "/open-apis/im/v1/chats",
-    params
-  );
-  if (status || !Array.isArray(data?.items)) {
-    throw new Error("Could not list groups joined by the Feishu app.");
-  }
-  return {
-    groups: data.items.map((item: unknown) => {
-      const group = isJsonObject(item) ? item : null;
-      const chatId = readString(group, "chat_id");
-      if (!chatId) {
-        throw new Error("Feishu returned incomplete group details.");
-      }
-      return { chatId, name: readString(group, "name") ?? chatId };
-    }),
-    nextPageToken:
-      data.has_more === true ? readString(data, "page_token") : null,
-  };
 }
 
 /** The tenant credential may see much more than the author of the mention.
@@ -2018,7 +1937,11 @@ function resolveChannelContextFailureStatus(input: {
   if (input.response.ok && input.providerCode === 0) {
     return null;
   }
-  if (input.response.status === 403) {
+  if (
+    input.response.status === 403 ||
+    input.providerCode === 230_027 ||
+    input.providerCode === 230_073
+  ) {
     return "forbidden";
   }
   if (input.response.status === 429) {

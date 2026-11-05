@@ -10,44 +10,6 @@ describe("LarkPlatformChannelDialog", () => {
 	it.each([
 		true,
 		false,
-	])("offers history by default and submits the chosen Feishu setup (%s)", (history) => {
-		const chooseFeishuSetup = vi.fn();
-		render(
-			<LarkPlatformChannelDialog
-				canManage
-				chooseFeishuSetup={chooseFeishuSetup}
-				connection={null}
-				disconnectPending={false}
-				errorMessage={null}
-				onDisconnect={vi.fn()}
-				onOpenChange={vi.fn()}
-				onReauthorize={vi.fn()}
-				onRepair={vi.fn()}
-				onRetryPoll={vi.fn()}
-				onStartOver={vi.fn()}
-				open
-				pollPending={false}
-				provider="feishu"
-				registration={null}
-				repairPending={false}
-				startOverPending={false}
-			/>
-		);
-		const checkbox = screen.getByRole("checkbox", {
-			name: "Allow history in selected Feishu groups",
-		}) as HTMLInputElement;
-		expect(checkbox.checked).toBe(true);
-		if (!history) {
-			fireEvent.click(checkbox);
-		}
-		fireEvent.click(
-			screen.getByRole("button", { name: "Continue to Feishu setup" })
-		);
-		expect(chooseFeishuSetup).toHaveBeenCalledWith(history);
-	});
-	it.each([
-		true,
-		false,
 	])("preserves a setup read error and gates restart by management permission (%s)", (canManage) => {
 		const onStartOver = vi.fn();
 		render(
@@ -234,8 +196,12 @@ describe("LarkPlatformChannelDialog", () => {
 		expect(onStartOver).toHaveBeenCalledOnce();
 	});
 
-	it("requires a second explicit action before disconnecting", () => {
+	it.each([
+		"lark",
+		"feishu",
+	] as const)("keeps %s management free of history switches and confirms disconnect", (provider) => {
 		const onDisconnect = vi.fn();
+		const label = provider === "lark" ? "Lark" : "Feishu";
 		render(
 			<LarkPlatformChannelDialog
 				canManage
@@ -246,7 +212,7 @@ describe("LarkPlatformChannelDialog", () => {
 					id: "connection_1",
 					lastVerifiedAt: "2026-07-18T00:00:00.000Z",
 					permissionBundleVersion: "channel-only-2026-07-18",
-					provider: "lark",
+					provider,
 					reasonCode: null,
 					status: "connected",
 					transport: "webhook",
@@ -261,14 +227,22 @@ describe("LarkPlatformChannelDialog", () => {
 				onStartOver={vi.fn()}
 				open
 				pollPending={false}
-				provider="lark"
+				provider={provider}
 				registration={null}
 				repairPending={false}
 				startOverPending={false}
 			/>
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Disconnect Lark" }));
+		expect(screen.queryByRole("switch")).toBeNull();
+		expect(screen.queryByRole("checkbox")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Group history" })).toBeNull();
+		expect(
+			Boolean(screen.queryByRole("button", { name: "Update permissions" }))
+		).toBe(provider === "feishu");
+		fireEvent.click(
+			screen.getByRole("button", { name: `Disconnect ${label}` })
+		);
 		expect(onDisconnect).not.toHaveBeenCalled();
 		fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
 		expect(onDisconnect).toHaveBeenCalledOnce();

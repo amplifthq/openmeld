@@ -590,7 +590,7 @@ export const openMeldRemoteAgentMessageChannelEventIngress = applicationTable(
   ]
 );
 
-/** An opt-in belongs to one installation generation, even when its chat ID is reused. */
+/** Retired per-group preference from migration 0055. Retained for rollback; current readers do not consult it. */
 export const feishuGroupHistorySettings = applicationTable(
   "feishu_group_history_settings",
   {
