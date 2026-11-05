@@ -1998,8 +1998,10 @@ reply placement is resolved and locked by Space before publication, and later
 callbacks and recovery reuse it. This does not change the source message's
 observation scope or RuntimeCoordinator execution authority.
 
-Local Wake instructions direct agents to share a brief public blocker update
-through `report_progress` when useful work can continue. The update explains
+Local Wake instructions direct agents to share verified milestones during long
+tasks and a brief public blocker update through `report_progress` when useful
+work can continue. This tool is independent of final-only output; it does not
+forward native conversation messages. A blocker update explains
 the effect on the request and the next step; private commentary is not Space
 progress. Repeated unchanged updates, credentials, raw commands, and private
 reasoning stay out of public progress. If supported recovery cannot unblock any

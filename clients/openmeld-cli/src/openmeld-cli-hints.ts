@@ -117,6 +117,10 @@ function buildHints(
     return profileHints;
   }
 
+  if (contractEntryName === "space.files.upload") {
+    return ["openmeld space files upload --help"];
+  }
+
   const spaceReadHints = resolveSpaceReadFailureHints(commandEntryName);
   if (spaceReadHints) {
     return spaceReadHints;
