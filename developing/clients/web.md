@@ -1022,6 +1022,13 @@ existing Sessions remain saved. Logging out of the current account revokes only
 that account's saved Session when available; **Log out of all accounts** keeps
 the existing full-sign-out behavior. Every successful account identity change
 clears account-private client caches and notifies other tabs before navigation.
+Account → Sessions shows a count and management controls only after its list
+query succeeds. A failed or invalid response is never an empty list. Auth's
+fresh-sign-in requirement remains enforced through the existing add-account
+verification flow. Expired sign-ins use the login path; other read failures
+offer **Try again**. Fresh-sign-in failures retain their error code and do not
+retry without new credentials. A failed refresh hides stale session-management
+controls until a successful read.
 Organization selection remains URL-owned per tab after the newly active account
 loads; account switching must not add Better Auth active-Organization state.
 

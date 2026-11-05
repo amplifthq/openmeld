@@ -115,7 +115,9 @@ export function SessionsManagementCard() {
 	const {
 		data: sessions,
 		error: sessionsError,
+		isFetching: isSessionsFetching,
 		isPending: isSessionsPending,
+		refetch: refetchSessions,
 	} = useAccountSessions();
 	const revokeSession = useRevokeSession();
 	const revokeOtherSessions = useRevokeAllOtherSessions();
@@ -142,19 +144,30 @@ export function SessionsManagementCard() {
 					<CardDescription>
 						{needsFreshSignIn
 							? "Sign in again with this account to view and manage your sessions."
-							: "Unable to load session information."}
+							: "We couldn't load your sessions. Try again."}
 					</CardDescription>
 				</CardHeader>
-				{needsFreshSignIn && (
-					<CardContent>
+				<CardContent>
+					{needsFreshSignIn ? (
 						<a
 							className={buttonVariants({ size: "sm", variant: "outline" })}
 							href={`${buildLoginRedirectUrl()}&intent=${ADD_ACCOUNT_AUTH_INTENT}`}
 						>
 							Sign in again
 						</a>
-					</CardContent>
-				)}
+					) : (
+						<Button
+							disabled={isSessionsFetching}
+							onClick={() => {
+								refetchSessions().catch(() => undefined);
+							}}
+							size="sm"
+							variant="outline"
+						>
+							{isSessionsFetching ? "Retrying..." : "Try again"}
+						</Button>
+					)}
+				</CardContent>
 			</Card>
 		);
 	}
