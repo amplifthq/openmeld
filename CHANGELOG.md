@@ -37,6 +37,21 @@ Organization admins can enable history for selected groups in the Feishu Channel
 
 Evidence: pr:377, pr:378, commit:d22537bc2ce313d33386ad9910c2b01b477b9818, workflow:41961130085
 
+### Use earlier replies in your Feishu topic
+
+Improved · channels · center-agent
+
+When you ask from a Feishu topic reply, the Center Agent can use earlier messages
+from other participants in that topic after verifying your participation and
+current group membership. Reads remain bounded and report gaps. Other topics
+stay outside this scope.
+
+Source times are supplied to the Agent as explicit UTC timestamps. Existing
+Feishu apps may need the additional group-member read permission; ordinary
+messaging and permitted reads of your own earlier group posts remain available.
+
+Evidence: pr:384, commit:58925b4a0b39bcb16bd222eb821972f5c72b3846, workflow:41985384410
+
 ## November 4, 2026
 
 ### Get Local Agent results in the original Feishu topic
