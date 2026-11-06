@@ -1,8 +1,14 @@
 import type { Command } from "commander";
+import { uuid } from "zod/v4";
 import { parseNonNegativeIntegerOption } from "../lib/number-options";
 import { withSpaceProfileOption } from "../openmeld-cli-command-options";
 import { runCommandWithEntryChecks } from "../openmeld-cli-entry-checks";
 import { getGlobalViewOption } from "../openmeld-cli-view";
+import {
+  DEFAULT_SPACE_UPLOAD_TIMEOUT_MS,
+  MAX_SPACE_UPLOAD_TIMEOUT_MS,
+  MIN_SPACE_REQUEST_TIMEOUT_MS,
+} from "../strategy-constants";
 import { resolveSpaceCommandCliOptions } from "./command-cli-options";
 import {
   runSpaceFilesDownload,
@@ -226,6 +232,34 @@ export function registerSpaceFilesCommands(spaceCommand: Command): void {
         .description("Upload a local file into a Space.")
         .argument("<space>", "Space ID (64-character hex)")
         .argument("<file>", "Local file path")
+        .option(
+          "--client-mutation-id <uuid>",
+          "Reuse this ID only when retrying the same file, profile and destination",
+          (value) => {
+            const id = uuid().safeParse(value);
+            if (!id.success) {
+              throw new Error("--client-mutation-id must be a UUID");
+            }
+            return id.data;
+          }
+        )
+        .option(
+          "--timeout-ms <ms>",
+          `Time allowed per upload request (${MIN_SPACE_REQUEST_TIMEOUT_MS}–${MAX_SPACE_UPLOAD_TIMEOUT_MS} ms; default ${DEFAULT_SPACE_UPLOAD_TIMEOUT_MS}, or OPENMELD_SPACE_REQUEST_TIMEOUT_MS)`,
+          (value) => {
+            const ms = parseNonNegativeIntegerOption(value, "--timeout-ms");
+            if (
+              ms === undefined ||
+              ms < MIN_SPACE_REQUEST_TIMEOUT_MS ||
+              ms > MAX_SPACE_UPLOAD_TIMEOUT_MS
+            ) {
+              throw new Error(
+                `--timeout-ms must be between ${MIN_SPACE_REQUEST_TIMEOUT_MS} and ${MAX_SPACE_UPLOAD_TIMEOUT_MS}`
+              );
+            }
+            return ms;
+          }
+        )
         .option("--name <name>", "File name shown in the Space")
         .option(
           "--folder <folder-id>",
@@ -240,6 +274,8 @@ export function registerSpaceFilesCommands(spaceCommand: Command): void {
         ...common,
         space: String(space).trim(),
         file: String(file),
+        clientMutationId: opts.clientMutationId,
+        timeoutMs: opts.timeoutMs,
         name: opts.name,
         folder: opts.folder,
         mimeType: opts.type,

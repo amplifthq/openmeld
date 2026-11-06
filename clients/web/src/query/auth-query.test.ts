@@ -1,15 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { requestJsonMock, openMeldAuthClientMock } = vi.hoisted(() => ({
-	requestJsonMock: vi.fn(),
-	openMeldAuthClientMock: {
-		multiSession: {
-			listDeviceSessions: vi.fn(),
-			revoke: vi.fn(),
-			setActive: vi.fn(),
+const { requestJsonMock, listSessionsMock, openMeldAuthClientMock } =
+	vi.hoisted(() => ({
+		requestJsonMock: vi.fn(),
+		listSessionsMock: vi.fn(),
+		openMeldAuthClientMock: {
+			listSessions: undefined as (() => Promise<unknown>) | undefined,
+			multiSession: {
+				listDeviceSessions: vi.fn(),
+				revoke: vi.fn(),
+				setActive: vi.fn(),
+			},
 		},
-	},
-}));
+	}));
 
 vi.mock("#/lib/auth-client", () => ({
 	openMeldAuthClient: openMeldAuthClientMock,
@@ -26,6 +29,7 @@ import {
 	generateOneTimeToken,
 	getAccountAvatar,
 	listDeviceSessions,
+	listSessions,
 	removeAccountAvatar,
 	revokeDeviceSession,
 	setActiveDeviceSession,
@@ -39,11 +43,82 @@ describe("auth-query", () => {
 		openMeldAuthClientMock.multiSession.revoke.mockReset();
 		openMeldAuthClientMock.multiSession.setActive.mockReset();
 		requestJsonMock.mockReset();
+		listSessionsMock.mockReset();
+		openMeldAuthClientMock.listSessions = undefined;
 	});
 
 	afterEach(() => {
 		vi.restoreAllMocks();
 		vi.unstubAllEnvs();
+		vi.unstubAllGlobals();
+	});
+
+	describe.each([
+		"client",
+		"http",
+	] as const)("session list via %s", (transport) => {
+		function respond(data: unknown, status = 200) {
+			if (transport === "client") {
+				openMeldAuthClientMock.listSessions = listSessionsMock;
+				listSessionsMock.mockResolvedValue(
+					status >= 400
+						? { data: null, error: { ...(data as object), status } }
+						: { data, error: null }
+				);
+				return;
+			}
+
+			vi.stubGlobal(
+				"fetch",
+				vi.fn<typeof fetch>().mockResolvedValue(
+					new Response(JSON.stringify(data), {
+						status,
+						headers: { "content-type": "application/json" },
+					})
+				)
+			);
+		}
+
+		it.each([
+			{
+				status: 403,
+				code: "SESSION_NOT_FRESH",
+				message: "Session is not fresh",
+				expectedCode: "SESSION_NOT_FRESH",
+			},
+			{
+				status: 401,
+				code: "UNAUTHORIZED",
+				message: "Unauthorized",
+				expectedCode: "auth.unauthenticated",
+			},
+			{
+				status: 500,
+				code: "INTERNAL_SERVER_ERROR",
+				message: "Internal Server Error",
+				expectedCode: "INTERNAL_SERVER_ERROR",
+			},
+		])("preserves a $status failure instead of reporting no sessions", async ({
+			status,
+			code,
+			message,
+			expectedCode,
+		}) => {
+			respond({ code, message }, status);
+			await expect(listSessions()).rejects.toMatchObject({
+				code: expectedCode,
+				status,
+			});
+		});
+
+		it("accepts an empty successful list but rejects an invalid payload", async () => {
+			respond([]);
+			await expect(listSessions()).resolves.toEqual([]);
+			respond(null);
+			await expect(listSessions()).rejects.toThrow(
+				"Invalid session list response."
+			);
+		});
 	});
 
 	it("lists, switches, and revokes browser account sessions", async () => {

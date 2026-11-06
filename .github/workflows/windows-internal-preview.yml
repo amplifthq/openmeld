@@ -29,7 +29,7 @@ jobs:
           bun-version: 1.4.2
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.401
+          dotnet-version: 10.0.403
       - run: pnpm install --frozen-lockfile
       - name: Verify native Desktop login settings with spaced paths
         run: node scripts/e2e/windows-desktop-startup.mjs

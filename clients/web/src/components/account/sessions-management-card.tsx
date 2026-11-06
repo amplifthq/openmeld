@@ -27,7 +27,10 @@ import {
 	isFreshSessionRequiredError,
 } from "#/lib/auth-errors";
 import { ADD_ACCOUNT_AUTH_INTENT } from "#/lib/auth-intent";
-import { buildLoginRedirectUrl } from "#/lib/session-expired";
+import {
+	buildLoginRedirectUrl,
+	isSessionExpiredError,
+} from "#/lib/session-expired";
 import { SessionsManagementCardSkeleton } from "./account-skeletons";
 
 function formatDate(value: unknown): string {
@@ -115,7 +118,9 @@ export function SessionsManagementCard() {
 	const {
 		data: sessions,
 		error: sessionsError,
+		isFetching: isSessionsFetching,
 		isPending: isSessionsPending,
+		refetch: refetchSessions,
 	} = useAccountSessions();
 	const revokeSession = useRevokeSession();
 	const revokeOtherSessions = useRevokeAllOtherSessions();
@@ -132,6 +137,8 @@ export function SessionsManagementCard() {
 	const currentSession = currentSessionData?.session;
 	if (!currentSession || sessionsError || !sessions) {
 		const needsFreshSignIn = isFreshSessionRequiredError(sessionsError);
+		const needsSignIn =
+			needsFreshSignIn || isSessionExpiredError(sessionsError);
 		return (
 			<Card>
 				<CardHeader>
@@ -140,21 +147,36 @@ export function SessionsManagementCard() {
 						Sessions
 					</CardTitle>
 					<CardDescription>
-						{needsFreshSignIn
+						{needsSignIn
 							? "Sign in again with this account to view and manage your sessions."
-							: "Unable to load session information."}
+							: "We couldn't load your sessions. Try again."}
 					</CardDescription>
 				</CardHeader>
-				{needsFreshSignIn && (
-					<CardContent>
+				<CardContent>
+					{needsSignIn ? (
 						<a
 							className={buttonVariants({ size: "sm", variant: "outline" })}
-							href={`${buildLoginRedirectUrl()}&intent=${ADD_ACCOUNT_AUTH_INTENT}`}
+							href={
+								needsFreshSignIn
+									? `${buildLoginRedirectUrl()}&intent=${ADD_ACCOUNT_AUTH_INTENT}`
+									: buildLoginRedirectUrl()
+							}
 						>
 							Sign in again
 						</a>
-					</CardContent>
-				)}
+					) : (
+						<Button
+							disabled={isSessionsFetching}
+							onClick={() => {
+								refetchSessions().catch(() => undefined);
+							}}
+							size="sm"
+							variant="outline"
+						>
+							{isSessionsFetching ? "Retrying..." : "Try again"}
+						</Button>
+					)}
+				</CardContent>
 			</Card>
 		);
 	}

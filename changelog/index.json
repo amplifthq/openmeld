@@ -2,6 +2,52 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "space-file-upload-recovery",
+      "title": "Recover a slow Space file upload",
+      "kind": "fixed",
+      "areas": [
+        "cli",
+        "files",
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-11-06",
+      "release": "v0.3.291",
+      "evidence": [
+        "pr:386",
+        "pr:387",
+        "commit:076d1a05ee9d262bf3166e5cf857dc19f13853f5",
+        "workflow:42158332038",
+        "workflow:42154969966"
+      ],
+      "body": "Space file uploads from the CLI allow more time on slow connections and show\nwhen the server has received each part. If the result is uncertain, you can\ncheck the exact file and retry the same upload without creating another copy.\nDuring long Local Agent tasks, the Agent is prompted to share milestones and\ndistinguish finished checks from evidence it still needs to deliver."
+    },
+    {
+      "id": "windows-process-helper-runtime-security",
+      "title": "Update the Windows helper's bundled runtime",
+      "kind": "security",
+      "areas": [
+        "cli",
+        "service",
+        "windows"
+      ],
+      "audiences": [
+        "users",
+        "contributors"
+      ],
+      "publishedAt": "2026-11-06",
+      "release": "v0.3.291",
+      "evidence": [
+        "pr:386",
+        "pr:387",
+        "commit:076d1a05ee9d262bf3166e5cf857dc19f13853f5",
+        "workflow:42158332038"
+      ],
+      "body": "The Windows process helper uses the patched .NET 10.0.14 runtime through SDK\n10.0.403, addressing CVE-2026-111497. Build and release workflows use the same\npinned SDK and retain dependency vulnerability checks. The helper remains\nself-contained, so users do not need to install .NET."
+    },
+    {
       "id": "feishu-requester-group-history",
       "title": "Recall your earlier Feishu group messages",
       "kind": "new",

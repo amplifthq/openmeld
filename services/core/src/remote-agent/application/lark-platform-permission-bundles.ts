@@ -15,6 +15,10 @@ export const LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE = Object.freeze({
 });
 
 export const FEISHU_GROUP_HISTORY_SCOPE = "im:message.group_msg";
+export const FEISHU_HISTORY_SCOPES = [
+  FEISHU_GROUP_HISTORY_SCOPE,
+  "im:chat.members:read",
+] as const;
 export const FEISHU_HISTORY_BUNDLE_VERSION = `${LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.version}+feishu-history`;
 export function currentMessagingBundle(provider: string, version: string) {
   return (
@@ -91,7 +95,7 @@ export async function encodeLarkPlatformRegistrationAddons(
     scopes: {
       tenant: [
         ...bundle.scopes,
-        ...(includeFeishuGroupHistory ? [FEISHU_GROUP_HISTORY_SCOPE] : []),
+        ...(includeFeishuGroupHistory ? FEISHU_HISTORY_SCOPES : []),
         LARK_PLATFORM_APP_CONFIGURATION_SCOPE,
         LARK_PLATFORM_APP_SELF_MANAGE_SCOPE,
       ],

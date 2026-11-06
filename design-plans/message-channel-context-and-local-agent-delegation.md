@@ -1,6 +1,6 @@
 # Message Channel context and Local Agent delegation
 
-**Status:** The Feishu requester-only release is deployed and accepted. The subsequent product decision removes additional history switches entirely. Context retrieval follows the current request, provider permissions, bot membership and proven requester visibility. Slack and Lark range extensions still require separate authorized pilots.
+**Status:** Feishu requester-only history and delegation without history switches are deployed and accepted through PR #383. The next candidate corrects source-time presentation and adds a bounded current-topic scope for other authors and replies, subject to live participation and membership proof. Candidate checks below are separate from production acceptance. Slack and Lark range extensions still require separate authorized pilots.
 
 ## Product decision, 2026-11-05
 
@@ -66,7 +66,7 @@ Feishu's history API checks the caller's credential. With a group that hides pri
 
 ## First candidate scope
 
-The Feishu reader uses the evidence available without individual OAuth: the requester's own ordinary top-level messages, matched by exact provider open ID and a live source-message check. Other authors and topic replies remain outside that broader reader. New setup requests the history grant at Feishu's consent page. An existing connected app can update permissions without a group setting or a replacement bot. A refusal does not prevent a self-contained mention from being answered.
+The first release uses the evidence available without individual OAuth: the requester's own ordinary top-level messages, matched by exact provider open ID and a live source-message check. The next candidate adds the separate current-topic proof described below. Other authors' cross-topic posts remain outside the admitted range. An existing connected app can update permissions without a group setting or a replacement bot. A refusal does not prevent a self-contained mention from being answered.
 
 **Rollout.** Deploy Core before Gateway and Web so older setting clients receive an explicit retirement error. Existing per-group rows are retained for rollback and ignored by the new readers. New Web sends no per-group requests and starts registration without an extra history choice. The provider grant is verified by live reads. Current-thread context and workstation Wake contracts remain compatible. Report candidate checks, deployment and real group acceptance separately.
 
@@ -75,10 +75,11 @@ The Feishu reader uses the evidence available without individual OAuth: the requ
 | Item | Implementation and evidence | Scope and remaining prerequisite |
 | --- | --- | --- |
 | Feishu delegation | PR #380 is deployed. A fresh group mention generated one Space Wake to the requested Local Agent, produced the independently checked SHA-256 on the workstation, and updated the original Feishu card. The cross-topic test subsequently passed the same path with two earlier independent messages. | Production acceptance passed for both explicit and recalled briefs. |
-| Feishu authorization | Same-app consent and default history grant requests are available. This revision removes the extra settings UI and runtime opt-in gate. | Validate an existing connected group without any saved preference, and a provider refusal. |
+| Feishu authorization | PR #383 removed settings and the opt-in gate. N1 recalled two earlier roots and completed the Local Agent handoff with no switch. The next candidate adds the member-read permission to existing history consent. | The current pilot app lacks member-read permission; thread-wide reads must stay denied until it is granted. |
 | Bounded requester-only history | The live Core supports the requester's top-level messages with a 30-minute default and two-hour maximum. A new top-level mention recovered both earlier input fragments and their failed-workaround detail, then delegated without asking for repeated context. | Production acceptance passed for the agreed requester-only scope. |
 | Coverage and diagnosis | PR #378 is deployed with conservative examined coverage, gap reasons and body-free diagnostics. A real recap returned the four supported requester-authored roots in its two-hour window and explicitly excluded other authors and topic replies. | Bounded-result and rate-limit behavior also passed focused provider-reader tests. |
-| Other authors and topic replies | Withheld from the broader reader under the agreed first-release scope. | A provider-backed visibility proof is required before expanding the admitted evidence. Bot access alone is insufficient. |
+| Source times | Candidate Remote Agent formats provider milliseconds as explicit UTC before the model cites them. The live N1 sources are 04:26:57.114 and 04:27:08.640 UTC; the earlier model answer was 40 minutes early. | Candidate provider replay verifies the corrected values. Production model-response acceptance follows deployment. |
+| Other authors and topic replies | Candidate supports only the exact topic containing the current verified human reply, after a fresh membership check. | Positive and negative automatic cases cover other human authors, replies, sibling topics, later edits and missing permission. Live provider shape is confirmed, but the pilot's missing member-read grant prevents positive production acceptance. |
 | Slack and Lark range extensions | Existing mention, thread, linking and publication features are reuse targets. This release's authorized live test surface is Feishu. | Qualify an authorized provider pilot, prove requester visibility and estimate extra API calls before enabling the new range operation. |
 
 ## Implementation sequence
@@ -99,7 +100,7 @@ Define the cross-service request and result in [shared schemas](../packages/sche
 
 **Exit evidence.** On an admitted turn, the tool cannot select another conversation, recover earlier history by moving the cutoff, or use a previous sender's authority. An old consumer still accepts an ordinary turn. A forbidden read yields no history and can still lead to an answer from the supplied brief. Provider-specific visibility evidence is a prerequisite to enabling that provider's operation.
 
-**Feishu implementation.** The requester-only reader now reports a conservative examined interval and the reasons evidence is missing. A fully examined interval can still have unreadable revisions or shortened messages. Neither an exhausted scan nor an empty result describes other participants or topic replies. The original turn and Local Agent Wake contracts are unchanged.
+**Feishu implementation.** Both explicit scopes report their actual coverage and reasons evidence is missing. A fully examined interval can still have unreadable revisions or shortened messages. Neither scope describes a complete group transcript. The original turn and Local Agent Wake contracts are unchanged.
 
 ### 3. Reuse provider authorization without another policy switch
 
@@ -130,7 +131,23 @@ Define the cross-service request and result in [shared schemas](../packages/sche
 
 Use the [pilot matrix below](#pilot-and-acceptance) on each provider when its slice is ready. Reuse step 1's Agent and Space; this time put the necessary facts in earlier messages instead of in the mention. Inspect the outgoing brief and the native reply independently. Exercise a duplicate event, denied disclosure, late child completion and failed provider publication. The crucial comparison is whether the same task still executes once and finishes in the right conversation when the user no longer pastes the evidence.
 
-Complete the [Contract Impact Audit](../developing/engineering/development-workflow.md#contract-impact-audit) for changed wire contracts. Apply any additive group-policy migration before using it, deliver compatible Core/Remote Agent readers and Web controls before advertising the operation, then enable each provider after its own real-channel smoke. To roll back, disable broader reads for the affected provider before reverting consumers; keep accepted Wakes and pending publications under their current owners. Record functional checks, provider grants, live reply evidence and unresolved gaps separately. A saved default Space and individually addressable Local Agent bots remain follow-ups based on actual pilot demand.
+Complete the [Contract Impact Audit](../developing/engineering/development-workflow.md#contract-impact-audit) for changed wire contracts. The current-topic candidate needs Core before Remote Agent, with no new setting, database migration or local-component release. Advertise each provider's extension only after its real-channel smoke. Roll back the new caller before the receiver; accepted Wakes and pending publications retain their current owners. Record functional checks, provider grants, live reply evidence and unresolved gaps separately. A saved default Space and individually addressable Local Agent bots remain follow-ups based on actual pilot demand.
+
+## Current-topic candidate, 2026-11-05
+
+The default `requester_top_level_messages` scope remains suitable for “that issue we just discussed” across independent posts. `current_thread_messages` includes other human authors and replies only when the current admitted request is itself a human reply in that exact provider topic. Core re-reads the source, matches the requester open ID, chat, root and thread ID, and checks current group membership. A root message does not qualify merely because a bot later creates a topic beneath it.
+
+This proof follows Feishu's topic visibility and reply admission rules: replying requires a visible target, while topic access is distinct from broad group-history access. It is an application policy inference from those provider contracts, not a claim that tenant credentials enforce the human's permissions. The [topic visibility rules](https://open.feishu.cn/document/im-v1/message/thread-introduction.md) and [reply API](https://open.feishu.cn/document/server-docs/im-v1/message/reply.md) describe the basis. Neither the bot's access, a group owner field nor a join-notification setting substitutes for the actual participation proof.
+
+The [member-list API](https://open.feishu.cn/document/server-docs/group/chat-member/get.md) verifies membership within two pages of 100 people. Missing permission or an absent requester denies the read; an inconclusive capped lookup returns unavailable. History consent now requests `im:chat.members:read` alongside `im:message.group_msg`. Existing basic installations remain usable when either optional grant is absent or pending.
+
+The [history API](https://open.feishu.cn/document/server-docs/im-v1/message/list.md) receives `container_id_type=thread` and the proven thread ID. It does not accept time bounds for this container, so Core applies the requested interval and current-request cutoff locally. It retains the existing three-page, 20-message and 16,000-character limits, and rejects records from a different chat, root or topic. Other authors' independent posts and unrelated topic replies remain unproven.
+
+**Candidate evidence.** Tests use the real test-topic response shape and the documented member-list shape. They cover other human authors, root and reply records, sibling isolation, source mismatch, current membership, permission refusal, later revisions, time bounds and a late provider denial discarding all collected evidence. Hosted tool tests cover exact UTC values and rejection of a scope mismatch from an older Core. The permission tests preserve ordinary messaging while requesting and accepting the two optional history grants.
+
+In the authorized `openmeld测试` group, the existing N1 topic returned a real `omt_` ID, a human root and a bot-authored synthetic reply. The locally built candidate replay recovered the two original N1 sources as `2026-11-05T04:26:57.114Z` and `2026-11-05T04:27:08.640Z`, and rejected a thread-wide read authorized only by the top-level N1 request. The separate live member-list call returned HTTP 400 / Feishu `99991672`, explicitly naming the missing member-read grant. No new grant was applied. These are provider/candidate checks, not a deployed-feature smoke or evidence from a second human participant.
+
+**Remaining acceptance.** After Core and Remote Agent deployment and same-app member-read consent, repeat a real topic follow-up, its Local Agent handoff and the single final topic reply. Verify source times in the final model response. Broader cross-topic access, Slack and Lark range extensions still require their own visibility proof and provider pilots.
 
 ## Pilot and acceptance
 

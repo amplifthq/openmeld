@@ -1,11 +1,11 @@
 {
-  "version": "0.3.290",
+  "version": "0.3.291",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Packages Service Host recovery and the shared schemas for optional Core-to-Hub read diagnostics. Existing CLI commands, JSON output, setup, and trace remain compatible."
+    "reason": "Adds upload-specific deadlines, stable retry IDs and exact saved-file recovery guidance for Space files, and packages compatible shared-schema updates. Existing CLI commands, JSON output, setup and trace remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "A replacement execution Host waits for recorded work to exit and refuses takeover when ownership is uncertain. Busy Hosts write v3 receipts; quiescent v2 receipts support rollback. The optional Hub diagnostic headers preserve existing Service connections, readiness reports, and Wake and result contracts, so no compatibility floor is raised."
+    "reason": "Guides long-running Local Agents to share verified milestones through the existing progress tool and packages the patched Windows helper runtime. Setup, Wake, Space actions, runtime transport and diagnostics remain compatible without a new contract floor."
   }
 }

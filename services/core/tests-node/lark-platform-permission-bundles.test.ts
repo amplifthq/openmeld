@@ -49,9 +49,13 @@ describe("Lark-platform permission bundles", () => {
     });
   });
 
-  it("requests setup consent alongside the Channel scopes without broadening runtime permissions", async () => {
+  it.each([
+    false,
+    true,
+  ])("requests setup consent with Feishu history permissions: %s", async (history) => {
     const encoded = await encodeLarkPlatformRegistrationAddons(
-      LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE
+      LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE,
+      history
     );
     const decoded = JSON.parse(
       gunzipSync(Buffer.from(encoded, "base64url")).toString("utf8")
@@ -81,6 +85,7 @@ describe("Lark-platform permission bundles", () => {
           "im:message:readonly",
           "im:message:send_as_bot",
           "im:resource",
+          ...(history ? ["im:message.group_msg", "im:chat.members:read"] : []),
           "application:application:patch",
           "application:application:self_manage",
         ],
