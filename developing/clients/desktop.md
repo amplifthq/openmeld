@@ -361,6 +361,9 @@ one Electron call, owns OS callback delivery, and passes callbacks to the vendor
 public `handleDeepLink` API. SDK scheme registration, unrestricted IPC handlers,
 and the global CSP hook are disabled. Credentials never cross the
 renderer bridge. Storage is scoped to the configured Web origin.
+The browser entry treats an omitted `code_challenge_method` as S256, matching
+Better Auth 1.7's S256-only Electron contract. Explicit methods other than
+`S256`, including an empty value, remain invalid.
 Computer authorization uses the CLI environment's device-auth client ID, keeping
 the grant and its CLI exchange aligned in isolated development lanes. A signed-out
 CLI is unconnected; only a present, different account is an account mismatch.

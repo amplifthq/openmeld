@@ -30,7 +30,11 @@ export const Route = createFileRoute("/desktop-sign-in")({
 		code_challenge:
 			typeof search.code_challenge === "string" ? search.code_challenge : "",
 		code_challenge_method:
-			search.code_challenge_method === "S256" ? "S256" : "",
+			// Better Auth 1.7 omits the method and always uses S256.
+			search.code_challenge_method === undefined ||
+			search.code_challenge_method === "S256"
+				? "S256"
+				: "",
 	}),
 	beforeLoad: async ({ location, search }) => {
 		const identity = await readDesktopBrowserIdentity({
