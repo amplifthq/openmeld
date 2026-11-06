@@ -5803,6 +5803,16 @@ Human Mention remains structured after the optimistic message is replaced,
 after refresh, and on live delivery; compatibility projection for an old client
 must never run on these current paths.
 
+The Space live proxy preserves Auth profile-resolution rejections as HTTP 401
+or 403 using the existing Gateway error envelope (`auth.unauthenticated` or
+`space.forbidden`). These responses are private and non-cacheable and forward
+Auth's separate `Set-Cookie` headers, including session-deletion cookies. The
+proxy stops before opening the Gateway stream and records the existing
+`web.space_stream_proxy` diagnostic at warning level with the status and
+`resolve_stream_profile` stage. Transport, service, and malformed profile
+responses remain upstream failures. Auth still owns identity and access;
+the browser reconnect policy and successful WebSocket protocol are unchanged.
+
 Browser Composer drafts that can contain Human Mention use the version 2 draft
 record and storage key. Current Web reads both version 2 and historical version
 1 records, chooses the newest valid record, and migrates a selected version 1

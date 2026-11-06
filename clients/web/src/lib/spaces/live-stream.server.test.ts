@@ -177,13 +177,53 @@ describe("space live stream server helpers", () => {
 		).toBe("forward");
 	});
 
-	it("returns a structured upstream error response when selected profile resolve fails", async () => {
+	it.each([
+		{
+			upstreamStatus: 401,
+			status: 401,
+			code: "auth.unauthenticated",
+			message: "Sign in to connect to this space.",
+		},
+		{
+			upstreamStatus: 403,
+			status: 403,
+			code: "space.forbidden",
+			message:
+				"You don't have permission to connect to this space with this profile.",
+		},
+		{
+			upstreamStatus: 503,
+			status: 502,
+			code: "upstream_error",
+			message:
+				"OpenMeld couldn't prepare the live stream for this space right now.",
+		},
+		{
+			upstreamStatus: 200,
+			status: 502,
+			code: "upstream_error",
+			message:
+				"OpenMeld couldn't prepare the live stream for this space right now.",
+		},
+	])("returns $status for selected profile resolution status $upstreamStatus", async ({
+		upstreamStatus,
+		status,
+		code,
+		message,
+	}) => {
 		vi.spyOn(crypto, "randomUUID").mockReturnValue(
 			"00000000-0000-4000-8000-000000000123"
 		);
 		const consoleErrorSpy = vi
 			.spyOn(console, "error")
 			.mockImplementation(() => undefined);
+		const consoleWarnSpy = vi
+			.spyOn(console, "warn")
+			.mockImplementation(() => undefined);
+		const deletionCookies = [
+			"better-auth.session_token=; Max-Age=0; Path=/; HttpOnly; Secure",
+			"better-auth.session_data=; Max-Age=0; Path=/; HttpOnly; Secure",
+		];
 		const fetchImpl = vi.fn((input: URL | RequestInfo, init?: RequestInit) => {
 			const url = input instanceof URL ? input.toString() : String(input);
 			if (url === "https://auth.openmeld.test/v1/profiles/resolve") {
@@ -192,13 +232,23 @@ describe("space live stream server helpers", () => {
 						openMeldProfileId: "profile-123",
 					})
 				);
+				const headers = new Headers({ "content-type": "application/json" });
+				if (upstreamStatus === 401) {
+					for (const cookie of deletionCookies) {
+						headers.append("set-cookie", cookie);
+					}
+				}
 				return Promise.resolve(
-					new Response("auth unavailable", {
-						status: 503,
-						headers: {
-							"content-type": "text/plain",
-						},
-					})
+					new Response(
+						upstreamStatus === 401
+							? JSON.stringify({
+									ok: false,
+									code: "auth.unauthenticated",
+									message: "authentication required",
+								})
+							: null,
+						{ status: upstreamStatus, headers }
+					)
 				);
 			}
 
@@ -220,7 +270,7 @@ describe("space live stream server helpers", () => {
 			fetchImpl,
 		});
 
-		expect(response.status).toBe(502);
+		expect(response.status).toBe(status);
 		expect(response.headers.get("x-openmeld-request-id")).toBe(
 			"00000000-0000-4000-8000-000000000123"
 		);
@@ -228,13 +278,29 @@ describe("space live stream server helpers", () => {
 		expect(gatewayErrorEnvelopeSchema.parse(await response.json())).toEqual({
 			ok: false,
 			error: {
-				code: "upstream_error",
-				message:
-					"OpenMeld couldn't prepare the live stream for this space right now.",
+				code,
+				message,
 				requestId: "00000000-0000-4000-8000-000000000123",
 			},
 		});
-		expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+		if (status < 500) {
+			expect(response.headers.get("cache-control")).toBe("private, no-store");
+			expect(response.headers.getSetCookie()).toEqual(
+				upstreamStatus === 401 ? deletionCookies : []
+			);
+			expect(consoleErrorSpy).not.toHaveBeenCalled();
+			expect(consoleWarnSpy).toHaveBeenCalledTimes(1);
+			expect(
+				JSON.parse(consoleWarnSpy.mock.calls[0]?.[0] as string)
+			).toMatchObject({
+				event: "web.space_stream_proxy",
+				failureStage: "resolve_stream_profile",
+				status,
+			});
+		} else {
+			expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+			expect(consoleWarnSpy).not.toHaveBeenCalled();
+		}
 	});
 
 	it("proxies an agent profile stream using the resolved agent identity", async () => {
