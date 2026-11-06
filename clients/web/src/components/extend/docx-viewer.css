@@ -1,9 +1,10 @@
 /*
  * @extend-ai/react-docx renders read-only dark mode as a light document under
- * an inversion filter on the page body, but the page surface still sets the
- * dark theme's light text color. The inherited light text is inverted to dark.
+ * inversion filters on the body, header, and footer, but the page surface still
+ * sets the dark theme's light text color. Inherited light text is inverted to dark.
  * Restore the light theme's text color so the filter inverts it to light.
  */
-.docx-night-reader-shell [data-docx-page-body] {
-	color: #111827;
+.docx-night-reader-shell [data-docx-page-body],
+.docx-night-reader-shell [data-docx-header-footer-region] {
+  color: #111827;
 }
