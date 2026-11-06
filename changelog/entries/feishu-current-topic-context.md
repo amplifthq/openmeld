@@ -4,6 +4,8 @@ title: Use earlier replies in your Feishu topic
 kind: improved
 areas: ["channels", "center-agent"]
 audiences: ["users", "admins"]
+publishedAt: 2026-11-05
+evidence: ["pr:384", "commit:58925b4a0b39bcb16bd222eb821972f5c72b3846", "workflow:41985384410"]
 ---
 
 When you ask from a Feishu topic reply, the Center Agent can use earlier messages

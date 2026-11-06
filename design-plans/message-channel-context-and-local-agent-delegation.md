@@ -1,6 +1,6 @@
 # Message Channel context and Local Agent delegation
 
-**Status:** Feishu requester-only history and delegation without history switches are deployed and accepted through PR #383. The next candidate corrects source-time presentation and adds a bounded current-topic scope for other authors and replies, subject to live participation and membership proof. Candidate checks below are separate from production acceptance. Slack and Lark range extensions still require separate authorized pilots.
+**Status:** Feishu requester-only history and delegation without history switches are deployed and accepted through PR #383. PR #384 adds exact source-time presentation and bounded current-topic reads under live participation and membership proof. It was deployed on November 5 and passed the V3 production delegation acceptance on November 6. Slack and Lark range extensions still require separate authorized pilots.
 
 ## Product decision, 2026-11-05
 
@@ -64,22 +64,22 @@ Feishu's history API checks the caller's credential. With a group that hides pri
 
 **Acting on a partial read.** For an investigation, delegate immediately when the authorized evidence is sufficient for the Local Agent to start. A partial read alone does not require confirmation. In the reply to the originating conversation, identify the messages actually used by time, thread or a native reference visible to that audience, and distinguish them from any unread part of the requested interval. For a request for complete minutes, deliver the covered portion and say which interval or thread is missing. When the provider cannot identify the exact gap, say what was read and what remains unverified.
 
-## First candidate scope
+## Initial requester-only release
 
-The first release uses the evidence available without individual OAuth: the requester's own ordinary top-level messages, matched by exact provider open ID and a live source-message check. The next candidate adds the separate current-topic proof described below. Other authors' cross-topic posts remain outside the admitted range. An existing connected app can update permissions without a group setting or a replacement bot. A refusal does not prevent a self-contained mention from being answered.
+The first release uses the evidence available without individual OAuth: the requester's own ordinary top-level messages, matched by exact provider open ID and a live source-message check. PR #384 adds the separate current-topic proof described below. Other authors' cross-topic posts remain outside the admitted range. An existing connected app can update permissions without a group setting or a replacement bot. A refusal does not prevent a self-contained mention from being answered.
 
-**Rollout.** Deploy Core before Gateway and Web so older setting clients receive an explicit retirement error. Existing per-group rows are retained for rollback and ignored by the new readers. New Web sends no per-group requests and starts registration without an extra history choice. The provider grant is verified by live reads. Current-thread context and workstation Wake contracts remain compatible. Report candidate checks, deployment and real group acceptance separately.
+**PR #383 rollout.** Deploy Core before Gateway and Web so older setting clients receive an explicit retirement error. Existing per-group rows are retained for rollback and ignored by the new readers. New Web sends no per-group requests and starts registration without an extra history choice. The provider grant is verified by live reads. Current-thread context and workstation Wake contracts remain compatible. Report candidate checks, deployment and real group acceptance separately.
 
 ## Delivery status
 
 | Item | Implementation and evidence | Scope and remaining prerequisite |
 | --- | --- | --- |
 | Feishu delegation | PR #380 is deployed. A fresh group mention generated one Space Wake to the requested Local Agent, produced the independently checked SHA-256 on the workstation, and updated the original Feishu card. The cross-topic test subsequently passed the same path with two earlier independent messages. | Production acceptance passed for both explicit and recalled briefs. |
-| Feishu authorization | PR #383 removed settings and the opt-in gate. N1 recalled two earlier roots and completed the Local Agent handoff with no switch. The next candidate adds the member-read permission to existing history consent. | The current pilot app lacks member-read permission; thread-wide reads must stay denied until it is granted. |
+| Feishu authorization | PR #383 removed settings and the opt-in gate. PR #384 adds member-read permission to existing history consent. The same pilot app now has both tenant grants; a real member-list read confirms the requester. | Missing permission still denies the broader read. No replacement app or history switch is needed. |
 | Bounded requester-only history | The live Core supports the requester's top-level messages with a 30-minute default and two-hour maximum. A new top-level mention recovered both earlier input fragments and their failed-workaround detail, then delegated without asking for repeated context. | Production acceptance passed for the agreed requester-only scope. |
 | Coverage and diagnosis | PR #378 is deployed with conservative examined coverage, gap reasons and body-free diagnostics. A real recap returned the four supported requester-authored roots in its two-hour window and explicitly excluded other authors and topic replies. | Bounded-result and rate-limit behavior also passed focused provider-reader tests. |
-| Source times | Candidate Remote Agent formats provider milliseconds as explicit UTC before the model cites them. The live N1 sources are 04:26:57.114 and 04:27:08.640 UTC; the earlier model answer was 40 minutes early. | Candidate provider replay verifies the corrected values. Production model-response acceptance follows deployment. |
-| Other authors and topic replies | Candidate supports only the exact topic containing the current verified human reply, after a fresh membership check. | Positive and negative automatic cases cover other human authors, replies, sibling topics, later edits and missing permission. Live provider shape is confirmed, but the pilot's missing member-read grant prevents positive production acceptance. |
+| Source times | Remote Agent formats provider milliseconds as explicit UTC before the model cites them. V3's Space brief and final Feishu reply both cite the exact API times, including milliseconds. | Production acceptance passed. The earlier N1 model answer's 40-minute error is covered by the formatter regression. |
+| Other authors and topic replies | Production V3 read the current topic's bot-authored clue and requester-authored reply after a fresh membership check, then delegated successfully. | Other human authors have automated coverage; this live sample did not involve a second human. Other topics and members beyond the bounded membership proof remain outside the supported evidence. |
 | Slack and Lark range extensions | Existing mention, thread, linking and publication features are reuse targets. This release's authorized live test surface is Feishu. | Qualify an authorized provider pilot, prove requester visibility and estimate extra API calls before enabling the new range operation. |
 
 ## Implementation sequence
@@ -133,7 +133,7 @@ Use the [pilot matrix below](#pilot-and-acceptance) on each provider when its sl
 
 Complete the [Contract Impact Audit](../developing/engineering/development-workflow.md#contract-impact-audit) for changed wire contracts. The current-topic candidate needs Core before Remote Agent, with no new setting, database migration or local-component release. Advertise each provider's extension only after its real-channel smoke. Roll back the new caller before the receiver; accepted Wakes and pending publications retain their current owners. Record functional checks, provider grants, live reply evidence and unresolved gaps separately. A saved default Space and individually addressable Local Agent bots remain follow-ups based on actual pilot demand.
 
-## Current-topic candidate, 2026-11-05
+## Current-topic visibility policy, 2026-11-05
 
 The default `requester_top_level_messages` scope remains suitable for “that issue we just discussed” across independent posts. `current_thread_messages` includes other human authors and replies only when the current admitted request is itself a human reply in that exact provider topic. Core re-reads the source, matches the requester open ID, chat, root and thread ID, and checks current group membership. A root message does not qualify merely because a bot later creates a topic beneath it.
 
@@ -147,7 +147,37 @@ The [history API](https://open.feishu.cn/document/server-docs/im-v1/message/list
 
 In the authorized `openmeld测试` group, the existing N1 topic returned a real `omt_` ID, a human root and a bot-authored synthetic reply. The locally built candidate replay recovered the two original N1 sources as `2026-11-05T04:26:57.114Z` and `2026-11-05T04:27:08.640Z`, and rejected a thread-wide read authorized only by the top-level N1 request. The separate live member-list call returned HTTP 400 / Feishu `99991672`, explicitly naming the missing member-read grant. No new grant was applied. These are provider/candidate checks, not a deployed-feature smoke or evidence from a second human participant.
 
-**Remaining acceptance.** After Core and Remote Agent deployment and same-app member-read consent, repeat a real topic follow-up, its Local Agent handoff and the single final topic reply. Verify source times in the final model response. Broader cross-topic access, Slack and Lark range extensions still require their own visibility proof and provider pilots.
+## Current-topic production acceptance, 2026-11-06
+
+[PR #384](https://github.com/amplifthq/openmeld/pull/384) merged as
+`58925b4a0b39bcb16bd222eb821972f5c72b3846`.
+[Production run 41985384410](https://github.com/amplifthq/openmeld/actions/runs/41985384410)
+deployed Core before Remote Agent on November 5. Both health checks reported
+that exact release SHA. The existing pilot app received only the additional
+`im:chat.members:read` tenant grant. Feishu marked it published, and the official
+API confirmed both history scopes at grant status 1 and the requester's current
+membership.
+
+The November 5 V2 attempt did not exercise the new path: its displayed
+`@OpenMeld` was plain text, and the provider returned zero actual mentions.
+Local disk exhaustion also interrupted diagnostics. After disk recovery,
+the QA Space showed no V2 handoff. The November 6 retry used fresh V3 clues
+inside the same existing N1 topic and confirmed one real bot mention.
+
+| V3 check | Production evidence |
+| --- | --- |
+| Explicit history read | Core recorded `scope=current_thread_messages`, `status=read`, two returned records, `syncStatus=complete` and no gaps. The requested and examined interval was `2026-11-06T03:49:25.249Z` through the exclusive cutoff `2026-11-06T05:49:25.249Z`. |
+| Other author and reply context | The bot's clue A was `THREAD-NOV6-J4T8`, sent at `2026-11-06T05:47:16.262Z`. The requester's reply B was `V3-LOCAL-2N7P`, sent at `2026-11-06T05:48:03.959Z`. Both declared the synthetic facts shareable in the existing private QA Space. |
+| Delegation and execution | The Center Agent sent both clues and their exact source times to MingYoo Codex in the existing private Space. The Local Agent actually ran Python on the workstation, reported 30 UTF-8 bytes and exit code 0, and published its result. Dispatch `e2e383ee-c207-4b5d-b224-0cdb2685aafd` reported `delivered=true`, `visible_reply` and `reply.delivered` through the public trace command. |
+| Independent result check | `THREAD-NOV6-J4T8\|V3-LOCAL-2N7P` produced `980d2dae2b1d18fa94317595c617b4a32b86460e89a7070b12ef5b437655954b`, matching an independent calculation. |
+| Final topic reply | One completed result card appeared in the originating topic, with prefix `980d2dae2b1d`, the actual execution outcome, both exact UTC source times and the read interval. It explicitly excluded the old N1/V1/V2 inputs. |
+
+**Remaining scope.** The live cross-author sample used a bot, not a second human;
+other human senders remain covered by automated cases. The two-page membership
+proof budget can leave requesters beyond the first 200 listed members unproven.
+Other authors' unrelated top-level posts and other topics still need stronger
+visibility evidence. Slack and Lark range extensions still require their own
+authorized pilots.
 
 ## Pilot and acceptance
 
