@@ -8,6 +8,18 @@ export type SelectedSpaceProfile = {
 	ownerName?: string;
 };
 
+export class SelectedSpaceProfileAccessError extends Error {
+	readonly status: 401 | 403;
+	readonly setCookies: string[];
+
+	constructor(status: 401 | 403, headers: Headers) {
+		super(`Failed to resolve selected space profile: ${status}`);
+		this.name = "SelectedSpaceProfileAccessError";
+		this.status = status;
+		this.setCookies = headers.getSetCookie();
+	}
+}
+
 export async function readSelectedSpaceProfileFromRequest(input: {
 	requestHeaders: Headers;
 	authBaseUrl: string;
@@ -38,6 +50,12 @@ export async function readSelectedSpaceProfileFromRequest(input: {
 			}),
 		}
 	);
+	if (response.status === 401 || response.status === 403) {
+		throw new SelectedSpaceProfileAccessError(
+			response.status,
+			response.headers
+		);
+	}
 	if (!response.ok) {
 		throw new Error(
 			`Failed to resolve selected space profile: ${response.status}`
