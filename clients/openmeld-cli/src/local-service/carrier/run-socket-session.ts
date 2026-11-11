@@ -1941,20 +1941,31 @@ export async function runDaemonSocketSession(input: {
     reason: string,
     record: (stage: string) => void
   ): Promise<OpenMeldDaemonSyncRouteCatalogPayload> => {
+    const failStep = (
+      stage: "route_catalog_sync_failed" | "controller_report_sync_failed",
+      error: unknown
+    ): never => {
+      record(stage);
+      throw error;
+    };
     try {
       record("catalog_refresh_started");
       const [result] = await Promise.all([
-        requestRouteCatalogSync(reason).then((value) => {
-          record(
-            value.status === "failed"
-              ? "route_catalog_sync_failed"
-              : "route_catalog_sync_completed"
-          );
-          return value;
-        }),
-        requestFreshRuntimeAgentControllerReportSync().then(() => {
-          record("controller_report_sync_completed");
-        }),
+        requestRouteCatalogSync(reason).then(
+          (value) => {
+            record(
+              value.status === "failed"
+                ? "route_catalog_sync_failed"
+                : "route_catalog_sync_completed"
+            );
+            return value;
+          },
+          (error: unknown) => failStep("route_catalog_sync_failed", error)
+        ),
+        requestFreshRuntimeAgentControllerReportSync().then(
+          () => record("controller_report_sync_completed"),
+          (error: unknown) => failStep("controller_report_sync_failed", error)
+        ),
       ]);
       const payload = projectRouteCatalogSyncPayload({
         knownProfileIds: input.routeCatalogState.profileIds,

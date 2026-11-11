@@ -2685,6 +2685,72 @@ describe("local service run catalog signal", () => {
     await sessionPromise;
   });
 
+  it.each([
+    ["configureConnection", "route_catalog_sync_failed"],
+    ["reportControllers", "controller_report_sync_failed"],
+  ] as const)("identifies a catalog refresh rejected by %s", async (rejectedMethod, failedStage) => {
+    vi.useFakeTimers();
+    const requestId = crypto.randomUUID();
+    const logs = vi.spyOn(console, "warn");
+    onTestFinished(() => logs.mockRestore());
+    syncDaemonRouteCatalogStateMock.mockResolvedValue({
+      status: "unchanged",
+      skippedProfiles: [],
+    });
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    const socket = createMockSocket();
+    let rejectRefresh = false;
+    const session = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, []),
+      decorateExecutionHost: (host) => ({
+        ...host,
+        call: (method, payload, options) => {
+          if (rejectRefresh && method === rejectedMethod) {
+            return Promise.reject(new Error("test Host rejection"));
+          }
+          return host.call(method, payload, options);
+        },
+      }),
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(1);
+      rejectRefresh = true;
+      socket.emitServerFrame({
+        v: 1,
+        code: "daemon.local_agent_control.refresh_catalog",
+        payload: {
+          requestId,
+          payload: { reason: "settings_manual_check" },
+        },
+      });
+      await vi.advanceTimersByTimeAsync(1);
+      expect(socket.sentFrames).toContainEqual(
+        expect.objectContaining({
+          code: "daemon.local_agent_control.result",
+          payload: {
+            requestId,
+            payload: expect.objectContaining({
+              accepted: false,
+              syncStatus: "failed",
+              errorMessage: "test Host rejection",
+            }),
+          },
+        })
+      );
+      const stages = logs.mock.calls
+        .map(([line]) => String(line))
+        .filter((line) => line.includes(requestId));
+      for (const stage of [failedStage, "catalog_refresh_failed"]) {
+        expect(
+          stages.filter((line) => line.includes(`"stage":"${stage}"`))
+        ).toHaveLength(1);
+      }
+    } finally {
+      socket.close(1000, "shutdown");
+      await session;
+    }
+  });
+
   it("handles profile workspace control frames through the profile workspace service", async () => {
     vi.useFakeTimers();
     const targetProfileId = "agt_00000000-0000-4000-8000-000000000001";
