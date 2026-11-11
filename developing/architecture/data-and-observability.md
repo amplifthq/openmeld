@@ -561,7 +561,9 @@ only. Older callers and receivers can continue using the same request and respon
 Pending Profile lineage reads can be shared by callers in the same input-gate
 scope. A protected publication starts its own Auth read if another input owns
 the pending load. When the earlier read resumes, only the current load can
-publish its result into the in-memory and SQLite lineage caches.
+publish its result into the in-memory and SQLite lineage caches. A superseded
+caller can use a completed replacement after rechecking its age and coverage
+of the owner's current Space members.
 
 For a slow Space PostgreSQL transaction, `pendingStages` identifies the active
 driver phase and `postgresCompletedPhaseMs` sums completed phases within the

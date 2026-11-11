@@ -46,17 +46,9 @@ export class SpaceProfileLineageCache {
   async resolve(
     ownerUserId: string
   ): Promise<CreatorProfileIdsByProfileId | undefined> {
-    const sql = this.input.sql();
-    const cached = readSpaceProfileLineage(sql, ownerUserId);
-    const use = classifyCachedProfileLineage({
-      cached,
-      nowMs: Date.now(),
-      requiredProfileIds: listActiveSpaceMemberProfileIdsForOwnerUserId(
-        sql,
-        ownerUserId
-      ),
-    });
-    if (cached && use !== "reload") {
+    const entry = this.readUsableCache(ownerUserId);
+    if (entry) {
+      const { cached, use } = entry;
       this.remember(
         ownerUserId,
         cached.creatorProfileIdByProfileId,
@@ -70,6 +62,23 @@ export class SpaceProfileLineageCache {
     // An expired copy must not keep authorizing synchronous readers.
     this.forget(ownerUserId);
     return await this.load(ownerUserId);
+  }
+
+  private readUsableCache(ownerUserId: string) {
+    const sql = this.input.sql();
+    const cached = readSpaceProfileLineage(sql, ownerUserId);
+    if (!cached) {
+      return undefined;
+    }
+    const use = classifyCachedProfileLineage({
+      cached,
+      nowMs: Date.now(),
+      requiredProfileIds: listActiveSpaceMemberProfileIdsForOwnerUserId(
+        sql,
+        ownerUserId
+      ),
+    });
+    return use === "reload" ? undefined : { cached, use };
   }
 
   // Synchronous read for live fan-out to open sessions, under the same
@@ -160,7 +169,10 @@ export class SpaceProfileLineageCache {
           // A different gate may already have rechecked access for this owner.
           // A superseded load cannot restore older lineage, even within one ms.
           if (this.loadsByOwnerUserId.get(ownerUserId)?.result !== load) {
-            return undefined;
+            const entry = this.readUsableCache(ownerUserId);
+            return entry && entry.cached.fetchedAtMs >= fetchedAtMs
+              ? entry.cached.creatorProfileIdByProfileId
+              : undefined;
           }
           if (loaded) {
             writeSpaceProfileLineage(sql, ownerUserId, {

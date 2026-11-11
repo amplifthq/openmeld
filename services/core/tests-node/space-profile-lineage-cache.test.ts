@@ -102,7 +102,12 @@ describe("Space Profile lineage cache", () => {
     expect(harness.listProfileLineage).toHaveBeenCalledTimes(1);
   });
 
-  it("does not restore a superseded lineage when an outside read finishes after publication", async () => {
+  it.each([
+    "current",
+    "expired",
+    "incomplete",
+    "missing",
+  ] as const)("returns only usable committed lineage to a superseded caller (%s)", async (state) => {
     vi.useFakeTimers({ now: NOW_MS });
     let gateId: string | undefined;
     const harness = createHarness(() => gateId);
@@ -112,12 +117,27 @@ describe("Space Profile lineage cache", () => {
     const first = cache.resolve(OWNER);
     gateId = "publication";
     const current = { "human-1": null, "agent-1": null };
-    harness.listProfileLineage.mockResolvedValueOnce(lineageResult(current));
-    expect(await cache.resolve(OWNER)).toEqual(current);
+    harness.listProfileLineage.mockResolvedValueOnce(
+      state === "missing" ? { ok: false } : lineageResult(current)
+    );
+    expect(await cache.resolve(OWNER)).toEqual(
+      state === "missing" ? undefined : current
+    );
+    if (state === "expired") {
+      vi.setSystemTime(NOW_MS + PROFILE_LINEAGE_CACHE_MAX_AGE_MS);
+    } else if (state === "incomplete") {
+      upsertSpaceMemberRecord(harness.sql, member("agent-2", "agent"));
+    }
     outside.resolve(lineageResult({ "human-1": null, "agent-1": "human-1" }));
-    expect(await first).toBeUndefined();
-    expect(cache.peek(OWNER)).toEqual(current);
-    expect(await harness.cache().resolve(OWNER)).toEqual(current);
+    expect(await first).toEqual(state === "current" ? current : undefined);
+    expect(harness.listProfileLineage).toHaveBeenCalledTimes(2);
+    expect(
+      readSpaceProfileLineage(harness.sql, OWNER)?.creatorProfileIdByProfileId
+    ).toEqual(state === "missing" ? undefined : current);
+    if (state === "current") {
+      expect(cache.peek(OWNER)).toEqual(current);
+      expect(await harness.cache().resolve(OWNER)).toEqual(current);
+    }
   });
 
   it("serves an aging copy while one background read refreshes it", async () => {
