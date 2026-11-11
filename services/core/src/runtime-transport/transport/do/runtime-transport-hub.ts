@@ -33,6 +33,7 @@ import {
   computerPowerResultSchema,
   computerPowerTransportSchema,
   daemonStreamFrameSchema,
+  findOpenMeldToolsUpdateFailureCode,
   LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   localAgentReasoningPreferencesSchema,
@@ -1542,6 +1543,22 @@ type AutomaticToolsUpdateUnavailableRetry = {
   retryAtMs: number;
   targetVersion: string;
 };
+function automaticUpdateObservationFields(
+  session: RuntimeTransportSessionState | null
+) {
+  const components = session?.capabilities.localComponents;
+  const operation = components?.updateOperation;
+  return {
+    connectionGeneration: session?.connectionGeneration ?? null,
+    componentStatusGeneratedAt: components?.generatedAt ?? null,
+    operationPhase: operation?.phase ?? null,
+    operationTargetVersion: operation?.targetVersion ?? null,
+    operationFailureCode:
+      operation?.phase === "restored" || operation?.phase === "needs_help"
+        ? findOpenMeldToolsUpdateFailureCode(components?.cli.reasonCodes ?? [])
+        : null,
+  };
+}
 type StoredAutomaticToolsUpdateUnavailableRetry =
   AutomaticToolsUpdateUnavailableRetry & {
     computerKey: string;
@@ -4376,6 +4393,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const sessionBeforeHeartbeat = this.state.sessionsById.get(
       parsed.data.daemonSessionId
     );
+    const hadComponentStatus =
+      !!sessionBeforeHeartbeat?.capabilities.localComponents;
     const previousReadinessProfileIds = collectReadinessProfileIdsForSession(
       sessionBeforeHeartbeat
     );
@@ -4464,6 +4483,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
       if (sessionAfterHeartbeat) {
         this.queueReleaseTriggeredOpenMeldToolsUpdate({
+          componentStatusWasMissing: !hadComponentStatus,
           connection: {
             daemonSessionId: parsed.data.daemonSessionId,
             deviceId: parsed.data.deviceId,
@@ -21110,6 +21130,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
   }
   private queueReleaseTriggeredOpenMeldToolsUpdate(input: {
+    componentStatusWasMissing?: boolean;
     connection: Pick<
       RuntimeTransportSessionState,
       "daemonSessionId" | "deviceId" | "lane" | "ownerUserId"
@@ -21206,6 +21227,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       coalescingMarker
     );
     console.info("[core.openmeld_tools.automatic_update_queued]", {
+      ...automaticUpdateObservationFields(session),
       daemonSessionId: session.daemonSessionId,
       deviceId: session.deviceId,
       event: "core.openmeld_tools.automatic_update_queued",
@@ -21331,6 +21353,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
   }
   private recordReleaseTriggeredOpenMeldToolsUpdateSkip(input: {
+    componentStatusWasMissing?: boolean;
     connection: Pick<
       RuntimeTransportSessionState,
       "daemonSessionId" | "deviceId" | "lane" | "ownerUserId"
@@ -21351,12 +21374,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     targetVersion?: string;
     trigger: "heartbeat" | "register";
   }): void {
-    // Register is the one-shot decision boundary. Heartbeats reuse the same
-    // decision and would turn a stable skip reason into recurring log noise.
-    if (input.trigger !== "register" || input.connection.lane !== "prod") {
+    // Also capture the first decision with fresh evidence after an omission.
+    if (
+      (input.trigger !== "register" &&
+        !(
+          input.componentStatusWasMissing &&
+          input.session?.capabilities.localComponents
+        )) ||
+      input.connection.lane !== "prod"
+    ) {
       return;
     }
     console.info("[core.openmeld_tools.automatic_update_skipped]", {
+      ...automaticUpdateObservationFields(input.session),
       automaticUpdatesEnabled:
         input.session?.capabilities.localComponents?.maintenance
           ?.automaticUpdatesEnabled ?? null,
@@ -21367,12 +21397,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       maintenanceStatus:
         input.session?.capabilities.localComponents?.maintenance?.status ??
         null,
-      operationPhase:
-        input.session?.capabilities.localComponents?.updateOperation?.phase ??
-        null,
-      operationTargetVersion:
-        input.session?.capabilities.localComponents?.updateOperation
-          ?.targetVersion ?? null,
       ownerUserId: input.connection.ownerUserId,
       reasonCode: input.reasonCode,
       releaseCliVersion:

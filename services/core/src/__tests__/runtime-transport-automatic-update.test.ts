@@ -112,15 +112,40 @@ describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
     }
   });
 
-  it("records when the same target is already coalesced", async () => {
+  it("sends a newer release once while retaining the previous failed update in diagnostics", async () => {
     const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
-    const harness = createHarness([currentResult("0.3.153")]);
+    const localComponents = createLocalComponentsStatus();
+    localComponents.updateOperation = {
+      operationId: "previous-update",
+      targetVersion: "0.3.152",
+      phase: "needs_help",
+      requestSource: "automatic",
+      urgency: "available",
+      requestedAt: localComponents.generatedAt,
+      updatedAt: localComponents.generatedAt,
+    };
+    localComponents.cli.reasonCodes = [
+      "unrecognized failure detail",
+      "cli.update.install_failed",
+    ];
+    const harness = createHarness([currentResult("0.3.153")], {
+      localComponents,
+    });
 
     try {
       await harness.queueAndSettle("register");
       await harness.queueAndSettle("register");
 
       expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledOnce();
+      expect(log).toHaveBeenCalledWith(
+        "[core.openmeld_tools.automatic_update_queued]",
+        expect.objectContaining({
+          operationPhase: "needs_help",
+          operationTargetVersion: "0.3.152",
+          operationFailureCode: "cli.update.install_failed",
+          targetVersion: "0.3.153",
+        })
+      );
       expect(log).toHaveBeenCalledWith(
         "[core.openmeld_tools.automatic_update_skipped]",
         expect.objectContaining({
@@ -407,6 +432,7 @@ function createHarness(
     Error | OpenMeldToolsControlResult | Promise<OpenMeldToolsControlResult>
   >,
   input: {
+    localComponents?: LocalComponentsStatus;
     onSend?: () => void;
     openMeldToolsControl?: RuntimeTransportSessionState["capabilities"]["openMeldToolsControl"];
     storageValues?: Map<string, unknown>;
@@ -463,7 +489,7 @@ function createHarness(
   let session: RuntimeTransportSessionState = {
     acceptingDispatches: true,
     capabilities: {
-      localComponents: createLocalComponentsStatus(),
+      localComponents: input.localComponents ?? createLocalComponentsStatus(),
       openMeldToolsControl: input.openMeldToolsControl ?? {
         requestAutomaticUpdate: true,
         requestUpdate: true,

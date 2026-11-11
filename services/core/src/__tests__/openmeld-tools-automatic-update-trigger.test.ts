@@ -132,6 +132,38 @@ describe("release-triggered OpenMeld Tools updates", () => {
     ).toBeNull();
   });
 
+  it.each([
+    ["needs_help", "0.3.139", undefined, undefined, "request"],
+    ["restored", "0.3.139", undefined, undefined, "request"],
+    ["needs_help", "0.3.140", undefined, undefined, "skipped"],
+    ["needs_help", "0.3.141", undefined, undefined, "skipped"],
+    ["waiting_for_work", "0.3.139", undefined, undefined, "skipped"],
+    ["updating", "0.3.139", undefined, undefined, "skipped"],
+    ["restored", "0.3.140", "0.3.140", "0.3.139", "request"],
+    ["needs_help", "0.3.139", "0.3.139", "0.3.141", "skipped"],
+    ["needs_help", "unknown", undefined, undefined, "skipped"],
+  ] as const)("evaluates %s on %s (CLI %s, Service %s) for a later release", (phase, targetVersion, targetCliVersion, targetServiceVersion, status) => {
+    const input = createDecisionInput();
+    const local = createLocalComponentsStatus({ includeUpdateOperation: true });
+    if (!local.updateOperation) {
+      throw new Error("missing fixture operation");
+    }
+    Object.assign(local.updateOperation, {
+      phase,
+      targetVersion,
+      targetCliVersion,
+      targetServiceVersion,
+    });
+    input.capabilities.localComponents = local;
+    expect(
+      resolveReleaseTriggeredOpenMeldToolsUpdateDecision(input)
+    ).toMatchObject(
+      status === "request"
+        ? { status, update: { targetVersion: "0.3.140" } }
+        : { status, reasonCode: "automatic_update.operation_present" }
+    );
+  });
+
   it("requests one automatic update when a capable Service reports an actionable release", () => {
     expect(
       resolveReleaseTriggeredOpenMeldToolsUpdate({
