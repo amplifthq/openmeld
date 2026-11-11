@@ -78,6 +78,40 @@ it("leaves a fast gate quiet after its callback has returned", async () => {
   expect(warn).not.toHaveBeenCalled();
 });
 
+it("distinguishes a pending BEGIN from time spent inside an open alarm transaction", async () => {
+  vi.useFakeTimers();
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const gate = new SpaceInputGateObservation(
+    "space",
+    "postgres_transaction",
+    undefined,
+    "space_inbox_projection_outbox"
+  );
+  const begin = Promise.withResolvers<void>();
+  const work = Promise.withResolvers<void>();
+  const done = gate.observe(async () => {
+    await gate.duringPostgresPhase("begin", () => begin.promise);
+    await gate.duringPostgresPhase("callback", () => work.promise);
+  });
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(warn.mock.lastCall?.[1]).toMatchObject({
+    alarmStep: "space_inbox_projection_outbox",
+    pendingStages: { postgres_begin: 1 },
+  });
+  begin.resolve();
+  await vi.advanceTimersByTimeAsync(20_000);
+  expect(warn.mock.lastCall?.[1]).toMatchObject({
+    pendingStages: { postgres_callback: 1 },
+    postgresCompletedPhaseMs: { begin: 5000 },
+  });
+  work.resolve();
+  await done;
+  expect(warn.mock.lastCall?.[1]).toMatchObject({
+    pendingStages: {},
+    postgresCompletedPhaseMs: { begin: 5000, callback: 20_000 },
+  });
+});
+
 it.each([
   "completed",
   "failed",

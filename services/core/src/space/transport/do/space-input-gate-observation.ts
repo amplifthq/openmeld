@@ -1,4 +1,5 @@
 import { tracing } from "cloudflare:workers";
+import type { PostgresTransactionPhase } from "@openmeld/db/postgresql";
 import { CORE_LOG_EVENTS } from "../../../shared/observability/log-events";
 
 // The native gate can reset the instance at 30s, without running finally.
@@ -11,6 +12,9 @@ export class SpaceInputGateObservation {
   active = true;
   private readonly startedAt = performance.now();
   private readonly pending = new Map<string, number>();
+  private readonly postgresPhaseMs: Partial<
+    Record<PostgresTransactionPhase, number>
+  > = {};
   private slow = false;
   private phase: "callback" | "postgres_cleanup" = "callback";
   private persistedSignalId?: string;
@@ -19,15 +23,18 @@ export class SpaceInputGateObservation {
   private readonly durableObjectId: string;
   private readonly operation: string;
   private readonly parentGateId?: string;
+  private readonly alarmStep?: string;
 
   constructor(
     durableObjectId: string,
     operation: string,
-    parentGateId?: string
+    parentGateId?: string,
+    alarmStep?: string
   ) {
     this.durableObjectId = durableObjectId;
     this.operation = operation;
     this.parentGateId = parentGateId;
+    this.alarmStep = alarmStep;
   }
 
   async observe<T>(run: () => Promise<T>): Promise<T> {
@@ -71,6 +78,20 @@ export class SpaceInputGateObservation {
     this.requestId = requestId;
   }
 
+  async duringPostgresPhase<T>(
+    phase: PostgresTransactionPhase,
+    work: () => Promise<T>
+  ): Promise<T> {
+    const started = performance.now();
+    try {
+      return await this.during(`postgres_${phase}`, work);
+    } finally {
+      this.postgresPhaseMs[phase] =
+        (this.postgresPhaseMs[phase] ?? 0) +
+        Math.round(performance.now() - started);
+    }
+  }
+
   stored(signalId: string, clientMessageId: string | undefined): void {
     if (clientMessageId && clientMessageId === this.expectedClientMessageId) {
       this.persistedSignalId = signalId;
@@ -87,6 +108,8 @@ export class SpaceInputGateObservation {
       durableObjectId: this.durableObjectId,
       gateId: this.id,
       parentGateId: this.parentGateId,
+      alarmStep: this.alarmStep,
+      postgresCompletedPhaseMs: { ...this.postgresPhaseMs },
       operation: this.operation,
       requestId: this.requestId,
       status,

@@ -9,6 +9,7 @@ import {
 import type { QueryResult } from "@openmeld/db/postgresql";
 import {
   getPostgresDatabase,
+  type ObservePostgresTransactionPhase,
   type PostgresDatabase,
   withPostgresRequest,
 } from "@openmeld/db/postgresql";
@@ -2817,6 +2818,10 @@ export class Space extends DurableObject<CoreBindings> {
   private readonly organizationMembershipReads =
     new ConcurrentOrganizationMembershipReads();
   private readonly profileLineageCache = new SpaceProfileLineageCache({
+    activeGateId: () => {
+      const gate = this.postgresGateContext.getStore();
+      return gate?.active ? gate.id : undefined;
+    },
     authRpc: () => this.bindings.OPENMELD_AUTH_WORKER,
     onLoadError: (error, ownerUserId) => {
       console.warn("[core.openmeld.space.profile_lineage_load_failed]", {
@@ -2984,18 +2989,26 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   private readonly runPostgresTransaction = async <T>(
-    callback: () => Promise<T>
+    callback: (observe?: ObservePostgresTransactionPhase) => Promise<T>
   ): Promise<T> => {
+    const run = () => {
+      const gate = this.postgresGateContext.getStore();
+      return callback(
+        gate?.active
+          ? (phase, work) => gate.duringPostgresPhase(phase, work)
+          : undefined
+      );
+    };
     const currentGate = this.postgresGateContext.getStore();
     if (currentGate?.active) {
-      return currentGate.during("postgres_transaction", callback);
+      return currentGate.during("postgres_transaction", run);
     }
     // A later input gate must not suspend a transaction that still owns an
     // origin-pool slot. Admit the transaction before it opens its connection.
     const outcome = await this.ctx.blockConcurrencyWhile(async () => {
       try {
         return {
-          value: await this.withPostgresGateScope("postgres_transaction", callback),
+          value: await this.withPostgresGateScope("postgres_transaction", run),
         };
       } catch (error) {
         // Include rollback and pool-close failures. Ordinary transaction
@@ -3011,6 +3024,7 @@ export class Space extends DurableObject<CoreBindings> {
 
   private readonly postgresGateContext =
     new AsyncLocalStorage<SpaceInputGateObservation>();
+  private readonly alarmStepContext = new AsyncLocalStorage<string>();
 
   private readonly publicationGate = new AsyncLocalStorage<{
     active: boolean;
@@ -3026,7 +3040,8 @@ export class Space extends DurableObject<CoreBindings> {
     const gate = new SpaceInputGateObservation(
       this.durableObjectId,
       operation,
-      parent?.active ? parent.id : undefined
+      parent?.active ? parent.id : undefined,
+      this.alarmStepContext.getStore()
     );
     return tracing.enterSpan(`space.input_gate.${operation}`, (span) => {
       span.setAttribute("openmeld.gate_id", gate.id);
@@ -3164,7 +3179,7 @@ export class Space extends DurableObject<CoreBindings> {
       return;
     }
     try {
-      await run();
+      await this.alarmStepContext.run(step, run);
       await this.getAlarmFailureBackoff().succeeded(step);
     } catch (error) {
       const retryAtMs = await this.getAlarmFailureBackoff().failed(
