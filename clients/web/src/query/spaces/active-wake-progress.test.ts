@@ -246,6 +246,64 @@ describe("accepted Wake outcomes", () => {
 		expect(readPresentation(queryClient).items).toEqual([a]);
 		queryClient.clear();
 	});
+	it("keeps the observed stop when conflicting signals are replayed for the same dispatch", () => {
+		const queryClient = new QueryClient();
+		const final = finalSignal();
+		const notice = (
+			noticeType: "wake_stopped" | "terminal_failure",
+			ts: number
+		): SignalEnvelope => ({
+			v: 1,
+			id: noticeType,
+			spaceId: scope.spaceId,
+			ts,
+			profile: {
+				kind: "system",
+				profileId: "openmeld-system",
+				profileName: "OpenMeld System",
+			},
+			type: "signal.system_notice",
+			data: {
+				actorName: "Agent",
+				actorProfileId: "agent",
+				dispatchId: "A",
+				generatedBy: "openmeld",
+				noticeType,
+				resultRef: `${noticeType}:A`,
+				text:
+					noticeType === "wake_stopped" ? "Wake was stopped." : "Wake failed.",
+			},
+		});
+		setSpaceWakeProgressPresentationItems({
+			...scope,
+			queryClient,
+			items: [running()],
+		});
+		for (const signal of [
+			notice("wake_stopped", final.ts - 1),
+			notice("terminal_failure", final.ts - 2),
+			final,
+		]) {
+			recordSpaceWakeProgressEvidence({
+				...scope,
+				queryClient,
+				signals: [signal],
+			});
+			setSpaceWakeProgressPresentationItems({
+				...scope,
+				queryClient,
+				items: (currentItems) =>
+					applyWakeProgressSignals({ currentItems, signals: [signal] }),
+			});
+			const { items, publications } = readPresentation(queryClient);
+			expect(items).toEqual([]);
+			expect(publications.map((entry) => entry.outcome)).toEqual([
+				"wake_stopped",
+			]);
+		}
+		queryClient.clear();
+	});
+
 	it("survives Thread preview trimming and remounts, rejects late detail, transient and summary, and still targets a new execution", async () => {
 		const queryClient = new QueryClient();
 		const options = spaceWakeProgressPresentationQueryOptions(scope);
@@ -286,13 +344,9 @@ describe("accepted Wake outcomes", () => {
 		expect(
 			reopened.getCurrentResult().data?.items.map((item) => item.dispatchId)
 		).toEqual(["B"]);
-		setSpaceWakeProgressPresentationItems({
-			...scope,
-			queryClient,
-			items: [a, b],
-		});
 		const transient: SignalEnvelope = {
 			...finalSignal(),
+			ts: a.updatedAtMs - 1,
 			id: "late-running-A",
 			type: "signal.text",
 			data: {
@@ -311,6 +365,15 @@ describe("accepted Wake outcomes", () => {
 			queryClient,
 			items: (items) =>
 				applyWakeProgressSignals({ currentItems: items, signals: [transient] }),
+		});
+		// Observe the cache before the pending summary can filter the row again.
+		expect(
+			readPresentation(queryClient).items.map((item) => item.dispatchId)
+		).toEqual(["B"]);
+		setSpaceWakeProgressPresentationItems({
+			...scope,
+			queryClient,
+			items: [a, b],
 		});
 		finish({
 			items: [a, b],

@@ -7,7 +7,7 @@ description: "Check Remote Agent native execution. A stop is not stored as a rep
 
 A stop that wins before a reply is stored never becomes a completed reply, and a reply that is already stored stays a reply. Harm: the Space shows a successful answer after the member stopped the hosted agent, or a stop erases an answer that already landed.
 
-The steps are compare-and-set transitions on one submission, so the spec is TLA+ and the checker is TLC 1.7.4 (jar sha256 `936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88`). The code check calls the real functions with the in-memory storage from `services/remote-agent/tests/storage.ts`. Java 11 or newer must be on `PATH`. The check downloads the jar into `~/.cache/openmeld-tlc/` on first run.
+The steps are compare-and-set transitions on one submission, so the spec is TLA+ and the checker is TLC 1.7.4 (jar sha256 `936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88`). The code check calls the real functions with the in-memory storage from `services/remote-agent/tests/storage.ts` and rereads the terminal outcome using `resolveRemoteAgentTerminalExecutionOutcome`. Java 11 or newer must be on `PATH`. The check downloads the jar into `~/.cache/openmeld-tlc/` on first run.
 
 ## When this applies
 
@@ -29,7 +29,7 @@ From the repository root, after `pnpm install`:
 node .agents/skills/verify-remote-agent-execution/check.mjs
 ```
 
-Exit 0 means both rules hold in the model and in the code. A stop-then-complete that returns `completed` is a failure of the check.
+The stop-then-complete replay must return `aborted`. The persisted outcome must also be readable as `aborted` with no completed answer text. A failure during readback catches an inconsistent stored record even if completion returned the expected status.
 
 Read every TLC result with `/statechart`. The user-facing labels are in `view.mjs` next to the spec.
 

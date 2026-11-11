@@ -7,7 +7,7 @@ description: "Check RuntimeCoordinator liveness for one workstation Wake. Fresh 
 
 A running Wake is not failed for silence while accepted progress is inside the window: five minutes normally, thirty minutes when the communication-recovery baseline is still that same progress. An unanswered question pauses that decision. The first of reply, stop, or failure sticks. Harm: a long task dies while the agent is still reporting, or a reply and a failure both become the Space outcome.
 
-The question is the order of progress, time, disconnect, stop, and reply. That is a model check, so the spec is TLA+ and the checker is TLC 1.7.4 (jar sha256 `936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88`). The code check calls `hasRuntimeCoordinatorLocalProgressStaleTerminalExpired`. Java 11 or newer must be on `PATH`. The check downloads the jar into `~/.cache/openmeld-tlc/` on first run.
+The question is the order of progress, time, disconnect, stop, and reply. That is a model check, so the spec is TLA+ and the checker is TLC 1.7.4 (jar sha256 `936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88`). The code check calls the stale-progress predicate and both terminal settlement functions. Java 11 or newer must be on `PATH`. The check downloads the jar into `~/.cache/openmeld-tlc/` on first run.
 
 ## When this applies
 
@@ -32,7 +32,7 @@ From the repository root, after `pnpm install`:
 node .agents/skills/verify-runtime-coordinator-liveness/check.mjs
 ```
 
-Exit 0 means fresh progress is not a failure and the first terminal outcome is the only one in the model.
+Exit 0 means fresh progress is not a failure and a later stop or timeout preserves the recorded terminal outcome.
 
 Read every TLC result with `/statechart`. The user-facing labels are in `view.mjs` next to the spec.
 
@@ -40,9 +40,9 @@ Read every TLC result with `/statechart`. The user-facing labels are in `view.mj
 
 - The five-minute or thirty-minute assertion failed: the stale predicate no longer matches those windows. A wake that fails while progress is newer than the window is a product bug. A predicate that never fails is also a bug: silence would never become "couldn't finish".
 - `does not fail a wake while it is waiting for the user` failed: an open question no longer pauses the watchdog.
-- `FreshProgressIsNotAFailure` or `OneOutcome` failed in TLC: either the model gained a step the code does not have, or you need to add a step the code does have. Time in the spec is a 5-minute tick, from 0 through 6. Do not raise the tick limit to hide a counterexample.
+- `FreshProgressIsNotAFailure` or `TerminalOutcomeSticks` failed in TLC: either the model gained a step the code does not have, or you need to add a step the code does have. Time in the spec is a 5-minute tick, from 0 through 6. Do not raise the tick limit to hide a counterexample.
 
-The early return in both settle functions, and `LOCKED_TERMINAL_STATUSES`, are why the model has no step out of reply, stop, or failure. The code check does not call the settle functions. If you change them, replay a second settle against the first before you move the sync commit.
+`TerminalOutcomeSticks` compares consecutive states. A model that allows a published reply to become a stop fails even if both fields change together. The code check independently applies a late stop to a published reply and a late timeout to a settled stop. The PostgreSQL ledger is outside this executable replay.
 
 ## Scope
 

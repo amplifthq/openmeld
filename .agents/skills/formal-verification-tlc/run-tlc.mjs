@@ -70,55 +70,40 @@ const run = (java, args, cwd) =>
     });
   });
 
-const violatedInvariants = (output) => {
-  const names = [];
-  for (const match of output.matchAll(/Invariant (\S+) is violated/g)) {
-    names.push(match[1]);
-  }
-  return names;
-};
-
-/**
- * Run TLC on one module. `invariants` replaces the cfg invariant list so a
- * known finding can be checked on its own. Deadlock checking stays on.
- */
-export const runTlc = async ({ specDir, moduleName, invariants }) => {
+/** Use the same model and configuration as a direct TLC invocation. */
+export const runTlc = async ({ specDir, moduleName }) => {
   const jar = await ensureTlcJar();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openmeld-tlc-"));
-  const tmp = path.join(dir, "tmp");
-  fs.mkdirSync(tmp);
-  fs.copyFileSync(
-    path.join(specDir, `${moduleName}.tla`),
-    path.join(dir, `${moduleName}.tla`)
-  );
-  fs.writeFileSync(
-    path.join(dir, `${moduleName}.cfg`),
-    `SPECIFICATION Spec\nINVARIANT ${invariants.join(" ")}\n`
-  );
-  const java = process.env.JAVA || "java";
-  const result = await run(
-    java,
-    [
-      "-XX:+UseParallelGC",
-      `-Djava.io.tmpdir=${tmp}`,
-      "-cp",
-      jar,
-      "tlc2.TLC",
-      "-workers",
-      "1",
-      "-fp",
-      "0",
-      "-lncheck",
-      "final",
-      moduleName,
-    ],
-    dir
-  );
-  const output = `${result.stdout}\n${result.stderr}`;
-  return {
-    code: result.code,
-    output,
-    violated: violatedInvariants(output),
-    passed: output.includes("No error has been found"),
-  };
+  try {
+    for (const extension of ["tla", "cfg"]) {
+      const file = `${moduleName}.${extension}`;
+      fs.copyFileSync(path.join(specDir, file), path.join(dir, file));
+    }
+    const result = await run(
+      process.env.JAVA || "java",
+      [
+        "-XX:+UseParallelGC",
+        `-Djava.io.tmpdir=${dir}`,
+        "-cp",
+        path.resolve(jar),
+        "tlc2.TLC",
+        "-workers",
+        "1",
+        "-fp",
+        "0",
+        "-lncheck",
+        "final",
+        moduleName,
+      ],
+      dir
+    );
+    const output = `${result.stdout}\n${result.stderr}`;
+    if (result.code !== 0 || !output.includes("No error has been found")) {
+      throw new Error(
+        `TLC failed for ${moduleName} (exit ${result.code}):\n${output}`
+      );
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 };

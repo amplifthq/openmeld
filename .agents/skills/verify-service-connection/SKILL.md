@@ -5,7 +5,7 @@ description: "Check the local OpenMeld Service connection loop. The computer is 
 
 # Verify the service connection
 
-The computer is shown as connected only after a heartbeat, and quitting that process does not open another session. Harm: Settings or Wake can say this computer is ready while the service is stopping, needs sign-in, or has already quit.
+Only the local Service's online state reports healthy. Connecting, starting, and authentication problems report degraded, and stopping reports idle. The loop model also checks that quitting prevents reconnection. Core owns the separate Wakeability projection.
 
 This is an ordering question about one connection loop, so the spec is TLA+ and the checker is TLC 1.7.4 (jar sha256 `936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88`). The code check calls `toHealthProjection`, `classifyConnectionFailureReason`, and `createServiceConnectionStateTracker`. Java 11 or newer must be on `PATH`. The check downloads the jar into `~/.cache/openmeld-tlc/` on first run.
 
@@ -39,7 +39,7 @@ Read every TLC result with `/statechart`. The user-facing labels are in `view.mj
 
 ## What a failure means
 
-- `stopping must be idle` or `online must be the only ready health projection`: `toHealthProjection` no longer matches the states the loop writes. A stopping service shown as ready is a product bug.
+- A health mismatch names the phase and the actual and expected values. The code check calls `toHealthProjection` for all six service connection states. In particular, `connecting` must report `degraded/suspect` until the connection is online.
 - `a non-401 stream upgrade rejection is internal`: `classifyConnectionFailureReason` treated a 500, or a message that merely contains "401" or "socket", as sign-in or network. That sends the user to the wrong recovery.
 - `NoReconnectAfterQuit` failed: the model now has a path from stopping back to connecting. Check `markStopping` and the `while (!stopRequested)` loop before you weaken the rule.
 - TLC cannot parse the spec: the model drifted. One step in the spec is one `connectionState.set` in the run loop, or the health read that forces `stopping` while draining.

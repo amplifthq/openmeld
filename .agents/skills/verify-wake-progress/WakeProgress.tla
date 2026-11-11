@@ -1,125 +1,37 @@
 ---- MODULE WakeProgress ----
-\* Space wake progress banner for one wake.
-\*
-\* Code, one signal at a time:
-\*   packages/space/src/wake-progress/wake-progress-projection.ts
-\*     applyWakeProgressSignals
-\*     clearWakeProgressItemsForSignal
-\*     mergeWakeProgressItems
-\*     shouldReplaceWakeProgressItem
-\*     createWakeProgressItem
-\*
-\* A terminal signal clears the matching row and then a stop or failure notice
-\* inserts its own row. A final reply clears the row and inserts nothing.
-\* A non-terminal signal is merged. shouldReplaceWakeProgressItem refuses it
-\* when the current row is already terminal.
-\*
-\* Phases are the banner the reader sees, collapsed only where the copy is the
-\* same kind of waiting: request_sent, queued, connecting, and retrying are
-\* "waiting". running, writing, and publishing are "working".
+\* Web presentation for one viewer, Space, and dispatch. Space owns publication.
+\* recordSpaceWakeProgressEvidence retains the first matching publication.
+\* setSpaceWakeProgressPresentationItems filters each subsequent progress write.
+VARIABLES publication, row
+vars == <<publication, row>>
 
-VARIABLES banner, closed, sawStop
-vars == <<banner, closed, sawStop>>
-
-Banners == {
-  "nothing",
-  "sending",
-  "waiting",
-  "working",
-  "couldnt_confirm",
-  "couldnt_reply",
-  "stopped",
-  "replied"
-}
-
-Open == {"nothing", "sending", "waiting", "working"}
+Outcomes == {"reply", "stop", "failure"}
+Progress == {"waiting", "working"}
 
 Init ==
-  /\ banner = "nothing"
-  /\ closed = FALSE
-  /\ sawStop = FALSE
+  /\ publication = "none"
+  /\ row = "hidden"
 
-YouSend ==
-  /\ banner = "nothing"
-  /\ ~closed
-  /\ banner' = "sending"
-  /\ UNCHANGED <<closed, sawStop>>
+\* A candidate row can arrive even after a final reply removed the old row.
+ReceiveProgress(candidate) ==
+  /\ row' = IF publication = "none" THEN candidate ELSE "hidden"
+  /\ UNCHANGED publication
 
-ShowWaiting ==
-  /\ ~closed
-  /\ banner \in {"nothing", "sending"}
-  /\ banner' = "waiting"
-  /\ UNCHANGED <<closed, sawStop>>
-
-ShowWorking ==
-  /\ ~closed
-  /\ banner \in {"nothing", "sending", "waiting"}
-  /\ banner' = "working"
-  /\ UNCHANGED <<closed, sawStop>>
-
-Retry ==
-  /\ ~closed
-  /\ banner = "working"
-  /\ banner' = "waiting"
-  /\ UNCHANGED <<closed, sawStop>>
-
-CouldntConfirm ==
-  /\ banner \in {"nothing", "sending", "waiting", "working", "couldnt_reply", "stopped"}
-  /\ banner' = "couldnt_confirm"
-  /\ closed' = TRUE
-  /\ UNCHANGED sawStop
-
-CouldntReply ==
-  /\ banner \in {"nothing", "sending", "waiting", "working", "couldnt_confirm", "stopped"}
-  /\ banner' = "couldnt_reply"
-  /\ closed' = TRUE
-  /\ UNCHANGED sawStop
-
-YouStop ==
-  /\ banner \in {"nothing", "sending", "waiting", "working", "couldnt_confirm", "couldnt_reply"}
-  /\ banner' = "stopped"
-  /\ closed' = TRUE
-  /\ sawStop' = TRUE
-
-ReplyArrives ==
-  /\ banner \in {"sending", "waiting", "working", "couldnt_confirm", "couldnt_reply", "stopped"}
-  /\ banner' = "replied"
-  /\ closed' = TRUE
-  /\ UNCHANGED sawStop
-
-Done ==
-  /\ banner = "replied"
-  /\ UNCHANGED vars
+ObservePublication(kind) ==
+  /\ publication' = IF publication = "none" THEN kind ELSE publication
+  /\ row' = "hidden"
 
 Next ==
-  \/ YouSend
-  \/ ShowWaiting
-  \/ ShowWorking
-  \/ Retry
-  \/ CouldntConfirm
-  \/ CouldntReply
-  \/ YouStop
-  \/ ReplyArrives
-  \/ Done
+  \/ \E candidate \in Progress : ReceiveProgress(candidate)
+  \/ \E kind \in Outcomes : ObservePublication(kind)
 
 Spec == Init /\ [][Next]_vars
 
 TypeOK ==
-  /\ banner \in Banners
-  /\ closed \in BOOLEAN
-  /\ sawStop \in BOOLEAN
+  /\ publication \in Outcomes \cup {"none"}
+  /\ row \in Progress \cup {"hidden"}
 
-\* A later "sending", "waiting", or "working" update never reopens a closed row.
-ClosedRowStaysClosed ==
-  closed => banner \notin Open
-
-\* Once the banner says the wake was stopped, a later notice does not show a
-\* failure or an unconfirmed reply in its place.
-StopIsNotShownAsFailure ==
-  ~(sawStop /\ banner \in {"couldnt_reply", "couldnt_confirm"})
-
-\* Once the banner says the wake was stopped, a final reply does not clear it.
-StopIsNotClearedByAReply ==
-  ~(sawStop /\ banner = "replied")
+PublishedProgressStaysHidden == publication \in Outcomes => row = "hidden"
+FirstPublicationSticks == [][(publication \in Outcomes) => (publication' = publication)]_vars
 
 ====

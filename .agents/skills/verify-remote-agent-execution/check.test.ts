@@ -5,6 +5,7 @@ import {
   markRemoteAgentExecutionProgress,
   RemoteAgentExecutionCancelledError,
   requestRemoteAgentExecutionCancellation,
+  resolveRemoteAgentTerminalExecutionOutcome,
 } from "../../../services/remote-agent/agent-core/execution-state.ts";
 import { InMemoryDurableObjectStorage } from "../../../services/remote-agent/tests/storage.ts";
 
@@ -69,6 +70,18 @@ describe("remote agent execution", () => {
       storage,
     });
     expect(settled?.status).toBe("aborted");
+    await expect(
+      resolveRemoteAgentTerminalExecutionOutcome({
+        identity,
+        execution: settled,
+        nowMs: 51,
+        storage,
+      })
+    ).resolves.toMatchObject({
+      status: "aborted",
+      execution: { status: "aborted" },
+      completedText: null,
+    });
   });
 
   it("keeps a stored reply when stop arrives after it", async () => {

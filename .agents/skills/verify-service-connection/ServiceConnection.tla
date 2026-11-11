@@ -105,18 +105,4 @@ TypeOK ==
 NoReconnectAfterQuit ==
   quit => phase = "stopping"
 
-\* toHealthProjection says ok only for "online", idle only for "stopping",
-\* and authentication_required keeps its own reason code.
-Health ==
-  IF phase = "connected" THEN "ready"
-  ELSE IF phase = "stopping" THEN "idle"
-  ELSE IF phase = "sign_in" THEN "sign_in"
-  ELSE "trouble"
-
-ShownHonestly ==
-  /\ (phase = "connected") <=> (Health = "ready")
-  /\ (phase = "stopping") => (Health = "idle")
-  /\ (phase = "sign_in") => (Health = "sign_in")
-  /\ (phase = "sign_in_unavailable") => (Health = "trouble")
-
 ====

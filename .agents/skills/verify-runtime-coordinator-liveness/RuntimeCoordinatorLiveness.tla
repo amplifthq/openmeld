@@ -139,8 +139,11 @@ FreshProgressIsNotAFailure ==
   phase /= "failed"
     \/ (~asking /\ quiet >= (IF recovery THEN MaxQuiet ELSE 1))
 
+PhaseMatchesOutcome ==
+  IF phase \in {"waiting", "working"} THEN outcome = "" ELSE outcome = phase
+
 \* The first terminal outcome is the only one.
-OneOutcome ==
-  outcome = "" \/ outcome = phase
+TerminalOutcomeSticks ==
+  [][(outcome /= "") => (outcome' = outcome)]_vars
 
 ====

@@ -24,17 +24,23 @@ const health = (state, extra = {}) =>
     ...extra,
   });
 
-if (
-  health("online").state !== "ok" ||
-  health("online").runtimeState !== "healthy"
-) {
-  fail("online must be the only ready health projection");
+for (const [phase, state, runtimeState] of [
+  ["starting", "degraded", "suspect"],
+  ["connecting", "degraded", "suspect"],
+  ["authentication_required", "degraded", "suspect"],
+  ["online", "ok", "healthy"],
+  ["degraded", "degraded", "suspect"],
+  ["stopping", "degraded", "idle"],
+]) {
+  const projection = health(phase);
+  if (projection.state !== state || projection.runtimeState !== runtimeState) {
+    fail(
+      `${phase} reported ${projection.state}/${projection.runtimeState}, expected ${state}/${runtimeState}`
+    );
+  }
 }
-if (
-  health("stopping").runtimeState !== "idle" ||
-  health("stopping").reasonCode !== "stopping"
-) {
-  fail("stopping must be idle, not a suspect failure");
+if (health("stopping").reasonCode !== "stopping") {
+  fail("stopping must keep its own reason code");
 }
 if (
   health("authentication_required", {
@@ -51,9 +57,6 @@ if (
   fail(
     "unusable saved sign-in is degraded auth_unavailable, not sign-in required"
   );
-}
-if (health("starting").state === "ok") {
-  fail("starting must not look connected");
 }
 
 const upgrade500 =
@@ -97,14 +100,7 @@ if (
   );
 }
 
-const model = await runTlc({
-  specDir: here,
-  moduleName: "ServiceConnection",
-  invariants: ["TypeOK", "NoReconnectAfterQuit", "ShownHonestly"],
-});
-if (!model.passed) {
-  fail(model.output.slice(-2000));
-}
+await runTlc({ specDir: here, moduleName: "ServiceConnection" });
 
 console.log(
   "Service connection: health projection and failure classification match the code, and the connection loop model holds."

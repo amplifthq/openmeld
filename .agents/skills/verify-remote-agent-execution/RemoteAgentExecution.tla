@@ -17,8 +17,8 @@
 \* Left out: repairRemoteAgentCompletedExecutionWithoutAnswer, which turns a
 \* completed row that has no stored answer into failed.
 
-VARIABLES status, stopWon
-vars == <<status, stopWon>>
+VARIABLES status, stopWon, hasAnswer
+vars == <<status, stopWon, hasAnswer>>
 
 Statuses == {
   "absent",
@@ -33,45 +33,49 @@ Statuses == {
 Init ==
   /\ status = "absent"
   /\ stopWon = FALSE
+  /\ hasAnswer = FALSE
 
 YouStopFirst ==
   /\ status = "absent"
   /\ ~stopWon
   /\ stopWon' = TRUE
-  /\ UNCHANGED status
+  /\ UNCHANGED <<status, hasAnswer>>
 
 Admit ==
   /\ status = "absent"
   /\ ~stopWon
   /\ status' = "pending"
-  /\ UNCHANGED stopWon
+  /\ UNCHANGED <<stopWon, hasAnswer>>
 
 Progress ==
   /\ status \in {"pending", "running"}
   /\ ~stopWon
   /\ status' = "running"
-  /\ UNCHANGED stopWon
+  /\ UNCHANGED <<stopWon, hasAnswer>>
 
 YouStop ==
   /\ status \in {"pending", "running"}
   /\ status' = "cancellation_requested"
   /\ stopWon' = TRUE
+  /\ UNCHANGED hasAnswer
 
 CompleteSuccess ==
   /\ status \in {"pending", "running"}
   /\ ~stopWon
   /\ status' = "completed"
+  /\ hasAnswer' = TRUE
   /\ UNCHANGED stopWon
 
 CompleteFail ==
   /\ status \in {"pending", "running"}
   /\ ~stopWon
   /\ status' = "failed"
-  /\ UNCHANGED stopWon
+  /\ UNCHANGED <<stopWon, hasAnswer>>
 
 SettleStop ==
   /\ status = "cancellation_requested"
   /\ status' = "aborted"
+  /\ hasAnswer' = FALSE
   /\ UNCHANGED stopWon
 
 Done ==
@@ -94,10 +98,11 @@ Spec == Init /\ [][Next]_vars
 TypeOK ==
   /\ status \in Statuses
   /\ stopWon \in BOOLEAN
+  /\ hasAnswer \in BOOLEAN
 
 \* After you stop, the submission is not waiting, working, or a stored reply.
 AStopIsNotAReplyOrMoreWork ==
-  ~(stopWon /\ status \in {"pending", "running", "completed"})
+  stopWon => (~hasAnswer /\ status \notin {"pending", "running", "completed"})
 
 \* Stopping and stopped are reached only by a stop that won.
 StoppedOnlyAfterYouStop ==
