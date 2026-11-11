@@ -7584,6 +7584,95 @@ describe("OpenMeld Core", () => {
       referenceTargets: [],
     });
   });
+  it("publishes while an earlier Space read is waiting for profile lineage", async () => {
+    const spaceId = await createSpace();
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    let started = false;
+    const release = Promise.withResolvers<void>();
+    let entered = false;
+    let publishing = false;
+    await runInDurableObject(stub, (instance, state) => {
+      const target = instance as unknown as { bindings: CoreBindings };
+      const auth = {
+        async listProfileLineage() {
+          if (!started) {
+            started = true;
+            await release.promise;
+          }
+          return {
+            ok: true as const,
+            profiles: [
+              { profileId: DEFAULT_HUMAN_PROFILE_ID, creatorProfileId: null },
+            ],
+          };
+        },
+      } satisfies Pick<
+        NonNullable<CoreBindings["OPENMELD_AUTH_WORKER"]>,
+        "listProfileLineage"
+      >;
+      target.bindings = {
+        ...target.bindings,
+        OPENMELD_AUTH_WORKER: auth as NonNullable<
+          CoreBindings["OPENMELD_AUTH_WORKER"]
+        >,
+      };
+      const block = state.blockConcurrencyWhile.bind(state);
+      vi.spyOn(state, "blockConcurrencyWhile").mockImplementation(
+        <T>(run: () => Promise<T>) =>
+          block(() => {
+            if (publishing) {
+              entered = true;
+            }
+            return run();
+          })
+      );
+    });
+    const context = createRpcContext({
+      ...DEFAULT_TEST_AUTH_PROFILE,
+      requestId: "lineage-read",
+    });
+    const reading = stub.rpcListSignalsResult({
+      spaceId,
+      context,
+      recent: true,
+      limit: 1,
+    });
+    await vi.waitFor(() => expect(started).toBe(true));
+    publishing = true;
+    const clientMessageId = `lineage-gate-${randomUUID()}`;
+    const request = {
+      spaceId,
+      context,
+      clientMessageId,
+      meta: { clientMessageId },
+      authoringPolicy: "user_authored" as const,
+      profile: { kind: "human" as const, profileId: DEFAULT_HUMAN_PROFILE_ID },
+      text: "Publish during an earlier lineage read",
+    };
+    // The outside read can resume only when the object admits another input.
+    const resume = (async () => {
+      await vi.waitFor(() => expect(entered).toBe(true));
+      await runInDurableObject(stub, () => release.resolve());
+    })();
+    try {
+      const [posted] = await Promise.all([
+        stub.rpcPostSignalOnceByClientMessageId(request),
+        resume,
+        reading,
+      ]);
+      expect(posted).toMatchObject({
+        type: "signal.text",
+        data: { text: request.text },
+      });
+      expect((await stub.rpcPostSignalOnceByClientMessageId(request)).id).toBe(
+        posted.id
+      );
+    } finally {
+      release.resolve();
+    }
+  }, 38_000);
+
   it("publishes idempotently while another request's membership read remains pending", async () => {
     const spaceId = await createSpace();
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;

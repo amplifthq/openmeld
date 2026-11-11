@@ -102,6 +102,44 @@ describe("Space Profile lineage cache", () => {
     expect(harness.listProfileLineage).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    "current",
+    "expired",
+    "incomplete",
+    "missing",
+  ] as const)("returns only usable committed lineage to a superseded caller (%s)", async (state) => {
+    vi.useFakeTimers({ now: NOW_MS });
+    let gateId: string | undefined;
+    const harness = createHarness(() => gateId);
+    const cache = harness.cache();
+    const outside = Promise.withResolvers<ReturnType<typeof lineageResult>>();
+    harness.listProfileLineage.mockReturnValueOnce(outside.promise);
+    const first = cache.resolve(OWNER);
+    gateId = "publication";
+    const current = { "human-1": null, "agent-1": null };
+    harness.listProfileLineage.mockResolvedValueOnce(
+      state === "missing" ? { ok: false } : lineageResult(current)
+    );
+    expect(await cache.resolve(OWNER)).toEqual(
+      state === "missing" ? undefined : current
+    );
+    if (state === "expired") {
+      vi.setSystemTime(NOW_MS + PROFILE_LINEAGE_CACHE_MAX_AGE_MS);
+    } else if (state === "incomplete") {
+      upsertSpaceMemberRecord(harness.sql, member("agent-2", "agent"));
+    }
+    outside.resolve(lineageResult({ "human-1": null, "agent-1": "human-1" }));
+    expect(await first).toEqual(state === "current" ? current : undefined);
+    expect(harness.listProfileLineage).toHaveBeenCalledTimes(2);
+    expect(
+      readSpaceProfileLineage(harness.sql, OWNER)?.creatorProfileIdByProfileId
+    ).toEqual(state === "missing" ? undefined : current);
+    if (state === "current") {
+      expect(cache.peek(OWNER)).toEqual(current);
+      expect(await harness.cache().resolve(OWNER)).toEqual(current);
+    }
+  });
+
   it("serves an aging copy while one background read refreshes it", async () => {
     const harness = createHarness();
     vi.useFakeTimers({ now: NOW_MS });
@@ -244,7 +282,9 @@ describe("Space Profile lineage cache", () => {
   });
 });
 
-function createHarness() {
+function createHarness(
+  activeGateId: () => string | undefined = () => undefined
+) {
   const db = new DatabaseSync(":memory:");
   databases.push(db);
   const sql = {
@@ -273,6 +313,7 @@ function createHarness() {
   // Space object would.
   const cache = () =>
     new SpaceProfileLineageCache({
+      activeGateId,
       authRpc: () =>
         ({
           listProfileLineage,
