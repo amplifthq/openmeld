@@ -1774,6 +1774,9 @@ export async function runDaemonSocketSession(input: {
       parsed.data.payload.reason,
       record
     );
+    if (!responsePayload.accepted) {
+      record("catalog_refresh_failed");
+    }
     record("result_send_started");
     sendDaemonFrame(input.socket, {
       code: "daemon.local_agent_control.result",
@@ -1942,7 +1945,11 @@ export async function runDaemonSocketSession(input: {
       record("catalog_refresh_started");
       const [result] = await Promise.all([
         requestRouteCatalogSync(reason).then((value) => {
-          record("route_catalog_sync_completed");
+          record(
+            value.status === "failed"
+              ? "route_catalog_sync_failed"
+              : "route_catalog_sync_completed"
+          );
           return value;
         }),
         requestFreshRuntimeAgentControllerReportSync().then(() => {
@@ -1955,8 +1962,12 @@ export async function runDaemonSocketSession(input: {
       });
       emitRunLine({
         presenter: input.presenter,
-        code: "daemon.run.local_agent_control_refresh_catalog",
-        text: `local agent catalog check completed (${payload.syncStatus}).`,
+        code: payload.accepted
+          ? "daemon.run.local_agent_control_refresh_catalog"
+          : "daemon.run.local_agent_control_refresh_catalog_failed",
+        text: payload.accepted
+          ? `local agent catalog check completed (${payload.syncStatus}).`
+          : "local agent catalog check failed.",
         payload: {
           profileCount: payload.profileIds.length,
           syncStatus: payload.syncStatus,
@@ -1964,7 +1975,6 @@ export async function runDaemonSocketSession(input: {
       });
       return payload;
     } catch (error) {
-      record("catalog_refresh_failed");
       const errorMessage = toErrorMessage(error);
       emitRunLine({
         presenter: input.presenter,

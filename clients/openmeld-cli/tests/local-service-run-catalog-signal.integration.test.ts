@@ -2517,7 +2517,10 @@ describe("local service run catalog signal", () => {
     });
   });
 
-  it("waits for a fresh controller report before completing a local agent catalog refresh", async () => {
+  it.each([
+    "changed",
+    "failed",
+  ] as const)("waits for a fresh controller report before returning a %s local agent catalog refresh", async (syncStatus) => {
     vi.useFakeTimers();
     const requestId = crypto.randomUUID();
     const logs = vi.spyOn(console, "warn");
@@ -2598,6 +2601,13 @@ describe("local service run catalog signal", () => {
         syncLocalServiceRuntimeAgentControllerReportsMock.mock.calls.length > 0
     );
 
+    if (syncStatus === "failed") {
+      syncDaemonRouteCatalogStateMock.mockResolvedValueOnce({
+        status: "failed",
+        reason: "load_failed",
+        errorMessage: "catalog unavailable",
+      });
+    }
     socket.emitServerFrame({
       v: 1,
       code: "daemon.local_agent_control.refresh_catalog",
@@ -2614,7 +2624,9 @@ describe("local service run catalog signal", () => {
     expect(stages()).toEqual([
       "socket_received",
       "catalog_refresh_started",
-      "route_catalog_sync_completed",
+      syncStatus === "failed"
+        ? "route_catalog_sync_failed"
+        : "route_catalog_sync_completed",
     ]);
     expect(socket.sentFrames).not.toContainEqual(
       expect.objectContaining({
@@ -2654,15 +2666,17 @@ describe("local service run catalog signal", () => {
         payload: {
           requestId,
           payload: expect.objectContaining({
-            accepted: true,
-            profileIds: ["agt-1", "agt-2"],
-            syncStatus: "changed",
+            accepted: syncStatus === "changed",
+            profileIds:
+              syncStatus === "changed" ? ["agt-1", "agt-2"] : ["agt-1"],
+            syncStatus,
           }),
         },
       })
     );
-    expect(stages().slice(-3)).toEqual([
+    expect(stages().slice(3)).toEqual([
       "controller_report_sync_completed",
+      ...(syncStatus === "failed" ? ["catalog_refresh_failed"] : []),
       "result_send_started",
       "result_send_returned",
     ]);
