@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-11T07:48:25.077Z",
+  "updatedAt": "2026-11-11T09:51:06Z",
   "agentControllers": {
     "antigravity": {
       "defaultModelId": "gemini-3.8-flash-high",
@@ -416,6 +416,13 @@
     "cursor": {
       "defaultModelId": "default[]",
       "models": [
+        {
+          "id": "gemini-4-carbon[reasoning_effort=medium]",
+          "displayName": "Gemini 4 Carbon (Medium)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
         {
           "id": "gemini-4-argon[reasoning_effort=medium]",
           "displayName": "Gemini 4 Argon (Medium)",
