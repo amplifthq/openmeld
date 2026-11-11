@@ -3855,14 +3855,23 @@ computer. Register and heartbeat triggers both pass that manifest explicitly;
 a missing manifest cannot infer an automatic target from local defaults. The
 request requires the Service's explicit `requestAutomaticUpdate` capability,
 obeys the Service-owned automatic update preference, and coalesces by computer
-daemon session, and release target while the request is in flight. It retains
-that marker only when the same Service session reports `current` at or above
-the release, or reports a `started` or `already_running` operation targeting at
-least that release. A replacement Service session or a newer release target
-can request immediately. An `unavailable` response clears the in-flight marker
-and records a hibernation-safe retry throttle in Durable Object storage: retry
+daemon session, and the selected CLI and Service target versions while the
+request is in flight. For a `current` result, the Hub checks the reported CLI
+version and the registered Service version against their respective targets.
+For `started` and `already_running`, it checks the operation's two targets
+(older operations use their single target version for both). A replacement Service session or a newer release target
+can request immediately. A reported `needs_help` or `restored` operation
+stays visible as failure history. Core can request a fresh check for an
+actionable release when its selected CLI and Service targets are both at least
+the failed targets and at least one is newer. Unknown versions, the same target,
+and active operations keep their existing guard. The Service's coordinator
+still checks the preference and serializes the actual request.
+
+An `unavailable` response clears the in-flight marker and records a
+hibernation-safe retry throttle in Durable Object storage: retry
 after 5 minutes, then 15 minutes, then 60 minutes, capped at 60 minutes while
-the same computer, daemon session, and release target remain current. `disabled`,
+the same computer, daemon session, and both component targets remain current.
+Existing single-target retry records apply to that version of both components. `disabled`,
 an invalid response, or a reported current or operation target below the
 release clears the marker so the next register or heartbeat can retry. A
 disconnected request is failed immediately so a
@@ -4160,7 +4169,13 @@ Registration and heartbeat never await optional local-component inspection.
 One Service-lifetime observation coalesces that inspection across reconnects
 and may reuse a result for at most 30 seconds; absent or expired observations are omitted rather than
 renewed as fresh component evidence. A completed observation can schedule a
-heartbeat after registration. Missing component evidence does not grant
+heartbeat after registration. If a heartbeat is already awaiting its response,
+the Service coalesces that notification with pending admission changes and
+publishes fresh evidence after the heartbeat settles. The local registration
+log distinguishes cold, expired, pending, empty and failed inspections. Hub
+update decisions record the observation timestamp and the allowlisted failure
+code when available, including a skipped decision on the first heartbeat
+that restores missing component evidence. Missing component evidence does not grant
 component readiness or bypass the Core-owned update projection.
 
 `agentReplyContextReview: true` is an additive Runtime Transport capability.

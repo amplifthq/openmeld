@@ -1,11 +1,11 @@
 {
-  "version": "0.3.292",
+  "version": "0.3.293",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Packages diagnostic correlation for Computer controls. Existing CLI commands, output and setup remain compatible."
+    "reason": "Packages the Service component reporting fix for existing CLI and binary installations."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Records the receipt, local execution and return of Computer controls using the existing frame request ID. Existing Services and Core versions can interoperate through the same transport."
+    "reason": "Publishes fresh local component observations after an outstanding heartbeat and explains omissions at registration. The existing registration and heartbeat contracts remain compatible."
   }
 }

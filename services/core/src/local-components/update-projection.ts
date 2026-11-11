@@ -838,7 +838,7 @@ function resolveProjectionSetupAction(input: {
   return "none";
 }
 
-function compareSemver(left: string, right: string): number | null {
+export function compareSemver(left: string, right: string): number | null {
   const leftVersion = parseSemver(left);
   const rightVersion = parseSemver(right);
   if (!(leftVersion && rightVersion)) {

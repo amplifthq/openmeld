@@ -112,15 +112,40 @@ describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
     }
   });
 
-  it("records when the same target is already coalesced", async () => {
+  it("sends a newer release once while retaining the previous failed update in diagnostics", async () => {
     const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
-    const harness = createHarness([currentResult("0.3.153")]);
+    const localComponents = createLocalComponentsStatus();
+    localComponents.updateOperation = {
+      operationId: "previous-update",
+      targetVersion: "0.3.152",
+      phase: "needs_help",
+      requestSource: "automatic",
+      urgency: "available",
+      requestedAt: localComponents.generatedAt,
+      updatedAt: localComponents.generatedAt,
+    };
+    localComponents.cli.reasonCodes = [
+      "unrecognized failure detail",
+      "cli.update.install_failed",
+    ];
+    const harness = createHarness([operationResult("started", "0.3.153")], {
+      localComponents,
+    });
 
     try {
       await harness.queueAndSettle("register");
       await harness.queueAndSettle("register");
 
       expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledOnce();
+      expect(log).toHaveBeenCalledWith(
+        "[core.openmeld_tools.automatic_update_queued]",
+        expect.objectContaining({
+          operationPhase: "needs_help",
+          operationTargetVersion: "0.3.152",
+          operationFailureCode: "cli.update.install_failed",
+          targetVersion: "0.3.153",
+        })
+      );
       expect(log).toHaveBeenCalledWith(
         "[core.openmeld_tools.automatic_update_skipped]",
         expect.objectContaining({
@@ -152,6 +177,10 @@ describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
         operation: "request_update",
         result: { currentVersion: "0.3.152", status: "current" },
       } satisfies OpenMeldToolsControlResult,
+    },
+    {
+      name: "the CLI is current but the registered Service is still older",
+      result: currentResult("0.3.153"),
     },
   ])("retries on the next heartbeat when $name", async ({ result }) => {
     const harness = createHarness([result, currentResult("0.3.153")]);
@@ -231,26 +260,52 @@ describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
     );
 
     try {
-      await firstHub.queueAndSettle("register");
+      const splitTarget = { serviceReleaseVersion: "0.3.154" };
+      await firstHub.queueAndSettle("register", splitTarget);
       expect(storageValues.size).toBe(1);
 
       const rebuiltHub = createHarness([currentResult("0.3.153")], {
         storageValues,
       });
       await rebuiltHub.restoreUnavailableRetries();
-      await rebuiltHub.queueAndSettle("heartbeat");
+      await rebuiltHub.queueAndSettle("heartbeat", splitTarget);
       expect(
         rebuiltHub.sendCurrentDeviceOperationAndWait
       ).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
-      await rebuiltHub.queueAndSettle("heartbeat");
+      await rebuiltHub.queueAndSettle("heartbeat", splitTarget);
       expect(
         rebuiltHub.sendCurrentDeviceOperationAndWait
       ).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("restores old single-version retry records without delaying a newer Service target", async () => {
+    const storageValues = new Map<string, unknown>([
+      [
+        "automatic_tools_update_unavailable_retry.v1.owner-1%3Adevice-1%3Aprod:daemon-session-1:0.3.153",
+        {
+          v: 1,
+          computerKey: "owner-1:device-1:prod",
+          daemonSessionId: "daemon-session-1",
+          targetVersion: "0.3.153",
+          attempts: 1,
+          retryAtMs: Date.now() + 300_000,
+        },
+      ],
+    ]);
+    const hub = createHarness([operationResult("started", "0.3.154")], {
+      storageValues,
+    });
+    await hub.restoreUnavailableRetries();
+    await hub.queueAndSettle("heartbeat");
+    expect(hub.sendCurrentDeviceOperationAndWait).not.toHaveBeenCalled();
+    await hub.queueAndSettle("heartbeat", { serviceReleaseVersion: "0.3.154" });
+    expect(hub.sendCurrentDeviceOperationAndWait).toHaveBeenCalledOnce();
+    expect(storageValues.size).toBe(0);
   });
 
   it("retries immediately when the Service registers a new session", async () => {
@@ -301,7 +356,7 @@ describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
     ]);
 
     const settleOldSession = harness.queue("register");
-    harness.setDaemonSessionId("daemon-session-2");
+    harness.setDaemonSessionId("daemon-session-2", "0.3.153");
     await harness.queueAndSettle("register");
 
     oldSessionResult.resolve({
@@ -314,7 +369,10 @@ describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
     expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(2);
   });
 
-  it("retries immediately when a newer release becomes available", async () => {
+  it.each([
+    { releaseVersion: "0.3.154" },
+    { serviceReleaseVersion: "0.3.154" },
+  ])("retries immediately when a newer release becomes available: %j", async (newRelease) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-04T00:00:00.000Z"));
     const harness = createHarness([
@@ -330,13 +388,56 @@ describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
       await harness.queueAndSettle("heartbeat");
       expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledOnce();
 
-      await harness.queueAndSettle("heartbeat", { releaseVersion: "0.3.154" });
+      await harness.queueAndSettle("heartbeat", newRelease);
       expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(
         2
       );
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("rechecks a newer Service with the same CLI target after the queued operation fails", async () => {
+    const localComponents = createLocalComponentsStatus();
+    const harness = createHarness(
+      [
+        operationResult("started", "0.3.153"),
+        currentResult("0.3.153"),
+        operationResult("already_running", "0.3.153", {
+          targetCliVersion: "0.3.153",
+          targetServiceVersion: "0.3.153",
+        }),
+        operationResult("started", "0.3.153", {
+          targetCliVersion: "0.3.153",
+          targetServiceVersion: "0.3.154",
+        }),
+      ],
+      { localComponents }
+    );
+    await harness.queueAndSettle("register");
+    localComponents.updateOperation = {
+      operationId: "previous",
+      phase: "needs_help",
+      requestSource: "automatic",
+      requestedAt: localComponents.generatedAt,
+      updatedAt: localComponents.generatedAt,
+      targetVersion: "0.3.153",
+      urgency: "available",
+    };
+    await harness.queueAndSettle("heartbeat", {
+      serviceReleaseVersion: "0.3.154",
+    });
+    expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(2);
+    await harness.queueAndSettle("heartbeat", {
+      serviceReleaseVersion: "0.3.154",
+    });
+    await harness.queueAndSettle("heartbeat", {
+      serviceReleaseVersion: "0.3.154",
+    });
+    await harness.queueAndSettle("heartbeat", {
+      serviceReleaseVersion: "0.3.154",
+    });
+    expect(harness.sendCurrentDeviceOperationAndWait).toHaveBeenCalledTimes(4);
   });
 
   it.each([
@@ -393,7 +494,9 @@ describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
     "0.3.153",
     "0.3.154",
   ])("coalesces later heartbeats after the Service reaches %s", async (currentVersion) => {
-    const harness = createHarness([currentResult(currentVersion)]);
+    const harness = createHarness([currentResult(currentVersion)], {
+      serviceVersion: currentVersion,
+    });
 
     await harness.queueAndSettle("register");
     await harness.queueAndSettle("heartbeat");
@@ -407,6 +510,8 @@ function createHarness(
     Error | OpenMeldToolsControlResult | Promise<OpenMeldToolsControlResult>
   >,
   input: {
+    localComponents?: LocalComponentsStatus;
+    serviceVersion?: string;
     onSend?: () => void;
     openMeldToolsControl?: RuntimeTransportSessionState["capabilities"]["openMeldToolsControl"];
     storageValues?: Map<string, unknown>;
@@ -463,7 +568,7 @@ function createHarness(
   let session: RuntimeTransportSessionState = {
     acceptingDispatches: true,
     capabilities: {
-      localComponents: createLocalComponentsStatus(),
+      localComponents: input.localComponents ?? createLocalComponentsStatus(),
       openMeldToolsControl: input.openMeldToolsControl ?? {
         requestAutomaticUpdate: true,
         requestUpdate: true,
@@ -486,7 +591,7 @@ function createHarness(
     ownerUserId: "owner-1",
     profileIds: new Set(),
     rejectedProfileRegistrationsByProfileId: new Map(),
-    serviceVersion: "0.3.152",
+    serviceVersion: input.serviceVersion ?? "0.3.152",
     socket,
   };
 
@@ -494,6 +599,7 @@ function createHarness(
     trigger: "heartbeat" | "register",
     options: {
       releaseVersion?: string;
+      serviceReleaseVersion?: string;
       sessionPresent?: boolean;
       socketMatches?: boolean;
     } = {}
@@ -523,7 +629,10 @@ function createHarness(
         ownerUserId: session.ownerUserId,
       },
       release: {
-        manifest: createReleaseManifest(options.releaseVersion),
+        manifest: createReleaseManifest(
+          options.releaseVersion,
+          options.serviceReleaseVersion
+        ),
         availabilityCatalog: null,
       },
       session: options.sessionPresent === false ? null : session,
@@ -539,6 +648,7 @@ function createHarness(
       trigger: "heartbeat" | "register",
       options: {
         releaseVersion?: string;
+        serviceReleaseVersion?: string;
         sessionPresent?: boolean;
         socketMatches?: boolean;
       } = {}
@@ -553,8 +663,11 @@ function createHarness(
       ).restoreAutomaticToolsUpdateUnavailableRetries();
     },
     sendCurrentDeviceOperationAndWait,
-    setDaemonSessionId: (daemonSessionId: string) => {
-      session = { ...session, daemonSessionId };
+    setDaemonSessionId: (
+      daemonSessionId: string,
+      serviceVersion = session.serviceVersion
+    ) => {
+      session = { ...session, daemonSessionId, serviceVersion };
     },
   };
 }
@@ -568,7 +681,8 @@ function currentResult(currentVersion: string): OpenMeldToolsControlResult {
 
 function operationResult(
   status: "already_running" | "started",
-  targetVersion: string
+  targetVersion: string,
+  targets?: { targetCliVersion: string; targetServiceVersion: string }
 ): OpenMeldToolsControlResult {
   return {
     operation: "request_update",
@@ -579,6 +693,7 @@ function operationResult(
         requestSource: "automatic",
         requestedAt: "2026-09-01T12:55:00.000Z",
         targetVersion,
+        ...targets,
         updatedAt: "2026-09-01T12:55:00.000Z",
         urgency: "required",
       },
@@ -588,7 +703,8 @@ function operationResult(
 }
 
 function createReleaseManifest(
-  version = "0.3.153"
+  version = "0.3.153",
+  serviceVersion = version
 ): LocalComponentsReleaseManifest {
   return {
     components: {
@@ -600,7 +716,7 @@ function createReleaseManifest(
       },
       service: {
         bundleHash: "a".repeat(64),
-        bundleVersion: version,
+        bundleVersion: serviceVersion,
         reason: "Fixture.",
         runtimeContractEpoch: "runtime-contract-v1",
         serviceContractVersion: "service-contract-v1",

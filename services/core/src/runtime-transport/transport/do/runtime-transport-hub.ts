@@ -33,6 +33,7 @@ import {
   computerPowerResultSchema,
   computerPowerTransportSchema,
   daemonStreamFrameSchema,
+  findOpenMeldToolsUpdateFailureCode,
   LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   localAgentReasoningPreferencesSchema,
@@ -75,6 +76,7 @@ import {
   RUNTIME_TRANSPORT_READ_ID_HEADER,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   resolveLocalExecutionOwnerCancellationReason,
+  resolveOpenMeldToolsUpdateTargetVersions,
   runtimeCoordinatorFailurePublicationOutcomeSchema,
   runtimeCoordinatorFinalizationClaimReadSchema,
   runtimeCoordinatorFinalizationCommandSchema,
@@ -1519,38 +1521,79 @@ function resolveExistingRuntimeCoordinatorHeadAdmissionResponse(input: {
     targetWakeLifecycleId: existing.targetWakeLifecycleId,
   };
 }
-function resolveHandledOpenMeldToolsUpdateTargetVersion(
-  result: OpenMeldToolsControlResult
-): string | null {
+type AutomaticToolsUpdateTarget = {
+  daemonSessionId: string;
+  targetVersion: string;
+  targetServiceVersion: string;
+};
+function matchesAutomaticToolsUpdateTarget(
+  previous: AutomaticToolsUpdateTarget | undefined,
+  target: AutomaticToolsUpdateTarget
+): boolean {
+  return (
+    previous?.daemonSessionId === target.daemonSessionId &&
+    previous.targetVersion === target.targetVersion &&
+    previous.targetServiceVersion === target.targetServiceVersion
+  );
+}
+function handledAutomaticToolsUpdateTarget(
+  result: OpenMeldToolsControlResult,
+  target: AutomaticToolsUpdateTarget,
+  runningServiceVersion: string | null | undefined
+): boolean {
   if (result.operation !== "request_update") {
-    return null;
+    return false;
   }
+  let cliVersion: string;
+  let serviceVersion: string;
   if (result.result.status === "current") {
-    return result.result.currentVersion;
-  }
-  if (
+    if (!runningServiceVersion) {
+      return false;
+    }
+    cliVersion = result.result.currentVersion;
+    serviceVersion = runningServiceVersion;
+  } else if (
     result.result.status === "started" ||
     result.result.status === "already_running"
   ) {
-    return result.result.operation.targetVersion;
+    ({ cliVersion, serviceVersion } = resolveOpenMeldToolsUpdateTargetVersions(
+      result.result.operation
+    ));
+  } else {
+    return false;
   }
-  return null;
+  return (
+    isLocalComponentVersionAtLeast(cliVersion, target.targetVersion) &&
+    isLocalComponentVersionAtLeast(serviceVersion, target.targetServiceVersion)
+  );
 }
-type AutomaticToolsUpdateUnavailableRetry = {
+type AutomaticToolsUpdateUnavailableRetry = AutomaticToolsUpdateTarget & {
   attempts: number;
-  daemonSessionId: string;
   retryAtMs: number;
-  targetVersion: string;
 };
+function automaticUpdateObservationFields(
+  session: RuntimeTransportSessionState | null
+) {
+  const components = session?.capabilities.localComponents;
+  const operation = components?.updateOperation;
+  return {
+    connectionGeneration: session?.connectionGeneration ?? null,
+    componentStatusGeneratedAt: components?.generatedAt ?? null,
+    operationPhase: operation?.phase ?? null,
+    operationTargetVersion: operation?.targetVersion ?? null,
+    operationFailureCode:
+      operation?.phase === "restored" || operation?.phase === "needs_help"
+        ? findOpenMeldToolsUpdateFailureCode(components?.cli.reasonCodes ?? [])
+        : null,
+  };
+}
 type StoredAutomaticToolsUpdateUnavailableRetry =
   AutomaticToolsUpdateUnavailableRetry & {
     computerKey: string;
     v: 1;
   };
-type AutomaticToolsUpdateCoalescingMarker = {
-  daemonSessionId: string;
+type AutomaticToolsUpdateCoalescingMarker = AutomaticToolsUpdateTarget & {
   requestId: string;
-  targetVersion: string;
 };
 function resolveAutomaticToolsUpdateUnavailableRetryDelayMs(
   attempts: number
@@ -1563,12 +1606,12 @@ function resolveAutomaticToolsUpdateUnavailableRetryDelayMs(
 }
 function buildAutomaticToolsUpdateUnavailableRetryStorageKey(
   computerKey: string,
-  retry: Pick<
-    AutomaticToolsUpdateUnavailableRetry,
-    "daemonSessionId" | "targetVersion"
-  >
+  retry: AutomaticToolsUpdateTarget
 ): string {
-  return `${AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_STORAGE_PREFIX}${encodeURIComponent(computerKey)}:${encodeURIComponent(retry.daemonSessionId)}:${encodeURIComponent(retry.targetVersion)}`;
+  const key = `${AUTOMATIC_TOOLS_UPDATE_UNAVAILABLE_RETRY_STORAGE_PREFIX}${encodeURIComponent(computerKey)}:${encodeURIComponent(retry.daemonSessionId)}:${encodeURIComponent(retry.targetVersion)}`;
+  return retry.targetServiceVersion === retry.targetVersion
+    ? key
+    : `${key}:${encodeURIComponent(retry.targetServiceVersion)}`;
 }
 function parseStoredAutomaticToolsUpdateUnavailableRetry(
   value: unknown
@@ -1586,13 +1629,22 @@ function parseStoredAutomaticToolsUpdateUnavailableRetry(
     candidate.daemonSessionId.length === 0 ||
     typeof candidate.targetVersion !== "string" ||
     candidate.targetVersion.length === 0 ||
+    (candidate.targetServiceVersion !== undefined &&
+      (typeof candidate.targetServiceVersion !== "string" ||
+        !candidate.targetServiceVersion)) ||
     !Number.isInteger(candidate.attempts) ||
     Number(candidate.attempts) < 1 ||
     !Number.isFinite(candidate.retryAtMs)
   ) {
     return null;
   }
-  return candidate as StoredAutomaticToolsUpdateUnavailableRetry;
+  // Older retry records stored only the CLI target. Keep the aligned key
+  // and allow a release with a different Service target to recheck.
+  return {
+    ...(candidate as StoredAutomaticToolsUpdateUnavailableRetry),
+    targetServiceVersion:
+      candidate.targetServiceVersion ?? candidate.targetVersion,
+  };
 }
 
 function requiredExecutionContextVersion(
@@ -4376,6 +4428,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const sessionBeforeHeartbeat = this.state.sessionsById.get(
       parsed.data.daemonSessionId
     );
+    const hadComponentStatus =
+      !!sessionBeforeHeartbeat?.capabilities.localComponents;
     const previousReadinessProfileIds = collectReadinessProfileIdsForSession(
       sessionBeforeHeartbeat
     );
@@ -4464,6 +4518,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
       if (sessionAfterHeartbeat) {
         this.queueReleaseTriggeredOpenMeldToolsUpdate({
+          componentStatusWasMissing: !hadComponentStatus,
           connection: {
             daemonSessionId: parsed.data.daemonSessionId,
             deviceId: parsed.data.deviceId,
@@ -21100,16 +21155,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
   private async deleteAutomaticToolsUpdateUnavailableRetry(
     computerKey: string,
-    retry: Pick<
-      AutomaticToolsUpdateUnavailableRetry,
-      "daemonSessionId" | "targetVersion"
-    >
+    retry: AutomaticToolsUpdateTarget
   ): Promise<void> {
     await this.ctx.storage.delete(
       buildAutomaticToolsUpdateUnavailableRetryStorageKey(computerKey, retry)
     );
   }
   private queueReleaseTriggeredOpenMeldToolsUpdate(input: {
+    componentStatusWasMissing?: boolean;
     connection: Pick<
       RuntimeTransportSessionState,
       "daemonSessionId" | "deviceId" | "lane" | "ownerUserId"
@@ -21144,6 +21197,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return;
     }
     const update = decision.update;
+    const target: AutomaticToolsUpdateTarget = {
+      daemonSessionId: session.daemonSessionId,
+      targetVersion: update.targetVersion,
+      targetServiceVersion: update.targetServiceVersion,
+    };
     const computerKey = [
       session.ownerUserId,
       session.deviceId,
@@ -21151,10 +21209,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ].join(":");
     const unavailableRetry =
       this.automaticToolsUpdateUnavailableRetryByComputer.get(computerKey);
-    const retryMatchesCurrentCondition =
-      unavailableRetry?.daemonSessionId === session.daemonSessionId &&
-      unavailableRetry.targetVersion === update.targetVersion;
+    const retryMatchesCurrentCondition = matchesAutomaticToolsUpdateTarget(
+      unavailableRetry,
+      target
+    );
     if (
+      unavailableRetry &&
       retryMatchesCurrentCondition &&
       Date.now() < unavailableRetry.retryAtMs
     ) {
@@ -21162,6 +21222,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         ...input,
         reasonCode: "automatic_update.unavailable_retry_backoff",
         targetVersion: update.targetVersion,
+        targetServiceVersion: update.targetServiceVersion,
       });
       return;
     }
@@ -21177,6 +21238,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             {
               error: error instanceof Error ? error.message : String(error),
               targetVersion: update.targetVersion,
+              targetServiceVersion: update.targetServiceVersion,
             }
           );
         })
@@ -21184,28 +21246,26 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     const existingMarker =
       this.automaticToolsUpdateTargetByComputer.get(computerKey);
-    if (
-      existingMarker?.daemonSessionId === session.daemonSessionId &&
-      existingMarker.targetVersion === update.targetVersion
-    ) {
+    if (matchesAutomaticToolsUpdateTarget(existingMarker, target)) {
       this.recordReleaseTriggeredOpenMeldToolsUpdateSkip({
         ...input,
         reasonCode: "automatic_update.target_already_coalesced",
         targetVersion: update.targetVersion,
+        targetServiceVersion: update.targetServiceVersion,
       });
       return;
     }
     const requestId = crypto.randomUUID();
     const coalescingMarker: AutomaticToolsUpdateCoalescingMarker = {
-      daemonSessionId: session.daemonSessionId,
+      ...target,
       requestId,
-      targetVersion: update.targetVersion,
     };
     this.automaticToolsUpdateTargetByComputer.set(
       computerKey,
       coalescingMarker
     );
     console.info("[core.openmeld_tools.automatic_update_queued]", {
+      ...automaticUpdateObservationFields(session),
       daemonSessionId: session.daemonSessionId,
       deviceId: session.deviceId,
       event: "core.openmeld_tools.automatic_update_queued",
@@ -21213,6 +21273,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       ownerUserId: session.ownerUserId,
       requestId,
       targetVersion: update.targetVersion,
+      targetServiceVersion: update.targetServiceVersion,
       trigger: input.trigger,
     });
     this.ctx.waitUntil(
@@ -21236,14 +21297,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             result.operation === "request_update"
               ? result.result.status
               : "invalid_response";
-          const handledTargetVersion =
-            resolveHandledOpenMeldToolsUpdateTargetVersion(result);
-          const requestHandledTarget =
-            handledTargetVersion !== null &&
-            isLocalComponentVersionAtLeast(
-              handledTargetVersion,
-              update.targetVersion
-            );
+          const requestHandledTarget = handledAutomaticToolsUpdateTarget(
+            result,
+            target,
+            session.serviceVersion
+          );
           const requestStillOwnsMarker =
             this.automaticToolsUpdateTargetByComputer.get(computerKey) ===
             coalescingMarker;
@@ -21255,17 +21313,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
                   computerKey
                 );
               const attempts =
-                previousRetry?.daemonSessionId === session.daemonSessionId &&
-                previousRetry.targetVersion === update.targetVersion
+                previousRetry &&
+                matchesAutomaticToolsUpdateTarget(previousRetry, target)
                   ? previousRetry.attempts + 1
                   : 1;
               const retry: AutomaticToolsUpdateUnavailableRetry = {
+                ...target,
                 attempts,
-                daemonSessionId: session.daemonSessionId,
                 retryAtMs:
                   Date.now() +
                   resolveAutomaticToolsUpdateUnavailableRetryDelayMs(attempts),
-                targetVersion: update.targetVersion,
               };
               this.automaticToolsUpdateUnavailableRetryByComputer.set(
                 computerKey,
@@ -21281,10 +21338,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               );
               await this.deleteAutomaticToolsUpdateUnavailableRetry(
                 computerKey,
-                unavailableRetry ?? {
-                  daemonSessionId: session.daemonSessionId,
-                  targetVersion: update.targetVersion,
-                }
+                target
               );
             }
           } else if (requestHandledTarget && requestStillOwnsMarker) {
@@ -21293,10 +21347,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             );
             await this.deleteAutomaticToolsUpdateUnavailableRetry(
               computerKey,
-              unavailableRetry ?? {
-                daemonSessionId: session.daemonSessionId,
-                targetVersion: update.targetVersion,
-              }
+              target
             );
           }
           console.info("[core.openmeld_tools.automatic_update_requested]", {
@@ -21307,6 +21358,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             operationStatus,
             ownerUserId: session.ownerUserId,
             targetVersion: update.targetVersion,
+            targetServiceVersion: update.targetServiceVersion,
             trigger: input.trigger,
           });
         })
@@ -21325,12 +21377,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             lane: session.lane,
             ownerUserId: session.ownerUserId,
             targetVersion: update.targetVersion,
+            targetServiceVersion: update.targetServiceVersion,
             trigger: input.trigger,
           });
         })
     );
   }
   private recordReleaseTriggeredOpenMeldToolsUpdateSkip(input: {
+    componentStatusWasMissing?: boolean;
     connection: Pick<
       RuntimeTransportSessionState,
       "daemonSessionId" | "deviceId" | "lane" | "ownerUserId"
@@ -21349,14 +21403,22 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     session: RuntimeTransportSessionState | null;
     socket: WebSocket;
     targetVersion?: string;
+    targetServiceVersion?: string;
     trigger: "heartbeat" | "register";
   }): void {
-    // Register is the one-shot decision boundary. Heartbeats reuse the same
-    // decision and would turn a stable skip reason into recurring log noise.
-    if (input.trigger !== "register" || input.connection.lane !== "prod") {
+    // Also capture the first decision with fresh evidence after an omission.
+    if (
+      (input.trigger !== "register" &&
+        !(
+          input.componentStatusWasMissing &&
+          input.session?.capabilities.localComponents
+        )) ||
+      input.connection.lane !== "prod"
+    ) {
       return;
     }
     console.info("[core.openmeld_tools.automatic_update_skipped]", {
+      ...automaticUpdateObservationFields(input.session),
       automaticUpdatesEnabled:
         input.session?.capabilities.localComponents?.maintenance
           ?.automaticUpdatesEnabled ?? null,
@@ -21367,12 +21429,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       maintenanceStatus:
         input.session?.capabilities.localComponents?.maintenance?.status ??
         null,
-      operationPhase:
-        input.session?.capabilities.localComponents?.updateOperation?.phase ??
-        null,
-      operationTargetVersion:
-        input.session?.capabilities.localComponents?.updateOperation
-          ?.targetVersion ?? null,
       ownerUserId: input.connection.ownerUserId,
       reasonCode: input.reasonCode,
       releaseCliVersion:
@@ -21389,6 +21445,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       sessionPresent: input.session !== null,
       sessionSocketMatches: input.session?.socket === input.socket,
       targetVersion: input.targetVersion ?? null,
+      targetServiceVersion: input.targetServiceVersion ?? null,
       trigger: input.trigger,
     });
   }

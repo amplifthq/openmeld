@@ -1,14 +1,20 @@
+import { resolveOpenMeldToolsUpdateTargetVersions } from "@openmeld/schemas";
 import type {
   DaemonServiceLane,
   OpenMeldToolsControlRequest,
+  OpenMeldToolsUpdateOperation,
   RuntimeTransportCapabilities,
 } from "@openmeld/schemas/types";
 import type { CoreLocalComponentsRelease } from "./release-source";
-import { resolveLocalComponentUpdateProjection } from "./update-projection";
+import {
+  compareSemver,
+  resolveLocalComponentUpdateProjection,
+} from "./update-projection";
 
 export type ReleaseTriggeredOpenMeldToolsUpdate = {
   request: OpenMeldToolsControlRequest & { operation: "request_update" };
   targetVersion: string;
+  targetServiceVersion: string;
 };
 
 type ReleaseTriggeredOpenMeldToolsUpdateInput = {
@@ -36,6 +42,30 @@ export type ReleaseTriggeredOpenMeldToolsUpdateDecision =
         | "automatic_update.operation_present"
         | "automatic_update.release_manifest_unavailable";
     };
+
+function newerTargetAfterFailedUpdate(
+  operation: OpenMeldToolsUpdateOperation,
+  cliVersion: string | null,
+  serviceVersion: string | null
+): boolean {
+  if (
+    (operation.phase !== "needs_help" && operation.phase !== "restored") ||
+    !cliVersion ||
+    !serviceVersion
+  ) {
+    return false;
+  }
+  const previous = resolveOpenMeldToolsUpdateTargetVersions(operation);
+  const cli = compareSemver(cliVersion, previous.cliVersion);
+  const service = compareSemver(serviceVersion, previous.serviceVersion);
+  return (
+    cli !== null &&
+    service !== null &&
+    cli >= 0 &&
+    service >= 0 &&
+    (cli > 0 || service > 0)
+  );
+}
 
 export function resolveReleaseTriggeredOpenMeldToolsUpdateDecision(
   input: ReleaseTriggeredOpenMeldToolsUpdateInput
@@ -89,7 +119,16 @@ export function resolveReleaseTriggeredOpenMeldToolsUpdateDecision(
     serviceConnected: true,
     serviceVersion: input.serviceVersion,
   });
-  if (projection.updateOperation) {
+  const targetVersion = projection.cli.latestPackageVersion;
+  const serviceTarget = projection.service.latestVersion;
+  if (
+    projection.updateOperation &&
+    !newerTargetAfterFailedUpdate(
+      projection.updateOperation,
+      targetVersion,
+      serviceTarget
+    )
+  ) {
     return {
       reasonCode: "automatic_update.operation_present",
       status: "skipped",
@@ -102,9 +141,7 @@ export function resolveReleaseTriggeredOpenMeldToolsUpdateDecision(
   ].some(
     (status) => status === "update_available" || status === "update_required"
   );
-  const targetVersion = projection.cli.latestPackageVersion;
-  const targetsAvailable =
-    targetVersion !== null && projection.service.latestVersion !== null;
+  const targetsAvailable = targetVersion !== null && serviceTarget !== null;
 
   if (!(updateIsActionable && targetsAvailable)) {
     return {
@@ -120,6 +157,7 @@ export function resolveReleaseTriggeredOpenMeldToolsUpdateDecision(
         requestSource: "automatic",
       },
       targetVersion,
+      targetServiceVersion: serviceTarget,
     },
   };
 }

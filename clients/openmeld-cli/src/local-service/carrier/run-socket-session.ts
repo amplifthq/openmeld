@@ -30,7 +30,6 @@ import {
   runtimeTransportRouteCatalogChangedFramePayloadSchema,
 } from "@openmeld/schemas";
 import type {
-  LocalComponentsStatus,
   OpenMeldDaemonSetProfileWorkspacePayload,
   OpenMeldDaemonSyncRouteCatalogPayload,
   RuntimeTransportAdmissionEvidence,
@@ -155,6 +154,10 @@ type CatalogSyncForceReason =
   | "local_state_changed"
   | "register_conflict"
   | "stale_leases";
+
+type HeartbeatPublicationReason =
+  | "execution_host_admission_changed"
+  | "local_components_refreshed";
 
 type CatalogSyncInput = {
   forceReason?: CatalogSyncForceReason;
@@ -471,9 +474,9 @@ export async function runDaemonSocketSession(input: {
   let closeReason = "closed";
   const socketConnectedAtMs = Date.now();
   let heartbeatInFlight = false;
-  // Admission may change again before the current heartbeat is acknowledged.
-  // Retain only the need to republish; the next send reads the current state.
-  let admissionHeartbeatPending = false;
+  // Coalesce observations made while another heartbeat awaits acknowledgement.
+  // The next send reads current admission and component evidence together.
+  let pendingHeartbeatPublication: HeartbeatPublicationReason | null = null;
   const heartbeatIdleWaiters: Array<() => void> = [];
   // A replacement session must replay every durable result that survived the
   // previous process before it can accept new work. The existing heartbeat
@@ -606,7 +609,7 @@ export async function runDaemonSocketSession(input: {
       return;
     }
     closed = true;
-    admissionHeartbeatPending = false;
+    pendingHeartbeatPublication = null;
     clearHeartbeatTimer();
     clearRuntimeAgentControllerReportSyncTimer();
     keepalive.stop();
@@ -853,7 +856,7 @@ export async function runDaemonSocketSession(input: {
   async function sendHeartbeat(
     options: {
       advanceIdleCadence?: boolean;
-      publishAdmissionAfterInFlight?: boolean;
+      publishAfterInFlight?: HeartbeatPublicationReason;
       requireAcknowledgement?: boolean;
     } = {}
   ): Promise<void> {
@@ -867,8 +870,8 @@ export async function runDaemonSocketSession(input: {
       return;
     }
     if (heartbeatInFlight) {
-      if (options.publishAdmissionAfterInFlight) {
-        admissionHeartbeatPending = true;
+      if (options.publishAfterInFlight) {
+        pendingHeartbeatPublication = options.publishAfterInFlight;
       }
       return;
     }
@@ -882,7 +885,9 @@ export async function runDaemonSocketSession(input: {
           leaseEpoch,
         }))
         .sort((left, right) => left.profileId.localeCompare(right.profileId));
-      const localComponentsStatus = readSessionLocalComponentsStatus();
+      const localComponentsStatus = input.localComponentsObservation.read(
+        onLocalComponentsRefreshed
+      );
       const heartbeatRequest = runtimeTransportHeartbeatRequestSchema.safeParse(
         {
           v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -1005,7 +1010,7 @@ export async function runDaemonSocketSession(input: {
       startSupplementalEvidenceSyncs();
     } catch (error) {
       if (recordHeartbeatFailure(error) && !options.requireAcknowledgement) {
-        admissionHeartbeatPending = false;
+        pendingHeartbeatPublication = null;
         terminateForReconnect("heartbeat_failed");
         return;
       }
@@ -1022,12 +1027,12 @@ export async function runDaemonSocketSession(input: {
       }
     } finally {
       heartbeatInFlight = false;
-      const publishPendingAdmission = admissionHeartbeatPending;
-      admissionHeartbeatPending = false;
-      if (!closed && publishPendingAdmission) {
+      const pendingPublication = pendingHeartbeatPublication;
+      pendingHeartbeatPublication = null;
+      if (!closed && pendingPublication) {
         scheduleHeartbeat({
           delayMs: 0,
-          reason: "execution_host_admission_changed",
+          reason: pendingPublication,
         });
       }
       resolveHeartbeatIdleWaiters(heartbeatIdleWaiters);
@@ -1052,11 +1057,13 @@ export async function runDaemonSocketSession(input: {
       return;
     }
     const normalizedDelayMs = Math.max(0, Math.trunc(inputSchedule.delayMs));
-    if (
-      heartbeatInFlight &&
-      inputSchedule.reason === "execution_host_admission_changed"
-    ) {
-      admissionHeartbeatPending = true;
+    const publication =
+      inputSchedule.reason === "execution_host_admission_changed" ||
+      inputSchedule.reason === "local_components_refreshed"
+        ? inputSchedule.reason
+        : undefined;
+    if (heartbeatInFlight && publication) {
+      pendingHeartbeatPublication = publication;
       return;
     }
     const dueAtMs = Date.now() + normalizedDelayMs;
@@ -1073,10 +1080,8 @@ export async function runDaemonSocketSession(input: {
       heartbeatTimer = null;
       heartbeatTimerDueAtMs = null;
       sendHeartbeat({
-        advanceIdleCadence:
-          inputSchedule.reason !== "execution_host_admission_changed",
-        publishAdmissionAfterInFlight:
-          inputSchedule.reason === "execution_host_admission_changed",
+        advanceIdleCadence: publication === undefined,
+        publishAfterInFlight: publication,
       }).catch((error) => {
         emitRunLine({
           presenter: input.presenter,
@@ -1185,18 +1190,27 @@ export async function runDaemonSocketSession(input: {
   let executionAdmissionSupported = false;
   let admissionEvidenceSupported = false;
 
-  const readSessionLocalComponentsStatus = (): LocalComponentsStatus | null =>
-    input.localComponentsObservation.read(() => {
-      if (lastHeartbeatSentAtMs !== null) {
-        scheduleHeartbeat({ delayMs: 0, reason: "local_components_refreshed" });
-      }
-    });
+  const onLocalComponentsRefreshed = () => {
+    if (heartbeatInFlight || lastHeartbeatSentAtMs !== null) {
+      scheduleHeartbeat({ delayMs: 0, reason: "local_components_refreshed" });
+    }
+  };
 
   const registerDaemonSession = async (
     routeCatalog: RouteCatalog
   ): Promise<RuntimeTransportRegisterSessionResponse> => {
     const connectionGeneration = activeConnectionGeneration;
-    const localComponentsStatus = readSessionLocalComponentsStatus();
+    const localComponentsStatus = input.localComponentsObservation.read(
+      onLocalComponentsRefreshed,
+      (detail) => {
+        warnDaemonEvent("[openmeld.registration_component_status_missing]", {
+          daemonSessionId: input.daemonSessionId,
+          deviceId: input.deviceId,
+          connectionGeneration,
+          ...detail,
+        });
+      }
+    );
     const registerPayload =
       runtimeTransportRegisterSessionRequestSchema.safeParse({
         v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
