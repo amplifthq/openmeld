@@ -185,6 +185,7 @@ describe("release-triggered OpenMeld Tools updates", () => {
         requestSource: "automatic",
       },
       targetVersion: "0.3.140",
+      targetServiceVersion: "0.3.140",
     });
   });
 

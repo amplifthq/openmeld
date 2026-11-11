@@ -14,6 +14,7 @@ import {
 export type ReleaseTriggeredOpenMeldToolsUpdate = {
   request: OpenMeldToolsControlRequest & { operation: "request_update" };
   targetVersion: string;
+  targetServiceVersion: string;
 };
 
 type ReleaseTriggeredOpenMeldToolsUpdateInput = {
@@ -156,6 +157,7 @@ export function resolveReleaseTriggeredOpenMeldToolsUpdateDecision(
         requestSource: "automatic",
       },
       targetVersion,
+      targetServiceVersion: serviceTarget,
     },
   };
 }
