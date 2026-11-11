@@ -356,13 +356,17 @@ export function KeyProjectsPreview() {
 							<label key={project.id}>
 								<input
 									checked={selected.includes(project.id)}
-									onChange={(event) =>
+									onChange={(event) => {
+										const checked = event.currentTarget.checked;
 										setSelected((current) =>
-											event.target.checked
+											checked
 												? [...current, project.id]
 												: current.filter((id) => id !== project.id)
-										)
-									}
+										);
+										if (checked && removed?.id === project.id) {
+											setRemoved(null);
+										}
+									}}
 									type="checkbox"
 								/>
 								<span>
