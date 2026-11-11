@@ -9,7 +9,7 @@ import type {
   RuntimeTransportAdmissionEvidence,
   RuntimeTransportLease,
 } from "@openmeld/schemas/types";
-import { warnDaemonEvent } from "../core/logger";
+import { logComputerControlStage, warnDaemonEvent } from "../core/logger";
 import type { DaemonFrameSink, ParsedDaemonFrame } from "../core/types";
 import type { RuntimeReportingAuthenticationFailure } from "../reporting/runtime-reporting-auth-recovery";
 import { ExecutionHostError } from "./channel";
@@ -149,7 +149,17 @@ export function createExecutionHostSocketLink(input: {
     }
     if (event.type === "frame") {
       if (event.connectionGeneration === generation) {
+        logComputerControlStage(event.frame, "result_send_started", {
+          connectionGeneration: generation,
+        });
         input.socket.send(JSON.stringify(event.frame));
+        logComputerControlStage(event.frame, "result_send_returned", {
+          connectionGeneration: generation,
+        });
+      } else {
+        logComputerControlStage(event.frame, "result_stale_generation", {
+          connectionGeneration: event.connectionGeneration,
+        });
       }
     } else if (event.type === "authentication_failure") {
       if (
@@ -291,9 +301,17 @@ export function createExecutionHostSocketLink(input: {
         frame: { v: RUNTIME_TRANSPORT_SCHEMA_VERSION, ...frame },
       });
       if (!request.success) {
+        logComputerControlStage(frame, "host_frame_invalid", {
+          connectionGeneration: generation,
+        });
         return false;
       }
       if (closed || generation === null || queuedFrames >= 60) {
+        logComputerControlStage(frame, "host_forward_unavailable", {
+          connectionGeneration: generation,
+          queuedFrames,
+          closed,
+        });
         input.onError(
           new ExecutionHostError(
             "host.busy",
@@ -304,17 +322,33 @@ export function createExecutionHostSocketLink(input: {
       }
       queuedFrames += 1;
       const expectedGeneration = generation;
+      logComputerControlStage(frame, "waiting_for_host_configuration", {
+        connectionGeneration: expectedGeneration,
+        queuedFrames,
+      });
       configuration
         .then(async () => {
           if (closed || generation !== expectedGeneration) {
+            logComputerControlStage(frame, "host_connection_replaced", {
+              connectionGeneration: expectedGeneration,
+            });
             return;
           }
+          logComputerControlStage(frame, "host_call_started", {
+            connectionGeneration: expectedGeneration,
+          });
           await input.host.call("handleFrame", {
             ...request.data,
             connectionGeneration: expectedGeneration,
           });
         })
-        .catch(input.onError)
+        .catch((error: unknown) => {
+          logComputerControlStage(frame, "host_forward_failed", {
+            connectionGeneration: expectedGeneration,
+            reasonCode: admissionDetailCode(error, "host.forward_failed"),
+          });
+          input.onError(error);
+        })
         .finally(() => {
           queuedFrames -= 1;
         });

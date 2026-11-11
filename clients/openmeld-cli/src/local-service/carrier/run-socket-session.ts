@@ -61,6 +61,7 @@ import {
 } from "../core/constants";
 import {
   emitRunLine,
+  logComputerControlStage,
   normalizeHeartbeatIntervalMs,
   normalizeText,
   nowIsoString,
@@ -1748,11 +1749,19 @@ export async function runDaemonSocketSession(input: {
   const handleLocalAgentControlRefreshCatalogFrame = async (
     payload: Record<string, unknown>
   ): Promise<void> => {
+    const frame = {
+      code: "daemon.local_agent_control.refresh_catalog",
+      payload,
+    };
+    const context = { connectionGeneration: activeConnectionGeneration };
+    const record = (stage: string) =>
+      logComputerControlStage(frame, stage, context);
     const parsed =
       runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema.safeParse(
         payload
       );
     if (!parsed.success) {
+      record("invalid_request");
       emitRunLine({
         presenter: input.presenter,
         code: "daemon.run.local_agent_control_frame_invalid",
@@ -1762,8 +1771,13 @@ export async function runDaemonSocketSession(input: {
     }
 
     const responsePayload = await applyLocalAgentControlRefreshCatalog(
-      parsed.data.payload.reason
+      parsed.data.payload.reason,
+      record
     );
+    if (!responsePayload.accepted) {
+      record("catalog_refresh_failed");
+    }
+    record("result_send_started");
     sendDaemonFrame(input.socket, {
       code: "daemon.local_agent_control.result",
       payload: {
@@ -1771,6 +1785,7 @@ export async function runDaemonSocketSession(input: {
         payload: responsePayload,
       },
     });
+    record("result_send_returned");
   };
 
   const handleLocalAgentControlReadProfileWorkspaceFrame = async (
@@ -1923,12 +1938,34 @@ export async function runDaemonSocketSession(input: {
   };
 
   const applyLocalAgentControlRefreshCatalog = async (
-    reason: string
+    reason: string,
+    record: (stage: string) => void
   ): Promise<OpenMeldDaemonSyncRouteCatalogPayload> => {
+    const failStep = (
+      stage: "route_catalog_sync_failed" | "controller_report_sync_failed",
+      error: unknown
+    ): never => {
+      record(stage);
+      throw error;
+    };
     try {
+      record("catalog_refresh_started");
       const [result] = await Promise.all([
-        requestRouteCatalogSync(reason),
-        requestFreshRuntimeAgentControllerReportSync(),
+        requestRouteCatalogSync(reason).then(
+          (value) => {
+            record(
+              value.status === "failed"
+                ? "route_catalog_sync_failed"
+                : "route_catalog_sync_completed"
+            );
+            return value;
+          },
+          (error: unknown) => failStep("route_catalog_sync_failed", error)
+        ),
+        requestFreshRuntimeAgentControllerReportSync().then(
+          () => record("controller_report_sync_completed"),
+          (error: unknown) => failStep("controller_report_sync_failed", error)
+        ),
       ]);
       const payload = projectRouteCatalogSyncPayload({
         knownProfileIds: input.routeCatalogState.profileIds,
@@ -1936,8 +1973,12 @@ export async function runDaemonSocketSession(input: {
       });
       emitRunLine({
         presenter: input.presenter,
-        code: "daemon.run.local_agent_control_refresh_catalog",
-        text: `local agent catalog check completed (${payload.syncStatus}).`,
+        code: payload.accepted
+          ? "daemon.run.local_agent_control_refresh_catalog"
+          : "daemon.run.local_agent_control_refresh_catalog_failed",
+        text: payload.accepted
+          ? `local agent catalog check completed (${payload.syncStatus}).`
+          : "local agent catalog check failed.",
         payload: {
           profileCount: payload.profileIds.length,
           syncStatus: payload.syncStatus,
@@ -2070,6 +2111,9 @@ export async function runDaemonSocketSession(input: {
       });
       return;
     }
+    logComputerControlStage(parsedFrame, "socket_received", {
+      connectionGeneration: activeConnectionGeneration,
+    });
     if (parsedFrame.code === "daemon.route_catalog.changed") {
       const payload =
         runtimeTransportRouteCatalogChangedFramePayloadSchema.safeParse(

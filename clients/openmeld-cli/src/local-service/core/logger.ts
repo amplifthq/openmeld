@@ -1,4 +1,7 @@
-import { runtimeTransportModeSchema } from "@openmeld/schemas";
+import {
+  computerControlLogFields,
+  runtimeTransportModeSchema,
+} from "@openmeld/schemas";
 import type { RuntimeTransportMode } from "@openmeld/schemas/types";
 import {
   sleep as sharedSleep,
@@ -168,6 +171,26 @@ export function warnDaemonEvent(
 }
 
 export const toErrorMessage: (error: unknown) => string = sharedToErrorMessage;
+
+export function logComputerControlStage(
+  frame: { code: string; payload: Record<string, unknown> },
+  stage: string,
+  context: {
+    connectionGeneration?: number | null;
+    queuedFrames?: number;
+    closed?: boolean;
+    reasonCode?: string;
+  } = {}
+): void {
+  const fields = computerControlLogFields(frame);
+  if (fields) {
+    warnDaemonEvent("[openmeld.computer_control_stage]", {
+      ...fields,
+      stage,
+      ...context,
+    });
+  }
+}
 
 export const sleep: (delayMs: number) => Promise<void> = sharedSleep;
 

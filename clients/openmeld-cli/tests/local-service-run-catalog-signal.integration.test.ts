@@ -1,7 +1,15 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 
 const {
   loadDaemonRouteCatalogMock,
@@ -2509,8 +2517,25 @@ describe("local service run catalog signal", () => {
     });
   });
 
-  it("waits for a fresh controller report before completing a local agent catalog refresh", async () => {
+  it.each([
+    "changed",
+    "failed",
+  ] as const)("waits for a fresh controller report before returning a %s local agent catalog refresh", async (syncStatus) => {
     vi.useFakeTimers();
+    const requestId = crypto.randomUUID();
+    const logs = vi.spyOn(console, "warn");
+    onTestFinished(() => logs.mockRestore());
+    const stages = () =>
+      logs.mock.calls.flatMap(([line]) => {
+        if (
+          typeof line !== "string" ||
+          !line.includes("[openmeld.computer_control_stage]")
+        ) {
+          return [];
+        }
+        const record = JSON.parse(line.slice(line.indexOf("{")));
+        return record.controlRequestId === requestId ? [record.stage] : [];
+      });
 
     let resolveBackgroundReport!: () => void;
     const backgroundReport = new Promise<{
@@ -2576,11 +2601,18 @@ describe("local service run catalog signal", () => {
         syncLocalServiceRuntimeAgentControllerReportsMock.mock.calls.length > 0
     );
 
+    if (syncStatus === "failed") {
+      syncDaemonRouteCatalogStateMock.mockResolvedValueOnce({
+        status: "failed",
+        reason: "load_failed",
+        errorMessage: "catalog unavailable",
+      });
+    }
     socket.emitServerFrame({
       v: 1,
       code: "daemon.local_agent_control.refresh_catalog",
       payload: {
-        requestId: "refresh-1",
+        requestId,
         payload: {
           reason: "settings_manual_check",
         },
@@ -2589,10 +2621,17 @@ describe("local service run catalog signal", () => {
     await vi.advanceTimersByTimeAsync(1);
 
     expect(syncDaemonRouteCatalogStateMock).toHaveBeenCalledTimes(1);
+    expect(stages()).toEqual([
+      "socket_received",
+      "catalog_refresh_started",
+      syncStatus === "failed"
+        ? "route_catalog_sync_failed"
+        : "route_catalog_sync_completed",
+    ]);
     expect(socket.sentFrames).not.toContainEqual(
       expect.objectContaining({
         code: "daemon.local_agent_control.result",
-        payload: expect.objectContaining({ requestId: "refresh-1" }),
+        payload: expect.objectContaining({ requestId }),
       })
     );
 
@@ -2612,7 +2651,7 @@ describe("local service run catalog signal", () => {
           typeof frame.payload === "object" &&
           frame.payload !== null &&
           "requestId" in frame.payload &&
-          frame.payload.requestId === "refresh-1"
+          frame.payload.requestId === requestId
       )
     );
 
@@ -2625,18 +2664,91 @@ describe("local service run catalog signal", () => {
       expect.objectContaining({
         code: "daemon.local_agent_control.result",
         payload: {
-          requestId: "refresh-1",
+          requestId,
           payload: expect.objectContaining({
-            accepted: true,
-            profileIds: ["agt-1", "agt-2"],
-            syncStatus: "changed",
+            accepted: syncStatus === "changed",
+            profileIds:
+              syncStatus === "changed" ? ["agt-1", "agt-2"] : ["agt-1"],
+            syncStatus,
           }),
         },
       })
     );
+    expect(stages().slice(3)).toEqual([
+      "controller_report_sync_completed",
+      ...(syncStatus === "failed" ? ["catalog_refresh_failed"] : []),
+      "result_send_started",
+      "result_send_returned",
+    ]);
 
     socket.close(1000, "shutdown");
     await sessionPromise;
+  });
+
+  it.each([
+    ["configureConnection", "route_catalog_sync_failed"],
+    ["reportControllers", "controller_report_sync_failed"],
+  ] as const)("identifies a catalog refresh rejected by %s", async (rejectedMethod, failedStage) => {
+    vi.useFakeTimers();
+    const requestId = crypto.randomUUID();
+    const logs = vi.spyOn(console, "warn");
+    onTestFinished(() => logs.mockRestore());
+    syncDaemonRouteCatalogStateMock.mockResolvedValue({
+      status: "unchanged",
+      skippedProfiles: [],
+    });
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    const socket = createMockSocket();
+    let rejectRefresh = false;
+    const session = runDaemonSocketSession({
+      ...buildKeepaliveSessionInput(socket, []),
+      decorateExecutionHost: (host) => ({
+        ...host,
+        call: (method, payload, options) => {
+          if (rejectRefresh && method === rejectedMethod) {
+            return Promise.reject(new Error("test Host rejection"));
+          }
+          return host.call(method, payload, options);
+        },
+      }),
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(1);
+      rejectRefresh = true;
+      socket.emitServerFrame({
+        v: 1,
+        code: "daemon.local_agent_control.refresh_catalog",
+        payload: {
+          requestId,
+          payload: { reason: "settings_manual_check" },
+        },
+      });
+      await vi.advanceTimersByTimeAsync(1);
+      expect(socket.sentFrames).toContainEqual(
+        expect.objectContaining({
+          code: "daemon.local_agent_control.result",
+          payload: {
+            requestId,
+            payload: expect.objectContaining({
+              accepted: false,
+              syncStatus: "failed",
+              errorMessage: "test Host rejection",
+            }),
+          },
+        })
+      );
+      const stages = logs.mock.calls
+        .map(([line]) => String(line))
+        .filter((line) => line.includes(requestId));
+      for (const stage of [failedStage, "catalog_refresh_failed"]) {
+        expect(
+          stages.filter((line) => line.includes(`"stage":"${stage}"`))
+        ).toHaveLength(1);
+      }
+    } finally {
+      socket.close(1000, "shutdown");
+      await session;
+    }
   });
 
   it("handles profile workspace control frames through the profile workspace service", async () => {

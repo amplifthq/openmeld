@@ -1,11 +1,11 @@
 {
-  "version": "0.3.291",
+  "version": "0.3.292",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Adds upload-specific deadlines, stable retry IDs and exact saved-file recovery guidance for Space files, and packages compatible shared-schema updates. Existing CLI commands, JSON output, setup and trace remain compatible."
+    "reason": "Packages diagnostic correlation for Computer controls. Existing CLI commands, output and setup remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Guides long-running Local Agents to share verified milestones through the existing progress tool and packages the patched Windows helper runtime. Setup, Wake, Space actions, runtime transport and diagnostics remain compatible without a new contract floor."
+    "reason": "Records the receipt, local execution and return of Computer controls using the existing frame request ID. Existing Services and Core versions can interoperate through the same transport."
   }
 }

@@ -1089,11 +1089,19 @@ export async function setAgentRegistrationEnabled(input: {
   return result;
 }
 
-export async function manageAgentRegistrationInstallation(input: {
-  agentId: string;
-  installationId?: string;
-  operation: "list" | "select";
-}): Promise<ManageAgentRegistrationInstallationResult> {
+export async function manageAgentRegistrationInstallation(
+  input: {
+    agentId: string;
+    installationId?: string;
+    operation: "list" | "select";
+  },
+  recordStage?: (
+    stage:
+      | "installation_target_lookup_started"
+      | "installation_discovery_started"
+      | "installation_discovery_completed"
+  ) => void
+): Promise<ManageAgentRegistrationInstallationResult> {
   const agentId = normalizeAgentId(input.agentId);
   if (!agentId) {
     throw new Error(
@@ -1101,6 +1109,7 @@ export async function manageAgentRegistrationInstallation(input: {
     );
   }
 
+  recordStage?.("installation_target_lookup_started");
   const state = await resolveAgentTargetState(agentId);
   if (state?.targetKind !== "builtin") {
     throw new Error(`agents.invalid_agent_id: unknown local agent: ${agentId}`);
@@ -1111,6 +1120,7 @@ export async function manageAgentRegistrationInstallation(input: {
     );
   }
 
+  recordStage?.("installation_discovery_started");
   const candidatesResult = await listBuiltinControllerInstalledCandidates({
     agentId: state.agentId,
     detected: state.detected,
@@ -1118,6 +1128,7 @@ export async function manageAgentRegistrationInstallation(input: {
     persistedLaunchContract: state.registration.launchContract ?? null,
     runtimeSupported: state.runtimeSupported,
   });
+  recordStage?.("installation_discovery_completed");
   if (!candidatesResult.ok) {
     throw new Error(
       `${candidatesResult.errorCode}: ${candidatesResult.errorMessage}`

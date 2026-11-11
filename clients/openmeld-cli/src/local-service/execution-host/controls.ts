@@ -21,7 +21,11 @@ import {
 import { resolveOpenMeldRootDir } from "../../config/paths";
 import type { Presenter } from "../../runtime/presenter/types";
 import { sendDaemonFrame } from "../carrier/daemon-frame-transport";
-import { emitRunLine, toErrorMessage } from "../core/logger";
+import {
+  emitRunLine,
+  logComputerControlStage,
+  toErrorMessage,
+} from "../core/logger";
 import type {
   DaemonFrameSink,
   LedgerPaths,
@@ -157,7 +161,8 @@ export function createExecutionHostControls(input: {
   }
 
   async function manageInstallation(
-    control: OpenMeldDaemonManageLocalAgentInstallationRequestPayload
+    control: OpenMeldDaemonManageLocalAgentInstallationRequestPayload,
+    recordStage: (stage: string) => void
   ): Promise<OpenMeldDaemonManageLocalAgentInstallationPayload> {
     try {
       if (control.operation === "setup") {
@@ -197,10 +202,13 @@ export function createExecutionHostControls(input: {
       if (control.operation === "select") {
         result = await selectInstallation(control);
       } else {
-        result = await manageAgentRegistrationInstallation({
-          agentId: control.agentId,
-          operation: "list",
-        });
+        result = await manageAgentRegistrationInstallation(
+          {
+            agentId: control.agentId,
+            operation: "list",
+          },
+          recordStage
+        );
       }
       const selectionStatus =
         input.localExecutionSlots.getAdapterOperationStatus(control.agentId);
@@ -268,7 +276,9 @@ export function createExecutionHostControls(input: {
         code: "daemon.local_agent_control.result",
         payload: {
           requestId: parsed.requestId,
-          payload: await manageInstallation(parsed.payload),
+          payload: await manageInstallation(parsed.payload, (stage) =>
+            logComputerControlStage(frame, stage)
+          ),
         },
       });
       return true;

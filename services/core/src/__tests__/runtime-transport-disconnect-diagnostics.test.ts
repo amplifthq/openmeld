@@ -3,6 +3,20 @@ import { createRuntimeTransportMutableState } from "../runtime-transport/applica
 import { RuntimeTransportHub } from "../runtime-transport/transport/do/runtime-transport-hub";
 
 type RuntimeTransportHubDisconnectDiagnosticsHarness = {
+  sendCurrentDeviceOperationAndWait(input: {
+    code: string;
+    expectedResponseCode: string;
+    requestId: string;
+    payload: Record<string, unknown>;
+    isExpectedPayload: (value: unknown) => boolean;
+    session: {
+      deviceId: string;
+      daemonSessionId: string;
+      connectionGeneration: number;
+      socket: WebSocket;
+    };
+    timeoutMs: number;
+  }): Promise<unknown>;
   cleanupExpiredPendingDispatches: (nowMs: number) => void;
   failPendingDispatchResultWaitersForConnectionGeneration: (
     daemonSessionId: string,
@@ -195,6 +209,73 @@ describe("RuntimeTransportHub disconnect diagnostics", () => {
         hourStartMs: Date.UTC(2026, 6, 2, 12, 0, 0),
       }),
     ]);
+  });
+
+  it("correlates a late power response with the expired waiter without exposing the control payload", async () => {
+    vi.useFakeTimers();
+    const logs = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const { hub } = createDisconnectDiagnosticsHarness();
+    const requestId = crypto.randomUUID();
+    const socket = { send: vi.fn(), readyState: 1 } as unknown as WebSocket;
+    const resultCode = "daemon.computer_power.request_result";
+    const session = {
+      socket,
+      daemonSessionId: "session-1",
+      deviceId: "device-1",
+      connectionGeneration: 5,
+    };
+    hub.state.sessionIdBySocket.set(socket, session.daemonSessionId);
+    const pending = hub.sendCurrentDeviceOperationAndWait({
+      session,
+      requestId,
+      code: "daemon.computer_power.request",
+      expectedResponseCode: resultCode,
+      payload: {
+        requestId,
+        deviceId: session.deviceId,
+        request: { operation: "read" },
+      },
+      timeoutMs: 30_000,
+      isExpectedPayload: () => true,
+    });
+    const failure = expect(pending).rejects.toThrow("Timed out waiting");
+    await vi.advanceTimersByTimeAsync(30_000);
+    await failure;
+    hub.webSocketMessage(
+      socket,
+      JSON.stringify({
+        v: 1,
+        code: resultCode,
+        payload: {
+          requestId,
+          result: {
+            enabled: false,
+            revision: 1,
+            active: false,
+            supported: true,
+            problem: null,
+          },
+        },
+      })
+    );
+    const events = logs.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event?.controlRequestId === requestId);
+    expect(events.map((event) => event.stage)).toEqual([
+      "socket_send_returned",
+      "deadline_expired",
+      "result_received",
+    ]);
+    expect(events[1]).toMatchObject({
+      timeoutMs: 30_000,
+      connectionGeneration: 5,
+    });
+    expect(events[2]).toMatchObject({
+      daemonSessionId: "session-1",
+      waiterPresent: false,
+    });
+    expect(JSON.stringify(events)).not.toContain('"operation"');
+    expect(JSON.stringify(events)).not.toContain('"enabled"');
   });
 
   it("persists bounded remote evidence when a registered session disconnects", async () => {

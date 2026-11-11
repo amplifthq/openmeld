@@ -30,7 +30,12 @@ import {
 import { createDaemonLocalExecutionSlots } from "../carrier/local-execution-slots";
 import { resolveLocalConversationExecutionStatus } from "../control-plane/conversation-execution-status";
 import { CONTROLLED_SHUTDOWN_RESULT_ACK_TIMEOUT_MS } from "../core/constants";
-import { emitRunLine, toErrorMessage, warnDaemonEvent } from "../core/logger";
+import {
+  emitRunLine,
+  logComputerControlStage,
+  toErrorMessage,
+  warnDaemonEvent,
+} from "../core/logger";
 import type {
   CurrentDaemonSocketRef,
   DaemonFrameSink,
@@ -701,6 +706,9 @@ export function createExecutionHostRuntime(input: {
               "Execution produced an invalid transport frame."
             );
           }
+          logComputerControlStage(frame, "host_result_ready", {
+            connectionGeneration: generation,
+          });
           emit({
             ...envelope,
             type: "frame",
@@ -745,6 +753,9 @@ export function createExecutionHostRuntime(input: {
     },
     handleFrame: async ({ connectionGeneration, frame }) => {
       const socket = assertConnection(connectionGeneration);
+      logComputerControlStage(frame, "host_handler_entered", {
+        connectionGeneration,
+      });
       if (frame.code === "daemon.dispatch.lifecycle_acknowledged") {
         executionAdmission.receive(frame.payload);
         return {};
@@ -762,7 +773,14 @@ export function createExecutionHostRuntime(input: {
             if (parsed.data.payload.deviceId !== identity.deviceId) {
               throw new Error("This request targets a different computer.");
             }
-            result = await power.request(parsed.data.payload.request);
+            logComputerControlStage(frame, "power_queued", {
+              connectionGeneration,
+            });
+            result = await power.request(parsed.data.payload.request, () => {
+              logComputerControlStage(frame, "power_dequeued", {
+                connectionGeneration,
+              });
+            });
           } catch (error) {
             result = {
               status: "rejected",

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { ExecutionHostError } from "../src/local-service/execution-host/channel";
 import { launchExecutionHost } from "../src/local-service/execution-host/launch";
 import { createExecutionHostSocketLink } from "../src/local-service/execution-host/socket-link";
@@ -26,6 +26,53 @@ vi.mock(
 );
 
 describe("Host responsiveness observations", () => {
+  it("identifies installation requests held behind a failed Host configuration", async () => {
+    const configuration = Promise.withResolvers<never>();
+    const call = vi.fn(() => configuration.promise);
+    const onError = vi.fn();
+    const logs = vi.spyOn(console, "warn");
+    onTestFinished(() => logs.mockRestore());
+    const link = createExecutionHostSocketLink({
+      host: {
+        available: () => true,
+        snapshot: () => null,
+        call,
+        onEvent: () => () => undefined,
+        onAvailabilityChanged: () => () => undefined,
+      },
+      socket: { send: vi.fn() },
+      onAdmissionChanged: vi.fn(),
+      onInvalidation: vi.fn(),
+      onAuthenticationFailure: vi.fn(),
+      onError,
+    });
+    const configuring = link.configure({
+      connectionGeneration: 5,
+      catalogRevision: 1,
+      leases: [],
+    });
+    const requestId = crypto.randomUUID();
+    expect(
+      link.forward({
+        code: "daemon.local_agent_control.manage_installation",
+        payload: {
+          requestId,
+          payload: { agentId: "codex", operation: "list" },
+        },
+      })
+    ).toBe(true);
+    configuration.reject(new Error("private configuration detail"));
+    await expect(configuring).rejects.toThrow("private configuration detail");
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    const records = logs.mock.calls
+      .map(([line]) => String(line))
+      .filter((line) => line.includes(requestId));
+    expect(
+      records.map((line) => JSON.parse(line.slice(line.indexOf("{"))).stage)
+    ).toEqual(["waiting_for_host_configuration", "host_forward_failed"]);
+    expect(records.join(" ")).not.toContain("private configuration detail");
+    expect(call).toHaveBeenCalledTimes(1);
+  });
   it("forwards receipt reads without applying input and rejects an old socket generation", async () => {
     const sent = Promise.withResolvers<string>();
     const calls: string[] = [];

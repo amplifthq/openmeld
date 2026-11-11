@@ -97,8 +97,9 @@ export function createComputerPower(input: {
         await reconcile();
       });
     },
-    request(request: ComputerPowerRequest) {
+    request(request: ComputerPowerRequest, onDequeued?: () => void) {
       return serial(async () => {
+        onDequeued?.();
         if (loadError) {
           throw loadError;
         }
