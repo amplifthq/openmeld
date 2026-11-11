@@ -12,6 +12,8 @@ import {
 const NOW_MS = Date.parse("2026-07-18T07:30:00.000Z");
 const BASE64_URL_PATTERN = /^[A-Za-z0-9_-]+$/u;
 
+import { gunzipSync } from "node:zlib";
+
 describe("Lark-platform Personal Agent registration client", () => {
   it.each([
     "lark",
@@ -19,6 +21,7 @@ describe("Lark-platform Personal Agent registration client", () => {
   ] as const)("reauthorizes the existing %s app without forcing creation", async (provider) => {
     const result = await beginLarkPlatformRegistration({
       appId: "cli_existing_app",
+      includeGroupHistory: true,
       appDescription: "Channel setup",
       appName: "OpenMeld Center Agent",
       expectedProvider: provider,
@@ -29,6 +32,14 @@ describe("Lark-platform Personal Agent registration client", () => {
     const url = new URL(result.registrationUrl);
     // Official node-sdk scene/registration/index.ts: clientID selects an existing
     // app; createOnly=true would override that selection.
+    const addons = JSON.parse(
+      gunzipSync(
+        Buffer.from(url.searchParams.get("addons") ?? "", "base64url")
+      ).toString()
+    );
+    expect(addons.scopes.tenant.includes("im:message.group_msg")).toBe(
+      provider === "feishu"
+    );
     expect(url.searchParams.get("clientID")).toBe("cli_existing_app");
     expect(url.searchParams.has("createOnly")).toBe(false);
   });

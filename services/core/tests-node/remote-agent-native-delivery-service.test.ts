@@ -11,6 +11,7 @@ import {
   HOSTED_REMOTE_AGENT_RUNTIME_IDENTITY,
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY,
   REMOTE_AGENT_FAILURE_PURPOSE,
+  REMOTE_AGENT_IMAGE_TRANSFORM_QUOTA_EXCEEDED_PUBLIC_COPY,
   REMOTE_AGENT_TRIGGER_TEXT_MAX_CHARS,
   REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE,
@@ -55,6 +56,7 @@ import * as summaryRecoveryService from "../src/center-agent/application/task-su
 import {
   buildCenterAgentMemberMemoryRef,
   buildCenterAgentOrganizationMemoryRef,
+  buildCenterAgentSpaceMemoryRef,
   CENTER_AGENT_MEMORY_SEARCH_QUERY_MAX_CHARS,
   type CenterAgentMemoryAdapter,
   type CenterAgentMemoryRepository,
@@ -334,6 +336,10 @@ describe("Remote Agent native delivery callback service", () => {
   ])("freezes task attribution for receiver support=%s across an upgrade", async (supported) => {
     const harness = await createPostgresHarness();
     await seedRemoteAgentSubmitAuthority(harness);
+    await harness.query({
+      text: "UPDATE openmeld.space_index_spaces SET space_purpose = NULL, direct_message_pair_key = NULL WHERE space_id = $1",
+      values: [SPACE_ID],
+    });
     const readSubmitTurnCapabilities = vi.fn(() => {
       if (!supported) {
         throw new Error(
@@ -379,6 +385,9 @@ describe("Remote Agent native delivery callback service", () => {
     try {
       await submitRemoteAgentNativeDelivery(input);
       expect(requests).toHaveLength(1);
+      expect(requests[0]?.conversationId).toBe(
+        `center-space:${SPACE_ID}:root:${input.message.threadContext?.rootSignalId ?? input.message.sourceEventId}`
+      );
       if (!supported) {
         expect(requests[0]).not.toHaveProperty("taskId");
       }
@@ -6243,7 +6252,18 @@ describe("Remote Agent native delivery callback service", () => {
       await harness.close();
     }
   });
-  it("maps a structured Space admission rejection to Core-owned public copy", async () => {
+  it.each([
+    [
+      "remote_agent.conversation_history_limit_exceeded",
+      REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY,
+      2,
+    ],
+    [
+      "remote_agent.image_transform_quota_exceeded",
+      REMOTE_AGENT_IMAGE_TRANSFORM_QUOTA_EXCEEDED_PUBLIC_COPY,
+      1,
+    ],
+  ] as const)("ends a structured Space admission rejection without retry: %s", async (reasonCode, publicCopy, expectedSubmissions) => {
     const harness = await createPostgresHarness();
     await seedRemoteAgentSubmitAuthority(harness);
     const env = buildEnv(harness.db, {
@@ -6252,8 +6272,7 @@ describe("Remote Agent native delivery callback service", () => {
           idempotencyKey: "idem_1",
           message: "Worker diagnostic detail only.",
           outcome: "rejected" as const,
-          reasonCode:
-            "remote_agent.conversation_history_limit_exceeded" as const,
+          reasonCode,
           v: 1 as const,
         })),
       },
@@ -6283,18 +6302,32 @@ describe("Remote Agent native delivery callback service", () => {
           idempotencyKey: "idem_1",
         })
       ).resolves.toMatchObject({
-        failureCode: "remote_agent.conversation_history_limit_exceeded",
+        failureCode: reasonCode,
         failureDetail: "Worker diagnostic detail only.",
         status: "failed",
       });
       expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            reasonCode: "remote_agent.conversation_history_limit_exceeded",
-            text: REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY,
+            reasonCode,
+            text: publicCopy,
           }),
         })
       );
+      await expect(
+        submitRemoteAgentNativeDelivery({
+          binding: createBinding(),
+          db: harness.db,
+          env,
+          executionAttemptId: "attempt_1",
+          memoryService: null,
+          message: createDispatchMessage(),
+          nowMs: 2000,
+        })
+      ).resolves.toMatchObject({ shouldAck: true });
+      expect(
+        env.OPENMELD_REMOTE_AGENT_WORKER?.submitConversationTurn
+      ).toHaveBeenCalledTimes(expectedSubmissions);
     } finally {
       await harness.close();
     }
@@ -8130,12 +8163,7 @@ describe("Remote Agent native delivery callback service", () => {
     const workerSubmit = vi.fn((input) => {
       const parsed = remoteAgentWorkerSubmitTurnRequestSchema.parse(input);
       expect(parsed.turnEnvelope.memory?.truncated).toBe(true);
-      expect(parsed.turnEnvelope.memory?.items[0]?.text).toHaveLength(
-        REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS
-      );
-      expect(parsed.turnEnvelope.memory?.items[0]?.text.endsWith("...")).toBe(
-        true
-      );
+      expect(parsed.turnEnvelope.memory?.items).toEqual([]);
       return Promise.resolve({
         submissionId: "sub_oversized_memory",
         requestId: "req_oversized_memory",
@@ -13425,6 +13453,7 @@ function createTestMemoryService(
   overrides: Partial<CenterAgentMemoryService> = {}
 ): CenterAgentMemoryService {
   return {
+    deleteSpaceMemory: vi.fn(async () => "deleted" as const),
     deleteMemberMemory: vi.fn(async () => "deleted" as const),
     deleteOrganizationMemory: vi.fn(async () => "deleted" as const),
     recallForOrganization: vi.fn(async () => ({ items: [], truncated: false })),
@@ -13456,23 +13485,33 @@ function createMemoryAdapter(input: {
     deleteOrganizationGraph: vi.fn(async () => "deleted" as const),
     ensureMemberUser: vi.fn(async () => undefined),
     ensureOrganizationGraph: vi.fn(async () => undefined),
-    search: vi.fn(async (searchInput) => [
-      {
-        captureMethod: "automatic_turn" as const,
-        occurredAtMs: 900,
-        source: "ca_dm" as const,
-        sourceConversationId: "dm_1",
-        sourceMessageId: "message_1",
-        subject: searchInput.ref.subject.kind,
-        text: input.searchText,
-      },
-    ]),
+    search: vi.fn(async (searchInput) => ({
+      status: "complete" as const,
+      items: [
+        {
+          captureMethod: "automatic_turn" as const,
+          occurredAtMs: 900,
+          source: "ca_dm" as const,
+          sourceConversationId: "dm_1",
+          sourceMessageId: "message_1",
+          subject: searchInput.ref.subject.kind,
+          text: input.searchText,
+        },
+      ],
+    })),
   };
 }
 function createMemoryRepository(input: {
   organizationMemoryOptIn: boolean;
 }): CenterAgentMemoryRepository {
   return {
+    upsertSpaceSubject: vi.fn(async (value) =>
+      buildCenterAgentSpaceMemoryRef(value)
+    ),
+    beginSpaceDeletion: vi.fn(async () => undefined),
+    isSpaceSubjectActive: vi.fn(async () => false),
+    markSpaceDeleted: vi.fn(async () => false),
+    markSpaceDeleteFailed: vi.fn(async () => undefined),
     readActiveSubjects: vi.fn(async (readInput) => [
       ...(readInput.speakerMember
         ? [

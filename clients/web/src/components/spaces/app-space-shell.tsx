@@ -14,6 +14,7 @@ import type {
 
 export function SpaceWindowShell(input: {
 	children: ReactNode;
+	conversationList?: "conversation" | "sidebar" | "home";
 	defaultModuleSidebarOpen?: boolean;
 	sidebar?: ReactNode;
 	initialOuterSidebarState?: SidebarPersistedState;
@@ -28,7 +29,12 @@ export function SpaceWindowShell(input: {
 			defaultModuleSidebarOpen={input.defaultModuleSidebarOpen ?? true}
 			initialSidebarState={input.initialOuterSidebarState}
 			navigation={input.sidebar}
-			outerRail={<AppOuterRail account={account} />}
+			outerRail={
+				<AppOuterRail
+					account={account}
+					conversationList={input.conversationList}
+				/>
+			}
 		>
 			{input.children}
 		</SpaceWindowFrame>
@@ -83,12 +89,14 @@ type AppSpaceShellProps = AppSpaceShellBaseProps &
 	);
 
 export function AppSpaceShell(input: AppSpaceShellProps) {
+	const list = input.currentSpaceId ? "conversation" : "sidebar";
 	return (
 		<SpaceWakeProgressVisibleProjectionProvider
 			profileId={input.currentProfileId}
 			spaceId={input.currentSpaceId}
 		>
 			<SpaceWindowShell
+				conversationList={input.showSpacesSidebar === false ? undefined : list}
 				defaultModuleSidebarOpen={
 					input.defaultModuleSidebarOpen ?? !!input.currentSpaceId
 				}
@@ -125,6 +133,7 @@ export function AppDirectMessageShell(input: {
 			spaceId={input.currentSpaceId}
 		>
 			<SpaceWindowShell
+				conversationList="conversation"
 				initialOuterSidebarState={input.initialOuterSidebarState}
 				initialSidebarState={input.initialSidebarState}
 				sidebar={

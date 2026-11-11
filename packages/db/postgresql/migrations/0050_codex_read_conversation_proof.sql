@@ -1,0 +1,2 @@
+ALTER TABLE "openmeld"."openMeldDaemon_provider_conversation_proofs" DROP CONSTRAINT "openMeldDaemon_provider_conversation_proofs_method_check";--> statement-breakpoint
+ALTER TABLE "openmeld"."openMeldDaemon_provider_conversation_proofs" ADD CONSTRAINT "openMeldDaemon_provider_conversation_proofs_method_check" CHECK ("method" in ('codex_app_server_thread_resume', 'codex_app_server_thread_read'));

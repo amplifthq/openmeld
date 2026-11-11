@@ -798,7 +798,10 @@ export async function rpcReadOrganizationDocumentPromptContext(
   const organizationId = authorization.activeOrganization.organizationId;
   const db = requireStore(env);
   const [promptContext, organizationProtectedInformation] = await Promise.all([
-    createOrganizationDocumentService({ db }).readPromptContext(organizationId),
+    createOrganizationDocumentService({ db }).readPromptContext(
+      organizationId,
+      request.includeSourceReferences === true
+    ),
     request.includeOrganizationProtectedInformation
       ? readOrganizationInformationProtectionForPrompt({ db, organizationId })
       : Promise.resolve(null),

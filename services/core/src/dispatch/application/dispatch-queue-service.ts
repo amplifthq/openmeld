@@ -915,6 +915,55 @@ const resolveDispatchTimingCollector = (
   timing?: SpaceBootstrapTimingCollector
 ): SpaceBootstrapTimingCollector =>
   timing ?? createSpaceBootstrapTimingCollector();
+const recoverHostedAdmissionClaim = async (input: {
+  claimState: Awaited<ReturnType<typeof claimDispatchAttempt>>;
+  db: PostgresDatabase;
+  env: CoreBindings;
+  message: OpenMeldDaemonDispatchQueueMessage;
+  nowMs: number;
+  preflightCheck?: DispatchExecutionPreflightResult;
+  queueAttempt: number;
+  timing: SpaceBootstrapTimingCollector;
+}) => {
+  const decision =
+    input.claimState.status === "deduped"
+      ? input.claimState.runtimeCoordinatorDecisionRequest?.claimDecision
+      : undefined;
+  if (
+    decision !== "reclaim_stale_queued" &&
+    decision !== "reclaim_stale_dispatching" &&
+    decision !== "reset_existing"
+  ) {
+    return {
+      claimState: input.claimState,
+      preflightCheck: input.preflightCheck,
+    };
+  }
+  const preflightCheck = await resolveDispatchQueuePreflight(input);
+  if (
+    !(
+      preflightCheck.ok &&
+      isHostedAgentRuntimeKind(
+        preflightCheck.effectiveTargetBindingSnapshot.runtimeKind
+      )
+    )
+  ) {
+    return { claimState: input.claimState, preflightCheck };
+  }
+  // Older outbox/Queue messages may lack the hosted recovery marker.
+  // Re-read the claim so only its original unaccepted attempt can resume;
+  // the native delivery owner retains idempotency and final-outcome fences.
+  const claimState = await claimDispatchAttempt({
+    db: input.db,
+    message: {
+      ...input.message,
+      deliveryRecoveryReason: "hosted_admission_incomplete",
+    },
+    attempt: input.queueAttempt,
+    nowMs: input.nowMs,
+  });
+  return { claimState, preflightCheck };
+};
 const resumeHostedAdmissionRecoveryClaim = (input: {
   claimState: Awaited<ReturnType<typeof claimDispatchAttempt>>;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
@@ -1045,8 +1094,18 @@ const processDispatchQueueMessageExecution = async (input: {
     sourceText: input.dispatchMessage.sourceSignalSnapshot?.text ?? null,
     handedOffAtMs: input.dispatchMessage.enqueuedAtMs,
   });
-  claimState = resumeHostedAdmissionRecoveryClaim({
+  const claimRecovery = await recoverHostedAdmissionClaim({
     claimState,
+    db: input.db,
+    env: input.env,
+    message: input.dispatchMessage,
+    nowMs: input.nowMs,
+    preflightCheck: input.preflightCheck,
+    queueAttempt: input.queueAttempt,
+    timing,
+  });
+  claimState = resumeHostedAdmissionRecoveryClaim({
+    claimState: claimRecovery.claimState,
     dispatchMessage: input.dispatchMessage,
     queueAttempt: input.queueAttempt,
   });
@@ -1087,7 +1146,7 @@ const processDispatchQueueMessageExecution = async (input: {
   const preflightCheck = await resolveDispatchQueuePreflight({
     env: input.env,
     message: input.dispatchMessage,
-    preflightCheck: input.preflightCheck,
+    preflightCheck: claimRecovery.preflightCheck,
     timing,
   });
   logDispatchQueueBindingSource({

@@ -107,9 +107,11 @@ export async function runAgentShow(input: {
 }
 
 /**
- * `openmeld agent add <harness>`: add an Agent for a Harness this member's
- * computer detects. Setup adds only the selected Harnesses; this adds the
- * others one at a time.
+ * `openmeld agent add <harness>`: add the Agent of a Harness one of the
+ * member's connected computers has installed. The Local agents switch is
+ * the member's choice (design-plans/member-agent-program.md §4.1), so Core
+ * turns the Harness on there if it is off, then creates the Agent: the same
+ * Core sync the Add action in OpenMeld Web uses.
  */
 export async function runAgentAdd(input: {
   harness: string;
@@ -142,8 +144,7 @@ export async function runAgentAdd(input: {
           MEMBER_AGENT_SYNC_HARNESS_NOT_DETECTED_REASON
             ? `None of your connected computers has ${formatHarnessDisplayName(harnessKind)} right now.`
             : `OpenMeld couldn't add ${formatHarnessDisplayName(harnessKind)}.`,
-        nextStep:
-          "Install or sign in to the harness, keep your computer connected, then try again.",
+        nextStep: `Install the harness, keep OpenMeld Service running on your computer, or run \`openmeld agents enable --agent ${harnessKind}\` there, then try again.`,
         title: "Agent Not Added",
       });
     }

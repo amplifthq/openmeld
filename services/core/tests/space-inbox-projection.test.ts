@@ -1,5 +1,5 @@
 import { runInDurableObject } from "cloudflare:test";
-import { PostgresDatabase } from "@openmeld/db/postgresql";
+import { type PoolClient, PostgresDatabase } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
@@ -21,6 +21,7 @@ import {
   insertDispatchOutboxRecord,
 } from "../src/space/infrastructure/outbox/dispatch-outbox-repo";
 import {
+  insertSpaceInboxProjectionOutboxRecord,
   listDueSpaceInboxProjectionOutboxRecords,
   type SpaceInboxProjectionOutboxRecord,
 } from "../src/space/infrastructure/sql/space-inbox-projection-outbox-repo";
@@ -30,7 +31,16 @@ import {
 } from "../src/space/infrastructure/sql/space-member-repo";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
+import {
+  createSpaceThreadId,
+  insertSpaceThread,
+  insertSpaceThreadSignalPlacement,
+} from "../src/space/infrastructure/sql/space-thread-repo";
 import { Space } from "../src/space/transport/do/space";
+import {
+  createProjectionPostgresBinding,
+  nativeQueryResult,
+} from "../test-support/postgresql-query.test-support";
 import { env } from "../test-support/worker-env";
 
 const publishTextSignal = (
@@ -65,11 +75,139 @@ const publishTextSignal = (
 
 describe("Space Inbox projection", () => {
   it.each([
+    "outbox",
+    "read-recovery",
+  ] as const)("withholds %s notification eligibility until the final Signal has passed live access checks", async (path) => {
+    const events: string[] = [];
+    const binding = createProjectionPostgresBinding((query) =>
+      query.text.includes('"space_index_spaces"')
+        ? [
+            {
+              agent_profile_id: null,
+              direct_message_pair_key: null,
+              organization_id: "org-1",
+              space_purpose: null,
+            },
+          ]
+        : []
+    );
+    const transaction = vi
+      .spyOn(PostgresDatabase.prototype, "transaction")
+      .mockImplementation(async (callback) => {
+        const result = await callback({
+          query: async () => nativeQueryResult([]),
+        } as unknown as PoolClient);
+        events.push("inbox");
+        return result;
+      });
+    const spaces = (
+      env as unknown as {
+        OPENMELD_SPACES: DurableObjectNamespace<Space>;
+      }
+    ).OPENMELD_SPACES;
+    const id = spaces.newUniqueId();
+    try {
+      await runInDurableObject(spaces.get(id), async (instance, state) => {
+        const signal = {
+          ...textSignal({
+            authorKind: "agent",
+            authorName: "Agent",
+            authorProfileId: "agt_22222222-2222-4222-8222-222222222222",
+            purpose: AGENT_REPLY_FINAL_PURPOSE,
+            text: "The work is complete.",
+          }),
+          spaceId: id.toString(),
+        };
+        const record = buildSpaceInboxProjectionOutboxRecord({
+          activeMemberRecords: [member("reader", "user-reader", "human")],
+          nowMs: signal.ts,
+          organizationId: "org-1",
+          signal,
+          spaceName: "Completion ordering",
+        });
+        expect(record).not.toBeNull();
+        if (!record) {
+          return;
+        }
+        insertSignalRecord(state.storage.sql, signal);
+        insertSpaceInboxProjectionOutboxRecord(state.storage.sql, record);
+        const profile = {
+          kind: "human" as const,
+          profileId: "reader",
+          profileName: "Reader",
+        };
+        const socket = { send: () => events.push("signal"), close: vi.fn() };
+        const pending: Promise<unknown>[] = [];
+        const session = { profile, supportsLiveSignalHistory: true };
+        const target = Object.defineProperties(
+          instance,
+          Object.getOwnPropertyDescriptors({
+            bindings: { OPENMELD_POSTGRESQL: binding },
+            sessions: new Map([[socket, session]]),
+            authorizeLiveSession: () =>
+              new Promise<boolean>((resolve) => {
+                setTimeout(() => resolve(true), 1000);
+              }),
+            canReceiveSpaceInboxAgentActivity: async () => true,
+            isSpaceInboxRecipientEligible: async () => true,
+            readSpaceMetaRecord: () => ({ organizationId: "org-1" }),
+            redactSignalForViewer: (value: SignalEnvelope) => value,
+          })
+        ) as unknown as {
+          broadcastSignal(
+            signal: SignalEnvelope,
+            context: undefined,
+            history: { persisted: true }
+          ): void;
+          flushPendingSpaceInboxProjectionOutbox(): Promise<void>;
+          rpcGetSpaceInboxReadCandidates(input: {
+            spaceId: string;
+            organizationId: string;
+            recipientUserId: string;
+            sources: Array<{ signalId: string; occurredAtMs: number }>;
+          }): Promise<unknown[]>;
+        };
+        vi.useFakeTimers();
+        target.broadcastSignal(signal, undefined, { persisted: true });
+        const projection =
+          path === "outbox"
+            ? target.flushPendingSpaceInboxProjectionOutbox()
+            : target
+                .rpcGetSpaceInboxReadCandidates({
+                  organizationId: "org-1",
+                  recipientUserId: "user-reader",
+                  spaceId: signal.spaceId,
+                  sources: [{ signalId: signal.id, occurredAtMs: signal.ts }],
+                })
+                .then((candidates) => {
+                  expect(candidates).toHaveLength(1);
+                  events.push("inbox");
+                });
+        pending.push(projection);
+        try {
+          await vi.advanceTimersByTimeAsync(999);
+          expect(events).toEqual([]);
+          await vi.advanceTimersByTimeAsync(1);
+          await Promise.all(pending);
+          expect(events).toEqual(["signal", "inbox"]);
+        } finally {
+          await vi.runOnlyPendingTimersAsync();
+          await Promise.all(pending);
+        }
+      });
+    } finally {
+      vi.useRealTimers();
+      transaction.mockRestore();
+    }
+  });
+
+  it.each([
     "native-reply",
     "native-failure",
     "workstation-reply",
     "removed-requester",
     "missing-source",
+    "reply-to-thread-participant",
   ])("persists formal results for current conversation members for %s", async (scenario) => {
     const spaces = (
       env as unknown as {
@@ -125,6 +263,42 @@ describe("Space Inbox projection", () => {
         if (scenario !== "missing-source") {
           insertSignalRecord(state.storage.sql, source);
         }
+        const thread =
+          scenario === "reply-to-thread-participant"
+            ? { threadId: createSpaceThreadId(), rootSignalId: source.id }
+            : undefined;
+        if (thread) {
+          const createdAt = new Date(1000).toISOString();
+          insertSpaceThread(state.storage.sql, {
+            ...thread,
+            spaceId,
+            createdByProfileId: requesterProfileId,
+            createdAt,
+            updatedAt: createdAt,
+          });
+          insertSignalRecord(state.storage.sql, {
+            ...textSignal({
+              authorKind: "human",
+              authorName: "Bob",
+              authorProfileId: "profile-observer",
+              text: "Please reply to this detail.",
+            }),
+            id: "bob-detail",
+            spaceId,
+          });
+          insertSpaceThreadSignalPlacement(state.storage.sql, {
+            threadId: thread.threadId,
+            signalId: source.id,
+            placement: "root",
+            createdAt,
+          });
+          insertSpaceThreadSignalPlacement(state.storage.sql, {
+            threadId: thread.threadId,
+            signalId: "bob-detail",
+            placement: "thread",
+            createdAt,
+          });
+        }
         const dispatch = createDispatchOutboxRecord({
           bindingEnabled: true,
           bindingState: "bound",
@@ -146,6 +320,7 @@ describe("Space Inbox projection", () => {
         if (scenario === "workstation-reply") {
           insertDispatchOutboxRecord(state.storage.sql, dispatch);
         }
+        const replyParentId = thread ? "bob-detail" : source.id;
         const signal =
           scenario === "native-failure"
             ? systemNoticeSignal({
@@ -160,12 +335,12 @@ describe("Space Inbox projection", () => {
                 purpose: AGENT_REPLY_FINAL_PURPOSE,
                 // Captured native replies carry this relation without a replyTo snapshot.
                 replyToSignalId:
-                  scenario === "workstation-reply" ? undefined : source.id,
+                  scenario === "workstation-reply" ? undefined : replyParentId,
                 text: "The release is ready.",
               });
         signal.spaceId = spaceId;
         signal.id = "result";
-        if (signal.type === "signal.text") {
+        if (signal.type === "signal.text" && !thread) {
           signal.data.meta = {
             ...signal.data.meta,
             dispatchId: dispatch.dispatchId,
@@ -184,11 +359,21 @@ describe("Space Inbox projection", () => {
               insertSpaceInboxProjectionForPublishedSignal(input: {
                 nowMs: number;
                 signal: SignalEnvelope;
+                signalContext?: {
+                  threadPlacement: "thread";
+                  threadContext: NonNullable<typeof thread>;
+                };
               }): void;
             }
           ).insertSpaceInboxProjectionForPublishedSignal({
             nowMs: 2000,
             signal,
+            ...(thread && {
+              signalContext: {
+                threadPlacement: "thread" as const,
+                threadContext: thread,
+              },
+            }),
           });
         });
         return listDueSpaceInboxProjectionOutboxRecords(state.storage.sql, {
@@ -198,6 +383,12 @@ describe("Space Inbox projection", () => {
           record.candidates.map((candidate) => ({
             userId: candidate.recipientUserId,
             kind: candidate.kind,
+            ...(thread && {
+              addressed:
+                candidate.sourceFacts?.recipientReasons.includes(
+                  "thread_reply"
+                ),
+            }),
           }))
         );
       }
@@ -206,8 +397,20 @@ describe("Space Inbox projection", () => {
     expect(recipients).toEqual([
       ...(scenario === "removed-requester"
         ? []
-        : [{ userId: "user-requester", kind }]),
-      { userId: "user-observer", kind },
+        : [
+            {
+              userId: "user-requester",
+              kind,
+              ...(scenario === "reply-to-thread-participant" && {
+                addressed: false,
+              }),
+            },
+          ]),
+      {
+        userId: "user-observer",
+        kind,
+        ...(scenario === "reply-to-thread-participant" && { addressed: true }),
+      },
     ]);
   });
 
@@ -457,7 +660,10 @@ describe("Space Inbox projection", () => {
       await selectSpaceInboxRecipients([ordinary, owner], async () => false)
     ).toEqual([ordinary]);
   });
-  it("keeps an unconfirmed Human author's CLI update unread without turning self references into notifications", () => {
+  it.each([
+    false,
+    true,
+  ])("keeps an unconfirmed Human author's CLI update unread without alerting the sender (DM=%s)", (directMessage) => {
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [
         member("profile-author", "user-author", "human"),
@@ -466,6 +672,7 @@ describe("Space Inbox projection", () => {
       ],
       nowMs: 2000,
       organizationId: "org-1",
+      directMessage,
       signal: textSignal({
         authorKind: "human",
         authorName: "Alex Author",
@@ -477,7 +684,7 @@ describe("Space Inbox projection", () => {
         threadContext: { rootSignalId: "root-1", threadId: "thread-1" },
         threadPlacement: "thread",
       },
-      threadRootAuthorUserId: "user-author",
+      replyRecipientUserId: "user-author",
       threadParticipantProfileIds: ["profile-author", "profile-reader"],
       spaceName: "Planning",
     });
@@ -487,8 +694,12 @@ describe("Space Inbox projection", () => {
         kind: "space_message",
         importance: "normal",
         title: "New message in Planning",
+        sourceFacts: expect.objectContaining({
+          recipientReasons: ["space_member"],
+        }),
         sourceTarget: {
           kind: "space",
+          directMessage,
           spaceId: "space-1",
           signalId: "signal-1",
           threadRootSignalId: "root-1",
@@ -712,7 +923,7 @@ describe("Space Inbox projection", () => {
         threadContext: { rootSignalId: "signal-root", threadId: "thread-1" },
         threadPlacement: "thread",
       },
-      threadRootAuthorUserId: "user-root",
+      replyRecipientUserId: "user-root",
       threadParticipantProfileIds: [
         "profile-root",
         "profile-sender",
@@ -771,7 +982,7 @@ describe("Space Inbox projection", () => {
         threadPlacement: "thread",
       },
       spaceName: "Operations",
-      threadRootAuthorUserId: "user-thread-author",
+      replyRecipientUserId: "user-thread-author",
       threadParticipantProfileIds: [
         "profile-requester",
         "profile-referenced",

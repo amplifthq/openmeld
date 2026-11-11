@@ -5,6 +5,7 @@ import { setAuthSession } from "../src/config/auth-session";
 import { resetOpenMeldProfilesSessionCacheForTests } from "../src/config/openmeld-profiles-api";
 import {
   resolveProfileCreateMemberAgentController,
+  runAgentAdd,
   runAgentList,
   runAgentShow,
 } from "../src/member-agents/command";
@@ -92,7 +93,7 @@ const LISTING = listMemberAgentsResponseSchema.parse({
   ],
 });
 
-type FetchCall = { method: string; pathname: string };
+type FetchCall = { body?: unknown; method: string; pathname: string };
 
 describe("openmeld agent commands", () => {
   beforeEach(() => {
@@ -344,6 +345,96 @@ describe("openmeld agent commands", () => {
   });
 });
 
+describe("openmeld agent add", () => {
+  beforeEach(() => {
+    memberAgentsFlag.enabled = true;
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    Reflect.deleteProperty(
+      process.env,
+      "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
+    );
+    process.exitCode = undefined;
+  });
+
+  it("asks Core to add the harness, which turns it on if it is off", async () => {
+    const calls = stubAuthFetch({
+      syncResponse: {
+        ok: true,
+        organizationId: "org-1",
+        results: [
+          {
+            binding: "succeeded",
+            defaultProfileId: "agt-cursor",
+            directMessage: "succeeded",
+            directMessageSpaceId: "space-dm",
+            harnessKind: "cursor",
+            memberAgentId: "ma-cursor",
+            outcome: "created",
+            reasonCodes: [],
+          },
+        ],
+        assignedProfileIds: [],
+        addableHarnessKinds: [],
+      },
+    });
+    await withTempHome(async () => {
+      vi.stubEnv("OPENMELD_GATEWAY_URL", "https://gateway.openmeld.invalid");
+      await signIn();
+      const { stdout } = await withCapturedStdio(() =>
+        runAgentAdd({ harness: "cursor", view: "agent" })
+      );
+      expect(parseSingleFrame(stdout)).toMatchObject({
+        code: "member_agents.add",
+        payload: { result: { memberAgentId: "ma-cursor", outcome: "created" } },
+      });
+    });
+    expect(calls).toContainEqual({
+      body: { createHarnessKinds: ["cursor"] },
+      method: "POST",
+      pathname: "/v1/organizations/current/member-agents/sync",
+    });
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("explains what to do when no connected computer has the harness", async () => {
+    stubAuthFetch({
+      syncResponse: {
+        ok: true,
+        organizationId: "org-1",
+        results: [
+          {
+            binding: "not_attempted",
+            defaultProfileId: null,
+            directMessage: "not_attempted",
+            directMessageSpaceId: null,
+            harnessKind: "cursor",
+            memberAgentId: null,
+            outcome: "skipped",
+            reasonCodes: ["member_agent.harness_not_detected"],
+          },
+        ],
+        assignedProfileIds: [],
+        addableHarnessKinds: ["cursor"],
+      },
+    });
+    await withTempHome(async () => {
+      vi.stubEnv("OPENMELD_GATEWAY_URL", "https://gateway.openmeld.invalid");
+      await signIn();
+      const { stdout } = await withCapturedStdio(() =>
+        runAgentAdd({ harness: "cursor", view: "human" })
+      );
+      expect(stdout).toContain("Agent Not Added");
+      expect(stdout).toContain("has Cursor right now");
+      expect(stdout).toContain("openmeld agents enable --agent cursor");
+    });
+    expect(process.exitCode).toBe(1);
+  });
+});
+
 describe("profile commands with MemberAgents", () => {
   beforeEach(() => {
     memberAgentsFlag.enabled = true;
@@ -548,6 +639,7 @@ function stubAuthFetch(
   options: {
     memberAgentsDisabled?: boolean;
     memberAgentsError?: { code: string; message: string; status: number };
+    syncResponse?: Record<string, unknown>;
   } = {}
 ): FetchCall[] {
   const calls: FetchCall[] = [];
@@ -580,6 +672,16 @@ function stubAuthFetch(
           (candidate) => candidate.openMeldProfileId === body.openMeldProfileId
         );
         return Promise.resolve(jsonResponse({ ok: true, profile }));
+      }
+      if (
+        url.pathname === "/v1/organizations/current/member-agents/sync" &&
+        options.syncResponse
+      ) {
+        const call = calls.at(-1);
+        if (call) {
+          call.body = JSON.parse(String(init?.body ?? "{}"));
+        }
+        return Promise.resolve(jsonResponse(options.syncResponse));
       }
       if (url.pathname === "/v1/member-agents" && options.memberAgentsError) {
         const { status, ...body } = options.memberAgentsError;

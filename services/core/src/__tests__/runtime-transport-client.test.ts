@@ -34,6 +34,7 @@ import {
   releaseRuntimeTransportAgentProfileExecutionTargetMutation,
   selectRuntimeTransportLocalFolders,
 } from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
+import { RuntimeTransportReadTimeoutError } from "../dispatch/infrastructure/runtime-transport/runtime-transport-read-retry";
 import type { CoreBindings } from "../lib/bindings";
 import { CORE_LOG_EVENTS } from "../shared/observability/log-events";
 import { createSpaceBootstrapTimingCollector } from "../space/application/space-bootstrap-timing";
@@ -279,13 +280,107 @@ describe("runtime transport split clients call fallback behavior", () => {
           v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
         },
       })
-    ).resolves.toEqual({ interactionUpdatedAtMs: null, pendingInteraction });
+    ).resolves.toEqual({
+      readStatus: "read",
+      interactionUpdatedAtMs: null,
+      pendingInteraction,
+      pendingInteractionReceivedAtMs: null,
+    });
     expect(
       stub.fetch.mock.calls.map(([url]) => new URL(url as string).pathname)
     ).toEqual([
       "/runtime-coordinator/interaction/read-revision",
       "/runtime-coordinator/interaction/read",
     ]);
+  });
+
+  it("reports an unavailable read instead of no pending interaction when neither Hub path answers", async () => {
+    const { env, stub } = createEnv();
+    stub.fetch.mockImplementation(() =>
+      Promise.resolve(
+        Response.json(
+          {
+            code: "runtime_transport.unavailable",
+            message: "runtime transport unavailable",
+            ok: false,
+          },
+          { status: 503 }
+        )
+      )
+    );
+
+    await expect(
+      readRuntimeTransportRuntimeCoordinatorInteraction({
+        env,
+        ownerUserId: "owner-1",
+        request: {
+          actorOwnerUserId: "owner-1",
+          runtimeCoordinatorExecutionId: "rce-space-1-dispatch-1-agent-1",
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        },
+      })
+    ).resolves.toEqual({ readStatus: "unavailable" });
+    expect(stub.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports an unavailable read when interaction bodies stall after their headers", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    const { env, stub } = createEnv();
+    const bodies: ReadableStreamDefaultController<Uint8Array>[] = [];
+    stub.fetch.mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              bodies.push(controller);
+              controller.enqueue(
+                new TextEncoder().encode('{"pendingInteraction":')
+              );
+            },
+          }),
+          { headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+    try {
+      let read: unknown;
+      const pending = readRuntimeTransportRuntimeCoordinatorInteraction({
+        env,
+        ownerUserId: "owner-1",
+        request: {
+          actorOwnerUserId: "owner-1",
+          runtimeCoordinatorExecutionId: "rce-space-1-dispatch-1-agent-1",
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        },
+      }).then((result) => {
+        read = result;
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(read).toEqual({ readStatus: "unavailable" });
+      expect(
+        warnSpy.mock.calls
+          .filter(
+            ([event]) =>
+              event === "[core.runtime_transport_client.request_timeout]"
+          )
+          .map(([, details]) => (details as { path: string }).path)
+      ).toEqual([
+        "/runtime-coordinator/interaction/read-revision",
+        "/runtime-coordinator/interaction/read",
+      ]);
+      await pending;
+    } finally {
+      for (const body of bodies) {
+        body.close();
+      }
+      await vi.runAllTimersAsync();
+      vi.useRealTimers();
+      warnSpy.mockRestore();
+    }
   });
 
   it("uses the interaction revision when the Hub serves it", async () => {
@@ -305,6 +400,7 @@ describe("runtime transport split clients call fallback behavior", () => {
         },
       })
     ).resolves.toEqual({
+      readStatus: "read",
       interactionUpdatedAtMs: 42,
       pendingInteraction: null,
     });
@@ -1245,7 +1341,32 @@ describe("runtime transport split clients call fallback behavior", () => {
     ).rejects.toThrow("shard resolution failed");
   });
 
-  it("uses lookup timeout for owner-service lookup requests", async () => {
+  it("propagates an overloaded batch read without per-profile fallback", async () => {
+    const { env, stub } = createEnv();
+    const failure = Object.assign(new Error("Too many requests queued"), {
+      overloaded: true,
+      retryable: true,
+    });
+    stub.fetch.mockRejectedValue(failure);
+
+    await expect(
+      lookupRuntimeTransportRoutesBatch({
+        env,
+        ownerUserId: "owner",
+        profileIds: ["agent-1", "agent-2"],
+        requestId: "batch-overloaded",
+      })
+    ).rejects.toBe(failure);
+    expect(stub.fetch).toHaveBeenCalledOnce();
+    expect(stub.fetch.mock.calls[0]?.[0]).toBe(
+      "https://runtime-transport.internal/lookup-routes-batch"
+    );
+  });
+
+  it.each([
+    "/lookup-owner-service",
+    "/lookup-routes-batch",
+  ])("uses one bounded five-second budget for member-directory %s requests", async (operation) => {
     vi.useFakeTimers();
     const warnSpy = vi
       .spyOn(console, "warn")
@@ -1263,20 +1384,32 @@ describe("runtime transport split clients call fallback behavior", () => {
     );
 
     try {
-      const responsePromise = lookupRuntimeTransportOwnerService({
-        env,
-        ownerUserId: "owner",
-      });
+      const responsePromise =
+        operation === "/lookup-owner-service"
+          ? lookupRuntimeTransportOwnerService({
+              env,
+              ownerUserId: "owner",
+              requestId: "directory-timeout",
+            })
+          : lookupRuntimeTransportRoutesBatch({
+              env,
+              ownerUserId: "owner",
+              profileIds: ["agent-1"],
+              requestId: "directory-timeout",
+              readTimeoutMs: 5000,
+            });
       const failure = expect(responsePromise).rejects.toThrow(
-        "Invalid Runtime Transport owner-Service response."
+        RuntimeTransportReadTimeoutError
       );
       await vi.advanceTimersByTimeAsync(5000);
       await failure;
       expect(warnSpy).toHaveBeenCalledWith(
-        "[core.runtime_transport_client.request_timeout]",
+        "[core.runtime_transport.read_attempt_failed]",
         expect.objectContaining({
-          event: CORE_LOG_EVENTS.runtimeTransportClientRequestTimeout,
-          path: "/lookup-owner-service",
+          event: CORE_LOG_EVENTS.runtimeTransportReadAttemptFailed,
+          operation,
+          requestId: "directory-timeout",
+          decision: "budget_exhausted",
           timeoutMs: 5000,
         })
       );
@@ -1886,7 +2019,7 @@ describe("runtime transport split clients call fallback behavior", () => {
     });
   });
 
-  it("emits event field for timeout warning logs", async () => {
+  it("reports route lookup timeout without inventing offline evidence", async () => {
     vi.useFakeTimers();
     const warnSpy = vi
       .spyOn(console, "warn")
@@ -1909,17 +2042,17 @@ describe("runtime transport split clients call fallback behavior", () => {
         ownerUserId: "owner",
         profileId: "agent-1",
       });
+      const failure = expect(responsePromise).rejects.toThrow(
+        RuntimeTransportReadTimeoutError
+      );
       await vi.advanceTimersByTimeAsync(5000);
-      const response = await responsePromise;
-      expect(response).toEqual({
-        online: false,
-        reasonCode: "daemon.session.not_found",
-      });
+      await failure;
       expect(warnSpy).toHaveBeenCalledWith(
-        "[core.runtime_transport_client.request_timeout]",
+        "[core.runtime_transport.read_attempt_failed]",
         expect.objectContaining({
-          event: CORE_LOG_EVENTS.runtimeTransportClientRequestTimeout,
-          path: "/lookup-route",
+          event: CORE_LOG_EVENTS.runtimeTransportReadAttemptFailed,
+          operation: "/lookup-route",
+          decision: "budget_exhausted",
           timeoutMs: 5000,
         })
       );

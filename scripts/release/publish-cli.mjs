@@ -16,7 +16,7 @@ import path from "node:path";
 import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
-import { parseArgs } from "node:util";
+import { isDeepStrictEqual, parseArgs } from "node:util";
 import { cliBinaryManifestSchema } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
 import { localComponentsReleaseManifestSchema } from "../../packages/schemas/src/schemas/local-components.ts";
 import { buildPackagedOpenMeldCli } from "./build-packaged-openmeld-cli.mjs";
@@ -24,11 +24,13 @@ import { assertReleaseCheckout } from "./deploy-component.mjs";
 import {
   buildReleaseManifest,
   collectLocalComponentFacts,
+  computeServiceBundleHash,
   readLocalComponentsPolicy,
   resolveChangedLocalComponents,
   resolveReleaseDecisionErrors,
 } from "./local-components.mjs";
 import {
+  inspectNpmCliArtifact,
   packNpmCliArtifact,
   verifyNpmCliConsumer,
 } from "./npm-cli-artifact.mjs";
@@ -121,11 +123,47 @@ export function createPlatform({ cwd, env, bucket, spawn = spawnSync }) {
       const value = readObject(LOCAL_COMPONENTS_RELEASE_OBJECT_KEY);
       return value ? localComponentsReleaseManifestSchema.parse(value) : null;
     },
-    readChannelVersion: () => {
+    readChannel: () => {
       const value = readObject(CLI_MANIFEST_OBJECT_KEY);
       return value
-        ? cliBinaryManifestSchema.parse(value).channels.stable.version
+        ? cliBinaryManifestSchema.parse(value).channels.stable
         : null;
+    },
+    readPublishedNpmServiceHashes: async ({ version, releaseSha }) => {
+      const directory = mkdtempSync(
+        path.join(tmpdir(), "openmeld-published-npm-")
+      );
+      try {
+        const filename = run(
+          "npm",
+          [
+            "pack",
+            `openmeld@${version}`,
+            "--pack-destination",
+            directory,
+            "--silent",
+          ],
+          { capture: true }
+        ).trim();
+        if (filename !== `openmeld-${version}.tgz`) {
+          throw new Error(
+            "npm returned an unexpected published artifact name."
+          );
+        }
+        const artifact = path.join(directory, filename);
+        await inspectNpmCliArtifact(artifact, { version, gitHead: releaseSha });
+        run("tar", ["-xzf", artifact, "-C", directory, "package/dist"]);
+        const rootDir = path.join(directory, "package/dist");
+        return {
+          bundleHash: await computeServiceBundleHash({ rootDir }),
+          portableBundleHash: await computeServiceBundleHash({
+            rootDir,
+            excludeWindows: true,
+          }),
+        };
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
     },
     writeRelease: (manifest) => {
       writeObject(
@@ -272,6 +310,60 @@ export function planCliPublication({ facts, policy, published, now }) {
   return { changed, manifest };
 }
 
+function assertMatchingChannelPolicy(channelPolicy, manifest, version) {
+  if (
+    !(
+      channelPolicy &&
+      isDeepStrictEqual(channelPolicy.cli, manifest.components.cli) &&
+      isDeepStrictEqual(channelPolicy.service, manifest.components.service)
+    )
+  ) {
+    throw new Error(
+      `CLI ${version} release manifest disagrees with the binary channel Service policy.`
+    );
+  }
+}
+
+async function readVerifiedNpmHashes({
+  platform,
+  channelPolicy,
+  version,
+  releaseSha,
+}) {
+  if (!channelPolicy) {
+    throw new Error(
+      `CLI ${version} binary channel has no component policy; cannot safely resume.`
+    );
+  }
+  const hashes = await platform.readPublishedNpmServiceHashes({
+    version,
+    releaseSha,
+  });
+  if (
+    !(hashes.bundleHash && hashes.portableBundleHash) ||
+    hashes.bundleHash !== channelPolicy.service.bundleHash ||
+    hashes.portableBundleHash !== channelPolicy.service.portableBundleHash
+  ) {
+    throw new Error(
+      `CLI ${version} published npm Service bytes disagree with the binary channel.`
+    );
+  }
+  return hashes;
+}
+
+function assertResumablePublication({ channelVersion, npm, version }) {
+  if (channelVersion === version && !npm) {
+    throw new Error(
+      `CLI ${version} binary is published but npm is not visible. If npm accepted the submission, wait for visibility and rerun. If submission failed or never ran, release a new CLI version with a new component policy.`
+    );
+  }
+  if (npm && channelVersion !== version) {
+    throw new Error(
+      `CLI ${version} npm package is published without its matching binary channel; cannot safely resume.`
+    );
+  }
+}
+
 export async function publishCli({
   releaseSha,
   cwd = process.cwd(),
@@ -299,7 +391,18 @@ export async function publishCli({
     await waitForNpmGitHead({ platform, version, releaseSha, npm });
   }
   const published = platform.readPublishedRelease();
+  const channel = platform.readChannel();
+  const channelVersion = channel?.version ?? null;
+  const channelPolicy =
+    channelVersion === version ? (channel.componentPolicy ?? null) : null;
   if (npm && published?.components.cli.packageVersion === version) {
+    assertMatchingChannelPolicy(channelPolicy, published, version);
+    await readVerifiedNpmHashes({
+      platform,
+      channelPolicy,
+      version,
+      releaseSha,
+    });
     if (!dryRun) {
       platform.ensureTag({ tag: `v${version}`, sha: releaseSha });
     }
@@ -308,17 +411,30 @@ export async function publishCli({
     );
     return { status: "current", version };
   }
+  assertResumablePublication({ channelVersion, npm, version });
   platform.buildPackagedCli();
-  const facts = await collectFacts({
+  let facts = await collectFacts({
     repoRoot: cwd,
     requireServiceBundle: true,
   });
+  if (channelVersion === version) {
+    const hashes = await readVerifiedNpmHashes({
+      platform,
+      channelPolicy,
+      version,
+      releaseSha,
+    });
+    facts = { ...facts, service: { ...facts.service, ...hashes } };
+  }
   const policy = await readPolicy(cwd);
   const { changed, manifest } = planCliPublication({
     facts,
     policy,
     published,
   });
+  if (channelVersion === version) {
+    assertMatchingChannelPolicy(channelPolicy, manifest, version);
+  }
   log(
     `openmeld@${version}: ${changed.join(", ")} changed; Service ${manifest.components.service.bundleVersion}.`
   );
@@ -326,7 +442,7 @@ export async function publishCli({
     process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
     return { status: "planned", version, manifest };
   }
-  if (platform.readChannelVersion() === version) {
+  if (channelVersion === version) {
     log(`Binary channel already serves ${version}.`);
   } else {
     await platform.uploadBinary(manifest);

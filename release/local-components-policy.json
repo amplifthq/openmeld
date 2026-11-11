@@ -1,15 +1,11 @@
 {
-  "version": "0.3.268",
+  "version": "0.3.291",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Test tooling only: Vitest 4 and the Cloudflare Vitest plugin replace the deprecated Workers pool, with no shipped CLI code, command, or wire-contract change; the mandatory CLI floor stays at 0.3.251."
+    "reason": "Adds upload-specific deadlines, stable retry IDs and exact saved-file recovery guidance for Space files, and packages compatible shared-schema updates. Existing CLI commands, JSON output, setup and trace remain compatible."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "The mandatory Service floor remains 0.3.264. Only test dependencies and the lockfile change; Service transport, execution, and Wake contracts are unchanged."
-  },
-  "skills": {
-    "updatePolicy": "available",
-    "reason": "Guidance clarifies existing command prefixes, addressing, and Computer operations without adding runtime authority."
+    "reason": "Guides long-running Local Agents to share verified milestones through the existing progress tool and packages the patched Windows helper runtime. Setup, Wake, Space actions, runtime transport and diagnostics remain compatible without a new contract floor."
   }
 }

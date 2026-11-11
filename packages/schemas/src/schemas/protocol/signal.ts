@@ -3,6 +3,7 @@ import { isLegacyAgentActivityWorkCompatible } from "../../agent-work-activity";
 import { spaceEvidenceReferencesSchema } from "../../space-evidence";
 import { spaceWorkHandoffSchema } from "../../space-work-handoff";
 import { spaceMessageFileReferencesSchema } from "../http/space-files";
+import { spaceHumanMentionTargetSchema } from "../http/space-human-mentions";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { signalStatusDataSchema as signalStatusPayloadSchema } from "../space-mesh/signal-status";
 import { signalSystemNoticeDataSchema as signalSystemNoticePayloadSchema } from "../space-mesh/signal-system-notice";
@@ -110,6 +111,8 @@ const legacySpaceAgentActivitySchema = spaceAgentActivitySchema.superRefine(
 );
 
 const signalTextMetaSchema = z.object({
+  // Sealed by Space from its membership and Organization identity reads.
+  humanMentions: z.array(spaceHumanMentionTargetSchema).optional(),
   evidenceRefs: spaceEvidenceReferencesSchema.optional(),
   workHandoff: spaceWorkHandoffSchema.optional(),
   // The human accepted a suggested thread recipient, rather than selecting a new one.
@@ -246,6 +249,7 @@ const validateAuthoredSignalTextMeta = (
 
 const postedSignalTextMetaSchema = signalTextMetaSchema
   .omit({
+    humanMentions: true,
     repostedAt: true,
     messageRevision: true,
     editedAt: true,
@@ -267,6 +271,7 @@ const postedSignalTextMetaSchema = signalTextMetaSchema
 
 const systemEmittedSignalTextMetaSchema = signalTextMetaSchema
   .omit({
+    humanMentions: true,
     agentActivity: true,
     agentWorkSummary: true,
     agentPublicProgress: true,

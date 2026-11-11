@@ -58,7 +58,7 @@ export async function listAuthorizedAgentDirectMessageSessions(input: {
   const rows = await listDirectMessageSessionIndexRows({
     db: input.db,
     organizationId: input.organizationId,
-    pairKey: input.pairKey,
+    pairKeys: [input.pairKey],
     limit: input.limit + 1,
     archived: input.archived,
     ...(before ? { before } : {}),

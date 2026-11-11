@@ -82,6 +82,9 @@ function PermissionInteraction(input: {
 	);
 	const selectedOptionAllows =
 		selectedOption !== undefined && selectedOption.intent !== "deny";
+	const offersApproval = input.request.options.some(
+		(option) => option.intent !== "deny"
+	);
 
 	return (
 		<>
@@ -98,14 +101,29 @@ function PermissionInteraction(input: {
 							index={index}
 							key={option.optionId}
 							label={option.label}
-							onSelect={() => setSelectedOptionId(option.optionId)}
+							onSelect={() => {
+								if (input.disabled) {
+									return;
+								}
+								setSelectedOptionId(option.optionId);
+								if (option.intent === "deny") {
+									setPermissionModeIndex(-1);
+									setModeConfirmed(false);
+								}
+							}}
 						/>
 					))}
 				</RadioGroup>
 				{input.request.supportsPermissionModeUpdate &&
 				input.permissionModeOptions?.length &&
-				selectedOptionAllows ? (
+				offersApproval &&
+				selectedOption?.intent !== "deny" ? (
 					<div className="grid gap-2">
+						<p className="text-muted-foreground text-xs leading-5">
+							Choose how this Agent handles future approval requests. A mode
+							change is saved only when you approve this request. Allow once by
+							itself does not change future permissions.
+						</p>
 						<RadioGroup
 							aria-label="Agent permissions after this request"
 							className="w-full"
@@ -115,6 +133,9 @@ function PermissionInteraction(input: {
 								index={0}
 								label="Keep current permissions"
 								onSelect={() => {
+									if (input.disabled || selectedOption?.intent === "deny") {
+										return;
+									}
 									setPermissionModeIndex(-1);
 									setModeConfirmed(false);
 								}}
@@ -127,6 +148,9 @@ function PermissionInteraction(input: {
 									key={option.permissionMode}
 									label={option.label}
 									onSelect={() => {
+										if (input.disabled || selectedOption?.intent === "deny") {
+											return;
+										}
 										setPermissionModeIndex(index);
 										setModeConfirmed(false);
 									}}

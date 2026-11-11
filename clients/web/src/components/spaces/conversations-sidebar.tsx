@@ -258,10 +258,35 @@ function useConversationReadState(
 
 function ConversationsSidebarSearch(input: {
 	disclosure: ReturnType<typeof useSidebarSearchDisclosure>;
+	home?: boolean;
 	visible: boolean;
 	value: string;
 	onValueChange: (value: string) => void;
 }) {
+	if (input.home) {
+		return (
+			<div className="relative mx-1 mb-3">
+				<MagnifyingGlassIcon
+					aria-hidden="true"
+					className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground"
+				/>
+				<Input
+					aria-label="Search conversations"
+					className="pl-8"
+					onChange={(event) => input.onValueChange(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Escape") {
+							input.onValueChange("");
+						}
+					}}
+					placeholder="Search conversations"
+					ref={input.disclosure.inputRef}
+					type="search"
+					value={input.value}
+				/>
+			</div>
+		);
+	}
 	if (!(input.visible && input.disclosure.open)) {
 		return null;
 	}
@@ -305,7 +330,9 @@ function nestsMemberAgentSessions(input: {
 
 // The collapsed Center Agent entry stands for several chats, so it has no
 // per-chat rename or archive action.
-function isSingleChat(item: Conversation) {
+function isSingleChat(
+	item: Conversation
+): item is Extract<Conversation, { kind: "direct-message" }> {
 	// A MemberAgent row stands for several Sessions; their dedicated Session
 	// operations live in the Direct Message header, not personal archive/rename.
 	return (
@@ -319,6 +346,7 @@ export function ConversationsSidebar(
 	input: {
 		currentProfileId?: string;
 		currentSpaceId?: string;
+		home?: boolean;
 		hideAccountSpacesFailure?: boolean;
 		showSearch?: boolean;
 	} = {}
@@ -427,7 +455,7 @@ export function ConversationsSidebar(
 		(item) =>
 			kinds.includes(conversationCategory(item)) &&
 			(item.kind === "direct-message"
-				? dm.preferences.archivedIds.includes(item.spaceId) === archived
+				? dm.isArchived(item.chat) === archived
 				: !archived) &&
 			item.title
 				.toLocaleLowerCase()
@@ -567,6 +595,19 @@ export function ConversationsSidebar(
 			>
 				<PlusIcon />
 				New Space
+			</FluidDropdownMenuItem>
+			<DropdownMenuSeparator />
+			<FluidDropdownMenuItem
+				index={2}
+				onClick={() => {
+					dismiss();
+					navigate({
+						to: buildOrganizationSpacesPath(dm.org.slug),
+						search: { view: "spaces" },
+					}).catch(console.error);
+				}}
+			>
+				<FolderIcon /> Browse Spaces
 			</FluidDropdownMenuItem>
 		</>
 	);
@@ -749,6 +790,7 @@ export function ConversationsSidebar(
 			</AppModuleSidebarHeader>
 			<ConversationsSidebarSearch
 				disclosure={searchDisclosure}
+				home={input.home}
 				onValueChange={setSearch}
 				value={search}
 				visible={input.showSearch !== false}
@@ -1042,18 +1084,7 @@ export function ConversationsSidebar(
 																}
 																onArchive={
 																	isSingleChat(item)
-																		? () =>
-																				dm.save({
-																					...dm.preferences,
-																					archivedIds: archived
-																						? dm.preferences.archivedIds.filter(
-																								(id) => id !== item.spaceId
-																							)
-																						: [
-																								...dm.preferences.archivedIds,
-																								item.spaceId,
-																							],
-																				})
+																		? () => dm.setArchived(item.chat, !archived)
 																		: undefined
 																}
 																onMove={(target) =>
@@ -1191,7 +1222,6 @@ function SpacesDirectoryLink({
 }) {
 	return (
 		<Link
-			aria-label="Spaces"
 			className="flex min-w-20 flex-1 items-center rounded-sm font-medium text-sm focus-visible:outline-2"
 			onClick={onNavigate}
 			to={buildOrganizationSpacesPath(orgSlug)}

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import childProcess from "node:child_process";
 import {
   chmod,
   mkdir,
@@ -8,6 +9,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { mock } from "node:test";
@@ -1313,7 +1315,7 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "      return;",
       "    }",
       "    const turns = statuses.map((status, index) => ({ id: 'turn-read-' + (index + 1), items: [], itemsView: 'complete', status, error: null, startedAt: 1, completedAt: status === 'completed' ? 1 : null, durationMs: null }));",
-      "    write({ jsonrpc: '2.0', id: message.id, result: { thread: { ...buildThread(message.params.threadId, process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_SOURCE ?? 'user'), turns: message.params.includeTurns ? turns : [] } } });",
+      "    write({ jsonrpc: '2.0', id: message.id, result: { thread: { ...buildThread(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_READ_THREAD_ID ?? message.params.threadId, process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_SOURCE ?? 'user'), turns: message.params.includeTurns ? turns : [] } } });",
       "    return;",
       "  }",
       "  if (message.method === 'thread/name/set') {",
@@ -2864,6 +2866,49 @@ test("codex app-server keeps the complete fallback prompt for legacy resumed thr
   }
 });
 
+test("codex quota probing contains synchronous writes to a closed controller pipe", async () => {
+  const { probeCodexAppServerAccount } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-quota-write-"));
+  const fixturePath = join(fixtureDir, "app-server.mjs");
+  await writeFakeCodexAppServerFixture(fixturePath);
+  const spawn = childProcess.spawn;
+  let quotaWriteFailed = false;
+  const spawnMock = mock.method(childProcess, "spawn", (...args) => {
+    if (args[1]?.includes(fixturePath)) {
+      args[2] = {
+        ...args[2],
+        env: { ...args[2]?.env, OPENMELD_FAKE_CODEX_USAGE_TIMEOUT: "1" },
+      };
+    }
+    const child = spawn(...args);
+    if (args[1]?.includes(fixturePath)) {
+      const write = child.stdin.write;
+      child.stdin.write = function (chunk, ...rest) {
+        if (JSON.parse(String(chunk)).method === "account/rateLimits/read") {
+          quotaWriteFailed = true;
+          throw new Error("controller input pipe closed");
+        }
+        return write.call(this, chunk, ...rest);
+      };
+    }
+    return child;
+  });
+  syncBuiltinESMExports();
+  try {
+    await probeCodexAppServerAccount({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+    });
+    assert.equal(quotaWriteFailed, true);
+    // Let Node's unhandled-rejection detection observe the settled request.
+    // The test runner fails if the auxiliary request leaked a rejected promise.
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    spawnMock.mock.restore();
+    syncBuiltinESMExports();
+    await rm(fixtureDir, { force: true, recursive: true });
+  }
+});
+
 test(
   "codex auxiliary quota timeout permits later observations and ignores late replies without ending the turn",
   { timeout: 10_000 },
@@ -3056,6 +3101,137 @@ test("codex app-server waits for an OpenMeld permission response and resumes the
     await rm(dispatchDir, { force: true, recursive: true });
   }
 });
+
+// Wire shapes are from codex-cli 0.162.0-alpha.17.2 generate-ts --experimental:
+// v2/CommandExecutionRequestApprovalParams and CommandExecutionApprovalDecision.
+for (const scenario of [
+  { name: "explicit native rule", decisions: "rule", select: "allow_always" },
+  { name: "omitted decisions with a proposed rule", select: "allow_always" },
+  {
+    name: "null decisions with a proposed rule",
+    decisions: null,
+    select: "allow_always",
+  },
+  { name: "one-time approval despite a proposed rule", select: "allow_once" },
+  {
+    name: "explicit decisions that exclude rules",
+    decisions: ["accept", "decline"],
+    select: "allow_once",
+    noRule: true,
+  },
+  {
+    name: "explicit empty decisions",
+    decisions: [],
+    select: "deny",
+    noRule: true,
+  },
+  {
+    name: "invalid proposed rule",
+    proposal: ["git", 42],
+    select: "allow_once",
+    noRule: true,
+  },
+  {
+    name: "one-time decisions when the proposed rule cannot be fully shown",
+    proposal: ["git", "a".repeat(4000)],
+    select: "allow_once",
+    noRule: true,
+  },
+  {
+    name: "one-time decisions when explicit rule descriptions exceed the limit",
+    decisions: [
+      "accept",
+      ...["a", "b"].map((token) => ({
+        acceptWithExecpolicyAmendment: {
+          execpolicy_amendment: ["git", token.repeat(2000)],
+        },
+      })),
+      "decline",
+    ],
+    select: "allow_once",
+    noRule: true,
+  },
+]) {
+  test(`codex command approval preserves ${scenario.name}`, async () => {
+    const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+    const fixtureDir = await mkdtemp(join(tmpdir(), "codex-command-rule-"));
+    const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+    const logPath = join(fixtureDir, "rpc-log.jsonl");
+    const amendment =
+      scenario.decisions === "rule"
+        ? ["git", "push", "origin"]
+        : ["git", "push"];
+    const rule = {
+      acceptWithExecpolicyAmendment: { execpolicy_amendment: amendment },
+    };
+    await writeFakeCodexAppServerFixture(fixturePath);
+    await chmod(fixturePath, 0o755);
+    try {
+      const requests = [];
+      await invokeCodexAppServerTransport({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: fixtureDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_REQUEST: JSON.stringify({
+            method: "item/commandExecution/requestApproval",
+            params: {
+              ...(scenario.decisions === undefined
+                ? {}
+                : {
+                    availableDecisions:
+                      scenario.decisions === "rule"
+                        ? ["accept", rule, "decline"]
+                        : scenario.decisions,
+                  }),
+              proposedExecpolicyAmendment: scenario.proposal ?? ["git", "push"],
+              command: "git push origin feature",
+              cwd: fixtureDir,
+              itemId: "command-rule",
+              startedAtMs: Date.now(),
+              threadId: "thread-existing-1",
+              turnId: "turn-1",
+            },
+          }),
+        },
+        onInteractionRequest: (request) => {
+          requests.push(request);
+          assert.equal(
+            request.options.some((option) => option.intent === "allow_always"),
+            !scenario.noRule
+          );
+          if (!scenario.noRule) {
+            assert.ok(request.description.includes(JSON.stringify(amendment)));
+          }
+          return Promise.resolve({
+            kind: "permission",
+            optionId: request.options.find(
+              (option) => option.intent === scenario.select
+            ).optionId,
+          });
+        },
+        agentControllerPermissionMode: "codex:askForApproval",
+        prompt: "push the branch",
+        taskId: "task-command-rule",
+        threadId: "thread-existing-1",
+      });
+      assert.equal(requests.length, 1);
+      const messages = await readFakeAppServerMessages(logPath);
+      const response = messages.find(
+        (message) => message.method === undefined && message.result
+      );
+      const expectedDecision = {
+        allow_always: rule,
+        allow_once: "accept",
+        deny: "decline",
+      }[scenario.select];
+      assert.deepEqual(response.result, { decision: expectedDecision });
+    } finally {
+      await rm(fixtureDir, { force: true, recursive: true });
+    }
+  });
+}
 
 test("codex restores the owner's reviewer when leaving a live Full access switch", async () => {
   const { invokeCodexAppServerTransport } = await import("../dist/index.js");
@@ -4995,7 +5171,7 @@ test("invokeCodexAppServerTransport applies bounded policy-driven approval param
   }
 });
 
-test("verifyCodexAppServerThread proves thread control without starting a turn", async () => {
+test("verifyCodexAppServerThread reads only metadata without resuming or starting a turn", async () => {
   const { verifyCodexAppServerThread } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-proof-"));
   const dispatchDir = await mkdtemp(join(tmpdir(), "codex-proof-cwd-"));
@@ -5019,20 +5195,42 @@ test("verifyCodexAppServerThread proves thread control without starting a turn",
     const methods = messages.map((message) => message.method);
 
     assert.equal(result.threadId, "thread-proof-1");
-    assert.deepEqual(methods, ["initialize", "initialized", "thread/resume"]);
-    assert.equal(
-      messages.find((message) => message.method === "thread/resume").params
-        .excludeTurns,
-      true
+    assert.deepEqual(methods, ["initialize", "initialized", "thread/read"]);
+    assert.deepEqual(
+      messages.find((message) => message.method === "thread/read").params,
+      { threadId: "thread-proof-1", includeTurns: false }
+    );
+
+    await assert.rejects(
+      verifyCodexAppServerThread({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: dispatchDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_REJECT_THREAD_READ: "1",
+        },
+        threadId: "missing-thread",
+      }),
+      (error) => error.message.includes("no rollout found")
+    );
+    await assert.rejects(
+      verifyCodexAppServerThread({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: dispatchDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_READ_THREAD_ID: "different-thread",
+        },
+        threadId: "thread-proof-1",
+      }),
+      { code: "context.thread_mismatch" }
     );
     assert.equal(
-      "approvalPolicy" in
-        messages.find((message) => message.method === "thread/resume").params,
-      false
-    );
-    assert.equal(
-      "sandbox" in
-        messages.find((message) => message.method === "thread/resume").params,
+      (await readFakeAppServerMessages(logPath)).some(
+        (message) => message.method === "thread/resume"
+      ),
       false
     );
   } finally {

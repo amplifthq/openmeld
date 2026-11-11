@@ -1,4 +1,5 @@
 import {
+  AGENT_EXECUTION_READINESS_RESPONSE_VERSION_HEADER,
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
   currentAgentProfileSessionLookupQuerySchema,
@@ -324,6 +325,9 @@ export const createAgentProfileBindingApi: CreateAgentProfileBindingApi = (
       const request = requireValidExecutionReadinessInput(input);
 
       return await client.requestJson({
+        headers: {
+          [AGENT_EXECUTION_READINESS_RESPONSE_VERSION_HEADER]: "2",
+        },
         invalidMessage: "Invalid Agent Execution Readiness response.",
         method: "GET",
         operation: "agent_execution_readiness.read",
@@ -345,6 +349,7 @@ export const createAgentProfileBindingApi: CreateAgentProfileBindingApi = (
         }),
         headers: {
           "content-type": "application/json",
+          [AGENT_EXECUTION_READINESS_RESPONSE_VERSION_HEADER]: "2",
         },
         invalidMessage: "Invalid Agent Execution Readiness batch response.",
         method: "POST",

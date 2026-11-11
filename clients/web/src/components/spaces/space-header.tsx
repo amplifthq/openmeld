@@ -23,7 +23,7 @@ import {
 	useHasModuleSidebar,
 } from "#/components/app/app-module-sidebar";
 import { MessageSearchButton } from "#/components/search/message-search";
-import { type ChatArchiveKind, ChatHeaderMenu } from "./chat-header-menu";
+import { ChatHeaderMenu } from "./chat-header-menu";
 import { useConversationNames } from "./conversation-names";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import { SpaceDeletedLabel } from "./space-deleted-label";
@@ -32,6 +32,7 @@ import { SpacePinsRecallAction } from "./space-pins";
 import { useSpaceReadingHeader } from "./space-reading-header";
 import { SpaceSettingsDialog } from "./space-settings-dialog";
 import { SpaceShareDialog } from "./space-share-dialog";
+import { useMarkSpaceReadDialog } from "./use-mark-space-read-dialog";
 import { useSpaceSharingDraft } from "./use-space-sharing-draft";
 
 export type SpaceWindowHeaderSubtitleItem = {
@@ -169,15 +170,22 @@ function ConversationHeaderMenu(input: {
 	isDirectMessage: boolean;
 	isCenterAgent?: boolean;
 	onOpenSettings: () => void;
-	chatArchiveKind?: ChatArchiveKind;
+	onMarkAllRead?: () => void;
+	chatSessionAgentProfileId?: string | null;
 }) {
-	const ariaLabel = input.isCenterAgent ? "Center Agent menu" : "Chat menu";
+	const conversationMenuLabel = input.isDirectMessage
+		? "Chat menu"
+		: "Space menu";
+	const ariaLabel = input.isCenterAgent
+		? "Center Agent menu"
+		: conversationMenuLabel;
 	if (input.isDirectMessage && input.profileId) {
 		return (
 			<ChatHeaderMenu
-				archiveKind={input.chatArchiveKind}
 				ariaLabel={ariaLabel}
+				onMarkAllRead={input.onMarkAllRead}
 				onOpenConversationInformation={input.onOpenSettings}
+				sessionAgentProfileId={input.chatSessionAgentProfileId}
 				spaceId={input.spaceId}
 			/>
 		);
@@ -186,7 +194,13 @@ function ConversationHeaderMenu(input: {
 		<SpaceHeaderNavigationMenu
 			ariaLabel={ariaLabel}
 			items={[]}
+			onMarkAllRead={input.onMarkAllRead}
 			onOpenConversationInformation={input.onOpenSettings}
+			settingsLabel={
+				input.isDirectMessage || input.isCenterAgent
+					? "Chat settings"
+					: "Space settings"
+			}
 		/>
 	);
 }
@@ -208,11 +222,10 @@ export function SpaceHeader(input: {
 	isLeaveSpacePending: boolean;
 	isSpaceNamePending: boolean;
 	isCenterAgentDirectMessage?: boolean;
-	/** "session" archives a MemberAgent Session through Core instead. */
-	chatArchiveKind?: ChatArchiveKind;
+	/** The Agent in the viewer's Human–Agent Session, including colleagues' Agents. */
+	chatSessionAgentProfileId?: string | null;
 	leaveSpaceErrorMessage: string | null;
 	managementControl?: ReactNode;
-	showChatSettingsMenu?: boolean;
 	renderFrame?: boolean;
 	membersControl?: ReactNode;
 	notificationControl?: ReactNode;
@@ -220,6 +233,7 @@ export function SpaceHeader(input: {
 	// panel is dismissed but still has actions.
 	setupRecallAction?: ReactNode;
 	onRecallPinnedItems?: () => void;
+	onPrepareMarkAllRead?: Parameters<typeof useMarkSpaceReadDialog>[0];
 	viewControl?: ReactNode;
 	onDeleteSpace: () => Promise<void> | void;
 	onLeaveSpace?: () => Promise<void> | void;
@@ -262,7 +276,7 @@ export function SpaceHeader(input: {
 				: undefined),
 		input.status.name
 	);
-	const showChatMenu = input.showChatSettingsMenu || isDirectMessage;
+	const markAllRead = useMarkSpaceReadDialog(input.onPrepareMarkAllRead);
 	const handleDialogOpenChange = (
 		dialog: "settings" | "share",
 		open: boolean
@@ -330,19 +344,19 @@ export function SpaceHeader(input: {
 								visibility={input.status.organizationVisibility}
 							/>
 						)}
-						{showChatMenu ? (
-							<ConversationHeaderMenu
-								chatArchiveKind={input.chatArchiveKind}
-								isCenterAgent={input.isCenterAgentDirectMessage}
-								isDirectMessage={isDirectMessage}
-								onOpenSettings={() => {
-									setSettingsInitialSection("general");
-									setActiveDialog("settings");
-								}}
-								profileId={input.currentProfileId}
-								spaceId={input.status.spaceId}
-							/>
-						) : null}
+						<ConversationHeaderMenu
+							chatSessionAgentProfileId={input.chatSessionAgentProfileId}
+							isCenterAgent={input.isCenterAgentDirectMessage}
+							isDirectMessage={isDirectMessage}
+							onMarkAllRead={markAllRead.open}
+							onOpenSettings={() => {
+								setSettingsInitialSection("general");
+								setActiveDialog("settings");
+							}}
+							profileId={input.currentProfileId}
+							spaceId={input.status.spaceId}
+						/>
+						{markAllRead.dialog}
 						<SpaceSettingsDialog
 							access={{
 								allowGuests: input.status.allowGuests,
@@ -402,7 +416,6 @@ export function SpaceHeader(input: {
 							}
 							open={activeDialog === "settings"}
 							openMeldProfileId={input.currentProfileId}
-							showTrigger={!showChatMenu}
 							spaceId={input.status.spaceId}
 							visibility={input.status.organizationVisibility}
 						/>

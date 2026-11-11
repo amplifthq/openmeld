@@ -15,6 +15,7 @@ import type {
 } from "@openmeld/protocol";
 import type {
   GetMemberAgentPresenceResponse,
+  ListMemberAgentDirectMessageSessionsResponse,
   RequestCredential,
   SpacePreferencesRpc,
   SyncMemberAgentsResponse,
@@ -459,6 +460,8 @@ import {
 import { app } from "./app";
 import { rpcCenterAgentAuthorizeAnonymousMemberTool } from "./center-agent/application/anonymous-member-request";
 import { rpcCenterAgentRequestMemberAttention } from "./center-agent/application/center-agent-attention-rpc";
+import { centerAgentReadSpaceGuide } from "./center-agent/application/space-guide";
+import { centerAgentWorkTarget } from "./center-agent/application/work-target";
 import {
   getCenterAgentMemberResearchStatus,
   runCenterAgentMemberResearchTick,
@@ -520,11 +523,14 @@ import {
 } from "./inbox/transport/rpc/inbox-rpc";
 import type { CoreBindings } from "./lib/bindings";
 import {
+  type ListMemberAgentDirectMessageSessionsRpcInput,
   type MemberAgentRpcInput,
   rpcGetMemberAgentPresence,
+  rpcListMemberAgentDirectMessageSessions,
   rpcSubmitRuntimeAgentControllerReportsWithMemberAgents,
   rpcSyncMemberAgents,
   type SyncMemberAgentsRpcInput,
+  setLocalAgentEnabledWithMemberAgents,
 } from "./member-agent/member-agent-rpc";
 import { rpcCenterAgentManageOrganizationDocuments } from "./organization-documents/center-agent-document-rpc";
 import {
@@ -579,6 +585,10 @@ import {
   rpcCenterAgentGetOrganizationInviteLink,
 } from "./organizations/center-agent-organization-invite-link-rpc";
 import { rpcCenterAgentSetOrganizationWorkingLanguage } from "./organizations/center-agent-working-language-rpc";
+import {
+  prepareOrganizationMemberRemoval,
+  previewOrganizationMemberRemoval,
+} from "./organizations/member-removal";
 import { resolveOrganizationMembershipById } from "./organizations/organization-context";
 import { organizationJoinRequest } from "./organizations/organization-join-requests";
 import { spaceInvitation } from "./organizations/space-invitations";
@@ -623,6 +633,7 @@ import { acknowledgeRemoteAgentAdmission } from "./remote-agent/application/nati
 import { completeRemoteAgentNativeDelivery } from "./remote-agent/application/native-delivery-service";
 import { runPersonalRemoteAgentSpaceTool } from "./remote-agent/application/personal-remote-agent-space-tools";
 import { authorizeRemoteAgentExecutionAccess } from "./remote-agent/application/remote-agent-execution-access";
+import { resolveRemoteAgentReplyMentions } from "./remote-agent/application/reply-mentions";
 import { processRemoteAgentSlackEvent } from "./remote-agent/application/slack-signal-service";
 import {
   handleCenterAgentSlackTeammateInvitations,
@@ -878,6 +889,7 @@ import {
   rpcArchiveProject,
   rpcAssertCurrentDesignatedCenterAgent,
   rpcAuthorizeConnectorDisconnect,
+  rpcAuthorizeFeishuHistory,
   rpcBeginCurrentMemberConnectorAuthorization,
   rpcBeginCurrentOrganizationGitHubAppInstallation,
   rpcBeginCurrentOrganizationSharedConnectorAuthorization,
@@ -1060,6 +1072,7 @@ import {
   rpcListCenterAgentSessions,
   rpcListCurrentOrganizationConnectorAppRequests,
   rpcListCurrentOrganizationConnectorConnections,
+  rpcListFeishuHistoryGroups,
   rpcListLocalRuntimes,
   rpcListMessageChannelConnections,
   rpcListPeopleComputers,
@@ -1100,6 +1113,7 @@ import {
   rpcReadChangelog,
   rpcReadComputerFileAccessPolicy,
   rpcReadCurrentOrganizationFeedbackReportingPolicy,
+  rpcReadFeishuGroupHistory,
   rpcReadOrganizationInformationProtectionPolicy,
   rpcReadOrganizationUsageOverview,
   rpcReadPendingGitHubAppInstallation,
@@ -1141,6 +1155,7 @@ import {
   rpcSetCurrentOpenMeldToolsMaintenance,
   rpcSetCurrentOrganizationFeedbackReportingPolicy,
   rpcSetDefaultConnection,
+  rpcSetFeishuHistoryGroup,
   rpcSetLocalRuntimeDisplayName,
   rpcSetOrganizationInformationProtectionPolicy,
   rpcSetPeopleComputerLocalAgentEnabled,
@@ -3420,6 +3435,26 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       listPluginActionRequests(this.env, input)
     );
   }
+  readApprovedPluginAction(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      readApprovedPluginAction(this.env, input)
+    );
+  }
+  centerAgentWorkTarget(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      centerAgentWorkTarget(this.env, input)
+    );
+  }
+  centerAgentReadSpaceGuide(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      centerAgentReadSpaceGuide(this.env, input)
+    );
+  }
+  resolveRemoteAgentReplyMentions(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      resolveRemoteAgentReplyMentions(this.env, input)
+    );
+  }
   suggestPermissionMode(input: unknown) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcSuggestPermissionMode(this.env, input)
@@ -4449,8 +4484,17 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   submitRuntimeAgentControllerReports(
     input: SubmitRuntimeAgentControllerReportsInput
   ): Promise<SubmitRuntimeAgentControllerReportsResponse> {
-    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
-      rpcSubmitRuntimeAgentControllerReportsWithMemberAgents(this.env, input)
+    return tracing.enterSpan("core.controller-reports.submit", (span) =>
+      withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+        const response =
+          await rpcSubmitRuntimeAgentControllerReportsWithMemberAgents(
+            this.env,
+            input,
+            (stage) => span.setAttribute("openmeld.stage", stage)
+          );
+        span.setAttribute("openmeld.stage", "postgres_cleanup");
+        return response;
+      })
     );
   }
   syncMemberAgents(
@@ -4465,6 +4509,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ): Promise<GetMemberAgentPresenceResponse> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcGetMemberAgentPresence(this.env, input)
+    );
+  }
+  listMemberAgentDirectMessageSessions(
+    input: ListMemberAgentDirectMessageSessionsRpcInput
+  ): Promise<ListMemberAgentDirectMessageSessionsResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListMemberAgentDirectMessageSessions(this.env, input)
     );
   }
   listAgentAccessRequests(
@@ -4563,7 +4614,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: Parameters<typeof rpcSetPeopleComputerLocalAgentEnabled>[1]
   ) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
-      rpcSetPeopleComputerLocalAgentEnabled(this.env, input)
+      setLocalAgentEnabledWithMemberAgents(this.env, input, (current) =>
+        rpcSetPeopleComputerLocalAgentEnabled(this.env, current)
+      )
     );
   }
   getPeopleComputerLocalAgentInstallations(
@@ -4633,7 +4686,9 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: SetCurrentLocalAgentEnabledInput
   ): Promise<SetCurrentLocalAgentEnabledResponse> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
-      rpcSetCurrentLocalAgentEnabled(this.env, input)
+      setLocalAgentEnabledWithMemberAgents(this.env, input, (current) =>
+        rpcSetCurrentLocalAgentEnabled(this.env, current)
+      )
     );
   }
   getCurrentLocalAgentInstallations(
@@ -4721,6 +4776,25 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 type GatewaySensitiveCredential = { requestCredential?: RequestCredential };
 
 export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
+  authorizeFeishuHistory(
+    input: Parameters<typeof rpcAuthorizeFeishuHistory>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcAuthorizeFeishuHistory(this.env, input)
+    );
+  }
+  listFeishuHistoryGroups(
+    input: Parameters<typeof rpcListFeishuHistoryGroups>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListFeishuHistoryGroups(this.env, input)
+    );
+  }
+  setFeishuHistoryGroup(input: Parameters<typeof rpcSetFeishuHistoryGroup>[1]) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetFeishuHistoryGroup(this.env, input)
+    );
+  }
   getCredentialConfirmation(
     input: Parameters<typeof rpcGetCredentialConfirmation>[1]
   ) {
@@ -4740,6 +4814,32 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcListMemberAgentSensitiveOperationAudit(this.env, input)
+    );
+  }
+  previewOrganizationMemberRemoval(
+    input: import("@openmeld/schemas").OrganizationMemberRemovalPreviewInput
+  ): Promise<import("@openmeld/schemas").OrganizationMemberRemovalPlan> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      previewOrganizationMemberRemoval(this.env, input)
+    );
+  }
+  prepareOrganizationMemberRemoval(
+    input: import("@openmeld/schemas").OrganizationMemberRemovalPrepareInput &
+      GatewaySensitiveCredential
+  ): Promise<
+    import("@openmeld/schemas").OrganizationMemberRemovalPrepareResponse
+  > {
+    return runGatewaySensitiveOperation(
+      this.env,
+      input,
+      {
+        agentProfileId: null,
+        operation: "organization_member_removal_prepare",
+      },
+      (operationInput) =>
+        withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+          prepareOrganizationMemberRemoval(this.env, operationInput)
+        )
     );
   }
   readOrganizationAiBilling(input: OrganizationAiBillingRpcInput) {
@@ -5567,17 +5667,33 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   getActiveSpaceWakeProgress(
     input: GetActiveSpaceWakeProgressInput
   ): Promise<GetActiveSpaceWakeProgressResponse> {
-    return super.getActiveSpaceWakeProgress(input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetActiveSpaceWakeProgress(
+        this.env,
+        input,
+        input.context?.actorContext.callerPrincipalId
+      )
+    );
   }
   getSpaceWakeProgress(
     input: GetSpaceWakeProgressInput
   ): Promise<GetSpaceWakeProgressResponse> {
-    return super.getSpaceWakeProgress(input);
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetSpaceWakeProgress(
+        this.env,
+        input,
+        input.context?.actorContext.callerPrincipalId
+      )
+    );
   }
   postSpaceWakeStop(
     input: PostSpaceWakeStopInput
   ): Promise<PostSpaceWakeStopResponse> {
-    return super.postSpaceWakeStop(input);
+    return rpcPostSpaceWakeStop(
+      this.env,
+      input,
+      input.context?.actorContext.callerPrincipalId
+    );
   }
   respondToSpaceAgentInteraction(
     input: RespondToSpaceAgentInteractionInput & GatewaySensitiveCredential
@@ -6706,6 +6822,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ): Promise<GetMemberAgentPresenceResponse> {
     return super.getMemberAgentPresence(input);
   }
+  listMemberAgentDirectMessageSessions(
+    input: ListMemberAgentDirectMessageSessionsRpcInput
+  ): Promise<ListMemberAgentDirectMessageSessionsResponse> {
+    return super.listMemberAgentDirectMessageSessions(input);
+  }
   listAgentAccessRequests(
     input: Parameters<typeof rpcListAgentAccessRequests>[1]
   ) {
@@ -6800,6 +6921,13 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
 }
 export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
+  readFeishuGroupHistory(
+    input: Parameters<typeof rpcReadFeishuGroupHistory>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadFeishuGroupHistory(this.env, input)
+    );
+  }
   remoteAgentOpenDirectMessageSpace(input: OpenDirectMessageSpaceInput) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcRemoteAgentOpenDirectMessageSpace(this.env, input)
@@ -7275,6 +7403,7 @@ import {
 } from "./agent-profile/application/permission-mode-suggestion-card";
 import {
   listPluginActionRequests,
+  readApprovedPluginAction,
   rpcPluginActionRequest,
 } from "./connectors/plugin-action-requests";
 import {

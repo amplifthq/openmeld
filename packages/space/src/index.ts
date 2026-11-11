@@ -1,6 +1,10 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared space package intentionally exposes a stable root entrypoint.
 
 export {
+  resolveSpaceMemberDeparture,
+  type SpaceMemberDepartureParticipant,
+} from "./access/member-departure";
+export {
   createAnonymousViewerSpaceAccessContext,
   createAuthenticatedSpaceAccessContext,
   createDispatchContinuationSpaceAccessContext,

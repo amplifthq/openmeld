@@ -1,5 +1,8 @@
 import { createDirectMessageApi } from "@openmeld/api-client";
-import { AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH } from "@openmeld/schemas";
+import {
+	AGENT_DIRECT_MESSAGE_SESSION_NAME_MAX_LENGTH,
+	type HarnessKind,
+} from "@openmeld/schemas";
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -243,6 +246,7 @@ export function sortChatsByActivity<
  * owner's MemberAgent: the viewer's own chats group the same way.
  */
 export type ColleagueSessionAgent = {
+	harnessKind: HarnessKind | null;
 	displayName: string;
 	defaultProfileId: string | null;
 	profiles: readonly { openMeldProfileId: string; profileName: string }[];
@@ -321,6 +325,8 @@ export function useMemberAgentSessionGroups(input: {
 				id: profile.openMeldProfileId,
 				profileName: profile.profileName,
 				label: formatMemberAgentProfileDisplayName({
+					harnessKind:
+						memberAgent?.harnessKind ?? colleague?.harnessKind ?? null,
 					memberAgentName: agentName,
 					profileName: profile.profileName,
 					isDefaultProfile:
@@ -348,11 +354,23 @@ export function useMemberAgentSessionGroups(input: {
  * archive (useChatArchive), so the chat menu keeps one Archive item and one
  * confirmation; it calls Core's Session archive instead of the personal list.
  */
-export function useMemberAgentSessionArchive(spaceId: string) {
+export function useMemberAgentSessionArchive(
+	spaceId: string,
+	agentProfileId: string
+) {
 	const { currentOrganization: organization } = useAppOrganization();
 	const navigate = useNavigate();
-	const memberAgents = useMemberAgentIndex();
-	const archived = useArchivedMemberAgentSessionIds(memberAgents).has(spaceId);
+	const sessions = useQuery(
+		agentDirectMessageSessionsQueryOptions({
+			organizationId: organization.id,
+			agentProfileId,
+			archived: true,
+			enabled: true,
+		})
+	);
+	const archived =
+		sessions.data?.sessions.some((session) => session.spaceId === spaceId) ===
+		true;
 	const actions = useDirectMessageSessionActions({
 		spaceId,
 		enabled: false,
@@ -360,7 +378,7 @@ export function useMemberAgentSessionArchive(spaceId: string) {
 	});
 	return {
 		archived,
-		disabled: actions.pending,
+		disabled: actions.pending || !sessions.isSuccess,
 		label: archived ? "Unarchive conversation" : "Archive conversation",
 		confirmDescription:
 			"It leaves your chat list. Its messages are kept, and you can restore it from the Archived tab on this Agent’s page.",

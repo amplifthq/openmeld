@@ -14,8 +14,6 @@ import { useMemberAgentSessionArchive } from "#/components/member-agents/member-
 import { SpaceHeaderNavigationMenu } from "./space-header-navigation-menu";
 import { useChatArchive } from "./use-chat-archive";
 
-export type ChatArchiveKind = "personal" | "session";
-
 const PERSONAL_ARCHIVE_DESCRIPTION =
 	"This conversation will be hidden from your list. You can find it under Archived direct messages. Message history is kept for everyone.";
 
@@ -30,6 +28,7 @@ type ChatArchiveController = {
 type ChatHeaderMenuProps = {
 	spaceId: string;
 	onOpenConversationInformation: () => void;
+	onMarkAllRead?: () => void;
 	ariaLabel?: string;
 };
 
@@ -39,11 +38,11 @@ type ChatHeaderMenuProps = {
  * the same item and confirmation.
  */
 export function ChatHeaderMenu({
-	archiveKind = "personal",
+	sessionAgentProfileId,
 	...input
-}: ChatHeaderMenuProps & { archiveKind?: ChatArchiveKind }) {
-	return archiveKind === "session" ? (
-		<SessionChatHeaderMenu {...input} />
+}: ChatHeaderMenuProps & { sessionAgentProfileId?: string | null }) {
+	return sessionAgentProfileId ? (
+		<SessionChatHeaderMenu {...input} agentProfileId={sessionAgentProfileId} />
 	) : (
 		<PersonalChatHeaderMenu {...input} />
 	);
@@ -59,14 +58,20 @@ function PersonalChatHeaderMenu(input: ChatHeaderMenuProps) {
 	);
 }
 
-function SessionChatHeaderMenu(input: ChatHeaderMenuProps) {
-	const archive = useMemberAgentSessionArchive(input.spaceId);
+function SessionChatHeaderMenu(
+	input: ChatHeaderMenuProps & { agentProfileId: string }
+) {
+	const archive = useMemberAgentSessionArchive(
+		input.spaceId,
+		input.agentProfileId
+	);
 	return <ChatHeaderMenuView {...input} archive={archive} />;
 }
 
 function ChatHeaderMenuView({
 	archive,
 	ariaLabel = "Chat menu",
+	onMarkAllRead,
 	onOpenConversationInformation,
 }: ChatHeaderMenuProps & { archive: ChatArchiveController }) {
 	const [confirmOpen, setConfirmOpen] = useState(false);
@@ -80,11 +85,12 @@ function ChatHeaderMenuView({
 			<SpaceHeaderNavigationMenu
 				ariaLabel={ariaLabel}
 				items={[]}
+				onMarkAllRead={onMarkAllRead}
 				onOpenConversationInformation={onOpenConversationInformation}
 			>
 				<FluidDropdownMenuItem
 					disabled={archive.disabled}
-					index={1}
+					index={onMarkAllRead ? 2 : 1}
 					onClick={
 						archive.archived ? archive.toggle : () => setConfirmOpen(true)
 					}

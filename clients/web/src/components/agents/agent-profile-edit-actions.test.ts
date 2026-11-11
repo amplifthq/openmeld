@@ -1,3 +1,4 @@
+import type { ListMemberAgentsResponse } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
 	OrganizationDirectoryResponse,
@@ -5,8 +6,10 @@ import type {
 } from "@openmeld/schemas/types";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
+import { memberAgentQueryKeys } from "#/query/organizations/member-agents";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { startQueryKeys } from "#/query/query-keys";
+import { MIGRATED_LISTING } from "#/test-support/member-agent-fixtures";
 import {
 	renameAgentProfile,
 	updateAgentProfileListCaches,
@@ -44,6 +47,22 @@ describe("Agent Profile edit list caches", () => {
 			createDirectory("org-other", "agt-edit", "Other Organization Name")
 		);
 		queryClient.setQueryData(roleQueryKey, "owner");
+		const memberAgentKey = memberAgentQueryKeys.all("org-acme");
+		queryClient.setQueryData(memberAgentKey, {
+			...MIGRATED_LISTING,
+			memberAgents: MIGRATED_LISTING.memberAgents.map((agent) => ({
+				...agent,
+				profiles: agent.profiles.map((profile) =>
+					profile.openMeldProfileId === "agt-codex"
+						? {
+								...profile,
+								openMeldProfileId: "agt-edit",
+								profileName: "Before",
+							}
+						: profile
+				),
+			})),
+		});
 
 		expect(() =>
 			updateAgentProfileListCaches({
@@ -74,6 +93,14 @@ describe("Agent Profile edit list caches", () => {
 			)?.agentProfiles[0]?.profileName
 		).toBe("After");
 		expect(queryClient.getQueryData(roleQueryKey)).toBe("owner");
+		expect(
+			queryClient.getQueryData<ListMemberAgentsResponse>(memberAgentKey)
+				?.memberAgents[1]?.profiles[0]?.profileName
+		).toBe("After");
+		expect(
+			queryClient.getQueryData<ListMemberAgentsResponse>(memberAgentKey)
+				?.memberAgents[0]?.profiles[0]?.profileName
+		).toBe("Claude Code");
 	});
 
 	it("refreshes only Agent list and directory projections after a rename", async () => {

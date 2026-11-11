@@ -143,6 +143,8 @@ describe("local service runtime agent controller report sync", () => {
       submittedCount: 2,
     });
     expect(collectLocalAgentControllerInventoryMock).toHaveBeenCalledWith({
+      // Bounded so one slow controller cannot delay every other report renewal.
+      concurrency: 3,
       includeControllerInterface: true,
       localAdapterContainer,
       onCapability: expect.any(Function),

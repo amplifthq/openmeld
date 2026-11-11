@@ -12,6 +12,12 @@ import {
   submitRuntimeAgentControllerReports,
 } from "./runtime-agent-controller-reporting-submission";
 
+// Controllers checked at once in one report pass. Each check carries its own
+// timeout, so with a small pool one slow controller cannot hold back the
+// renewal of every other controller's report, while cold starts still do not
+// compete for the whole machine at once.
+const LOCAL_AGENT_CONTROLLER_CHECK_CONCURRENCY = 3;
+
 export type LocalServiceRuntimeAgentControllerReportSyncResult =
   | {
       status: "skipped";
@@ -50,6 +56,7 @@ export async function syncLocalServiceRuntimeAgentControllerReports(input: {
   };
   try {
     await collectLocalAgentControllerInventory({
+      concurrency: LOCAL_AGENT_CONTROLLER_CHECK_CONCURRENCY,
       reconcileNewRegistrations: true,
       includeControllerInterface: true,
       localAdapterContainer: input.localAdapterContainer,

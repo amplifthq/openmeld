@@ -1,3 +1,4 @@
+import { getAgentProfilePrimaryBindingResponseSchema } from "@openmeld/schemas/schemas";
 import type {
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
@@ -17,9 +18,11 @@ import {
 import { type ComponentProps, type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
+import { memberAgentQueryKeys } from "#/query/organizations/member-agents";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { projectQueryKeys } from "#/query/organizations/projects";
 import { startQueryKeys } from "#/query/query-keys";
+import { MIGRATED_LISTING } from "#/test-support/member-agent-fixtures";
 import {
 	createTestQueryClient,
 	TestQueryClientProvider,
@@ -395,6 +398,15 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				.textContent
 		).toContain("Chat with Research Agent");
 		expect(screen.getByRole("button", { name: "Edit Name" })).toBeTruthy();
+		await waitFor(() => {
+			expect(
+				screen.getByRole("button", { name: "Edit Model" }).textContent
+			).toContain("GPT-5.5");
+		});
+		expect(
+			screen.getByRole("button", { name: "Edit Collaboration mode" })
+				.textContent
+		).toContain("Default");
 		fireEvent.click(
 			screen.getByRole("button", { name: "Agent options for Research Agent" })
 		);
@@ -706,7 +718,10 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeNull();
 	});
 
-	it("shows a neutral cold Wakeability check without a recovery CTA", () => {
+	it("loads editable settings while a cold Wakeability check remains pending", async () => {
+		readPrimaryBindingMock.mockResolvedValue(
+			createPrimaryBindingResponse("codex:askForApproval")
+		);
 		renderAgentProfilesCard(
 			{
 				agentExecutionReadinessByProfileId: new Map(),
@@ -719,6 +734,12 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		const presence = screen.getByRole("status", {
 			name: "Loading Agent availability",
 		});
+		const editPermissions = await screen.findByRole("button", {
+			name: "Edit Permissions",
+		});
+		expect(
+			screen.getByRole("status", { name: "Loading Agent availability" })
+		).toBe(presence);
 		expect(presence.querySelector('[data-slot="skeleton"]')).toBeTruthy();
 		expect(within(presence).queryByText("Available")).toBeNull();
 		expect(
@@ -731,6 +752,10 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				name: "Connect local agent",
 			})
 		).toBeNull();
+		fireEvent.click(editPermissions);
+		expect(
+			screen.getByRole("combobox", { name: PERMISSIONS_MODE_NAME_PATTERN })
+		).toBeTruthy();
 	});
 
 	it("keeps cached Available Wakeability while Activity is Working and refreshes", () => {
@@ -1813,11 +1838,36 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBe("Still in the form");
 	});
 
-	it("leaves inline edit after a rename without waiting for a full refresh", async () => {
+	it.each([
+		false,
+		true,
+	])("saves an inline rename without a full refresh (default Profile: %s)", async (isDefaultProfile) => {
 		const refreshAll = vi.fn().mockResolvedValue(undefined);
-		renderAgentProfilesCard({ refreshAll }, undefined, {
+		const { queryClient } = renderAgentProfilesCard({ refreshAll }, undefined, {
 			presentation: "detail",
 		});
+		if (isDefaultProfile) {
+			await act(() => {
+				queryClient.setQueryData(memberAgentQueryKeys.all("org-acme"), {
+					...MIGRATED_LISTING,
+					organizationId: "org-acme",
+					memberAgents: MIGRATED_LISTING.memberAgents.filter(
+						(agent) => agent.harnessKind === "codex"
+					),
+				});
+				queryClient.setQueryData(
+					organizationQueryKeys.profileIdentityDirectory("org-acme"),
+					{
+						organizationId: "org-acme",
+						generatedAt: "2026-10-27T00:00:00.000Z",
+						members: [
+							{ userId: "user-1", user: { name: "Mira" }, humanProfile: null },
+						],
+						agentProfiles: [],
+					}
+				);
+			});
+		}
 
 		fireEvent.click(await screen.findByRole("button", { name: "Edit Name" }));
 		fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
@@ -3722,7 +3772,44 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeNull();
 	});
 
-	it("does not show a catalog default when the saved model cannot be confirmed", () => {
+	it.each([
+		"request_error",
+		"unavailable",
+		"missing",
+	] as const)("handles %s settings reads with recovery only for failures", async (status) => {
+		if (status === "request_error") {
+			readPrimaryBindingMock.mockRejectedValue(
+				new Error("Settings unavailable")
+			);
+		} else {
+			// Core returns an unavailable projection when the Auth owner lookup fails.
+			const reasonCodes = [
+				status === "unavailable"
+					? "agent_profile_binding.profile_owner_unavailable"
+					: "agent_profile_binding.missing",
+			];
+			readPrimaryBindingMock.mockResolvedValue(
+				getAgentProfilePrimaryBindingResponseSchema.parse({
+					binding: {
+						agentProfileId: AGENT_PROFILE_ID,
+						authoritySource: "none",
+						bindingState: "missing",
+						dispatchEligibility: {
+							reasonCodes,
+							routable: false,
+							status: "not_routable",
+						},
+						grantsClaimSuccess: false,
+						reasonCodes,
+						resolutionSource: "missing_projection",
+						routable: false,
+						executionTarget: null,
+					},
+					grantsClaimSuccess: false,
+					status,
+				})
+			);
+		}
 		const binding = createPrimaryBindingResponse("codex:approveForMe").binding;
 		const readiness = {
 			...createReadinessResponseWithPrimaryBinding(binding),
@@ -3743,8 +3830,61 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				presentation: "detail",
 			}
 		);
-		expect(screen.getAllByText("Model unavailable").length).toBeGreaterThan(0);
-		expect(screen.queryByText("GPT-5.6 Sol")).toBeNull();
+		expect(
+			(await screen.findAllByText("Model unavailable")).length
+		).toBeGreaterThan(0);
+		const configuration = within(
+			screen.getByTestId("agent-configuration-overview")
+		);
+		await waitFor(() => {
+			expect(configuration.getByText("Model unavailable")).toBeTruthy();
+			expect(
+				configuration.getAllByText("Unavailable", { exact: true })
+			).toHaveLength(2);
+		});
+		expect(configuration.queryByText("GPT-5.5")).toBeNull();
+		expect(configuration.queryByText("Default", { exact: true })).toBeNull();
+		expect(
+			configuration.queryByRole("button", { name: "Edit Model" })
+		).toBeNull();
+		expect(
+			configuration.queryByRole("button", { name: "Edit Permissions" })
+		).toBeNull();
+		if (status === "missing") {
+			expect(
+				screen.queryByRole("button", { name: "Retry settings" })
+			).toBeNull();
+			expect(
+				screen.queryByText("OpenMeld could not load this Agent’s settings.")
+			).toBeNull();
+			return;
+		}
+		expect(
+			screen.getByText("OpenMeld could not load this Agent’s settings.")
+		).toBeTruthy();
+		readPrimaryBindingMock.mockResolvedValue(
+			createPrimaryBindingResponse("codex:askForApproval", "builtin:codex", {
+				modelId: "gpt-5.5",
+				reasoningLevel: "high",
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Retry settings" }));
+		expect(
+			await screen.findByRole("button", { name: "Edit Permissions" })
+		).toBeTruthy();
+		expect(
+			configuration.getByRole("button", { name: "Edit Model" }).textContent
+		).toContain("GPT-5.5 · High");
+		expect(
+			configuration.getByRole("button", { name: "Edit Permissions" })
+				.textContent
+		).toContain("Ask for approval");
+		expect(
+			configuration.queryByText("Unavailable", { exact: true })
+		).toBeNull();
+		expect(
+			screen.queryByText("OpenMeld could not load this Agent’s settings.")
+		).toBeNull();
 	});
 
 	it("keeps self-healing readiness active without rendering controller UI", async () => {

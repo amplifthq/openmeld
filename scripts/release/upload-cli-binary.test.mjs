@@ -49,42 +49,42 @@ const RETAINED_SERVICE_MISMATCH_PATTERN = /gzip artifact does not match/u;
 const RETAINED_SERVICE_BYTES = Buffer.from("verified retained service");
 const RETAINED_SERVICE_ARCHIVE = gzipSync(RETAINED_SERVICE_BYTES);
 
-test("publishes the proven CLI compatibility floor without forcing every older supported release", () => {
-  const packageJson = JSON.parse(
-    readFileSync(
-      new URL("../../clients/openmeld-cli/package.json", import.meta.url),
-      "utf8"
-    )
-  );
-  const minRequiredCliVersion = resolveCliMinRequiredVersion();
+test("publishes the configured CLI compatibility floor for optional and required upgrades", () => {
+  const repoRoot = mkdtempSync(path.join(tmpdir(), "openmeld-cli-floor-"));
+  const version = "0.2.14";
+  try {
+    const packageDir = path.join(repoRoot, "clients", "openmeld-cli");
+    mkdirSync(packageDir, { recursive: true });
+    for (const minRequiredCliVersion of ["0.2.13", version]) {
+      writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ version, openmeld: { minRequiredCliVersion } })
+      );
+      const resolvedFloor = resolveCliMinRequiredVersion(repoRoot);
+      assert.equal(resolvedFloor, minRequiredCliVersion);
 
-  assert.equal(
-    minRequiredCliVersion,
-    packageJson.openmeld.minRequiredCliVersion
-  );
-  assert.notEqual(
-    minRequiredCliVersion,
-    packageJson.version,
-    "the compatibility floor must not force every CLI below latest without evidence"
-  );
+      const manifest = buildCliManifest({
+        archiveArtifactName: `openmeld-cli-darwin-arm64-${version}.gz`,
+        archiveSha256: "b".repeat(64),
+        archiveSizeBytes: 25_721_096,
+        artifactName: `openmeld-cli-darwin-arm64-${version}`,
+        downloadBaseUrl: DEFAULT_CLI_DOWNLOAD_BASE_URL,
+        minRequiredCliVersion: resolvedFloor,
+        platform: "darwin-arm64",
+        sha256: "a".repeat(64),
+        sizeBytes: 68_899_792,
+        version,
+      });
 
-  const manifest = buildCliManifest({
-    archiveArtifactName: `openmeld-cli-darwin-arm64-${packageJson.version}.gz`,
-    archiveSha256: "b".repeat(64),
-    archiveSizeBytes: 25_721_096,
-    artifactName: `openmeld-cli-darwin-arm64-${packageJson.version}`,
-    downloadBaseUrl: DEFAULT_CLI_DOWNLOAD_BASE_URL,
-    minRequiredCliVersion,
-    platform: "darwin-arm64",
-    sha256: "a".repeat(64),
-    sizeBytes: 68_899_792,
-    version: packageJson.version,
-  });
-
-  assert.equal(
-    manifest.channels.stable.minRequiredCliVersion,
-    packageJson.openmeld.minRequiredCliVersion
-  );
+      assert.equal(manifest.channels.stable.version, version);
+      assert.equal(
+        manifest.channels.stable.minRequiredCliVersion,
+        minRequiredCliVersion
+      );
+    }
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
 });
 
 test("builds the captured stable CLI binary manifest shape", () => {

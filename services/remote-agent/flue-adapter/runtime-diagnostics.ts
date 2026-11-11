@@ -1,5 +1,6 @@
 import { remoteAgentWorkerRuntimeDiagnosticsResponseSchema } from "@openmeld/schemas";
 import type { RemoteAgentWorkerRuntimeDiagnosticsResponse } from "@openmeld/schemas/types";
+import type { Schedule } from "agents";
 import { REMOTE_AGENT_CALLBACK_CONTEXT_KEY_PREFIX } from "../agent-core/callback-context";
 import {
   projectStoredRemoteAgentTurnObservability,
@@ -18,6 +19,7 @@ type SqlStorage = {
 
 export async function readRemoteAgentRuntimeDiagnostics(input: {
   getAlarmAtMs: () => Promise<number | null>;
+  listSchedules: () => Promise<Schedule<unknown>[]>;
   nowMs?: number;
   spaceId: string;
   sql: SqlStorage;
@@ -110,33 +112,16 @@ export async function readRemoteAgentRuntimeDiagnostics(input: {
       startedAtMs: nullableNumber(row.started_at),
       status: requiredString(row.status),
     }));
-  const schedules = input.sql
-    .exec(
-      `
-        SELECT
-          id,
-          callback,
-          type,
-          time,
-          delayInSeconds,
-          running,
-          created_at,
-          execution_started_at
-        FROM cf_agents_schedules
-        ORDER BY created_at DESC
-        LIMIT ${RUNTIME_DIAGNOSTIC_ROW_LIMIT}
-      `
-    )
-    .toArray()
-    .map((row) => ({
-      callback: nullableString(row.callback),
-      createdAtSeconds: requiredNumber(row.created_at),
-      delayInSeconds: nullableNumber(row.delayInSeconds),
-      executionStartedAtMs: nullableNumber(row.execution_started_at),
-      id: requiredString(row.id),
-      running: requiredNumber(row.running) !== 0,
-      timeMs: nullableNumber(row.time),
-      type: requiredString(row.type),
+  const schedules = (await input.listSchedules())
+    .toSorted((a, b) => b.time - a.time || a.id.localeCompare(b.id))
+    .slice(0, RUNTIME_DIAGNOSTIC_ROW_LIMIT)
+    .map((schedule) => ({
+      callback: schedule.callback,
+      delayInSeconds:
+        schedule.type === "delayed" ? schedule.delayInSeconds : null,
+      id: schedule.id,
+      timeMs: schedule.time * 1000,
+      type: schedule.type,
     }));
   const callbackContexts = input.sql
     .exec(
@@ -216,7 +201,7 @@ export async function readRemoteAgentRuntimeDiagnostics(input: {
     spaceId: input.spaceId,
     submissions,
     turnObservability,
-    v: 2,
+    v: 3,
   });
 }
 

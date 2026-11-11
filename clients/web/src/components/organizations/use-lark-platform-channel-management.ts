@@ -2,6 +2,7 @@
 
 import type {
 	LarkPlatformProvider,
+	LarkPlatformRegistrationBeginMode,
 	LarkPlatformRegistrationResponse,
 	MessageChannelConnectionListResponse,
 	MessageChannelConnectionProjection,
@@ -22,6 +23,7 @@ import {
 import {
 	beginCurrentOrganizationLarkPlatformRegistration,
 	disconnectCurrentOrganizationLarkPlatform,
+	requestCurrentOrganizationFeishuHistoryPermission,
 	resolveMessageChannelErrorMessage,
 } from "#/lib/organizations/message-channels";
 import {
@@ -66,7 +68,7 @@ export function useLarkPlatformChannelManagement(input: {
 	);
 	const beginMutation = useMutation({
 		mutationFn: async (request: {
-			mode: "repair" | "restart" | "resume" | "reauthorize";
+			mode: LarkPlatformRegistrationBeginMode;
 			organizationId: string;
 			provider: LarkPlatformProvider;
 		}) => {
@@ -131,6 +133,9 @@ export function useLarkPlatformChannelManagement(input: {
 					);
 				});
 		},
+	});
+	const historyAuthorization = useMutation({
+		mutationFn: requestCurrentOrganizationFeishuHistoryPermission,
 	});
 	const disconnectMutation = useMutation<
 		MessageChannelConnectionListResponse,
@@ -224,6 +229,7 @@ export function useLarkPlatformChannelManagement(input: {
 			setDialogOpen(true);
 			return;
 		}
+
 		beginMutation.mutate({
 			mode: "resume",
 			organizationId: input.organizationId,
@@ -268,7 +274,11 @@ export function useLarkPlatformChannelManagement(input: {
 		cancelSetup: (provider: LarkPlatformProvider) =>
 			disconnectMutation.mutate(provider),
 		reauthorize: async () => {
-			if (!selectedProvider || beginMutation.isPending) {
+			if (
+				!selectedProvider ||
+				beginMutation.isPending ||
+				historyAuthorization.isPending
+			) {
 				return;
 			}
 			const authorizationWindow = prepareAuthorizationBrowser(
@@ -282,12 +292,23 @@ export function useLarkPlatformChannelManagement(input: {
 				return;
 			}
 			try {
-				const response = await beginMutation.mutateAsync({
-					mode: "reauthorize",
-					organizationId: authorizationOrganizationId,
-					provider: selectedProvider,
-				});
-				const url = response.attempt.registrationUrl;
+				const url =
+					selectedProvider === "feishu" &&
+					connection?.status === "connected" &&
+					connection.reasonCode !== "feishu.authorization_update_required"
+						? (
+								await historyAuthorization.mutateAsync({
+									organizationId: authorizationOrganizationId,
+									connectionId: connection.id,
+								})
+							).authorizationUrl
+						: (
+								await beginMutation.mutateAsync({
+									mode: "reauthorize",
+									organizationId: authorizationOrganizationId,
+									provider: selectedProvider,
+								})
+							).attempt.registrationUrl;
 				if (!url) {
 					throw new Error("Authorization link is unavailable.");
 				}
@@ -342,9 +363,10 @@ export function useLarkPlatformChannelManagement(input: {
 			}
 		},
 		repairPending:
-			beginMutation.isPending &&
-			(beginMutation.variables?.mode === "repair" ||
-				beginMutation.variables?.mode === "reauthorize"),
+			historyAuthorization.isPending ||
+			(beginMutation.isPending &&
+				(beginMutation.variables?.mode === "repair" ||
+					beginMutation.variables?.mode === "reauthorize")),
 		registration,
 		retryPoll: async () => {
 			await registrationQuery.refetch();

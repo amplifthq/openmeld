@@ -35,7 +35,7 @@ allowBuilds:
 catalog:
   '@cloudflare/workers-types': 5.20261001.1
   wrangler: 4.147.0
-  zod: 4.6.5
+  zod: 4.6.6
 
 minimumReleaseAgeExclude:
   - miniflare
@@ -54,12 +54,24 @@ overrides:
   '@aws-sdk/middleware-websocket': 3.972.36
   '@aws-sdk/nested-clients': 3.997.28
   '@aws-sdk/token-providers': 3.1080.0
+  # Paired with the Zep ontology patch below; keep its runtime and types on Zod 4.
+  '@getzep/zep-cloud@3.30.0>zod': 'catalog:'
   '@modelcontextprotocol/sdk>zod': 'catalog:'
+  # Keep the existing parser major versions while lifting vulnerable copies.
+  '@xmldom/xmldom@>=0.8.0 <0.8.15': 0.8.15
+  'brace-expansion@>=1.0.0 <1.1.21': 1.1.21
+  'brace-expansion@>=2.0.0 <2.1.7': 2.1.7
+  'brace-expansion@>=5.0.0 <5.0.12': 5.0.12
+  'fast-uri@>=3.0.0 <3.1.9': 3.1.9
+  # Miniflare pins earlier Undici 7 versions affected by HTTP and TLS advisories.
+  'miniflare>undici@>=7.29.0 <7.30.1': 7.30.1
   'rolldown@<1.2.0': 1.1.4
   'rolldown@1.0.0-rc.3': 1.1.4
   # Miniflare 5 pins vulnerable sharp 0.35.x patches; lift them to the fix.
   'sharp@>=0.35.0 <0.35.5': 0.35.5
+  'ws@>=8.0.0 <8.21.0': 8.21.3
   wrangler: 'catalog:'
+  'zod@>=4.0.0 <4.6.6': 'catalog:'
 
 packageExtensions:
   # Flue's generated Worker still uses Agents 0.20.1. Keep its exact MCP peers
@@ -74,9 +86,10 @@ packageExtensions:
       es-toolkit: 1.46.0
 
 patchedDependencies:
+  '@getzep/zep-cloud@3.30.0': patches/@getzep__zep-cloud@3.30.0.patch
   capnweb@0.12.0: services/remote-agent/computerd/capnweb-0.12.0.patch
   '@cloudflare/vitest-plugin@1.3.6': patches/@cloudflare__vitest-plugin@1.3.6.patch
-  '@better-auth/electron@1.6.30': patches/@better-auth__electron@1.6.30.patch
+  '@better-auth/electron@1.7.7': patches/@better-auth__electron@1.7.7.patch
   '@cloudflare/computer@0.5.0': patches/@cloudflare__computer@0.5.0.patch
   '@flue/runtime@2.3.0': patches/@flue__runtime@2.3.0.patch
   '@tailwindcss/vite@4.2.1': patches/@tailwindcss__vite.patch

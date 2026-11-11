@@ -13,6 +13,8 @@ import {
   createServiceConnectionEvidenceRecorder,
   readServiceConnectionFailureEvidence,
 } from "../src/local-service/lifecycle/service-connection-evidence";
+import { createServiceConnectionEvidenceObserver } from "../src/local-service/lifecycle/service-connection-evidence-observer";
+import type { WsClient } from "../src/transport/ws";
 import { WebSocketConnectionError } from "../src/transport/ws";
 
 let home: string;
@@ -94,6 +96,84 @@ async function journals() {
 }
 
 describe("bounded Service connection evidence", () => {
+  it.each([
+    "closed",
+    "replaced",
+  ])("retains a pending upload after its socket is %s during journal preparation", async (state) => {
+    const previous = fixture();
+    const incidentId = randomUUID();
+    previous.recorder.record({
+      recovery: { recoveryId: incidentId, disconnectedAt: Date.now() },
+      event: event(),
+    });
+    await previous.recorder.flush();
+    previous.recorder.dispose();
+
+    const preparing = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const files = await import("../src/config/daemon-local-state-file");
+    vi.spyOn(files, "writeDaemonLocalStateFile").mockImplementationOnce(
+      async () => {
+        preparing.resolve();
+        await resume.promise;
+      }
+    );
+    const send = vi.fn(async (report: ServiceConnectionIncidentReport) => ({
+      incidentId: report.incident.incidentId,
+      receivedAtMs: Date.now(),
+    }));
+    const observer = createServiceConnectionEvidenceObserver({
+      ownerUserId: "owner-a",
+      gatewayUrl: "https://gateway.openmeld.ai",
+      identity: {
+        deviceId: "test-device",
+        runtimeLane: "prod",
+        serviceSessionId: randomUUID(),
+        serviceVersion: "0.3.205",
+      },
+      sendIncident: send,
+      getRecovery: () => null,
+      isStopping: () => false,
+    });
+    const open = () => {
+      observer.beginAttempt();
+      const onClose = vi.fn<WsClient["onClose"]>();
+      observer.opened({ onClose });
+      return { id: observer.connectionDiagnosticId, onClose };
+    };
+    try {
+      const first = open();
+      observer.acknowledged(new Date().toISOString(), true, first.id);
+      await preparing.promise;
+      const close = first.onClose.mock.calls[0]?.[0];
+      if (!close) {
+        throw new Error("Expected a socket close listener");
+      }
+      close(1006, "");
+      const second = state === "replaced" ? open() : null;
+      observer.acknowledged(new Date().toISOString(), false, first.id);
+      resume.resolve();
+      await new Promise<void>((done) => setImmediate(done));
+      expect(send).not.toHaveBeenCalled();
+
+      observer.acknowledged(
+        new Date().toISOString(),
+        true,
+        (second ?? open()).id
+      );
+      await vi.waitFor(async () => {
+        expect((await journals())[0]?.journal.entries[0]?.uploadedAtMs).toEqual(
+          expect.any(Number)
+        );
+      });
+      expect(
+        send.mock.calls.map(([report]) => report.incident.incidentId)
+      ).toEqual([incidentId]);
+    } finally {
+      resume.resolve();
+      observer.dispose();
+    }
+  });
   it("retries evidence promptly on reconnection instead of waiting for an old upload backoff", async () => {
     const { recorder, reports } = fixture("owner-a", randomUUID(), true);
     const recovery = { recoveryId: randomUUID(), disconnectedAt: Date.now() };

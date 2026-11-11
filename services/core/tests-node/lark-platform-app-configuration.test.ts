@@ -58,11 +58,39 @@ describe("Lark-platform persistent app configuration", () => {
     ).toBe(true);
   });
 
-  it("accepts captured setup grants without granting app-management tools to the agent", async () => {
+  it.each([
+    undefined,
+    0,
+    1,
+  ])("keeps the existing Feishu messaging grant usable with optional group-history grant status %s", async (historyGrantStatus) => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json(token))
-      .mockResolvedValueOnce(Response.json(capturedScopes))
+      .mockResolvedValueOnce(
+        Response.json(
+          historyGrantStatus !== undefined
+            ? {
+                ...capturedScopes,
+                data: {
+                  ...capturedScopes.data,
+                  scopes: [
+                    ...capturedScopes.data.scopes,
+                    {
+                      scope_name: "im:message.group_msg",
+                      scope_type: "tenant",
+                      grant_status: historyGrantStatus,
+                    },
+                    {
+                      scope_name: "im:chat.members:read",
+                      scope_type: "tenant",
+                      grant_status: historyGrantStatus,
+                    },
+                  ],
+                },
+              }
+            : capturedScopes
+        )
+      )
       .mockResolvedValueOnce(Response.json(bot));
     await expect(configureApp({ ...input, fetchImpl })).resolves.toMatchObject({
       grantedCapabilityGroups: ["conversation.text"],

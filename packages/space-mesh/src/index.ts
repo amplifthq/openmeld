@@ -28,6 +28,7 @@ export {
   buildSpaceEntryBriefNeedMoreLine,
   composeEntryBrief,
   renderSpaceEntryBrief,
+  SPACE_GUIDE_PROMPT_HEADING,
 } from "./entry-brief";
 export { resolveGuideEntry } from "./guide-entry";
 export { OPENMELD_GUIDE_URL } from "./guide-urls";

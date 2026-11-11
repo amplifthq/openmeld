@@ -1,3 +1,4 @@
+import { ORGANIZATION_DIRECTORY_INCLUDE_PUBLIC_WAKEABILITY_REASON_QUERY_PARAMETER } from "@openmeld/gateway-contract";
 import {
   centerAgentContextManifestIdSchema,
   centerAgentCreateAgentProfileBodySchema,
@@ -48,6 +49,7 @@ import {
 import type { Context, Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import { normalizeCenterAgentAvatarImage } from "../lib/center-agent-avatar-image";
+import { projectOrganizationPublicWakeabilityReason } from "../lib/organization-directory-projection";
 import {
   buildCoreRpcContext,
   executeRpcRoute,
@@ -347,7 +349,15 @@ export function registerCenterAgentRoutes(app: Hono<HonoBindings>): void {
       c,
       route: CENTER_AGENT_DIRECTORY_ROUTE,
       method: "GET",
-      responseSchema: organizationDirectoryResponseSchema,
+      responseSchema: organizationDirectoryResponseSchema.transform(
+        (response) =>
+          projectOrganizationPublicWakeabilityReason(
+            response,
+            c.req.query(
+              ORGANIZATION_DIRECTORY_INCLUDE_PUBLIC_WAKEABILITY_REASON_QUERY_PARAMETER
+            ) === "true"
+          )
+      ),
       execute: async () =>
         await c.var.coreRpc.centerAgentGetOrganizationDirectory({
           context: buildCoreRpcContext(c),

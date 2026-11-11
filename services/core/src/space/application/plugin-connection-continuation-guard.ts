@@ -195,6 +195,7 @@ export function samePluginContinuationIntent(
       value.organizationId,
       value.spaceId,
       value.sourceDispatchId,
+      value.approvedActionRequestId ?? null,
       value.source.signalId,
       value.reply.signalId,
       value.requesterUserId,

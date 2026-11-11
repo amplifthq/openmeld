@@ -50,7 +50,7 @@ export async function listAuthorizedCenterAgentSessions(input: {
   const rows = await listDirectMessageSessionIndexRows({
     db: input.db,
     organizationId: input.organizationId,
-    pairKey: input.pairKey,
+    pairKeys: [input.pairKey],
     limit: input.limit + 1,
     // Session archive is a MemberAgent-program operation; with the flag off
     // the Center Agent chat list keeps its previous contents.

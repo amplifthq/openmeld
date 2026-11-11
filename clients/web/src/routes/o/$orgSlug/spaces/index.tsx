@@ -26,6 +26,7 @@ import {
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
 import { ChatsDirectory } from "#/components/spaces/chats-directory";
+import { ConversationsHome } from "#/components/spaces/conversations-home";
 import { SpaceDirectory } from "#/components/spaces/space-directory";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { SpacePendingInvitations } from "#/components/spaces/space-pending-invitations";
@@ -79,7 +80,7 @@ import {
 export const Route = createFileRoute("/o/$orgSlug/spaces/")({
 	validateSearch: (
 		search: Record<string, unknown>
-	): { view?: "spaces" | "discover" | "messages" } => ({
+	): { view?: "conversations" | "spaces" | "discover" | "messages" } => ({
 		view:
 			typeof search.view === "string"
 				? (spacesViewParser.parse(search.view) ?? undefined)
@@ -125,6 +126,18 @@ function AppSpacesIndexRoute() {
 }
 
 export function AppSpacesIndexContent(input: {
+	initialSidebarStates?: AppSidebarPersistedStates;
+	orgSlug: string;
+}) {
+	const [view] = useQueryState("view", spacesViewParser);
+	return view === "conversations" ? (
+		<ConversationsHome initialSidebarStates={input.initialSidebarStates} />
+	) : (
+		<AppSpacesDirectoryContent {...input} />
+	);
+}
+
+function AppSpacesDirectoryContent(input: {
 	initialSidebarStates?: AppSidebarPersistedStates;
 	orgSlug: string;
 }) {

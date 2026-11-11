@@ -1,4 +1,9 @@
-import type { NavigationAction } from "@openmeld/schemas";
+import type {
+  FeishuGroupHistoryResult,
+  FeishuGroupHistoryScope,
+  FeishuHistoryGap,
+  NavigationAction,
+} from "@openmeld/schemas";
 import {
   CHANNEL_CONTEXT_MAX_MESSAGES,
   CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS,
@@ -170,6 +175,376 @@ export async function readLarkPlatformChannelContext(input: {
       status: truncated ? "truncated" : "complete",
     },
   });
+}
+type FeishuReadCredentials = {
+  appId: string;
+  appSecret: string;
+  fetchImpl?: typeof fetch;
+};
+async function feishuAppRequest(
+  credentials: FeishuReadCredentials,
+  path: string,
+  params: URLSearchParams
+) {
+  const provider = "feishu";
+  const apiHost = getLarkPlatformApiHost(provider);
+  const fetchImpl = credentials.fetchImpl ?? fetch;
+  const token = await requestLarkPlatformTenantAccessToken({
+    ...credentials,
+    provider,
+    apiHost,
+    fetchImpl,
+  });
+  if (token.status !== "ready") {
+    return { status: "unavailable" as const, data: null };
+  }
+  const url = new URL(path, apiHost);
+  url.search = params.toString();
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      headers: {
+        ...JSON_HEADERS,
+        Authorization: `Bearer ${token.tenantAccessToken}`,
+      },
+      method: "GET",
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {
+    return { status: "unavailable" as const, data: null };
+  }
+  const body = await readJsonObject(response);
+  const code = readProviderCode(body);
+  const status = resolveChannelContextFailureStatus({
+    providerCode: code,
+    response,
+  });
+  return { status, data: readObject(body, "data") };
+}
+
+/** The tenant credential may see much more than the requester. Cross-root
+ * reads remain author-only; other authors require current-thread participation. */
+type FeishuSource = {
+  chatId: string;
+  rootMessageId: string;
+  triggerMessageId: string;
+  requesterOpenId: string;
+  conversationId: string;
+  lookbackMinutes: number;
+  includeCoverage?: true;
+  scope?: FeishuGroupHistoryScope;
+  threadId?: string | null;
+};
+export async function readFeishuHistory(
+  input: FeishuReadCredentials & FeishuSource
+): Promise<FeishuGroupHistoryResult> {
+  const source = await feishuAppRequest(
+    input,
+    `/open-apis/im/v1/messages/${encodeURIComponent(input.triggerMessageId)}`,
+    new URLSearchParams({ user_id_type: "open_id" })
+  );
+  if (source.status) {
+    return { status: source.status };
+  }
+  const trigger = readArray(source.data, "items").find(
+    (item) => isJsonObject(item) && item.message_id === input.triggerMessageId
+  );
+  if (
+    !isJsonObject(trigger) ||
+    trigger.chat_id !== input.chatId ||
+    (readString(trigger, "root_id") ?? input.triggerMessageId) !==
+      input.rootMessageId ||
+    !feishuMessageFromRequester(trigger, input.requesterOpenId)
+  ) {
+    return { status: "forbidden" };
+  }
+  const endMs = readNonnegativeInteger(trigger, "create_time");
+  if (
+    !(endMs && Number.isInteger(input.lookbackMinutes)) ||
+    input.lookbackMinutes < 1 ||
+    input.lookbackMinutes > 120
+  ) {
+    return { status: "unavailable" };
+  }
+  const startMs = Math.max(0, endMs - input.lookbackMinutes * 60_000);
+  if (input.scope === "current_thread_messages") {
+    const threadId = readString(trigger, "thread_id");
+    if (
+      !(threadId?.startsWith("omt_") && readString(trigger, "parent_id")) ||
+      input.rootMessageId === input.triggerMessageId ||
+      (input.threadId && input.threadId !== threadId)
+    ) {
+      return { status: "forbidden" };
+    }
+    const membership = await verifyFeishuRequesterMembership(input);
+    if (membership) {
+      return { status: membership };
+    }
+    return readFeishuHistoryWindow(input, startMs, endMs, threadId);
+  }
+  return readFeishuHistoryWindow(input, startMs, endMs);
+}
+async function verifyFeishuRequesterMembership(
+  input: FeishuReadCredentials & FeishuSource
+) {
+  const params = new URLSearchParams({
+    member_id_type: "open_id",
+    page_size: "100",
+  });
+  for (let page = 0; page < 2; page++) {
+    const { status, data } = await feishuAppRequest(
+      input,
+      `/open-apis/im/v1/chats/${encodeURIComponent(input.chatId)}/members`,
+      params
+    );
+    if (status) {
+      return status;
+    }
+    if (!Array.isArray(data?.items)) {
+      return "unavailable" as const;
+    }
+    if (
+      data.items.some(
+        (member: unknown) =>
+          isJsonObject(member) &&
+          member.member_id_type === "open_id" &&
+          member.member_id === input.requesterOpenId
+      )
+    ) {
+      return null;
+    }
+    if (data.has_more === false) {
+      return "forbidden" as const;
+    }
+    const next = readString(data, "page_token");
+    if (
+      !(data.has_more === true && next && next !== params.get("page_token"))
+    ) {
+      return "unavailable" as const;
+    }
+    params.set("page_token", next);
+  }
+  return "unavailable" as const;
+}
+
+function belongsToFeishuHistoryScope(
+  item: JsonObject,
+  input: FeishuSource,
+  threadId?: string
+) {
+  if (
+    item.chat_id !== input.chatId ||
+    item.message_id === input.triggerMessageId ||
+    item.deleted === true
+  ) {
+    return false;
+  }
+  if (threadId) {
+    // The current human reply proves visibility of this thread. Never widen it
+    // to sibling threads just because the tenant credential can read them.
+    return (
+      readString(item, "thread_id") === threadId &&
+      (readString(item, "root_id") ?? readString(item, "message_id")) ===
+        input.rootMessageId
+    );
+  }
+  return (
+    (readString(item, "root_id") === null ||
+      item.root_id === item.message_id) &&
+    !readString(item, "parent_id") &&
+    feishuMessageFromRequester(item, input.requesterOpenId)
+  );
+}
+
+function collectFeishuHistoryMessages(
+  items: unknown[],
+  input: FeishuSource,
+  startMs: number,
+  endMs: number,
+  records: Map<string, ChannelContextMessage>,
+  gaps: Set<FeishuHistoryGap>,
+  threadId?: string
+) {
+  for (const item of items) {
+    if (!isJsonObject(item)) {
+      gaps.add("unreadable_message");
+      continue;
+    }
+    if (!belongsToFeishuHistoryScope(item, input, threadId)) {
+      continue;
+    }
+    // Feishu also marks freshly delivered messages as updated. Only return a
+    // historical body whose latest known revision existed when the user asked.
+    const sentAtMs = readNonnegativeInteger(item, "create_time");
+    if (sentAtMs !== null && (sentAtMs < startMs || sentAtMs >= endMs)) {
+      continue;
+    }
+    const updatedMs = readNonnegativeInteger(item, "update_time");
+    if (
+      (item.updated === true && !updatedMs) ||
+      (updatedMs !== null && updatedMs > endMs)
+    ) {
+      gaps.add("revision_unavailable");
+      continue;
+    }
+    const message = normalizeHistoricalMessage(
+      item,
+      CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS + 1
+    );
+    if (!message) {
+      gaps.add("unreadable_message");
+      continue;
+    }
+    if (message.text.length > CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS) {
+      message.text = message.text.slice(
+        0,
+        CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS
+      );
+      gaps.add("result_limit");
+    }
+    records.set(message.id, message);
+  }
+}
+function buildFeishuHistoryQuery(
+  chatId: string,
+  startMs: number,
+  endMs: number,
+  threadId?: string
+) {
+  return new URLSearchParams({
+    container_id_type: threadId ? "thread" : "chat",
+    container_id: threadId ?? chatId,
+    ...(threadId
+      ? {}
+      : {
+          start_time: String(Math.floor(startMs / 1000)),
+          end_time: String(Math.ceil(endMs / 1000)),
+        }),
+    page_size: String(CHANNEL_CONTEXT_MAX_MESSAGES),
+    sort_type: "ByCreateTimeDesc",
+    with_sender_name: "true",
+  });
+}
+async function readFeishuHistoryWindow(
+  input: FeishuReadCredentials & FeishuSource,
+  startMs: number,
+  endMs: number,
+  threadId?: string
+): Promise<FeishuGroupHistoryResult> {
+  const params = buildFeishuHistoryQuery(
+    input.chatId,
+    startMs,
+    endMs,
+    threadId
+  );
+  const records = new Map<string, ChannelContextMessage>();
+  const gaps = new Set<FeishuHistoryGap>();
+  let exhausted = false;
+  for (let page = 0; page < 3; page++) {
+    const { data, status } = await feishuAppRequest(
+      input,
+      "/open-apis/im/v1/messages",
+      params
+    );
+    if (status || !Array.isArray(data?.items)) {
+      if (status === "forbidden" || page === 0) {
+        return { status: status ?? "unavailable" };
+      }
+      gaps.add(
+        status === "rate_limited" ? "rate_limited" : "provider_unavailable"
+      );
+      break;
+    }
+    collectFeishuHistoryMessages(
+      data.items,
+      input,
+      startMs,
+      endMs,
+      records,
+      gaps,
+      threadId
+    );
+    if (data.has_more === false) {
+      exhausted = true;
+      break;
+    }
+    const next = nextFeishuHistoryPage(data, params, page, records.size);
+    if ("gap" in next) {
+      gaps.add(next.gap);
+      break;
+    }
+    params.set("page_token", next.cursor);
+  }
+  const bounded = boundHistoricalMessages([...records.values()]);
+  if (bounded.truncated) {
+    gaps.add("result_limit");
+  }
+  const examinedFromMs = feishuExaminedFromMs(
+    exhausted,
+    startMs,
+    bounded.messages[0]
+  );
+  return {
+    status: "read",
+    scope: threadId
+      ? "current_thread_messages"
+      : "requester_top_level_messages",
+    startMs,
+    endMs,
+    ...(input.includeCoverage && {
+      coverage: { examinedFromMs, gaps: [...gaps] },
+    }),
+    context: channelContextSchema.parse({
+      conversationId: input.conversationId,
+      currentMessageId: input.triggerMessageId,
+      provider: "feishu",
+      messages: bounded.messages,
+      sync: {
+        mode: "snapshot",
+        status: gaps.size > 0 ? "truncated" : "complete",
+      },
+    }),
+  };
+}
+function feishuExaminedFromMs(
+  exhausted: boolean,
+  startMs: number,
+  oldest: ChannelContextMessage | undefined
+) {
+  if (exhausted) {
+    return startMs;
+  }
+  // Ties can continue on the next descending page. Withheld messages
+  // must not disclose other participants' activity through the boundary.
+  return oldest ? oldest.sentAtMs + 1 : null;
+}
+function nextFeishuHistoryPage(
+  data: JsonObject,
+  params: URLSearchParams,
+  page: number,
+  count: number
+): { cursor: string } | { gap: FeishuHistoryGap } {
+  const cursor = readString(data, "page_token");
+  if (
+    data.has_more !== true ||
+    !cursor ||
+    cursor === params.get("page_token")
+  ) {
+    return { gap: "invalid_page" };
+  }
+  if (count >= CHANNEL_CONTEXT_MAX_MESSAGES) {
+    return { gap: "result_limit" };
+  }
+  return page < 2 ? { cursor } : { gap: "page_limit" };
+}
+function feishuMessageFromRequester(item: JsonObject, openId: string) {
+  const sender = readObject(item, "sender");
+  return (
+    item.deleted !== true &&
+    sender?.sender_type === "user" &&
+    sender.id_type === "open_id" &&
+    sender.id === openId
+  );
 }
 export async function readLarkPlatformPluginSourceProof(input: {
   appId: string;
@@ -1562,7 +1937,8 @@ function belongsToCurrentConversation(
   );
 }
 function normalizeHistoricalMessage(
-  item: JsonObject
+  item: JsonObject,
+  textLimit = CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS
 ): ChannelContextMessage | null {
   const id = readString(item, "message_id");
   const sentAtMs = readNonnegativeInteger(item, "create_time");
@@ -1598,7 +1974,7 @@ function normalizeHistoricalMessage(
     author,
     id,
     sentAtMs,
-    text: text.slice(0, CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS),
+    text: text.slice(0, textLimit),
   };
 }
 function replaceMentionKeys(
@@ -1662,11 +2038,16 @@ function readNonnegativeInteger(
 function resolveChannelContextFailureStatus(input: {
   providerCode: number | null;
   response: Response;
-}): ChannelContext["sync"]["status"] | null {
+}): "forbidden" | "rate_limited" | "unavailable" | null {
   if (input.response.ok && input.providerCode === 0) {
     return null;
   }
-  if (input.response.status === 403) {
+  if (
+    input.response.status === 403 ||
+    input.providerCode === 230_027 ||
+    input.providerCode === 230_073 ||
+    input.providerCode === 99_991_672
+  ) {
     return "forbidden";
   }
   if (input.response.status === 429) {

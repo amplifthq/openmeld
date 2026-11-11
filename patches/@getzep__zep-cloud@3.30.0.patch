@@ -1,0 +1,915 @@
+diff --git a/dist/cjs/wrapper/ontology.d.ts b/dist/cjs/wrapper/ontology.d.ts
+index 3c9a9e4bb1e28964fd9f7572b8640a7343e0de77..e6796e4e3ea8f952f1fbf33aff1ad29cbbdbb308 100644
+--- a/dist/cjs/wrapper/ontology.d.ts
++++ b/dist/cjs/wrapper/ontology.d.ts
+@@ -1,4 +1,4 @@
+-import { z } from "zod";
++import { z } from "zod/v4";
+ import { Zep } from "../index.js";
+ export declare enum EntityPropertyType {
+     Text = "Text",
+@@ -7,393 +7,116 @@ export declare enum EntityPropertyType {
+     Boolean = "Boolean"
+ }
+ export declare const EntityTypeBaseField: z.ZodObject<{
+-    type: z.ZodNativeEnum<typeof EntityPropertyType>;
++    type: z.ZodEnum<typeof EntityPropertyType>;
+     description: z.ZodString;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType;
+-    description: string;
+-}, {
+-    type: EntityPropertyType;
+-    description: string;
+-}>;
++}, z.core.$strip>;
+ export interface EntityField<V = any> {
+     description: string;
+     value?: V;
+ }
+ export declare const EntityTypeTextFieldSchema: z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Text>;
+     value: z.ZodOptional<z.ZodString>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Text;
+-    description: string;
+-    value?: string | undefined;
+-}, {
+-    type: EntityPropertyType.Text;
+-    description: string;
+-    value?: string | undefined;
+-}>;
++}, z.core.$strip>;
+ export type EntityTextField = z.infer<typeof EntityTypeTextFieldSchema>;
+ export declare const EntityTypeIntFieldSchema: z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Int>;
+     value: z.ZodOptional<z.ZodNumber>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Int;
+-    description: string;
+-    value?: number | undefined;
+-}, {
+-    type: EntityPropertyType.Int;
+-    description: string;
+-    value?: number | undefined;
+-}>;
++}, z.core.$strip>;
+ export type EntityIntField = z.infer<typeof EntityTypeIntFieldSchema>;
+ export declare const EntityTypeFloatFieldSchema: z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Float>;
+     value: z.ZodOptional<z.ZodNumber>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Float;
+-    description: string;
+-    value?: number | undefined;
+-}, {
+-    type: EntityPropertyType.Float;
+-    description: string;
+-    value?: number | undefined;
+-}>;
++}, z.core.$strip>;
+ export type EntityFloatField = z.infer<typeof EntityTypeFloatFieldSchema>;
+ export declare const EntityTypeBooleanFieldSchema: z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Boolean>;
+     value: z.ZodOptional<z.ZodBoolean>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Boolean;
+-    description: string;
+-    value?: boolean | undefined;
+-}, {
+-    type: EntityPropertyType.Boolean;
+-    description: string;
+-    value?: boolean | undefined;
+-}>;
++}, z.core.$strip>;
+ export type EntityBooleanField = z.infer<typeof EntityTypeBooleanFieldSchema>;
+-export declare const EntityTypeFieldSchema: z.ZodUnion<[z.ZodObject<{
++export declare const EntityTypeFieldSchema: z.ZodUnion<readonly [z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Text>;
+     value: z.ZodOptional<z.ZodString>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Text;
+-    description: string;
+-    value?: string | undefined;
+-}, {
+-    type: EntityPropertyType.Text;
+-    description: string;
+-    value?: string | undefined;
+-}>, z.ZodObject<{
++}, z.core.$strip>, z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Int>;
+     value: z.ZodOptional<z.ZodNumber>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Int;
+-    description: string;
+-    value?: number | undefined;
+-}, {
+-    type: EntityPropertyType.Int;
+-    description: string;
+-    value?: number | undefined;
+-}>, z.ZodObject<{
++}, z.core.$strip>, z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Float>;
+     value: z.ZodOptional<z.ZodNumber>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Float;
+-    description: string;
+-    value?: number | undefined;
+-}, {
+-    type: EntityPropertyType.Float;
+-    description: string;
+-    value?: number | undefined;
+-}>, z.ZodObject<{
++}, z.core.$strip>, z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Boolean>;
+     value: z.ZodOptional<z.ZodBoolean>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Boolean;
+-    description: string;
+-    value?: boolean | undefined;
+-}, {
+-    type: EntityPropertyType.Boolean;
+-    description: string;
+-    value?: boolean | undefined;
+-}>]>;
++}, z.core.$strip>]>;
+ export type SupportedEntityField = EntityTextField | EntityIntField | EntityFloatField | EntityBooleanField;
+-export declare const EntityFields: z.ZodRecord<z.ZodString, z.ZodUnion<[z.ZodObject<{
++export declare const EntityFields: z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Text>;
+     value: z.ZodOptional<z.ZodString>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Text;
+-    description: string;
+-    value?: string | undefined;
+-}, {
+-    type: EntityPropertyType.Text;
+-    description: string;
+-    value?: string | undefined;
+-}>, z.ZodObject<{
++}, z.core.$strip>, z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Int>;
+     value: z.ZodOptional<z.ZodNumber>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Int;
+-    description: string;
+-    value?: number | undefined;
+-}, {
+-    type: EntityPropertyType.Int;
+-    description: string;
+-    value?: number | undefined;
+-}>, z.ZodObject<{
++}, z.core.$strip>, z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Float>;
+     value: z.ZodOptional<z.ZodNumber>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Float;
+-    description: string;
+-    value?: number | undefined;
+-}, {
+-    type: EntityPropertyType.Float;
+-    description: string;
+-    value?: number | undefined;
+-}>, z.ZodObject<{
++}, z.core.$strip>, z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Boolean>;
+     value: z.ZodOptional<z.ZodBoolean>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Boolean;
+-    description: string;
+-    value?: boolean | undefined;
+-}, {
+-    type: EntityPropertyType.Boolean;
+-    description: string;
+-    value?: boolean | undefined;
+-}>]>>;
++}, z.core.$strip>]>>;
+ export declare const EntityTypeSchema: z.ZodObject<{
+     description: z.ZodDefault<z.ZodString>;
+-    fields: z.ZodRecord<z.ZodString, z.ZodUnion<[z.ZodObject<{
++    fields: z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Text>;
+         value: z.ZodOptional<z.ZodString>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    }, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    }>, z.ZodObject<{
++    }, z.core.$strip>, z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Int>;
+         value: z.ZodOptional<z.ZodNumber>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    }, {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    }>, z.ZodObject<{
++    }, z.core.$strip>, z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Float>;
+         value: z.ZodOptional<z.ZodNumber>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    }, {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    }>, z.ZodObject<{
++    }, z.core.$strip>, z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Boolean>;
+         value: z.ZodOptional<z.ZodBoolean>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }, {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }>]>>;
+-}, "strip", z.ZodTypeAny, {
+-    description: string;
+-    fields: Record<string, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    } | {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }>;
+-}, {
+-    fields: Record<string, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    } | {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }>;
+-    description?: string | undefined;
+-}>;
++    }, z.core.$strip>]>>;
++}, z.core.$strip>;
+ export declare const EdgeTypeSchema: z.ZodObject<{
+     description: z.ZodDefault<z.ZodString>;
+-    fields: z.ZodRecord<z.ZodString, z.ZodUnion<[z.ZodObject<{
++    fields: z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Text>;
+         value: z.ZodOptional<z.ZodString>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    }, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    }>, z.ZodObject<{
++    }, z.core.$strip>, z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Int>;
+         value: z.ZodOptional<z.ZodNumber>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    }, {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    }>, z.ZodObject<{
++    }, z.core.$strip>, z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Float>;
+         value: z.ZodOptional<z.ZodNumber>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    }, {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    }>, z.ZodObject<{
++    }, z.core.$strip>, z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Boolean>;
+         value: z.ZodOptional<z.ZodBoolean>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }, {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }>]>>;
+-} & {
++    }, z.core.$strip>]>>;
+     sourceTargets: z.ZodOptional<z.ZodArray<z.ZodObject<{
+         source: z.ZodOptional<z.ZodString>;
+         target: z.ZodOptional<z.ZodString>;
+-    }, "strip", z.ZodTypeAny, {
+-        source?: string | undefined;
+-        target?: string | undefined;
+-    }, {
+-        source?: string | undefined;
+-        target?: string | undefined;
+-    }>, "many">>;
+-}, "strip", z.ZodTypeAny, {
+-    description: string;
+-    fields: Record<string, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    } | {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }>;
+-    sourceTargets?: {
+-        source?: string | undefined;
+-        target?: string | undefined;
+-    }[] | undefined;
+-}, {
+-    fields: Record<string, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    } | {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }>;
+-    description?: string | undefined;
+-    sourceTargets?: {
+-        source?: string | undefined;
+-        target?: string | undefined;
+-    }[] | undefined;
+-}>;
++    }, z.core.$strip>>>;
++}, z.core.$strip>;
+ export type EntityType = z.infer<typeof EntityTypeSchema>;
+ export type EdgeType = z.infer<typeof EdgeTypeSchema>;
+ export type EntityData<T extends EntityType> = {
+diff --git a/dist/cjs/wrapper/ontology.js b/dist/cjs/wrapper/ontology.js
+index 2ac3aa0d9d5f266af1f1aa9628e43c863b44392f..d08133314d2305024ad9cab00c85aa717390c17a 100644
+--- a/dist/cjs/wrapper/ontology.js
++++ b/dist/cjs/wrapper/ontology.js
+@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.entityFields = exports.EdgeTypeSchema = exports.EntityTypeSchema = exports.EntityFields = exports.EntityTypeFieldSchema = exports.EntityTypeBooleanFieldSchema = exports.EntityTypeFloatFieldSchema = exports.EntityTypeIntFieldSchema = exports.EntityTypeTextFieldSchema = exports.EntityTypeBaseField = exports.EntityPropertyType = void 0;
+ exports.entityModelToAPISchema = entityModelToAPISchema;
+ exports.edgeModelToAPISchema = edgeModelToAPISchema;
+-const zod_1 = require("zod");
++const zod_1 = require("zod/v4");
+ var EntityPropertyType;
+ (function (EntityPropertyType) {
+     EntityPropertyType["Text"] = "Text";
+@@ -37,10 +37,10 @@ exports.EntityTypeFieldSchema = zod_1.z.union([
+     exports.EntityTypeFloatFieldSchema,
+     exports.EntityTypeBooleanFieldSchema,
+ ]);
+-exports.EntityFields = zod_1.z.record(exports.EntityTypeFieldSchema);
++exports.EntityFields = zod_1.z.record(zod_1.z.string(), exports.EntityTypeFieldSchema);
+ exports.EntityTypeSchema = zod_1.z.object({
+     description: zod_1.z.string().default(""),
+-    fields: zod_1.z.record(exports.EntityTypeFieldSchema),
++    fields: zod_1.z.record(zod_1.z.string(), exports.EntityTypeFieldSchema),
+ });
+ const EdgeSourceTarget = zod_1.z.object({
+     source: zod_1.z.string().optional(),
+diff --git a/dist/esm/wrapper/ontology.d.mts b/dist/esm/wrapper/ontology.d.mts
+index 2de4438d2a0b5026cf6ff282573b3fada181f364..4867361fa8fdff92e1a2a19b9ed08930f7b8f7f7 100644
+--- a/dist/esm/wrapper/ontology.d.mts
++++ b/dist/esm/wrapper/ontology.d.mts
+@@ -1,4 +1,4 @@
+-import { z } from "zod";
++import { z } from "zod/v4";
+ import { Zep } from "../index.mjs";
+ export declare enum EntityPropertyType {
+     Text = "Text",
+@@ -7,393 +7,116 @@ export declare enum EntityPropertyType {
+     Boolean = "Boolean"
+ }
+ export declare const EntityTypeBaseField: z.ZodObject<{
+-    type: z.ZodNativeEnum<typeof EntityPropertyType>;
++    type: z.ZodEnum<typeof EntityPropertyType>;
+     description: z.ZodString;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType;
+-    description: string;
+-}, {
+-    type: EntityPropertyType;
+-    description: string;
+-}>;
++}, z.core.$strip>;
+ export interface EntityField<V = any> {
+     description: string;
+     value?: V;
+ }
+ export declare const EntityTypeTextFieldSchema: z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Text>;
+     value: z.ZodOptional<z.ZodString>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Text;
+-    description: string;
+-    value?: string | undefined;
+-}, {
+-    type: EntityPropertyType.Text;
+-    description: string;
+-    value?: string | undefined;
+-}>;
++}, z.core.$strip>;
+ export type EntityTextField = z.infer<typeof EntityTypeTextFieldSchema>;
+ export declare const EntityTypeIntFieldSchema: z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Int>;
+     value: z.ZodOptional<z.ZodNumber>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Int;
+-    description: string;
+-    value?: number | undefined;
+-}, {
+-    type: EntityPropertyType.Int;
+-    description: string;
+-    value?: number | undefined;
+-}>;
++}, z.core.$strip>;
+ export type EntityIntField = z.infer<typeof EntityTypeIntFieldSchema>;
+ export declare const EntityTypeFloatFieldSchema: z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Float>;
+     value: z.ZodOptional<z.ZodNumber>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Float;
+-    description: string;
+-    value?: number | undefined;
+-}, {
+-    type: EntityPropertyType.Float;
+-    description: string;
+-    value?: number | undefined;
+-}>;
++}, z.core.$strip>;
+ export type EntityFloatField = z.infer<typeof EntityTypeFloatFieldSchema>;
+ export declare const EntityTypeBooleanFieldSchema: z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Boolean>;
+     value: z.ZodOptional<z.ZodBoolean>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Boolean;
+-    description: string;
+-    value?: boolean | undefined;
+-}, {
+-    type: EntityPropertyType.Boolean;
+-    description: string;
+-    value?: boolean | undefined;
+-}>;
++}, z.core.$strip>;
+ export type EntityBooleanField = z.infer<typeof EntityTypeBooleanFieldSchema>;
+-export declare const EntityTypeFieldSchema: z.ZodUnion<[z.ZodObject<{
++export declare const EntityTypeFieldSchema: z.ZodUnion<readonly [z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Text>;
+     value: z.ZodOptional<z.ZodString>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Text;
+-    description: string;
+-    value?: string | undefined;
+-}, {
+-    type: EntityPropertyType.Text;
+-    description: string;
+-    value?: string | undefined;
+-}>, z.ZodObject<{
++}, z.core.$strip>, z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Int>;
+     value: z.ZodOptional<z.ZodNumber>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Int;
+-    description: string;
+-    value?: number | undefined;
+-}, {
+-    type: EntityPropertyType.Int;
+-    description: string;
+-    value?: number | undefined;
+-}>, z.ZodObject<{
++}, z.core.$strip>, z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Float>;
+     value: z.ZodOptional<z.ZodNumber>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Float;
+-    description: string;
+-    value?: number | undefined;
+-}, {
+-    type: EntityPropertyType.Float;
+-    description: string;
+-    value?: number | undefined;
+-}>, z.ZodObject<{
++}, z.core.$strip>, z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Boolean>;
+     value: z.ZodOptional<z.ZodBoolean>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Boolean;
+-    description: string;
+-    value?: boolean | undefined;
+-}, {
+-    type: EntityPropertyType.Boolean;
+-    description: string;
+-    value?: boolean | undefined;
+-}>]>;
++}, z.core.$strip>]>;
+ export type SupportedEntityField = EntityTextField | EntityIntField | EntityFloatField | EntityBooleanField;
+-export declare const EntityFields: z.ZodRecord<z.ZodString, z.ZodUnion<[z.ZodObject<{
++export declare const EntityFields: z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Text>;
+     value: z.ZodOptional<z.ZodString>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Text;
+-    description: string;
+-    value?: string | undefined;
+-}, {
+-    type: EntityPropertyType.Text;
+-    description: string;
+-    value?: string | undefined;
+-}>, z.ZodObject<{
++}, z.core.$strip>, z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Int>;
+     value: z.ZodOptional<z.ZodNumber>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Int;
+-    description: string;
+-    value?: number | undefined;
+-}, {
+-    type: EntityPropertyType.Int;
+-    description: string;
+-    value?: number | undefined;
+-}>, z.ZodObject<{
++}, z.core.$strip>, z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Float>;
+     value: z.ZodOptional<z.ZodNumber>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Float;
+-    description: string;
+-    value?: number | undefined;
+-}, {
+-    type: EntityPropertyType.Float;
+-    description: string;
+-    value?: number | undefined;
+-}>, z.ZodObject<{
++}, z.core.$strip>, z.ZodObject<{
+     description: z.ZodString;
+-} & {
+     type: z.ZodLiteral<EntityPropertyType.Boolean>;
+     value: z.ZodOptional<z.ZodBoolean>;
+-}, "strip", z.ZodTypeAny, {
+-    type: EntityPropertyType.Boolean;
+-    description: string;
+-    value?: boolean | undefined;
+-}, {
+-    type: EntityPropertyType.Boolean;
+-    description: string;
+-    value?: boolean | undefined;
+-}>]>>;
++}, z.core.$strip>]>>;
+ export declare const EntityTypeSchema: z.ZodObject<{
+     description: z.ZodDefault<z.ZodString>;
+-    fields: z.ZodRecord<z.ZodString, z.ZodUnion<[z.ZodObject<{
++    fields: z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Text>;
+         value: z.ZodOptional<z.ZodString>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    }, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    }>, z.ZodObject<{
++    }, z.core.$strip>, z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Int>;
+         value: z.ZodOptional<z.ZodNumber>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    }, {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    }>, z.ZodObject<{
++    }, z.core.$strip>, z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Float>;
+         value: z.ZodOptional<z.ZodNumber>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    }, {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    }>, z.ZodObject<{
++    }, z.core.$strip>, z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Boolean>;
+         value: z.ZodOptional<z.ZodBoolean>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }, {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }>]>>;
+-}, "strip", z.ZodTypeAny, {
+-    description: string;
+-    fields: Record<string, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    } | {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }>;
+-}, {
+-    fields: Record<string, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    } | {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }>;
+-    description?: string | undefined;
+-}>;
++    }, z.core.$strip>]>>;
++}, z.core.$strip>;
+ export declare const EdgeTypeSchema: z.ZodObject<{
+     description: z.ZodDefault<z.ZodString>;
+-    fields: z.ZodRecord<z.ZodString, z.ZodUnion<[z.ZodObject<{
++    fields: z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Text>;
+         value: z.ZodOptional<z.ZodString>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    }, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    }>, z.ZodObject<{
++    }, z.core.$strip>, z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Int>;
+         value: z.ZodOptional<z.ZodNumber>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    }, {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    }>, z.ZodObject<{
++    }, z.core.$strip>, z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Float>;
+         value: z.ZodOptional<z.ZodNumber>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    }, {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    }>, z.ZodObject<{
++    }, z.core.$strip>, z.ZodObject<{
+         description: z.ZodString;
+-    } & {
+         type: z.ZodLiteral<EntityPropertyType.Boolean>;
+         value: z.ZodOptional<z.ZodBoolean>;
+-    }, "strip", z.ZodTypeAny, {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }, {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }>]>>;
+-} & {
++    }, z.core.$strip>]>>;
+     sourceTargets: z.ZodOptional<z.ZodArray<z.ZodObject<{
+         source: z.ZodOptional<z.ZodString>;
+         target: z.ZodOptional<z.ZodString>;
+-    }, "strip", z.ZodTypeAny, {
+-        source?: string | undefined;
+-        target?: string | undefined;
+-    }, {
+-        source?: string | undefined;
+-        target?: string | undefined;
+-    }>, "many">>;
+-}, "strip", z.ZodTypeAny, {
+-    description: string;
+-    fields: Record<string, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    } | {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }>;
+-    sourceTargets?: {
+-        source?: string | undefined;
+-        target?: string | undefined;
+-    }[] | undefined;
+-}, {
+-    fields: Record<string, {
+-        type: EntityPropertyType.Text;
+-        description: string;
+-        value?: string | undefined;
+-    } | {
+-        type: EntityPropertyType.Int;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Float;
+-        description: string;
+-        value?: number | undefined;
+-    } | {
+-        type: EntityPropertyType.Boolean;
+-        description: string;
+-        value?: boolean | undefined;
+-    }>;
+-    description?: string | undefined;
+-    sourceTargets?: {
+-        source?: string | undefined;
+-        target?: string | undefined;
+-    }[] | undefined;
+-}>;
++    }, z.core.$strip>>>;
++}, z.core.$strip>;
+ export type EntityType = z.infer<typeof EntityTypeSchema>;
+ export type EdgeType = z.infer<typeof EdgeTypeSchema>;
+ export type EntityData<T extends EntityType> = {
+diff --git a/dist/esm/wrapper/ontology.mjs b/dist/esm/wrapper/ontology.mjs
+index a0cd8cbfbc76de11252ded29d73c2881ef6d74e1..0a2dbda19ca35c716acb42c2dac5f5645f16a0e2 100644
+--- a/dist/esm/wrapper/ontology.mjs
++++ b/dist/esm/wrapper/ontology.mjs
+@@ -1,4 +1,4 @@
+-import { z } from "zod";
++import { z } from "zod/v4";
+ export var EntityPropertyType;
+ (function (EntityPropertyType) {
+     EntityPropertyType["Text"] = "Text";
+@@ -32,10 +32,10 @@ export const EntityTypeFieldSchema = z.union([
+     EntityTypeFloatFieldSchema,
+     EntityTypeBooleanFieldSchema,
+ ]);
+-export const EntityFields = z.record(EntityTypeFieldSchema);
++export const EntityFields = z.record(z.string(), EntityTypeFieldSchema);
+ export const EntityTypeSchema = z.object({
+     description: z.string().default(""),
+-    fields: z.record(EntityTypeFieldSchema),
++    fields: z.record(z.string(), EntityTypeFieldSchema),
+ });
+ const EdgeSourceTarget = z.object({
+     source: z.string().optional(),

@@ -1,7 +1,13 @@
 import type { AccountSidebarPreferences } from "@openmeld/schemas";
-import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
+import {
+	useInfiniteQuery,
+	useQueries,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { toast } from "sonner";
 import { moveSidebarItemIds } from "#/components/app/sidebar-order";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import {
@@ -9,12 +15,18 @@ import {
 	useMemberAgentSessionTitles,
 } from "#/components/member-agents/use-member-agents";
 import { resolveConversationTitle } from "#/lib/conversations/presentation";
+import { isMemberAgentsEnabled } from "#/lib/member-agents/member-agents-feature";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationDirectMessagePath,
 } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
+import {
+	agentDirectMessageSessionQueryKeys,
+	agentDirectMessageSessionsQueryOptions,
+	createAgentDirectMessageSessionApi,
+} from "#/query/organizations/agent-direct-message-sessions";
 import { centerAgentSessionsQueryOptions } from "#/query/organizations/center-agent-sessions";
 import { spaceInboxSummaryQueryOptions } from "#/query/organizations/inbox";
 import { organizationProfileIdentityDirectoryQueryOptions } from "#/query/organizations/organization-directory";
@@ -23,7 +35,12 @@ import {
 	resolveAccountSpaceViewerProfileId,
 	selectAccountSpaceSections,
 } from "./account-space-sections";
-import { type Chat, mergeChatPreferences } from "./chat-sidebar-model";
+import {
+	type Chat,
+	chatSessionAgentProfileId,
+	isChatArchived,
+	mergeChatPreferences,
+} from "./chat-sidebar-model";
 import { resolveDirectMessagePresentation } from "./direct-message-presentation";
 import { spaceMessagePreviewQueryOptions } from "./direct-message-preview";
 import {
@@ -55,6 +72,7 @@ export function useChats(input: {
 	includes: (kind: string) => boolean;
 }) {
 	const { currentOrganization: org, currentUserId } = useAppOrganization();
+	const queryClient = useQueryClient();
 	const { defaultHumanProfile, profilesQuery } = useDefaultHumanProfile();
 	const profileId =
 		input.currentProfileId ?? defaultHumanProfile?.openMeldProfileId ?? "";
@@ -135,6 +153,29 @@ export function useChats(input: {
 		});
 	}
 	const chats = [...chatsById.values()];
+	const sessionProfileIds = [
+		...new Set(
+			chats.flatMap((chat) => {
+				const id = chatSessionAgentProfileId(chat);
+				return id ? [id] : [];
+			})
+		),
+	];
+	const archivedSessions = useQueries({
+		queries: sessionProfileIds.map((agentProfileId) =>
+			agentDirectMessageSessionsQueryOptions({
+				organizationId: org.id,
+				agentProfileId,
+				archived: true,
+				enabled: isMemberAgentsEnabled() && Boolean(profileId),
+			})
+		),
+	});
+	const sessionArchivedIds = new Set(
+		archivedSessions.flatMap(
+			(query) => query.data?.sessions.map((session) => session.spaceId) ?? []
+		)
+	);
 	const ordinaryAccountItems = accountItems.filter(
 		(item) => !chatsById.get(item.spaceId)?.session
 	);
@@ -142,6 +183,13 @@ export function useChats(input: {
 		store.preferences,
 		ordinaryAccountItems
 	);
+	const isArchived = (chat: Chat) =>
+		isChatArchived({
+			chat,
+			memberAgentsEnabled: isMemberAgentsEnabled(),
+			personalArchivedIds: preferences.archivedIds,
+			sessionArchivedIds,
+		});
 	const unprojectedChats = chats.filter(
 		(chat) => chat.messagePreview === undefined
 	);
@@ -215,6 +263,36 @@ export function useChats(input: {
 			store.save({ ...store.preferences, messages: undefined, chats });
 		}
 	};
+	const setArchived = async (chat: Chat, archived: boolean) => {
+		if (isMemberAgentsEnabled() && chatSessionAgentProfileId(chat)) {
+			try {
+				await createAgentDirectMessageSessionApi(org.id).updateSession({
+					spaceId: chat.spaceId,
+					update: { operation: archived ? "archive" : "unarchive" },
+				});
+				await queryClient.invalidateQueries({
+					queryKey: agentDirectMessageSessionQueryKeys.all(org.id),
+				});
+			} catch (error) {
+				console.error("Could not update chat archive", error);
+				toast.error("Couldn’t update this chat. Try again.");
+			}
+			return;
+		}
+		store.update((current) => {
+			const currentChats = mergeChatPreferences(current, ordinaryAccountItems);
+			return {
+				...current,
+				messages: undefined,
+				chats: {
+					...currentChats,
+					archivedIds: archived
+						? [...new Set([...currentChats.archivedIds, chat.spaceId])]
+						: currentChats.archivedIds.filter((id) => id !== chat.spaceId),
+				},
+			};
+		});
+	};
 	const sections = [
 		{ id: "pinned", name: "Pinned", ...preferences.pinned },
 		...preferences.groups,
@@ -238,7 +316,7 @@ export function useChats(input: {
 				input.includes(
 					chat.session ? "agent" : (chat.profileKind ?? "unknown")
 				) &&
-				preferences.archivedIds.includes(chat.spaceId) === input.archived &&
+				isArchived(chat) === input.archived &&
 				title(chat)
 					.toLocaleLowerCase()
 					.includes(input.search.toLocaleLowerCase())
@@ -341,6 +419,8 @@ export function useChats(input: {
 		});
 	};
 	return {
+		isArchived,
+		setArchived,
 		move,
 		unpin,
 		pin,

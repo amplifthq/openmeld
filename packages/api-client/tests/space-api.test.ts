@@ -692,7 +692,7 @@ describe("api-client space api", () => {
     expect(transport).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        operation: "space.files.upload",
+        operation: "space.files.upload.direct",
         url: "https://gateway.openmeld.invalid/v1/spaces/space-123/files?clientMutationId=mutation-1&name=launch+notes.md&origin=artifact",
         init: expect.objectContaining({
           method: "POST",
@@ -1385,6 +1385,20 @@ describe("api-client space api", () => {
           method: "PATCH",
           body: JSON.stringify({ name: "Launch Room" }),
         }),
+      })
+    );
+    const guideEdit = {
+      previous: "Use Linear.",
+      text: "Use Linear. Include a reproduction.",
+    };
+    await api.updateMeta({
+      spaceId: "space-123",
+      requestContext: REQUEST_CONTEXT,
+      guideEdit,
+    });
+    expect(transport).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        init: expect.objectContaining({ body: JSON.stringify({ guideEdit }) }),
       })
     );
   });

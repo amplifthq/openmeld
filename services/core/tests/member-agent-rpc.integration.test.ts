@@ -11,6 +11,7 @@ import {
   pairAcceptedReports,
   recordMemberAgentCatalogReports,
   rpcSyncMemberAgents,
+  setLocalAgentEnabledWithMemberAgents,
 } from "../src/member-agent/member-agent-rpc";
 import { env } from "../test-support/worker-env";
 
@@ -22,7 +23,7 @@ const db = () => {
   return database;
 };
 
-async function seed() {
+async function seed(input: { reportStatus?: "disabled" | "ready" } = {}) {
   const suffix = crypto.randomUUID();
   const userId = `user_${suffix}`;
   const opened = `org_opened_${suffix}`;
@@ -58,8 +59,18 @@ async function seed() {
       openmeld_service_runtime_id, agent_controller_ref, report_status,
       observed_at_ms, expires_at_ms, reported_reason_codes_json,
       agent_controller_interface_json, accepted_at_ms, updated_at_ms
-    ) VALUES ($1, 'builtin:codex', 'ready', $2, $3, '[]', NULL, $2, $2)`,
-    values: [runtimeId, nowMs, nowMs + 600_000],
+    ) VALUES ($1, 'builtin:codex', $4, $2, $3, $5, NULL, $2, $2)`,
+    values: [
+      runtimeId,
+      nowMs,
+      nowMs + 600_000,
+      input.reportStatus ?? "ready",
+      JSON.stringify(
+        input.reportStatus === "disabled"
+          ? ["local_agent_preparation.not_enabled"]
+          : []
+      ),
+    ],
   });
   const context = (organizationId: string): OpenMeldRequestContext => ({
     activeOrganizationId: organizationId,
@@ -164,8 +175,31 @@ describe("rpcSyncMemberAgents", () => {
     ).rejects.toMatchObject({ code: "member_agents.human_caller_required" });
   });
 
-  it("offers a detected Harness without creating it", async () => {
+  it("creates a turned-on Harness when the member opens the organization", async () => {
     const f = await seed();
+    const worker = authWorker({ organizationIds: [] });
+
+    const response = await rpcSyncMemberAgents(
+      withAuth(worker),
+      { context: f.context(f.opened) },
+      { enabled: true }
+    );
+
+    expect(worker.ensureDetectedMemberAgent).toHaveBeenCalledTimes(1);
+    expect(worker.ensureDetectedMemberAgent).toHaveBeenCalledWith({
+      harnessKind: "codex",
+      organizationId: f.opened,
+      ownerUserId: f.userId,
+    });
+    expect(response).toMatchObject({
+      addableHarnessKinds: [],
+      ok: true,
+      results: [{ harnessKind: "codex", outcome: "created" }],
+    });
+  });
+
+  it("offers a turned-off Harness without creating it", async () => {
+    const f = await seed({ reportStatus: "disabled" });
     const worker = authWorker({ organizationIds: [] });
 
     const response = await rpcSyncMemberAgents(
@@ -222,8 +256,64 @@ describe("rpcSyncMemberAgents", () => {
   });
 });
 
+describe("setLocalAgentEnabledWithMemberAgents", () => {
+  it("adds the MemberAgent when the member turns a Harness on", async () => {
+    // The switch's own response arrives after the Service refreshed its
+    // report; the fake stands in for that by flipping the stored report.
+    const f = await seed({ reportStatus: "disabled" });
+    const worker = authWorker({ organizationIds: [] });
+    const switched = { agentId: "codex", enabled: true };
+
+    const response = await setLocalAgentEnabledWithMemberAgents(
+      withAuth(worker),
+      { context: f.context(f.opened), enabled: true },
+      async () => {
+        await db().query({
+          text: `UPDATE "openmeld"."openMeldDaemon_runtime_agent_controller_reports"
+            SET report_status = 'ready', reported_reason_codes_json = '[]'
+            WHERE openmeld_service_runtime_id = $1`,
+          values: [f.runtimeId],
+        });
+        return switched;
+      },
+      { enabled: true }
+    );
+
+    expect(response).toBe(switched);
+    expect(worker.ensureDetectedMemberAgent).toHaveBeenCalledWith({
+      harnessKind: "codex",
+      organizationId: f.opened,
+      ownerUserId: f.userId,
+    });
+  });
+
+  it("adds nothing when a Harness is turned off, and never fails the switch", async () => {
+    const f = await seed();
+    const worker = authWorker({ organizationIds: [] });
+
+    await setLocalAgentEnabledWithMemberAgents(
+      withAuth(worker),
+      { context: f.context(f.opened), enabled: false },
+      async () => ({ enabled: false }),
+      { enabled: true }
+    );
+    expect(worker.ensureDetectedMemberAgent).not.toHaveBeenCalled();
+
+    // A foreign organization fails the sync; the switch still answers.
+    await expect(
+      setLocalAgentEnabledWithMemberAgents(
+        withAuth(worker),
+        { context: f.context(f.foreign), enabled: true },
+        async () => ({ enabled: true }),
+        { enabled: true }
+      )
+    ).resolves.toEqual({ enabled: true });
+    expect(worker.ensureDetectedMemberAgent).not.toHaveBeenCalled();
+  });
+});
+
 describe("recordMemberAgentCatalogReports", () => {
-  it("reconciles a newly present Harness only where the owner already has MemberAgents, without creating it", async () => {
+  it("adds a newly detected, turned-on Harness only where the owner already has MemberAgents", async () => {
     const f = await seed();
     const worker = authWorker({ organizationIds: [f.opened] });
     const report = {
@@ -243,9 +333,14 @@ describe("recordMemberAgentCatalogReports", () => {
       reports: [report],
     });
 
-    // Only the member chooses which Harnesses become Agents.
-    expect(worker.ensureDetectedMemberAgent).not.toHaveBeenCalled();
-    expect(worker.listOwnerMemberAgents).toHaveBeenCalledTimes(1);
+    // The Harness is turned on, so the member chose it.
+    expect(worker.ensureDetectedMemberAgent).toHaveBeenCalledTimes(1);
+    expect(worker.ensureDetectedMemberAgent).toHaveBeenCalledWith({
+      harnessKind: "codex",
+      organizationId: f.opened,
+      ownerUserId: f.userId,
+    });
+    const listingsAfterCreate = worker.listOwnerMemberAgents.mock.calls.length;
     expect(worker.listOwnerMemberAgents).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: f.opened })
     );
@@ -259,7 +354,9 @@ describe("recordMemberAgentCatalogReports", () => {
       ownerUserId: f.userId,
       reports: [{ ...report, observedAtMs: f.nowMs + 60_000 }],
     });
-    expect(worker.listOwnerMemberAgents).toHaveBeenCalledTimes(1);
+    expect(worker.listOwnerMemberAgents).toHaveBeenCalledTimes(
+      listingsAfterCreate
+    );
     expect(worker.listMemberAgentOrganizationIds).toHaveBeenCalledTimes(1);
   });
 

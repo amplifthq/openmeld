@@ -73,8 +73,16 @@ import type {
   RuntimeTransportSubmitTaskResultRequest,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, type Mock, onTestFinished, vi } from "vitest";
+import { writeAgentExecutionReadinessImpact } from "../src/agent-execution/infrastructure/postgresql/agent-execution-readiness-impact-repo";
 import { handleDispatchQueueBatch } from "../src/dispatch/transport/queue/dispatch-queue-consumer";
 import type { CoreBindings } from "../src/lib/bindings";
+import {
+  getCachedCoreLocalComponentsRelease,
+  LOCAL_COMPONENTS_RELEASE_OBJECT_KEY,
+  readCoreLocalComponentsRelease,
+  resetCoreLocalComponentsReleaseCacheForTests,
+} from "../src/local-components/release-source";
+import { resolveLocalComponentUpdateProjection } from "../src/local-components/update-projection";
 // biome-ignore lint/performance/noNamespaceImport: Spy on the authoritative transaction result in the worker graph.
 import * as executionAdmission from "../src/runtime-transport/application/agent-profile-execution-admission";
 import {
@@ -127,12 +135,13 @@ import {
   createRuntimeTransportMutableState,
   type PendingDispatchState,
   type RuntimeTransportMutableState,
+  type WaitDispatchResultResponse,
 } from "../src/runtime-transport/application/runtime-transport-state";
+import { failPendingDispatchResultWaitersForConnectionGeneration } from "../src/runtime-transport/application/runtime-transport-wait-service";
 import { listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace } from "../src/runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
 import { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
 import {
   createPublishedCliReleasesBucket,
-  createPublishedLocalComponentsRelease,
   PUBLISHED_LOCAL_COMPONENTS_MANIFEST,
 } from "../test-support/published-local-components-release";
 import { env } from "../test-support/worker-env";
@@ -697,6 +706,7 @@ const createRecordingPostgres = async (input?: {
 };
 
 const createHarness = async (input?: {
+  cliReleasesBucket?: R2Bucket;
   bindingReadGate?: Promise<void>;
   onBindingRead?: () => void;
   bindingControllerRef?: string;
@@ -1193,6 +1203,9 @@ const createHarness = async (input?: {
   };
   Object.defineProperty(hub, "state", { value: state });
   Object.defineProperties(hub, {
+    gateLogContext: {
+      value: { bootId: "test-hub-boot", durableObjectId: "test-hub" },
+    },
     pendingAgentReadinessInvalidationsByReason: {
       value: new Map(),
       writable: true,
@@ -1202,19 +1215,16 @@ const createHarness = async (input?: {
       writable: true,
     },
     liveInvalidationFlushTimer: { value: null, writable: true },
-    // Object.create skips the constructor that loads the published release.
-    localComponentsRelease: {
-      value: createPublishedLocalComponentsRelease(),
-      writable: true,
-    },
   });
+  const cliReleasesBucket =
+    input?.cliReleasesBucket ?? createPublishedCliReleasesBucket();
   Object.defineProperty(hub, "env", {
     value: {
       OPENMELD_AUTH_WORKER: {
         resolveProfileById: authResolveProfileById,
       },
       OPENMELD_POSTGRESQL: recordingPostgres.binding,
-      OPENMELD_CLI_RELEASES: createPublishedCliReleasesBucket(),
+      OPENMELD_CLI_RELEASES: cliReleasesBucket,
       OPENMELD_DAEMON_DISPATCH_QUEUE: {
         send: queueSend,
       },
@@ -1224,6 +1234,8 @@ const createHarness = async (input?: {
       },
     } as unknown as CoreBindings,
   });
+  // Object.create skips the constructor; prime the source that owns policy validity.
+  await readCoreLocalComponentsRelease(cliReleasesBucket);
   Object.defineProperty(hub, "ctx", {
     value: {
       blockConcurrencyWhile: async <T>(callback: () => Promise<T>) =>
@@ -1323,6 +1335,23 @@ const createHarness = async (input?: {
   Object.defineProperty(hub, "resolvePendingResultWaiters", {
     value: vi.fn(),
   });
+  Object.defineProperty(
+    hub,
+    "failPendingDispatchResultWaitersForConnectionGeneration",
+    {
+      value: (
+        daemonSessionId: string,
+        connectionGeneration: number,
+        response: WaitDispatchResultResponse
+      ) =>
+        failPendingDispatchResultWaitersForConnectionGeneration(
+          state,
+          daemonSessionId,
+          connectionGeneration,
+          response
+        ),
+    }
+  );
 
   onTestFinished(async () => {
     if (vi.isFakeTimers()) {
@@ -1855,6 +1884,20 @@ const buildRuntimeCoordinatorHeadAcceptRequest = (
   overrides: Partial<RuntimeTransportRuntimeCoordinatorHeadAcceptRequest> = {}
 ): RuntimeTransportRuntimeCoordinatorHeadAcceptRequest => {
   const dispatchId = overrides.dispatchId ?? "dispatch-1";
+  let acceptedDispatchSnapshot = overrides.acceptedDispatchSnapshot;
+  const contextRequest = acceptedDispatchSnapshot?.contextRequest;
+  if (acceptedDispatchSnapshot && contextRequest) {
+    acceptedDispatchSnapshot = {
+      ...acceptedDispatchSnapshot,
+      contextRequest: {
+        ...contextRequest,
+        requestChain: contextRequest.requestChain ?? [
+          { kind: "human", profileId: contextRequest.scope.requesterProfileId },
+          { kind: "agent", profileId: contextRequest.scope.targetProfileId },
+        ],
+      },
+    };
+  }
   const targetWakeLifecycleIdentity =
     overrides.targetWakeLifecycleIdentity ??
     projectTargetWakeLifecycleIdentity({
@@ -1866,9 +1909,7 @@ const buildRuntimeCoordinatorHeadAcceptRequest = (
     });
   return {
     v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
-    ...(overrides.acceptedDispatchSnapshot
-      ? { acceptedDispatchSnapshot: overrides.acceptedDispatchSnapshot }
-      : {}),
+    ...(acceptedDispatchSnapshot ? { acceptedDispatchSnapshot } : {}),
     dispatchId,
     idempotencyKey: overrides.idempotencyKey ?? "idempotency-1",
     ownerUserId: overrides.ownerUserId ?? "owner-1",
@@ -5599,31 +5640,271 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
     );
   });
+  it("finishes constructor, registration and route lookups while required policy remains unreadable", async () => {
+    const transport = (env as unknown as CoreBindings)
+      .OPENMELD_RUNTIME_TRANSPORT;
+    if (!transport) {
+      throw new Error("Expected runtime transport binding");
+    }
+    await runInDurableObject(
+      transport.get(transport.newUniqueId()),
+      async (_instance, durableState) => {
+        resetCoreLocalComponentsReleaseCacheForTests();
+        let r2Started = Promise.withResolvers<void>();
+        let r2Response = Promise.withResolvers<void>();
+        let nowMs = Date.now();
+        const clock = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+        const r2CallsInsideGate: boolean[] = [];
+        const gates: Promise<unknown>[] = [];
+        const backgroundTasks = new Set<Promise<unknown>>();
+        let activeGateCount = 0;
+        const blockConcurrencyWhile =
+          durableState.blockConcurrencyWhile.bind(durableState);
+        const gateSpy = vi
+          .spyOn(durableState, "blockConcurrencyWhile")
+          .mockImplementation(<T>(operation: () => Promise<T>): Promise<T> => {
+            const gate = blockConcurrencyWhile(async () => {
+              activeGateCount += 1;
+              try {
+                return await operation();
+              } finally {
+                activeGateCount -= 1;
+              }
+            });
+            gates.push(gate);
+            return gate;
+          });
+        const waitUntil = durableState.waitUntil.bind(durableState);
+        const backgroundSpy = vi
+          .spyOn(durableState, "waitUntil")
+          .mockImplementation((task: Promise<unknown>): void => {
+            backgroundTasks.add(task);
+            task.then(
+              () => backgroundTasks.delete(task),
+              () => backgroundTasks.delete(task)
+            );
+            waitUntil(task);
+          });
+        const bucket = createPublishedCliReleasesBucket();
+        const get = bucket.get.bind(bucket);
+        const pendingGet = vi
+          .spyOn(bucket, "get")
+          .mockImplementation(async (key) => {
+            r2CallsInsideGate.push(activeGateCount > 0);
+            r2Started.resolve();
+            await r2Response.promise;
+            return get(key);
+          });
+        const sentFrames: { code: string; payload: { ok?: boolean } }[] = [];
+        let socketAttachment: unknown = {
+          verifiedOwnerUserId: "owner-policy-gate",
+        };
+        const socket = {
+          deserializeAttachment: () => socketAttachment,
+          serializeAttachment: (value: unknown) => {
+            socketAttachment = value;
+          },
+          send: (message: string) => sentFrames.push(JSON.parse(message)),
+        } as unknown as WebSocket;
+        try {
+          const hub = new RuntimeTransportHub(durableState, {
+            ...env,
+            OPENMELD_CLI_RELEASES: bucket,
+          } as unknown as CoreBindings);
+
+          await r2Started.promise;
+          expect(r2CallsInsideGate).not.toContain(true);
+          expect(gates).toHaveLength(1);
+          await gates[0];
+
+          const registerFrame = JSON.stringify({
+            v: 1,
+            code: "daemon.session.register",
+            payload: {
+              v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+              ownerUserId: "owner-policy-gate",
+              deviceId: "device-policy-gate",
+              lane: "prod",
+              daemonSessionId: "session-policy-gate",
+              connectionGeneration: 1,
+              connectedAtMs: nowMs,
+              profileIds: [],
+              capabilities: {},
+              runtimeContract: {
+                epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+              },
+              serviceVersion: PUBLISHED_SERVICE_VERSION,
+            },
+          });
+          hub.webSocketMessage(socket, registerFrame);
+          expect(gates).toHaveLength(2);
+          await gates[1];
+          expect(sentFrames).toContainEqual(
+            expect.objectContaining({
+              code: "daemon.session.register",
+              payload: expect.objectContaining({ ok: true }),
+            })
+          );
+          expect(r2CallsInsideGate).not.toContain(true);
+          // The session has registered, but the required policy read is still
+          // blocked. Observe all three HTTP results before releasing that read.
+          const lookupInput = {
+            v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+            ownerUserId: "owner-policy-gate",
+          };
+          const lookups = Promise.all([
+            fetchRuntimeTransportJson(
+              hub,
+              "/lookup-owner-service",
+              lookupInput
+            ),
+            fetchRuntimeTransportJson(hub, "/lookup-route", {
+              ...lookupInput,
+              profileId: TARGET_AGENT_PROFILE_ID,
+            }),
+            fetchRuntimeTransportJson(hub, "/lookup-routes-batch", {
+              ...lookupInput,
+              profileIds: [TARGET_AGENT_PROFILE_ID],
+            }),
+          ]);
+          await vi.waitFor(async () => {
+            const responses = await lookups;
+            expect(responses.map((response) => response.status)).toEqual([
+              200, 404, 200,
+            ]);
+          });
+          const [owner] = await lookups;
+          await expect(owner.json()).resolves.toMatchObject({
+            online: true,
+            sessions: [
+              expect.objectContaining({
+                daemonSessionId: "session-policy-gate",
+              }),
+            ],
+          });
+          expect(
+            resolveLocalComponentUpdateProjection({
+              generatedAt: new Date().toISOString(),
+              release: getCachedCoreLocalComponentsRelease(),
+              serviceConnected: true,
+              serviceVersion: PUBLISHED_SERVICE_VERSION,
+            }).service
+          ).toMatchObject({
+            wakeBlocked: true,
+            reasonCodes: ["local_components.release_manifest_invalid"],
+          });
+
+          r2Response.resolve();
+          const release = await readCoreLocalComponentsRelease(bucket);
+          expect(release.manifest).toEqual(PUBLISHED_LOCAL_COMPONENTS_MANIFEST);
+          expect(
+            resolveLocalComponentUpdateProjection({
+              generatedAt: new Date().toISOString(),
+              release,
+              serviceConnected: true,
+              serviceVersion: PUBLISHED_SERVICE_VERSION,
+            }).service.wakeBlocked
+          ).toBe(false);
+
+          nowMs += 60_001;
+          r2Started = Promise.withResolvers<void>();
+          r2Response = Promise.withResolvers<void>();
+          r2CallsInsideGate.length = 0;
+          hub.webSocketMessage(socket, registerFrame);
+          await r2Started.promise;
+          expect(r2CallsInsideGate).not.toContain(true);
+          expect(gates).toHaveLength(3);
+          await gates[2];
+          expect(
+            sentFrames.filter(
+              (frame) =>
+                frame.code === "daemon.session.register" && frame.payload.ok
+            )
+          ).toHaveLength(2);
+          expect(
+            resolveLocalComponentUpdateProjection({
+              generatedAt: new Date().toISOString(),
+              release: getCachedCoreLocalComponentsRelease(),
+              serviceConnected: true,
+              serviceVersion: PUBLISHED_SERVICE_VERSION,
+            }).service
+          ).toMatchObject({
+            wakeBlocked: true,
+            reasonCodes: ["local_components.release_manifest_invalid"],
+          });
+        } finally {
+          r2Response.resolve();
+          await Promise.allSettled(gates);
+          for (let wave = 0; backgroundTasks.size && wave < 20; wave += 1) {
+            await Promise.allSettled([...backgroundTasks]);
+          }
+          pendingGet.mockRestore();
+          gateSpy.mockRestore();
+          backgroundSpy.mockRestore();
+          clock.mockRestore();
+          await durableState.storage.deleteAll();
+          await durableState.storage.deleteAlarm();
+          await durableState.storage.sync();
+          resetCoreLocalComponentsReleaseCacheForTests();
+        }
+      }
+    );
+  });
+
   it("requests the published release through a real register frame", async () => {
     const harness = await createHarness();
     const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
+    const consoleInfo = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
 
-    sendAutomaticUpdateRegisterFrame(harness);
+    try {
+      sendAutomaticUpdateRegisterFrame(harness);
 
-    await vi.waitFor(() =>
-      expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toHaveLength(
-        1
-      )
-    );
-    expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toEqual([
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          request: {
-            operation: "request_update",
-            requestSource: "automatic",
-          },
+      await vi.waitFor(() =>
+        expect(
+          getAutomaticUpdateRequestFrames(harness.sentFrames)
+        ).toHaveLength(1)
+      );
+      expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            request: {
+              operation: "request_update",
+              requestSource: "automatic",
+            },
+          }),
         }),
-      }),
-    ]);
-    await completeLatestAutomaticUpdateRequest({
-      firstWaitUntilTaskIndex,
-      harness,
-    });
+      ]);
+      await completeLatestAutomaticUpdateRequest({
+        firstWaitUntilTaskIndex,
+        harness,
+      });
+
+      const gateEntries = consoleInfo.mock.calls
+        .map(([, entry]) => entry)
+        .filter((entry) => entry?.event === "runtime_transport_gate_phase");
+      expect(gateEntries.map(({ stage, status }) => [stage, status])).toEqual([
+        ["gate", "started"],
+        ["connection_generation_read", "started"],
+        ["connection_generation_read", "completed"],
+        ["runtime_records_persist", "started"],
+        ["runtime_records_persist", "completed"],
+        ["gate", "completed"],
+      ]);
+      const gateId = gateEntries[0]?.gateId;
+      expect(gateId).toEqual(expect.any(String));
+      for (const entry of gateEntries) {
+        expect(entry).toMatchObject({
+          bootId: "test-hub-boot",
+          durableObjectId: "test-hub",
+          gateId,
+          gateKind: "register",
+        });
+      }
+    } finally {
+      consoleInfo.mockRestore();
+    }
   });
 
   it("requests the published release through a real heartbeat frame", async () => {
@@ -5653,6 +5934,46 @@ describe("runtime transport runtime coordinator transport contract", () => {
       firstWaitUntilTaskIndex,
       harness,
     });
+  });
+
+  it("acknowledges a heartbeat without using expired policy for automatic updates", async () => {
+    resetCoreLocalComponentsReleaseCacheForTests();
+    let nowMs = 1_700_000_000_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    const refresh = Promise.withResolvers<void>();
+    const bucket = createPublishedCliReleasesBucket();
+    const get = bucket.get.bind(bucket);
+    const harness = await createHarness({ cliReleasesBucket: bucket });
+    sendAutomaticUpdateRegisterFrame(harness, false);
+    await Promise.all(harness.waitUntilTasks);
+    const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
+    const refreshGet = vi
+      .spyOn(bucket, "get")
+      .mockImplementation(async (key) => {
+        await refresh.promise;
+        return get(key);
+      });
+
+    try {
+      nowMs += 60_001;
+      sendAutomaticUpdateHeartbeatFrame(harness);
+
+      expect(harness.sentFrames).toContainEqual(
+        expect.objectContaining({
+          code: "daemon.session.heartbeat",
+          payload: expect.objectContaining({ ok: true }),
+        })
+      );
+      expect(getAutomaticUpdateRequestFrames(harness.sentFrames)).toEqual([]);
+      expect(refreshGet).toHaveBeenCalledWith(
+        LOCAL_COMPONENTS_RELEASE_OBJECT_KEY
+      );
+    } finally {
+      refresh.resolve();
+      await Promise.all(harness.waitUntilTasks.slice(firstWaitUntilTaskIndex));
+      refreshGet.mockRestore();
+      clock.mockRestore();
+    }
   });
 
   it("coalesces the heartbeat after register reaches the published release", async () => {
@@ -5951,8 +6272,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
-  it("round-trips Computer power through the exact capable Service", async () => {
-    const { hub, sentFrames, socket, state } = await createHarness();
+  it.each([
+    "responds",
+    "times out",
+    "returns a malformed frame",
+    "reconnects before a close event",
+    "refreshes registration",
+  ])("settles Computer power when the exact capable Service %s", async (scenario) => {
+    const { hub, sentFrames, socket, state, waitUntilTasks } =
+      await createHarness();
     configureCompatibleRoute({ socket, state });
     const session = state.sessionsById.get("daemon-session-1");
     if (!session) {
@@ -5962,6 +6290,24 @@ describe("runtime transport runtime coordinator transport contract", () => {
     state.sessionIdBySocket.set(socket, "daemon-session-1");
     Object.defineProperty(hub, "currentDeviceOperationWaiters", {
       value: new Map(),
+    });
+    const changesRegistration =
+      scenario === "reconnects before a close event" ||
+      scenario === "refreshes registration";
+    if (!changesRegistration) {
+      vi.useFakeTimers();
+    }
+    onTestFinished(() => {
+      vi.useRealTimers();
+      if (changesRegistration) {
+        RuntimeTransportHub.prototype.webSocketClose.call(
+          hub,
+          socket,
+          1006,
+          "test cleanup",
+          false
+        );
+      }
     });
     const request = { operation: "update", enabled: true, expectedRevision: 0 };
     const result = {
@@ -5978,6 +6324,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
       requestId: "power-1",
       request,
     });
+    let completedResponse: unknown;
+    const settled = responsePromise
+      .catch((error: unknown) => error)
+      .then((value) => {
+        completedResponse = value;
+        return value;
+      });
     await vi.waitFor(() =>
       expect(sentFrames).toContainEqual(
         expect.objectContaining({
@@ -5986,16 +6339,115 @@ describe("runtime transport runtime coordinator transport contract", () => {
         })
       )
     );
-    RuntimeTransportHub.prototype.webSocketMessage.call(
-      hub,
-      socket,
-      JSON.stringify({
+    if (changesRegistration) {
+      const registrationSocket =
+        scenario === "refreshes registration"
+          ? socket
+          : ({
+              deserializeAttachment: () => ({ verifiedOwnerUserId: "owner-1" }),
+              serializeAttachment: vi.fn(),
+              send: (message: string) => sentFrames.push(JSON.parse(message)),
+            } as unknown as WebSocket);
+      RuntimeTransportHub.prototype.webSocketMessage.call(
+        hub,
+        registrationSocket,
+        JSON.stringify({
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          code: "daemon.session.register",
+          payload: {
+            v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+            ownerUserId: "owner-1",
+            deviceId: session.deviceId,
+            lane: session.lane,
+            daemonSessionId: session.daemonSessionId,
+            connectionGeneration: session.connectionGeneration + 1,
+            connectedAtMs: Date.now(),
+            profileIds: [],
+            capabilities: {},
+            runtimeContract: { epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH },
+            serviceVersion: PUBLISHED_SERVICE_VERSION,
+          },
+        })
+      );
+      await vi.waitFor(() =>
+        expect(state.sessionsById.get(session.daemonSessionId)?.socket).toBe(
+          registrationSocket
+        )
+      );
+      await Promise.all(waitUntilTasks);
+      if (scenario === "reconnects before a close event") {
+        await vi.waitFor(() =>
+          expect(completedResponse).toBeInstanceOf(Response)
+        );
+      }
+    }
+    if (
+      scenario !== "times out" &&
+      scenario !== "reconnects before a close event"
+    ) {
+      const frame = {
         v: 1,
         code: "daemon.computer_power.request_result",
         payload: { requestId: "power-1", result },
-      })
+        ...(scenario === "returns a malformed frame"
+          ? { unexpected: true }
+          : {}),
+      };
+      if (scenario === "returns a malformed frame") {
+        let finished = false;
+        settled.then(() => {
+          finished = true;
+        });
+        const otherSocket = { send: vi.fn() } as unknown as WebSocket;
+        RuntimeTransportHub.prototype.webSocketMessage.call(
+          hub,
+          otherSocket,
+          JSON.stringify(frame)
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(finished).toBe(false);
+      }
+      RuntimeTransportHub.prototype.webSocketMessage.call(
+        hub,
+        socket,
+        JSON.stringify(frame)
+      );
+    }
+    // Advance the existing deadline as well: a malformed response must still
+    // win immediately instead of being reclassified as a timeout.
+    if (!changesRegistration) {
+      await vi.advanceTimersByTimeAsync(30_000);
+    }
+    await Promise.all(waitUntilTasks);
+    const response = await settled;
+    expect(response).toBeInstanceOf(Response);
+    if (!(response instanceof Response)) {
+      throw response;
+    }
+    const successful =
+      scenario === "responds" || scenario === "refreshes registration";
+    let expectedStatus = 502;
+    let code = "computer.power.invalid_response";
+    let message = "Invalid computer power response.";
+    if (scenario === "times out") {
+      expectedStatus = 504;
+      code = "computer.power.timeout";
+      message = "Timed out waiting for the local OpenMeld Service response.";
+    } else if (scenario === "reconnects before a close event") {
+      expectedStatus = 503;
+      code = "computer.power.offline";
+      message = "The local OpenMeld Service disconnected before it responded.";
+    }
+    expect(response.status).toBe(successful ? 200 : expectedStatus);
+    await expect(response.json()).resolves.toEqual(
+      successful ? result : { status: "rejected", code, message }
     );
-    await expect((await responsePromise).json()).resolves.toEqual(result);
+    expect(
+      sentFrames.filter(
+        (frame) =>
+          (frame as { code: string }).code === "daemon.computer_power.request"
+      )
+    ).toHaveLength(1);
   });
 
   it.each([
@@ -6485,7 +6937,51 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
-  it("keeps route lookup fast paths off RuntimeCoordinator housekeeping sync", async () => {
+  it("identifies which owner-service attempt has entered the Hub while its body is still pending", async () => {
+    const { hub }: { hub: RuntimeTransportHub } = await createHarness();
+    const readId = crypto.randomUUID();
+    const body = new TransformStream<Uint8Array, Uint8Array>();
+    const writer = body.writable.getWriter();
+    const info = vi.spyOn(console, "info");
+    const phases = () =>
+      info.mock.calls
+        .filter(([, row]) => row?.readId === readId && row?.attempt === 2)
+        .map(([, row]) => [row.stage, row.status]);
+    try {
+      const response = hub.fetch(
+        new Request("https://runtime-transport.internal/lookup-owner-service", {
+          method: "POST",
+          headers: {
+            "x-openmeld-runtime-read-id": readId,
+            "x-openmeld-runtime-read-attempt": "2",
+          },
+          body: body.readable,
+        })
+      );
+      expect(phases()).toEqual([["handler_entered", undefined]]);
+      await writer.write(
+        new TextEncoder().encode(
+          JSON.stringify({
+            v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+            ownerUserId: "owner-fast-path",
+          })
+        )
+      );
+      await writer.close();
+      expect((await response).status).toBe(404);
+      expect(phases()).toEqual([
+        ["handler_entered", undefined],
+        ["body_read_settled", undefined],
+        ["lookup_completed", undefined],
+        ["response_ready", 404],
+      ]);
+    } finally {
+      await writer.abort();
+      info.mockRestore();
+    }
+  });
+
+  it("keeps route lookup fast paths off housekeeping and optional channel reads", async () => {
     const requests = [
       {
         path: "/lookup-route",
@@ -6515,45 +7011,92 @@ describe("runtime transport runtime coordinator transport contract", () => {
       },
     ] as const;
 
-    for (const request of requests) {
-      const { hub } = await createHarness();
-      const syncHousekeepingAlarm = vi.fn(() =>
-        Promise.reject(
-          new Error("lookup fast paths must not sync housekeeping")
-        )
-      );
-      Object.defineProperty(hub, "syncHousekeepingAlarm", {
-        value: syncHousekeepingAlarm,
-      });
-      const ctx = (
-        hub as unknown as {
-          ctx: {
-            storage: {
-              deleteAlarm: () => Promise<void>;
-              getAlarm: () => Promise<number | null>;
-              setAlarm: (scheduledTime: number) => Promise<void>;
-            };
-            waitUntil: (promise: Promise<unknown>) => void;
-          };
+    resetCoreLocalComponentsReleaseCacheForTests();
+    const channels = Promise.withResolvers<void>();
+    const bucket = createPublishedCliReleasesBucket();
+    const get = bucket.get.bind(bucket);
+    const pendingChannels = vi
+      .spyOn(bucket, "get")
+      .mockImplementation(async (key) => {
+        if (key !== LOCAL_COMPONENTS_RELEASE_OBJECT_KEY) {
+          await channels.promise;
         }
-      ).ctx;
-      const deleteAlarm = vi.mocked(ctx.storage.deleteAlarm);
-      const getAlarm = vi.mocked(ctx.storage.getAlarm);
-      const setAlarm = vi.mocked(ctx.storage.setAlarm);
-      const waitUntil = vi.mocked(ctx.waitUntil);
+        return get(key);
+      });
+    const { hub } = await createHarness({ cliReleasesBucket: bucket });
+    const syncHousekeepingAlarm = vi.fn(() =>
+      Promise.reject(new Error("lookup fast paths must not sync housekeeping"))
+    );
+    Object.defineProperty(hub, "syncHousekeepingAlarm", {
+      value: syncHousekeepingAlarm,
+    });
+    const ctx = (
+      hub as unknown as {
+        ctx: {
+          storage: {
+            deleteAlarm: () => Promise<void>;
+            getAlarm: () => Promise<number | null>;
+            setAlarm: (scheduledTime: number) => Promise<void>;
+          };
+          waitUntil: (promise: Promise<unknown>) => void;
+        };
+      }
+    ).ctx;
+    const deleteAlarm = vi.mocked(ctx.storage.deleteAlarm);
+    const getAlarm = vi.mocked(ctx.storage.getAlarm);
+    const setAlarm = vi.mocked(ctx.storage.setAlarm);
+    const waitUntil = vi.mocked(ctx.waitUntil);
 
-      const response = await fetchRuntimeTransportJson(
-        hub,
-        request.path,
-        request.body
+    try {
+      for (const request of requests) {
+        const response = await fetchRuntimeTransportJson(
+          hub,
+          request.path,
+          request.body
+        );
+
+        expect(response.status).toBe(request.expectedStatus);
+        expect(pendingChannels).toHaveBeenCalledTimes(3);
+        expect(syncHousekeepingAlarm).not.toHaveBeenCalled();
+        expect(deleteAlarm).not.toHaveBeenCalled();
+        expect(getAlarm).not.toHaveBeenCalled();
+        expect(setAlarm).not.toHaveBeenCalled();
+        expect(waitUntil).not.toHaveBeenCalled();
+      }
+    } finally {
+      channels.resolve();
+      await Promise.all(
+        pendingChannels.mock.results.map((result) => result.value)
       );
+      pendingChannels.mockRestore();
+    }
+  });
 
-      expect(response.status).toBe(request.expectedStatus);
-      expect(syncHousekeepingAlarm).not.toHaveBeenCalled();
-      expect(deleteAlarm).not.toHaveBeenCalled();
-      expect(getAlarm).not.toHaveBeenCalled();
-      expect(setAlarm).not.toHaveBeenCalled();
-      expect(waitUntil).not.toHaveBeenCalled();
+  it("ignores malformed diagnostic identifiers when serving an owner-service lookup", async () => {
+    const { hub }: { hub: RuntimeTransportHub } = await createHarness();
+    const info = vi.spyOn(console, "info");
+    try {
+      const response = await hub.fetch(
+        new Request("https://runtime-transport.internal/lookup-owner-service", {
+          method: "POST",
+          headers: {
+            "x-openmeld-runtime-read-id": "not-a-trusted-id",
+            "x-openmeld-runtime-read-attempt": "1",
+          },
+          body: JSON.stringify({
+            v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+            ownerUserId: "owner-fast-path",
+          }),
+        })
+      );
+      expect(response.status).toBe(404);
+      expect(
+        info.mock.calls.some(
+          ([label]) => label === "[core.runtime_transport.owner_read_stage]"
+        )
+      ).toBe(false);
+    } finally {
+      info.mockRestore();
     }
   });
 
@@ -7317,6 +7860,22 @@ describe("runtime transport runtime coordinator transport contract", () => {
       )
     );
     sentFrames.length = 0;
+
+    const lateStop = await fetchRuntimeTransportJson(
+      hub,
+      "/runtime-coordinator/head/pre-agent-stop",
+      buildRuntimeCoordinatorHeadPreAgentStopRequest({
+        targetWakeLifecycleIdentity: acceptRequest.targetWakeLifecycleIdentity,
+      })
+    );
+    await expect(lateStop.json()).resolves.toMatchObject({
+      ok: false,
+      status: "conflict",
+      reasonCode: "runtime_coordinator.head_already_terminal",
+    });
+    expect(
+      findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
+    ).toBeUndefined();
 
     const samePayloadResponse = await fetchRuntimeTransportJson(
       hub,
@@ -17549,6 +18108,19 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(authorityBefore?.runsById[executionToken.runId]).toMatchObject({
       tokenStatus: "active",
     });
+    await writeAgentExecutionReadinessImpact({
+      agentProfileId: TARGET_AGENT_PROFILE_ID,
+      db: recordingPostgres.db,
+      executionIdentity: {
+        bindingId: "binding-1",
+        agentControllerRef: "builtin:codex",
+        openMeldServiceRuntimeId: "runtime-1",
+      },
+      observedAtMs: executionToken.issuedAtMs - 1,
+      reasonCode: "controller.launch.needs_repair",
+      sourceAttemptId: "attempt-failed",
+      sourceDispatchId: "dispatch-failed",
+    });
     recordingPostgres.calls.length = 0;
     sentFrames.length = 0;
 
@@ -18965,10 +19537,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
     const ownerRead = (await ownerReadResponse.json()) as {
       interactionUpdatedAtMs: number | null;
+      pendingInteractionReceivedAtMs?: number | null;
     };
     // The revision is the Core arrival time, not the Service's clock.
     expect(ownerRead.interactionUpdatedAtMs).toBeGreaterThanOrEqual(
       requestReceivedAfterMs
+    );
+    // The pending request's recorded arrival is served separately.
+    expect(ownerRead.pendingInteractionReceivedAtMs).toBe(
+      ownerRead.interactionUpdatedAtMs
     );
     // The frozen read keeps the exact body already-deployed Spaces parse.
     const frozenReadResponse = await fetchRuntimeTransportJson(
@@ -19050,6 +19627,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     await expect(answeredRead.json()).resolves.toEqual({
       interactionUpdatedAtMs: respondReceipt.respondedAtMs,
       pendingInteraction: null,
+      pendingInteractionReceivedAtMs: null,
     });
     expect(respondReceipt.respondedAtMs).toBeGreaterThanOrEqual(
       ownerRead.interactionUpdatedAtMs ?? Number.POSITIVE_INFINITY
@@ -19128,6 +19706,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     await expect(replayRead.json()).resolves.toEqual({
       interactionUpdatedAtMs: respondReceipt.respondedAtMs,
       pendingInteraction: null,
+      pendingInteractionReceivedAtMs: null,
     });
   });
 

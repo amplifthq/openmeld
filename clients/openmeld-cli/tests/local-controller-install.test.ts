@@ -212,20 +212,21 @@ describe("local controller install resolution", () => {
     });
   });
 
-  it("still requires repair after a completed negative launch check", async () => {
+  it("still requires repair after a retried completed negative launch check", async () => {
     const persistedLaunchContract = createLaunchContract(
       "/opt/homebrew/bin/claude"
     );
+    const verifyLaunchContract = vi.fn().mockResolvedValue({
+      errorMessage: "Claude Code exited before reporting its version.",
+      failureKind: "completed_negative",
+      ok: false,
+    });
     setTestInstallResolver({
       resolveInstalledLaunchCandidates: vi.fn().mockResolvedValue({
         candidates: [],
         ok: true,
       }),
-      verifyLaunchContract: vi.fn().mockResolvedValue({
-        errorMessage: "Claude Code exited before reporting its version.",
-        failureKind: "completed_negative",
-        ok: false,
-      }),
+      verifyLaunchContract,
     });
 
     const resolution = await resolveBuiltinControllerInstallResolution({
@@ -242,6 +243,7 @@ describe("local controller install resolution", () => {
       launchContract: persistedLaunchContract,
       status: "needs_repair",
     });
+    expect(verifyLaunchContract).toHaveBeenCalledTimes(2);
   });
 
   it("refreshes an adapter-managed persisted launch contract before verifying it", async () => {
@@ -341,53 +343,29 @@ describe("local controller install resolution", () => {
 
   it.each([
     {
-      expectedDetail:
-        "OpenMeld couldn't finish checking whether this Codex install can start. Try again.",
-      failureKind: "incomplete_check" as const,
       mode: "the only discovered install",
       preferredInstallId: undefined,
     },
     {
-      expectedDetail: "Codex exited before reporting its version.",
-      failureKind: "completed_negative" as const,
       mode: "the preferred discovered install",
       preferredInstallId: "install_chatgpt",
     },
-  ])("fails closed when verification rejects $mode", async ({
-    expectedDetail,
-    failureKind,
+  ])("fails closed when a retried launch check still rejects $mode", async ({
     preferredInstallId,
   }) => {
-    const installChoices = preferredInstallId
-      ? [
-          createInstallChoice("install_homebrew", "/opt/homebrew/bin/codex"),
-          createInstallChoice(
-            "install_chatgpt",
-            "/Applications/ChatGPT.app/Contents/Resources/codex"
-          ),
-        ]
-      : [createInstallChoice("install_homebrew", "/opt/homebrew/bin/codex")];
-    const selectedInstall = preferredInstallId
-      ? installChoices[1]
-      : installChoices[0];
-    if (!selectedInstall) {
-      throw new Error("Expected a selected install fixture.");
-    }
-    const errorMessage =
-      failureKind === "incomplete_check"
-        ? "Codex launch check timed out."
-        : expectedDetail;
+    const installChoices = createDiscoveredInstallChoices(preferredInstallId);
+    const verifyLaunchContract = vi.fn().mockResolvedValue({
+      errorMessage: "Codex exited before reporting its version.",
+      failureKind: "completed_negative",
+      ok: false,
+    });
     setTestInstallResolver({
       resolveInstalledLaunchCandidates: vi.fn().mockResolvedValue({
         candidates: installChoices,
         ok: true,
         ...(preferredInstallId ? { preferredInstallId } : {}),
       }),
-      verifyLaunchContract: vi.fn().mockResolvedValue({
-        errorMessage,
-        failureKind,
-        ok: false,
-      }),
+      verifyLaunchContract,
     });
 
     const resolution = await resolveBuiltinControllerInstallResolution({
@@ -398,11 +376,92 @@ describe("local controller install resolution", () => {
     });
 
     expect(resolution).toEqual({
-      detail: expectedDetail,
+      detail: "Codex exited before reporting its version.",
       installChoices,
       launchContract: null,
       status: "needs_repair",
     });
+    expect(verifyLaunchContract).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    {
+      mode: "the only discovered install",
+      preferredInstallId: undefined,
+    },
+    {
+      mode: "the preferred discovered install",
+      preferredInstallId: "install_chatgpt",
+    },
+  ])("keeps $mode ready when its launch check times out", async ({
+    preferredInstallId,
+  }) => {
+    // Matches the persisted path: a check that could not finish is not a
+    // negative launch result, so it must not report repair.
+    const installChoices = createDiscoveredInstallChoices(preferredInstallId);
+    const selectedInstall = preferredInstallId
+      ? installChoices[1]
+      : installChoices[0];
+    const verifyLaunchContract = vi.fn().mockResolvedValue({
+      errorMessage: "Codex launch check timed out.",
+      failureKind: "incomplete_check",
+      ok: false,
+    });
+    setTestInstallResolver({
+      resolveInstalledLaunchCandidates: vi.fn().mockResolvedValue({
+        candidates: installChoices,
+        ok: true,
+        ...(preferredInstallId ? { preferredInstallId } : {}),
+      }),
+      verifyLaunchContract,
+    });
+
+    const resolution = await resolveBuiltinControllerInstallResolution({
+      agentId: "codex",
+      detected: true,
+      displayName: "Codex",
+      runtimeSupported: true,
+    });
+
+    expect(resolution).toEqual({
+      detail: null,
+      installChoices: [],
+      launchContract: selectedInstall?.launchContract,
+      status: "ready",
+    });
+    expect(verifyLaunchContract).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps an install ready when one transient start failure passes on retry", async () => {
+    const installChoices = createDiscoveredInstallChoices(undefined);
+    const verifyLaunchContract = vi
+      .fn()
+      .mockResolvedValueOnce({
+        errorMessage: "Codex exited before reporting its version.",
+        failureKind: "completed_negative",
+        ok: false,
+      })
+      .mockResolvedValueOnce({
+        launchCommand: { argsPrefix: [], bin: "/opt/homebrew/bin/codex" },
+        ok: true,
+      });
+    setTestInstallResolver({
+      resolveInstalledLaunchCandidates: vi.fn().mockResolvedValue({
+        candidates: installChoices,
+        ok: true,
+      }),
+      verifyLaunchContract,
+    });
+
+    const resolution = await resolveBuiltinControllerInstallResolution({
+      agentId: "codex",
+      detected: true,
+      displayName: "Codex",
+      runtimeSupported: true,
+    });
+
+    expect(resolution.status).toBe("ready");
+    expect(verifyLaunchContract).toHaveBeenCalledTimes(2);
   });
 
   it.each([
@@ -491,22 +550,9 @@ describe("local controller install resolution", () => {
   });
 
   it.each([
-    {
-      expectedError:
-        "OpenMeld couldn't finish checking whether this Codex install can start. Try again.",
-      failureKind: "incomplete_check" as const,
-      installId: "install_homebrew",
-      mode: "an explicit install",
-    },
-    {
-      expectedError: "Codex exited before reporting its version.",
-      failureKind: "completed_negative" as const,
-      installId: undefined,
-      mode: "the only discovered install",
-    },
+    { installId: "install_homebrew", mode: "an explicit install" },
+    { installId: undefined, mode: "the only discovered install" },
   ])("keeps $mode unselected when repair verification fails", async ({
-    expectedError,
-    failureKind,
     installId,
   }) => {
     const homebrewInstall = createInstallChoice(
@@ -526,11 +572,8 @@ describe("local controller install resolution", () => {
         ok: true,
       }),
       verifyLaunchContract: vi.fn().mockResolvedValue({
-        errorMessage:
-          failureKind === "incomplete_check"
-            ? "Codex launch check timed out."
-            : expectedError,
-        failureKind,
+        errorMessage: "Codex exited before reporting its version.",
+        failureKind: "completed_negative",
         ok: false,
       }),
     });
@@ -545,9 +588,40 @@ describe("local controller install resolution", () => {
 
     expect(repairResult).toEqual({
       errorCode: "controller.launch.needs_repair",
-      errorMessage: expectedError,
+      errorMessage: "Codex exited before reporting its version.",
       installChoices,
       ok: false,
+    });
+  });
+
+  it("lets repair select an install whose launch check could not finish", async () => {
+    const homebrewInstall = createInstallChoice(
+      "install_homebrew",
+      "/opt/homebrew/bin/codex"
+    );
+    setTestInstallResolver({
+      resolveInstalledLaunchCandidates: vi.fn().mockResolvedValue({
+        candidates: [homebrewInstall],
+        ok: true,
+      }),
+      verifyLaunchContract: vi.fn().mockResolvedValue({
+        errorMessage: "Codex launch check timed out.",
+        failureKind: "incomplete_check",
+        ok: false,
+      }),
+    });
+
+    const repairResult = await repairBuiltinControllerInstall({
+      agentId: "codex",
+      detected: true,
+      displayName: "Codex",
+      runtimeSupported: true,
+    });
+
+    expect(repairResult).toEqual({
+      launchContract: homebrewInstall.launchContract,
+      ok: true,
+      selectedInstall: homebrewInstall,
     });
   });
 
@@ -604,6 +678,20 @@ function setTestInstallResolver(
   resolveBuiltinAgentControllerDefinitionMock.mockReturnValue({
     installResolver: resolver,
   });
+}
+
+function createDiscoveredInstallChoices(
+  preferredInstallId: string | undefined
+): RuntimeAgentControllerLaunchCandidate[] {
+  return preferredInstallId
+    ? [
+        createInstallChoice("install_homebrew", "/opt/homebrew/bin/codex"),
+        createInstallChoice(
+          "install_chatgpt",
+          "/Applications/ChatGPT.app/Contents/Resources/codex"
+        ),
+      ]
+    : [createInstallChoice("install_homebrew", "/opt/homebrew/bin/codex")];
 }
 
 function createInstallChoice(

@@ -1,3 +1,4 @@
+import { waitUntil } from "cloudflare:workers";
 import {
   cliBinaryManifestSchema,
   localComponentsAvailabilityCatalogSchema,
@@ -17,6 +18,7 @@ export const CLI_WINDOWS_PREVIEW_MANIFEST_OBJECT_KEY =
   "cli/windows-preview/manifest.json";
 
 const RELEASE_CACHE_TTL_MS = 60_000;
+const RELEASE_REFRESH_AFTER_MS = 30_000;
 const MISSING_RELEASE_RETRY_MS = 10_000;
 
 export type CoreLocalComponentsRelease = {
@@ -29,56 +31,92 @@ export const UNAVAILABLE_LOCAL_COMPONENTS_RELEASE: CoreLocalComponentsRelease =
 
 type CliReleaseBucket = Pick<R2Bucket, "get">;
 
-let cached: {
-  release: CoreLocalComponentsRelease;
+let cachedPolicy: {
+  manifest: LocalComponentsReleaseManifest;
   expiresAtMs: number;
 } | null = null;
-let pending: Promise<CoreLocalComponentsRelease> | null = null;
+let cachedChannels: {
+  stableManifest: unknown;
+  previewManifest: unknown;
+  expiresAtMs: number;
+} | null = null;
+let policyRefreshAfterMs = 0;
+let channelsRefreshAfterMs = 0;
+let pendingPolicy: Promise<void> | null = null;
+let pendingChannels: Promise<void> | null = null;
 
-// A missing manifest fails closed: update projections report
-// local_components.release_manifest_invalid and block new Wake work. A read
-// error keeps the last manifest this isolate validated, because it is still
-// the most recent published release this Core has evidence for.
-export function readCoreLocalComponentsRelease(
-  bucket: CliReleaseBucket | undefined,
+// Every consumer, including synchronous heartbeat handling, uses the same
+// validity boundary. A failed refresh must never extend a policy's lifetime.
+export function getCachedCoreLocalComponentsRelease(
   nowMs = Date.now()
-): Promise<CoreLocalComponentsRelease> {
-  if (cached && cached.expiresAtMs > nowMs) {
-    return Promise.resolve(cached.release);
+): CoreLocalComponentsRelease {
+  if (!cachedPolicy || cachedPolicy.expiresAtMs <= nowMs) {
+    return UNAVAILABLE_LOCAL_COMPONENTS_RELEASE;
   }
-  pending ??= loadRelease(bucket, nowMs).finally(() => {
-    pending = null;
-  });
-  return pending;
+  return {
+    manifest: cachedPolicy.manifest,
+    availabilityCatalog:
+      cachedChannels && cachedChannels.expiresAtMs > nowMs
+        ? buildLocalComponentsAvailabilityCatalog({
+            release: cachedPolicy.manifest,
+            stableManifest: cachedChannels.stableManifest,
+            previewManifest: cachedChannels.previewManifest,
+          })
+        : null,
+  };
 }
 
-async function loadRelease(
-  bucket: CliReleaseBucket | undefined,
-  nowMs: number
+// Cold/expired reads wait only for required policy. While validated policy is
+// still valid, readers never join a refresh; optional channels never gate them.
+export function readCoreLocalComponentsRelease(
+  bucket: CliReleaseBucket | undefined
 ): Promise<CoreLocalComponentsRelease> {
+  const nowMs = Date.now();
+  if (!pendingChannels && channelsRefreshAfterMs <= nowMs) {
+    pendingChannels = loadChannels(bucket, nowMs).finally(() => {
+      pendingChannels = null;
+    });
+    waitUntil(pendingChannels);
+  }
+  const release = getCachedCoreLocalComponentsRelease(nowMs);
+  if (!pendingPolicy && policyRefreshAfterMs <= nowMs) {
+    pendingPolicy = loadPolicy(bucket, nowMs).finally(() => {
+      pendingPolicy = null;
+    });
+    waitUntil(pendingPolicy);
+  }
+  if (release.manifest || !pendingPolicy) {
+    return Promise.resolve(release);
+  }
+  return pendingPolicy.then(() => getCachedCoreLocalComponentsRelease());
+}
+
+async function loadPolicy(
+  bucket: CliReleaseBucket | undefined,
+  startedAtMs: number
+): Promise<void> {
   try {
-    const release = await readRelease(bucket);
-    cached = {
-      release,
-      expiresAtMs:
-        nowMs +
-        (release.manifest ? RELEASE_CACHE_TTL_MS : MISSING_RELEASE_RETRY_MS),
-    };
-    return release;
+    const manifest = await readRequiredPolicy(bucket);
+    cachedPolicy = manifest
+      ? { manifest, expiresAtMs: startedAtMs + RELEASE_CACHE_TTL_MS }
+      : null;
+    policyRefreshAfterMs = manifest
+      ? startedAtMs + RELEASE_REFRESH_AFTER_MS
+      : Date.now() + MISSING_RELEASE_RETRY_MS;
   } catch (error) {
     console.error("[core.local_components.release_read_failed]", {
       message: error instanceof Error ? error.message : String(error),
-      retainedManifest: Boolean(cached?.release.manifest),
+      retainedManifest: Boolean(
+        cachedPolicy && cachedPolicy.expiresAtMs > Date.now()
+      ),
     });
-    const release = cached?.release ?? UNAVAILABLE_LOCAL_COMPONENTS_RELEASE;
-    cached = { release, expiresAtMs: nowMs + MISSING_RELEASE_RETRY_MS };
-    return release;
+    policyRefreshAfterMs = Date.now() + MISSING_RELEASE_RETRY_MS;
   }
 }
 
-async function readRelease(
+async function readRequiredPolicy(
   bucket: CliReleaseBucket | undefined
-): Promise<CoreLocalComponentsRelease> {
+): Promise<LocalComponentsReleaseManifest | null> {
   if (!bucket) {
     throw new Error("OPENMELD_CLI_RELEASES R2 binding is not configured.");
   }
@@ -91,7 +129,7 @@ async function readRelease(
       objectKey: LOCAL_COMPONENTS_RELEASE_OBJECT_KEY,
       next: "Seed it with `node scripts/release/publish-cli.mjs seed-manifest` before this Core serves Wake work.",
     });
-    return UNAVAILABLE_LOCAL_COMPONENTS_RELEASE;
+    return null;
   }
   const parsed = localComponentsReleaseManifestSchema.safeParse(manifestSource);
   if (!parsed.success) {
@@ -99,26 +137,51 @@ async function readRelease(
       objectKey: LOCAL_COMPONENTS_RELEASE_OBJECT_KEY,
       issues: parsed.error.issues.slice(0, 5),
     });
-    return UNAVAILABLE_LOCAL_COMPONENTS_RELEASE;
+    return null;
   }
-  let availabilityCatalog: LocalComponentsAvailabilityCatalog | null = null;
+  return parsed.data;
+}
+
+async function loadChannels(
+  bucket: CliReleaseBucket | undefined,
+  startedAtMs: number
+): Promise<void> {
   try {
+    if (!bucket) {
+      throw new Error("OPENMELD_CLI_RELEASES R2 binding is not configured.");
+    }
     const [stableSource, previewSource] = await Promise.all([
       readJsonObject(bucket, CLI_STABLE_MANIFEST_OBJECT_KEY),
       readJsonObject(bucket, CLI_WINDOWS_PREVIEW_MANIFEST_OBJECT_KEY),
     ]);
-    availabilityCatalog = buildLocalComponentsAvailabilityCatalog({
-      release: parsed.data,
+    for (const [channel, source] of [
+      ["stable", stableSource],
+      ["windows-preview", previewSource],
+    ] as const) {
+      if (
+        source !== null &&
+        !cliBinaryManifestSchema.safeParse(source).success
+      ) {
+        console.error("[core.local_components.channel_manifest_invalid]", {
+          channel,
+        });
+        cachedChannels = null;
+        channelsRefreshAfterMs = Date.now() + MISSING_RELEASE_RETRY_MS;
+        return;
+      }
+    }
+    cachedChannels = {
       stableManifest: stableSource,
       previewManifest: previewSource,
-    });
+      expiresAtMs: startedAtMs + RELEASE_CACHE_TTL_MS,
+    };
+    channelsRefreshAfterMs = startedAtMs + RELEASE_REFRESH_AFTER_MS;
   } catch (error) {
     console.error("[core.local_components.channel_read_failed]", {
       message: error instanceof Error ? error.message : String(error),
     });
+    channelsRefreshAfterMs = Date.now() + MISSING_RELEASE_RETRY_MS;
   }
-  // Channel availability must not discard a freshly validated required policy.
-  return { manifest: parsed.data, availabilityCatalog };
 }
 
 async function readJsonObject(
@@ -181,6 +244,10 @@ export function buildLocalComponentsAvailabilityCatalog(input: {
 }
 
 export function resetCoreLocalComponentsReleaseCacheForTests(): void {
-  cached = null;
-  pending = null;
+  cachedPolicy = null;
+  cachedChannels = null;
+  policyRefreshAfterMs = 0;
+  channelsRefreshAfterMs = 0;
+  pendingPolicy = null;
+  pendingChannels = null;
 }

@@ -70,6 +70,8 @@ import {
   RUNTIME_COORDINATOR_FINALIZATION_COMMAND_MODEL_VERSION,
   RUNTIME_COORDINATOR_RETIRED_TERMINAL_HEAD_REDRIVE_REASON_CODE,
   RUNTIME_COORDINATOR_TOKEN_DIAGNOSTIC_MODEL_VERSION,
+  RUNTIME_TRANSPORT_READ_ATTEMPT_HEADER,
+  RUNTIME_TRANSPORT_READ_ID_HEADER,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   resolveLocalExecutionOwnerCancellationReason,
   runtimeCoordinatorFailurePublicationOutcomeSchema,
@@ -154,6 +156,7 @@ import {
   runtimeTransportOpenMeldToolsControlResponseSchema,
   runtimeTransportOpenMeldToolsControlResultFramePayloadSchema,
   runtimeTransportPreExecutionHandoffRequestSchema,
+  runtimeTransportReadAttemptHeadersSchema,
   runtimeTransportReadProfileFolderProjectionRequestSchema,
   runtimeTransportReadProfileFolderProjectionResponseSchema,
   runtimeTransportReadProfileWorkspaceRequestSchema,
@@ -362,8 +365,8 @@ import type { CoreBindings } from "../../../lib/bindings";
 import { resolveReleaseTriggeredOpenMeldToolsUpdateDecision } from "../../../local-components/automatic-update-trigger";
 import {
   type CoreLocalComponentsRelease,
+  getCachedCoreLocalComponentsRelease,
   readCoreLocalComponentsRelease,
-  UNAVAILABLE_LOCAL_COMPONENTS_RELEASE,
 } from "../../../local-components/release-source";
 import { isLocalComponentVersionAtLeast } from "../../../local-components/update-projection";
 import { isRequestChainEnforced } from "../../../member-agent/member-agents-feature";
@@ -730,6 +733,10 @@ import {
   writeRuntimeCoordinatorExecutionProjection,
   writeRuntimeCoordinatorTerminalExecutionProjectionWithoutRead,
 } from "../../infrastructure/postgresql/runtime-coordinator-execution-repo";
+import {
+  observeRuntimeTransportGate,
+  type RuntimeTransportGateStageRunner,
+} from "../../infrastructure/runtime-transport-gate-diagnostics";
 import {
   adoptHibernatedSockets,
   persistServiceRuntimeRecords,
@@ -1616,10 +1623,10 @@ function requiredExecutionContextVersion(
 }
 export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private readonly state = createRuntimeTransportHubMutableState();
-  // The published CLI release decides accepted Service epochs and update
-  // policy. Loaded before this instance handles any event, then refreshed.
-  private localComponentsRelease: CoreLocalComponentsRelease =
-    UNAVAILABLE_LOCAL_COMPONENTS_RELEASE;
+  private readonly gateLogContext = {
+    bootId: crypto.randomUUID(),
+    durableObjectId: this.ctx.id.toString(),
+  };
   private readonly currentDeviceOperationWaiters = new Map<
     string,
     CurrentDeviceOperationWaiter
@@ -1746,31 +1753,47 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
   constructor(ctx: DurableObjectState, env: CoreBindings) {
     super(ctx, env);
-    this.ctx.blockConcurrencyWhile(async () => {
-      await this.refreshLocalComponentsRelease();
-      const reasoningPreference = await this.ctx.storage.get(
-        "local-agent-reasoning-preferences"
-      );
-      this.reasoningStreamEnabled =
-        reasoningPreference === undefined
-          ? true
-          : localAgentReasoningPreferencesSchema.parse(reasoningPreference)
-              .enabled;
-      const restoredRecords = await restoreServiceRuntimeRecords(
-        this.ctx,
-        this.state
-      );
-      await this.restoreAutomaticToolsUpdateUnavailableRetries();
-      const adoptedSockets = adoptHibernatedSockets(this.ctx, this.state, {
-        closeSocket: safeCloseSocket,
-      });
-      await this.observeComputerConnectionIncidents();
-      this.reapExpiredLeases(Date.now());
-      if (restoredRecords.needsPersist || adoptedSockets.needsPersist) {
-        await persistServiceRuntimeRecordsNow(this.ctx, this.state);
-      }
-      await this.syncHousekeepingAlarm();
-    });
+    // Release storage must not hold the initialization gate open. New Wake
+    // admission separately requires valid policy from the source reader.
+    this.ctx.waitUntil(this.refreshLocalComponentsRelease());
+    this.ctx.blockConcurrencyWhile(() =>
+      observeRuntimeTransportGate(
+        { ...this.gateLogContext, gateKind: "constructor" },
+        async (runStage) => {
+          const reasoningPreference = await runStage(
+            "reasoning_preference_read",
+            () => this.ctx.storage.get("local-agent-reasoning-preferences")
+          );
+          this.reasoningStreamEnabled =
+            reasoningPreference === undefined
+              ? true
+              : localAgentReasoningPreferencesSchema.parse(reasoningPreference)
+                  .enabled;
+          const restoredRecords = await runStage(
+            "runtime_records_restore",
+            () => restoreServiceRuntimeRecords(this.ctx, this.state)
+          );
+          await runStage("update_retries_restore", () =>
+            this.restoreAutomaticToolsUpdateUnavailableRetries()
+          );
+          const adoptedSockets = adoptHibernatedSockets(this.ctx, this.state, {
+            closeSocket: safeCloseSocket,
+          });
+          await runStage("connection_incidents_observe", () =>
+            this.observeComputerConnectionIncidents()
+          );
+          this.reapExpiredLeases(Date.now());
+          if (restoredRecords.needsPersist || adoptedSockets.needsPersist) {
+            await runStage("runtime_records_persist", () =>
+              persistServiceRuntimeRecordsNow(this.ctx, this.state)
+            );
+          }
+          await runStage("housekeeping_alarm_sync", () =>
+            this.syncHousekeepingAlarm()
+          );
+        }
+      )
+    );
     // Hibernation-safe transport keepalive: auto-answer the daemon-stream PING
     // with PONG without waking the DO, so the gateway-pass-through connection
     // chain never goes idle and gets evicted. Idle eviction surfaced as
@@ -2819,10 +2842,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
   }
   private async refreshLocalComponentsRelease(): Promise<CoreLocalComponentsRelease> {
-    this.localComponentsRelease = await readCoreLocalComponentsRelease(
-      this.env.OPENMELD_CLI_RELEASES
-    );
-    return this.localComponentsRelease;
+    return await readCoreLocalComponentsRelease(this.env.OPENMELD_CLI_RELEASES);
   }
   private resolveContextMigrationCapability(input: {
     allowPendingRoute?: boolean;
@@ -2843,7 +2863,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         persistRuntimeRecords: this.persistRuntimeRecords,
         cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
         recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
-        localComponentsManifest: this.localComponentsRelease.manifest,
+        localComponentsManifest: getCachedCoreLocalComponentsRelease().manifest,
       }
     );
     if (!route.online || route.acceptingDispatches === false) {
@@ -3681,15 +3701,28 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       webSocket.send(DAEMON_STREAM_KEEPALIVE_PONG);
       return;
     }
-    const frame = parseDaemonStreamFrame(rawMessage);
-    if (!frame) {
+    const rawFrame = parseDaemonStreamJson(rawMessage);
+    const frame = daemonStreamFrameSchema.safeParse(rawFrame);
+    if (!frame.success) {
+      if (
+        rawFrame &&
+        typeof rawFrame === "object" &&
+        "code" in rawFrame &&
+        rawFrame.code === "daemon.computer_power.request_result"
+      ) {
+        this.rejectInvalidCurrentDeviceOperationResultFrame({
+          frame: rawFrame,
+          message: "Invalid computer power response.",
+          webSocket,
+        });
+      }
       this.sendErrorFrame(webSocket, {
         code: "schema.invalid",
         message: "invalid daemon stream frame",
       });
       return;
     }
-    this.handleParsedStreamFrame(webSocket, frame);
+    this.handleParsedStreamFrame(webSocket, frame.data);
   }
   private handleParsedStreamFrame(
     webSocket: WebSocket,
@@ -3697,6 +3730,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   ): void {
     switch (frame.code) {
       case "daemon.session.register": {
+        // Start R2 work before entering the gate, including when the cache is
+        // cold or expired. Registration consumes only the valid snapshot.
+        this.ctx.waitUntil(this.refreshLocalComponentsRelease());
         this.ctx.waitUntil(
           this.ctx.blockConcurrencyWhile(() =>
             this.handleRegisterSessionFrame(webSocket, frame.payload)
@@ -4063,9 +4099,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.orderedDispatchFrameTails.set(dispatchId, tail);
     this.ctx.waitUntil(tail);
   }
-  private async handleRegisterSessionFrame(
+  private handleRegisterSessionFrame(
     webSocket: WebSocket,
     payload: unknown
+  ): Promise<void> {
+    return observeRuntimeTransportGate(
+      { ...this.gateLogContext, gateKind: "register" },
+      (runStage) => this.registerSession(webSocket, payload, runStage)
+    );
+  }
+  private async registerSession(
+    webSocket: WebSocket,
+    payload: unknown,
+    runStage: RuntimeTransportGateStageRunner
   ): Promise<void> {
     const parsed =
       runtimeTransportRegisterSessionRequestSchema.safeParse(payload);
@@ -4105,17 +4151,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       !isSameSocketReRegister &&
       request.ownerUserId === verifiedOwnerUserId
     ) {
-      const highWater = await readServiceRuntimeConnectionGeneration(this.ctx, {
-        ownerUserId: verifiedOwnerUserId,
-        deviceId: request.deviceId,
-        lane: request.lane,
-      });
+      const highWater = await runStage("connection_generation_read", () =>
+        readServiceRuntimeConnectionGeneration(this.ctx, {
+          ownerUserId: verifiedOwnerUserId,
+          deviceId: request.deviceId,
+          lane: request.lane,
+        })
+      );
       request.connectionGeneration = Math.max(
         request.connectionGeneration,
         highWater + 1
       );
     }
-    const localComponentsRelease = await this.refreshLocalComponentsRelease();
+    const localComponentsRelease = getCachedCoreLocalComponentsRelease();
     const response = handleRegisterSession(
       this.state,
       {
@@ -4129,14 +4177,21 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
         failPendingDispatchResultWaitersForConnectionGeneration:
           this.failPendingDispatchResultWaitersForConnectionGeneration,
-        closeSocket: safeCloseSocket,
+        closeSocket: (socket, code, reason) => {
+          // Replacement is authoritative even if the old socket never emits
+          // a close event. Never leave its control requests waiting or replay them.
+          this.failCurrentDeviceOperationWaitersForSocket(socket);
+          safeCloseSocket(socket, code, reason);
+        },
         localComponentsManifest: localComponentsRelease.manifest,
       }
     );
     // Registration must not acknowledge a fence that only exists in memory.
     // blockConcurrencyWhile resets this object on failure, withdrawing the
     // mutated session instead of exposing an uncommitted registration.
-    await persistServiceRuntimeRecordsNow(this.ctx, this.state);
+    await runStage("runtime_records_persist", () =>
+      persistServiceRuntimeRecordsNow(this.ctx, this.state)
+    );
     this.sendFrame(webSocket, {
       code: "daemon.session.register",
       payload: {
@@ -4314,9 +4369,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         previousAcceptingDispatches:
           sessionBeforeHeartbeat?.acceptingDispatches,
       });
-    // Heartbeats stay synchronous. They use the release this instance read
-    // last and refresh it for the next frame.
-    const localComponentsRelease = this.localComponentsRelease;
+    // Heartbeats stay synchronous. The release source owns the validity of
+    // the current policy; refresh it without retaining an instance copy.
+    const localComponentsRelease = getCachedCoreLocalComponentsRelease();
     this.ctx.waitUntil(this.refreshLocalComponentsRelease());
     const response = handleHeartbeat(
       this.state,
@@ -11302,12 +11357,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-    const { manifest } = await this.refreshLocalComponentsRelease();
     const response = lookupRoute(this.state, parsed.data, {
       persistRuntimeRecords: this.persistRuntimeRecords,
       cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
       recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
-      localComponentsManifest: manifest,
+      localComponentsManifest: getCachedCoreLocalComponentsRelease().manifest,
     });
     const status = response.online ? 200 : 404;
     return Response.json(response, { status });
@@ -11321,50 +11375,74 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!parsed.success) {
       return Response.json({ routes: {} }, { status: 400 });
     }
-    const { manifest } = await this.refreshLocalComponentsRelease();
     const response = lookupRoutesBatch(this.state, parsed.data, {
       persistRuntimeRecords: this.persistRuntimeRecords,
       cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
       recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
-      localComponentsManifest: manifest,
+      localComponentsManifest: getCachedCoreLocalComponentsRelease().manifest,
     });
     return Response.json(response, { status: 200 });
   }
   private async handleLookupOwnerServiceRequest(
     request: Request
   ): Promise<Response> {
-    const parsed = runtimeTransportLookupOwnerServiceRequestSchema.safeParse(
-      await readJsonBody(request)
-    );
+    const startedAt = performance.now();
+    const correlation = runtimeTransportReadAttemptHeadersSchema.safeParse({
+      readId: request.headers.get(RUNTIME_TRANSPORT_READ_ID_HEADER),
+      attempt: request.headers.get(RUNTIME_TRANSPORT_READ_ATTEMPT_HEADER),
+    });
+    const record = (
+      stage:
+        | "handler_entered"
+        | "body_read_settled"
+        | "lookup_completed"
+        | "response_ready",
+      status?: number
+    ) => {
+      if (correlation.success) {
+        console.info("[core.runtime_transport.owner_read_stage]", {
+          event: CORE_LOG_EVENTS.runtimeTransportOwnerReadStage,
+          ...this.gateLogContext,
+          ...correlation.data,
+          stage,
+          elapsedMs: performance.now() - startedAt,
+          status,
+        });
+      }
+    };
+    const jsonResponse = (payload: unknown, status: number) => {
+      const response = Response.json(payload, { status });
+      record("response_ready", status);
+      return response;
+    };
+    record("handler_entered");
+    const body = await readJsonBody(request);
+    record("body_read_settled");
+    const parsed =
+      runtimeTransportLookupOwnerServiceRequestSchema.safeParse(body);
     if (!parsed.success) {
-      return Response.json(
-        {
-          online: false,
-          reasonCode: "daemon.session.not_found",
-        },
-        { status: 400 }
+      return jsonResponse(
+        { online: false, reasonCode: "daemon.session.not_found" },
+        400
       );
     }
-    const { manifest } = await this.refreshLocalComponentsRelease();
     const response = lookupOwnerService(this.state, parsed.data, {
       persistRuntimeRecords: this.persistRuntimeRecords,
       cleanupExpiredPendingDispatches: this.cleanupExpiredPendingDispatches,
       recordReapedReadinessProfiles: this.publishReapedReadinessProfiles,
-      localComponentsManifest: manifest,
+      localComponentsManifest: getCachedCoreLocalComponentsRelease().manifest,
     });
+    record("lookup_completed");
     const validated =
       runtimeTransportLookupOwnerServiceResponseSchema.safeParse(response);
     if (!validated.success) {
-      return Response.json(
-        {
-          online: false,
-          reasonCode: "daemon.session.not_found",
-        },
-        { status: 500 }
+      return jsonResponse(
+        { online: false, reasonCode: "daemon.session.not_found" },
+        500
       );
     }
     const status = validated.data.online ? 200 : 404;
-    return Response.json(validated.data, { status });
+    return jsonResponse(validated.data, status);
   }
   private async handleSetLocalAgentEnabledRequest(
     request: Request
@@ -12335,7 +12413,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
   }
   private async readMatchingRuntimeCoordinatorTerminalAuthorityForHead(
-    request: RuntimeTransportRuntimeCoordinatorHeadNoExecutionRequest
+    request: Pick<
+      RuntimeTransportRuntimeCoordinatorHeadNoExecutionRequest,
+      "dispatchId" | "targetWakeLifecycleIdentity"
+    >
   ): Promise<RuntimeCoordinatorExecutionTokenAuthorityRecord | null> {
     const identity = request.targetWakeLifecycleIdentity;
     const runtimeCoordinatorExecutionId = buildRuntimeCoordinatorExecutionId({
@@ -13275,6 +13356,21 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         identity.targetWakeLifecycleId
       );
     if (!existing) {
+      const terminal =
+        await this.readMatchingRuntimeCoordinatorTerminalAuthorityForHead(
+          request
+        );
+      if (terminal) {
+        return {
+          ok: false,
+          primaryDispatchId: request.dispatchId,
+          publicationIntentId: null,
+          reasonCode: "runtime_coordinator.head_already_terminal",
+          runtimeCoordinatorExecutionId: terminal.runtimeCoordinatorExecutionId,
+          status: "conflict",
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+        };
+      }
       const nextRecord: RuntimeCoordinatorHeadLifecycleRecord = {
         createdAtMs: nowMs,
         duplicateDispatches: [],
@@ -14864,6 +14960,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               nowMs,
             }),
           pendingInteraction,
+          pendingInteractionReceivedAtMs: pending?.requestReceivedAtMs ?? null,
         }
       )
     );
@@ -21535,21 +21632,45 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         { status: 409 }
       );
     }
-    const result = await this.sendCurrentDeviceOperationAndWait({
-      code: "daemon.computer_power.request",
-      expectedResponseCode: "daemon.computer_power.request_result",
-      isExpectedPayload: (value) =>
-        computerPowerResultSchema.safeParse(value).success,
-      payload: {
-        deviceId: input.deviceId,
+    try {
+      const result = await this.sendCurrentDeviceOperationAndWait({
+        code: "daemon.computer_power.request",
+        expectedResponseCode: "daemon.computer_power.request_result",
+        isExpectedPayload: (value) =>
+          computerPowerResultSchema.safeParse(value).success,
+        payload: {
+          deviceId: input.deviceId,
+          requestId: input.requestId,
+          request: input.request,
+        },
         requestId: input.requestId,
-        request: input.request,
-      },
-      requestId: input.requestId,
-      session: session as typeof session & { socket: WebSocket },
-      timeoutMs: CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS,
-    });
-    return Response.json(result);
+        session: session as typeof session & { socket: WebSocket },
+        timeoutMs: CURRENT_DEVICE_CONTROL_RESPONSE_TIMEOUT_MS,
+      });
+      return Response.json(result);
+    } catch (error) {
+      const kind =
+        error instanceof CurrentDeviceOperationError
+          ? error.kind
+          : "internal_error";
+      let status = 502;
+      if (kind === "timeout") {
+        status = 504;
+      } else if (kind === "send_failed") {
+        status = 503;
+      }
+      return Response.json(
+        {
+          status: "rejected",
+          code: `computer.power.${kind === "send_failed" ? "offline" : kind}`,
+          message:
+            error instanceof Error
+              ? error.message
+              : "The sleep-prevention request failed unexpectedly.",
+        },
+        { status }
+      );
+    }
   }
   private async handleComputerFileAccessRequest(
     request: Request,
@@ -23333,18 +23454,13 @@ const isCompletedInteractionReplay = (
   !state.pendingInteraction &&
   Object.hasOwn(state.interactionResponseReceipts ?? {}, interactionId);
 
-const parseDaemonStreamFrame = (
-  rawMessage: string | ArrayBuffer
-): DaemonStreamFrame | null => {
+const parseDaemonStreamJson = (rawMessage: string | ArrayBuffer): unknown => {
   const text = decodeWebSocketMessage(rawMessage);
-  let rawFrame: unknown;
   try {
-    rawFrame = JSON.parse(text);
+    return JSON.parse(text);
   } catch {
     return null;
   }
-  const parsedFrame = daemonStreamFrameSchema.safeParse(rawFrame);
-  return parsedFrame.success ? parsedFrame.data : null;
 };
 const parseWaitDispatchResultRequest = (
   value: unknown

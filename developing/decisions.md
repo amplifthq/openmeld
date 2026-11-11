@@ -17,6 +17,20 @@
   conflicts with an owner doc means one of the two must be fixed in the same
   PR.
 
+2026-10-28: An Organization Owner may change another Owner to Admin or Member
+after explicit confirmation, while another Owner remains. The current Owner's
+own row stays read-only. Auth retains its native permission checks; PostgreSQL
+atomically refuses writes that would leave retained members without an Owner.
+This supersedes the Owner-transfer UI deferral only for Owner demotion;
+promotion and broader transfer flows remain deferred. See
+`product/organizations-and-center-agent.md`.
+
+2026-10-27: Owners can rename default Agent Profiles as well as additional
+Profiles. This supersedes the MemberAgent program's default-name lock in
+response to indistinguishable Agent names. Harness assignment remains fixed;
+sync preserves chosen names, and mention candidates show the owner. See
+`product/agent-profiles.md` and `product/space-collaboration.md`.
+
 2026-10-21: New Space Durable Objects are created with location hint `enam`,
 next to the PostgreSQL primary; existing Spaces are not moved and no
 jurisdiction is set. See `architecture/data-and-observability.md` (Space

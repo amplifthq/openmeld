@@ -342,7 +342,7 @@ function resolveProviderConversationProofMethod(input: {
     input.provider === "codex" &&
     input.transportMode === "codex-app-server"
   ) {
-    return "codex_app_server_thread_resume";
+    return "codex_app_server_thread_read";
   }
   return null;
 }

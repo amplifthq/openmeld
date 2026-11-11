@@ -1,4 +1,7 @@
-import type { OpenMeldDaemonProviderAccessEvidenceProvider } from "@openmeld/schemas/types";
+import type {
+  OpenMeldDaemonProviderAccessEvidenceProvider,
+  RuntimeProviderConversationProofMethod,
+} from "@openmeld/schemas/types";
 import type { AgentProfileBindingDisplayProjection } from "./agent-profile-binding";
 import type { PrepareReadinessSummary } from "./prepare-readiness";
 
@@ -92,7 +95,7 @@ export type AgentExecutionProviderConversationEvidence = {
   errorMessage?: string | null;
   errorType?: string | null;
   expiresAtMs: number | null;
-  method: "codex_app_server_thread_resume" | null;
+  method: RuntimeProviderConversationProofMethod | null;
   observedAtMs: number | null;
   provider: "codex" | null;
   ready: boolean;
@@ -165,7 +168,7 @@ export type AgentExecutionStatusProjection = {
       errorMessage: string | null;
       errorType: string | null;
       expiresAtMs: number | null;
-      method: "codex_app_server_thread_resume" | null;
+      method: RuntimeProviderConversationProofMethod | null;
       observedAtMs: number | null;
       provider: "codex" | null;
       ready: boolean;

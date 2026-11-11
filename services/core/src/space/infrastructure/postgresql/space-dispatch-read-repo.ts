@@ -11,8 +11,8 @@ import {
   projectTargetWakeLifecycleIdentity,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  SPACE_DISPATCH_TRACE_EXECUTION_CONTEXT_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_NATIVE_DELIVERY_CONTRACT_VERSION,
-  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_WAITING_EVIDENCE_CONTRACT_VERSION,
   spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema,
   spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV2Schema,
@@ -1261,8 +1261,8 @@ function projectSpaceDispatchTraceResponseForContractVersion(input: {
 }): SpaceDispatchTraceResponse {
   const currentHead = input.response.trace?.runtimeCoordinatorHeadLifecycle;
   if (
-    input.responseContractVersion ===
-    SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
+    (input.responseContractVersion ?? 1) >=
+    SPACE_DISPATCH_TRACE_EXECUTION_CONTEXT_CONTRACT_VERSION
   ) {
     return projectSpaceDispatchTraceExecutionContext(input.response);
   }

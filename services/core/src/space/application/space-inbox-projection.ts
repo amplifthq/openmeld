@@ -94,7 +94,7 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   signal: SignalEnvelope;
   signalContext?: SignalPublishContext;
   spaceName: string | null;
-  threadRootAuthorUserId?: string | null;
+  replyRecipientUserId?: string | null;
   threadParticipantProfileIds?: readonly string[];
   wakeRequesterUserId?: string | null;
 }): SpaceInboxProjectionOutboxRecord | null {
@@ -109,6 +109,10 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
     actorProfileId
   );
   const mentionedProfileIds = resolveMentionedProfileIds(signal);
+  const mentionedOwnerIds = resolveMentionedOwnerUserIds(
+    input,
+    mentionedProfileIds
+  );
   const addressing = resolveSpaceInboxAgentAddressing(input);
   const spaceLabel = truncateInboxText(
     normalizeText(input.spaceName) ?? DEFAULT_SPACE_LABEL,
@@ -124,8 +128,8 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
     resolveExplicitlyTargetedRecipientUserIds({
       activeMemberRecords: input.activeMemberRecords,
       directMessage: input.directMessage,
-      mentionedProfileIds,
-      threadRootAuthorUserId: input.threadRootAuthorUserId ?? null,
+      mentionedOwnerIds,
+      replyRecipientUserId: input.replyRecipientUserId ?? null,
     });
   const audience = resolveAudience({
     authorUserId,
@@ -153,17 +157,13 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   });
   const candidates: InboxSourceCandidate[] = [];
 
-  for (const [recipientUserId, recipientMembers] of memberRecordsByUserId) {
+  for (const recipientUserId of memberRecordsByUserId.keys()) {
     const isAuthor = recipientUserId === authorUserId;
-    const isMention =
-      !isAuthor &&
-      recipientMembers.some((member) =>
-        mentionedProfileIds.has(member.profileId)
-      );
+    const isMention = !isAuthor && mentionedOwnerIds.has(recipientUserId);
     const kind = isMention ? "space_mention" : audience.kind;
-    const isThreadRootAuthor =
+    const isReplyRecipient =
       !(isMention || isAuthor) &&
-      normalizeText(input.threadRootAuthorUserId) === recipientUserId;
+      normalizeText(input.replyRecipientUserId) === recipientUserId;
     candidates.push(
       inboxSourceCandidateSchema.parse({
         attention: "update",
@@ -183,8 +183,10 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
           version: 1,
           agentProfileIds: addressing.agentProfileIds,
           recipientReasons: humanRecipientReasons({
+            isAuthor,
             isMention,
-            isThreadRootAuthor,
+            isReplyRecipient,
+            inThread: input.signalContext?.threadContext !== undefined,
             isRequester: recipientUserId === input.wakeRequesterUserId,
             directMessage: input.directMessage,
           }),
@@ -194,15 +196,14 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
           kind: "space",
           signalId: focusSignalId,
           spaceId: signal.spaceId,
-          ...(isThreadRootAuthor &&
-            kind === "space_message" && { replyToRecipient: true }),
+          ...(isReplyRecipient && { replyToRecipient: true }),
           threadRootSignalId: input.signalContext?.threadContext?.rootSignalId,
         },
         title: buildTitle({
           actorName,
           isMention,
           isTerminalWakeFailure,
-          isThreadRootAuthor,
+          isReplyRecipient,
           kind,
           spaceLabel,
         }),
@@ -210,6 +211,16 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
     );
   }
 
+  candidates.push(
+    ...buildOrganizationMentionCandidates({
+      input,
+      authorUserId,
+      actorName,
+      candidates,
+      focusSignalId,
+      signal,
+    })
+  );
   candidates.push(
     ...buildAgentOwnerCandidates(input, {
       signal,
@@ -238,15 +249,78 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   };
 }
 
+/** Non-members receive only the mention receipt, never the Space preview. */
+function buildOrganizationMentionCandidates(context: {
+  input: Parameters<typeof buildSpaceInboxProjectionOutboxRecord>[0];
+  authorUserId: string | null;
+  actorName: string;
+  candidates: readonly InboxSourceCandidate[];
+  focusSignalId: string;
+  signal: SignalEnvelope;
+}): InboxSourceCandidate[] {
+  const { input, authorUserId, actorName, focusSignalId, signal } = context;
+  const candidates: InboxSourceCandidate[] = [];
+  const recipientIds = new Set(
+    context.candidates.map((candidate) => candidate.recipientUserId)
+  );
+  for (const target of input.signalContext?.resolvedHumanMentions ?? []) {
+    if (
+      target.scope !== "organization" ||
+      target.ownerUserId === authorUserId ||
+      recipientIds.has(target.ownerUserId)
+    ) {
+      continue;
+    }
+    recipientIds.add(target.ownerUserId);
+    candidates.push(
+      inboxSourceCandidateSchema.parse({
+        attention: "update",
+        contextLabel: "Organization mention",
+        importance: "normal",
+        kind: "space_mention",
+        occurredAtMs: Math.max(0, signal.ts),
+        organizationId: input.organizationId,
+        preview:
+          "You were mentioned as an Organization member in a Space you had not joined. Opening it does not grant access.",
+        recipientUserId: target.ownerUserId,
+        sourceKey: signal.id,
+        sourceKind: "space_signal",
+        sourceFacts: {
+          version: 1,
+          recipientReasons: ["human_mention"],
+          organizationMentionProfileId: target.profileId,
+        },
+        sourceTarget: {
+          kind: "space",
+          spaceId: signal.spaceId,
+          signalId: focusSignalId,
+        },
+        title: truncateInboxText(
+          `${actorName} mentioned you`,
+          INBOX_TITLE_MAX_CHARS
+        ),
+      })
+    );
+  }
+  return candidates;
+}
+
 function humanRecipientReasons(input: {
+  isAuthor: boolean;
   isMention: boolean;
-  isThreadRootAuthor: boolean;
+  isReplyRecipient: boolean;
+  inThread: boolean;
   isRequester: boolean;
   directMessage?: boolean;
 }): NonNullable<InboxSourceCandidate["sourceFacts"]>["recipientReasons"] {
+  if (input.isAuthor) {
+    return ["space_member"];
+  }
   return [
     ...(input.isMention ? ["human_mention" as const] : []),
-    ...(input.isThreadRootAuthor ? ["thread_reply" as const] : []),
+    ...(input.inThread && input.isReplyRecipient
+      ? ["thread_reply" as const]
+      : []),
     ...(input.isRequester ? ["requester" as const] : []),
     ...(input.directMessage ? ["direct_message" as const] : []),
     "space_member",
@@ -380,16 +454,37 @@ function resolveAudience(input: {
   return { kind: "wake_outcome" };
 }
 
+function resolveMentionedOwnerUserIds(
+  input: Parameters<typeof buildSpaceInboxProjectionOutboxRecord>[0],
+  mentionedProfileIds: ReadonlySet<string>
+): Set<string> {
+  const owners = new Set(
+    input.signalContext?.resolvedHumanMentions?.map(
+      (target) => target.ownerUserId
+    ) ?? []
+  );
+  for (const member of input.activeMemberRecords) {
+    if (
+      member.status === "active" &&
+      member.profileKindSnapshot === "human" &&
+      member.ownerUserIdSnapshot &&
+      mentionedProfileIds.has(member.profileId)
+    ) {
+      owners.add(member.ownerUserIdSnapshot);
+    }
+  }
+  return owners;
+}
 function resolveExplicitlyTargetedRecipientUserIds(input: {
   directMessage?: boolean;
   activeMemberRecords: readonly SpaceMemberRecord[];
-  mentionedProfileIds: ReadonlySet<string>;
-  threadRootAuthorUserId: string | null;
+  mentionedOwnerIds: ReadonlySet<string>;
+  replyRecipientUserId: string | null;
 }): Set<string> {
-  const recipientUserIds = new Set<string>();
-  const threadRootAuthorUserId = normalizeText(input.threadRootAuthorUserId);
-  if (threadRootAuthorUserId) {
-    recipientUserIds.add(threadRootAuthorUserId);
+  const recipientUserIds = new Set(input.mentionedOwnerIds);
+  const replyRecipientUserId = normalizeText(input.replyRecipientUserId);
+  if (replyRecipientUserId) {
+    recipientUserIds.add(replyRecipientUserId);
   }
   for (const member of input.activeMemberRecords) {
     const ownerUserId = normalizeText(member.ownerUserIdSnapshot);
@@ -397,7 +492,7 @@ function resolveExplicitlyTargetedRecipientUserIds(input: {
       member.status === "active" &&
       member.profileKindSnapshot === "human" &&
       ownerUserId &&
-      (input.directMessage || input.mentionedProfileIds.has(member.profileId))
+      input.directMessage
     ) {
       recipientUserIds.add(ownerUserId);
     }
@@ -409,7 +504,7 @@ function buildTitle(input: {
   actorName: string;
   isMention: boolean;
   isTerminalWakeFailure: boolean;
-  isThreadRootAuthor: boolean;
+  isReplyRecipient: boolean;
   kind: InboxSourceCandidate["kind"];
   spaceLabel: string;
 }): string {
@@ -419,9 +514,9 @@ function buildTitle(input: {
       INBOX_TITLE_MAX_CHARS
     );
   }
-  if (input.isThreadRootAuthor) {
+  if (input.isReplyRecipient) {
     return truncateInboxText(
-      `${input.actorName} replied to your thread in ${input.spaceLabel}`,
+      `${input.actorName} replied to you in ${input.spaceLabel}`,
       INBOX_TITLE_MAX_CHARS
     );
   }

@@ -136,6 +136,8 @@ export type LocalExecutionSlotTask = {
   spaceId: string | null;
   targetLabel: string;
   run: () => Promise<LocalExecutionSlotTaskResult | undefined>;
+  // Reports the outcome of a started task the slots refused to run.
+  onRunRefused?: (error: unknown) => void;
   taskId: string;
   transportMode: string | null;
 };
@@ -251,6 +253,8 @@ export function createLocalExecutionSlots(input: {
   // Observe ownership after mutation, including release. Completion events are
   // emitted while the task still owns its slot and cannot prove quiescence.
   onChanged?: () => void;
+  // Runs first in a started task. A throw fails that task before its work.
+  beforeTaskRun?: (task: LocalExecutionSlotTask) => void;
   onTaskCompleted?: (event: LocalExecutionSlotCompletionEvent) => void;
   onTaskDropped?: (event: LocalExecutionSlotDropEvent) => void;
   onTaskQueued?: (event: LocalExecutionSlotLifecycleEvent) => void;
@@ -496,6 +500,20 @@ export function createLocalExecutionSlots(input: {
     }
   };
 
+  // Release is already committed. An observation failure must not strand a
+  // drain waiter or the next task, which still has its own pre-run fence.
+  const notifyReleased = (): void => {
+    try {
+      input.onChanged?.();
+    } catch (error) {
+      console.warn(
+        "[openmeld.local_execution_slots.release_observation_failed]",
+        toErrorMessage(error)
+      );
+    }
+    notifyDrainWaitersIfIdle();
+  };
+
   const pump = (): void => {
     while (activeGlobal < input.limits.globalConcurrency) {
       // OPENMELD_LOCAL_EXECUTION_SLOT: HIGHEST_FACT lane-serial-local-execution
@@ -545,6 +563,12 @@ export function createLocalExecutionSlots(input: {
 
       Promise.resolve()
         .then(async () => {
+          try {
+            input.beforeTaskRun?.(selectedTask);
+          } catch (error) {
+            selectedTask.onRunRefused?.(error);
+            throw error;
+          }
           const runResult = await selectedTask.run();
           const completionResult = resolveTaskCompletionResult(runResult);
           input.onTaskCompleted?.({
@@ -611,8 +635,7 @@ export function createLocalExecutionSlots(input: {
               remainingActiveForLane
             );
           }
-          input.onChanged?.();
-          notifyDrainWaitersIfIdle();
+          notifyReleased();
           pump();
         });
     }
@@ -654,8 +677,7 @@ export function createLocalExecutionSlots(input: {
         };
       } finally {
         adapterOperationIds.delete(adapterId);
-        input.onChanged?.();
-        notifyDrainWaitersIfIdle();
+        notifyReleased();
         pump();
       }
     },
@@ -774,8 +796,7 @@ export function createLocalExecutionSlots(input: {
           reason,
         });
       }
-      input.onChanged?.();
-      notifyDrainWaitersIfIdle();
+      notifyReleased();
       return {
         droppedCount,
       };
@@ -787,6 +808,13 @@ export function createLocalExecutionSlots(input: {
       return new Promise<void>((resolve) => {
         drainWaiters.push(resolve);
       });
+    },
+    /** Started tasks and adapter operations; queued tasks have not begun work. */
+    getRunningWork(): { adapterOperationIds: string[]; taskIds: string[] } {
+      return {
+        adapterOperationIds: [...adapterOperationIds],
+        taskIds: [...activeTasks.keys()],
+      };
     },
     getDrainState(): {
       activeGlobal: number;

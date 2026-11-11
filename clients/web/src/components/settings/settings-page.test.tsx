@@ -29,7 +29,7 @@ const TEST_ORG_SLUG = "acme";
 const testSettingsRoutes = buildSettingsRoutes(TEST_ORG_SLUG);
 const testSettingsSections = buildSettingsSections(TEST_ORG_SLUG);
 const getActiveOrganizationMemberRoleMock = vi.hoisted(() =>
-	vi.fn().mockResolvedValue("owner")
+	vi.fn(async (): Promise<string> => "owner")
 );
 const getDesktopPlatformMock = vi.hoisted(() => vi.fn());
 const settingsFault = vi.hoisted(() => ({ error: null as Error | null }));

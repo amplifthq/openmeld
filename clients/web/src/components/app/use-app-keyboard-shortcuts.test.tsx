@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { useAppKeyboardShortcuts } from "./use-app-keyboard-shortcuts";
 
 const { navigate, setTheme } = vi.hoisted(() => ({
-	navigate: vi.fn().mockResolvedValue(undefined),
+	navigate: vi.fn(async (_options: unknown) => undefined),
 	setTheme: vi.fn(),
 }));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }));

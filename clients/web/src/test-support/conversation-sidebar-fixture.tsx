@@ -193,6 +193,18 @@ export function useConversationSidebarFixture() {
 				refetch: () => undefined,
 			},
 			preferences: chatPreferences,
+			isArchived: (chat: { spaceId: string }) =>
+				chatPreferences.archivedIds.includes(chat.spaceId),
+			setArchived: async (chat: { spaceId: string }, archived: boolean) =>
+				save({
+					...preferences,
+					chats: {
+						...chatPreferences,
+						archivedIds: archived
+							? [...new Set([...chatPreferences.archivedIds, chat.spaceId])]
+							: chatPreferences.archivedIds.filter((id) => id !== chat.spaceId),
+					},
+				}),
 			save: (chats: NonNullable<AccountSidebarPreferences["chats"]>) =>
 				save({ ...preferences, chats }),
 			store: {

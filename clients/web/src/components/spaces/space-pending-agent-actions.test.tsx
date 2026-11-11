@@ -250,6 +250,14 @@ describe("SpacePendingAgentActions", () => {
 				name: "Auto mode",
 			})
 		);
+		fireEvent.click(screen.getByRole("radio", { name: "Deny" }));
+		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
+		expect(
+			screen
+				.getByRole("radio", { name: "Keep current permissions" })
+				.getAttribute("aria-checked")
+		).toBe("true");
+		fireEvent.click(screen.getByRole("radio", { name: "Auto mode" }));
 		fireEvent.click(screen.getByRole("button", { name: "Next action" }));
 
 		expect(screen.getByText("Allow the second command?")).toBeTruthy();
@@ -259,10 +267,12 @@ describe("SpacePendingAgentActions", () => {
 				.getAttribute("aria-checked")
 		).toBe("false");
 		expect(
-			screen.queryByRole("radio", {
-				name: "Auto mode",
-			})
-		).toBeNull();
+			screen
+				.getByRole("radio", {
+					name: "Auto mode",
+				})
+				.getAttribute("aria-checked")
+		).toBe("false");
 
 		fireEvent.click(screen.getByRole("button", { name: "Previous action" }));
 		expect(

@@ -52,6 +52,7 @@ import {
   renderAuthStatusCard,
   renderAuthStatusGuidanceCard,
 } from "./auth-status-shared";
+import { finishInterruptedComputerAuthHandoffBeforeAccountChange } from "./computer-auth-handoff-recovery";
 import {
   exchangeOneTimeTokenAuthSession,
   OneTimeTokenAuthError,
@@ -150,9 +151,14 @@ export async function runAuthLogin(input: {
   agentOverviewHandled?: boolean;
   allowBackToCaller?: boolean;
 }): Promise<AuthLoginNavigationResult> {
-  await assertAuthSessionMutationAvailable();
   const runtime = await resolveRuntimeContext({ view: input.view });
   const presenter = createPresenter(runtime);
+  await finishInterruptedComputerAuthHandoffBeforeAccountChange({
+    presenter,
+    runtime,
+    view: input.view,
+  });
+  await assertAuthSessionMutationAvailable();
   emitAuthOverviewIfNeeded({
     presenter,
     resolvedView: runtime.resolvedView,
@@ -956,9 +962,14 @@ export async function runAuthLogout(input?: {
   view?: string;
   agentOverviewHandled?: boolean;
 }): Promise<void> {
-  await assertAuthSessionMutationAvailable();
   const runtime = await resolveRuntimeContext({ view: input?.view });
   const presenter = createPresenter(runtime);
+  await finishInterruptedComputerAuthHandoffBeforeAccountChange({
+    presenter,
+    runtime,
+    view: input?.view,
+  });
+  await assertAuthSessionMutationAvailable();
   emitAuthOverviewIfNeeded({
     presenter,
     resolvedView: runtime.resolvedView,

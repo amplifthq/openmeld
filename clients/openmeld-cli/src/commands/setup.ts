@@ -2,6 +2,7 @@ import process from "node:process";
 import type { ComputerConnectionIntent } from "@openmeld/schemas";
 import type { PrepareSessionSnapshot } from "@openmeld/schemas/types";
 import { getSetupFlowCopy } from "@openmeld/start";
+import { reconcileNewRunnableBuiltinAgentsForSetup } from "../agents/registry";
 import { ensureCommandAuthenticationOrCancel } from "../auth/command-auth";
 import { getCurrentAuthOwnerUserId } from "../config/auth-session";
 import { resolveBaseUrl } from "../config/base-url";
@@ -40,6 +41,10 @@ import { createPresenter } from "../runtime/presenter/index";
 import type { Presenter } from "../runtime/presenter/types";
 import { resolveGatewayWebOrigin } from "../space/web-url";
 import { runStartLocalAgentsEnable } from "../start-local/agents-local";
+import {
+  registerUnselectedLocalAgentsOffForSetup,
+  turnOffUnselectedLocalAgentsForSetup,
+} from "../start-local/local-agent-choice";
 import { collectStartLocalReadiness } from "../start-local/readiness";
 import {
   LocalMachineFailureError,
@@ -81,11 +86,12 @@ type SetupServiceGuidance = {
 type SetupHumanLocalAgentState =
   | "background_syncing"
   | "reported"
+  | "kept_off"
   | "none_found"
   | "skipped";
 
 const NON_INTERACTIVE_DEFAULT_LOCAL_AGENTS_NOTICE =
-  "Non-interactive: connecting all detected agents (use --local-agent to limit, or --local-agents none to skip).";
+  "Non-interactive: connecting new agents and keeping existing On/Off choices (use --local-agent to choose, or --local-agents none to skip).";
 
 export async function runSetup(input: {
   connectionIntent?: ComputerConnectionIntent;
@@ -190,6 +196,7 @@ async function runSetupUnlocked(input: {
   // This is the Phase 2 local entry for humans and agents. It establishes the
   // local service session, reports local runtime capabilities, and emits the
   // setup.complete fact that follow-up Space/profile commands must use.
+  const explicitLocalAgentSelection = hasExplicitLocalAgentSelection(input);
   const initialReadiness = await runWithSetupProgress({
     code: "setup.progress.local_agents.checking",
     completionMessage: "Local agents checked.",
@@ -197,13 +204,9 @@ async function runSetupUnlocked(input: {
     presenter,
     runtime,
     run: async () =>
-      await collectStartLocalReadiness({
-        auth: {
-          status: "valid",
-          email: null,
-          authBaseUrl: null,
-          gatewayUrl,
-        },
+      await collectStandardSetupLocalReadiness({
+        explicitSelection: explicitLocalAgentSelection,
+        gatewayUrl,
       }),
   });
   await emitSetupPlanForAgentView({
@@ -219,14 +222,22 @@ async function runSetupUnlocked(input: {
     localAgents: input.localAgents,
     readiness: initialReadiness,
   });
-  await confirmZeroLocalAgentSetupIfNeeded({
-    explicitSelection: hasExplicitLocalAgentSelection(input),
-    guideUrl: localAgentsGuideUrl,
-    localAgentsMode: input.localAgents,
-    presenter,
-    runtime,
+  const humanLocalAgentState = resolveStandardSetupHumanLocalAgentState({
+    explicitSelection: explicitLocalAgentSelection,
+    localAgents: input.localAgents,
+    readiness: initialReadiness,
     selectedLocalAgentIds,
   });
+  if (humanLocalAgentState !== "kept_off") {
+    await confirmZeroLocalAgentSetupIfNeeded({
+      explicitSelection: hasExplicitLocalAgentSelection(input),
+      guideUrl: localAgentsGuideUrl,
+      localAgentsMode: input.localAgents,
+      presenter,
+      runtime,
+      selectedLocalAgentIds,
+    });
+  }
   emitDefaultLocalAgentsNoticeIfNeeded({
     explicitSelection: hasExplicitLocalAgentSelection(input),
     interactive,
@@ -234,7 +245,17 @@ async function runSetupUnlocked(input: {
     selectedLocalAgentIds,
   });
 
-  if (selectedLocalAgentIds.length > 0) {
+  // Only an explicit selection replaces the saved switches. Automatic
+  // discovery is an observation, including when an enabled agent needs repair.
+  const appliesLocalAgentChoice =
+    explicitLocalAgentSelection &&
+    (selectedLocalAgentIds.length > 0 ||
+      normalizeOptionalString(input.localAgents) === "none");
+  // Before the Service starts, so it never reports an unselected agent as on.
+  const turnedOffBeforeServiceAgentIds = appliesLocalAgentChoice
+    ? await registerUnselectedLocalAgentsOffForSetup({ selectedLocalAgentIds })
+    : [];
+  if (explicitLocalAgentSelection && selectedLocalAgentIds.length > 0) {
     assertStartLocalAgentsEnableCompleted(
       await runWithSetupProgress({
         code: "setup.progress.local_agents.enabling",
@@ -321,10 +342,14 @@ async function runSetupUnlocked(input: {
           reason: "setup_local_capabilities_reported",
         })
       : null;
-  emitSetupMemberAgentsLine(
-    presenter,
-    await addSetupSelectedMemberAgents({ selectedLocalAgentIds })
-  );
+  const memberAgents = await syncStandardSetupMemberAgents({
+    appliesLocalAgentChoice,
+    selectedLocalAgentIds,
+    turnedOffBeforeServiceAgentIds,
+  });
+  if (memberAgents) {
+    emitSetupMemberAgentsLine(presenter, memberAgents);
+  }
 
   await runWithSetupProgress({
     code: "setup.progress.skills.updating",
@@ -356,10 +381,7 @@ async function runSetupUnlocked(input: {
   emitSetupComplete({
     bootstrap,
     gatewayUrl,
-    humanLocalAgentState: resolveStandardSetupHumanLocalAgentState({
-      localAgents: input.localAgents,
-      selectedLocalAgentIds,
-    }),
+    humanLocalAgentState,
     localComponents,
     path: "local_setup",
     presenter,
@@ -369,6 +391,63 @@ async function runSetupUnlocked(input: {
     selectedLocalAgentIds,
     view: runtime.resolvedView,
   });
+}
+
+async function syncStandardSetupMemberAgents(input: {
+  appliesLocalAgentChoice: boolean;
+  selectedLocalAgentIds: readonly string[];
+  turnedOffBeforeServiceAgentIds: readonly string[];
+}): Promise<SetupMemberAgentsResult | null> {
+  if (input.appliesLocalAgentChoice) {
+    return await addSetupMemberAgentsAfterLocalAgentChoice({
+      selectedLocalAgentIds: input.selectedLocalAgentIds,
+      turnedOffBeforeServiceAgentIds: input.turnedOffBeforeServiceAgentIds,
+    });
+  }
+  if (input.selectedLocalAgentIds.length === 0) {
+    return null;
+  }
+  return await addSetupSelectedMemberAgents({
+    selectedLocalAgentIds: input.selectedLocalAgentIds,
+  });
+}
+
+async function collectStandardSetupLocalReadiness(input: {
+  explicitSelection: boolean;
+  gatewayUrl: string;
+}): ReturnType<typeof collectStartLocalReadiness> {
+  if (!input.explicitSelection) {
+    await reconcileNewRunnableBuiltinAgentsForSetup();
+  }
+  return await collectStartLocalReadiness({
+    auth: {
+      status: "valid",
+      email: null,
+      authBaseUrl: null,
+      gatewayUrl: input.gatewayUrl,
+    },
+  });
+}
+
+/**
+ * Apply the selection to Local agents, then add the selected Agents. Every
+ * harness turned on becomes an Agent, so an unselected agent the Service
+ * could not turn off (or whose switch OpenMeld has not seen) would be added
+ * too; setup then leaves the Agents to the next sync instead.
+ */
+async function addSetupMemberAgentsAfterLocalAgentChoice(input: {
+  selectedLocalAgentIds: readonly string[];
+  turnedOffBeforeServiceAgentIds?: readonly string[];
+}): Promise<SetupMemberAgentsResult> {
+  const choice = await turnOffUnselectedLocalAgentsForSetup(input);
+  if (choice.failedAgentIds.length > 0) {
+    const names = choice.failedAgentIds.map(formatSetupLocalAgentDisplayName);
+    return {
+      status: "failed",
+      message: `OpenMeld Service couldn't turn off ${names.join(", ")}`,
+    };
+  }
+  return await addSetupSelectedMemberAgents(input);
 }
 
 function emitSetupMemberAgentsLine(
@@ -494,9 +573,10 @@ export function resolveSetupLocalAgentIds(input: {
     return localAgentIds;
   }
 
-  return [...selectableById.keys()].sort((left, right) =>
-    left.localeCompare(right)
-  );
+  return [...selectableById.values()]
+    .filter((candidate) => localAgentMode === "all" || candidate.enabled)
+    .map((candidate) => candidate.agentId)
+    .sort((left, right) => left.localeCompare(right));
 }
 
 async function confirmZeroLocalAgentSetupIfNeeded(input: {
@@ -787,6 +867,13 @@ async function resolveDelegatedSetupCompletionFacts(input: {
             reason: "setup_profile_agent_controller_reported",
           })
         : null;
+    // The Connect page chose these; the session turned every runnable agent
+    // on before it did.
+    if (completionFacts.selectedLocalAgentIds.length > 0) {
+      await addSetupMemberAgentsAfterLocalAgentChoice({
+        selectedLocalAgentIds: completionFacts.selectedLocalAgentIds,
+      });
+    }
     return {
       routeCatalogSync,
       openMeldServiceRuntimeIdentity,
@@ -835,6 +922,11 @@ async function resolveDelegatedSetupCompletionFacts(input: {
       gatewayUrl: input.gatewayUrl,
     }));
   if (selectedLocalAgentIds.length === 0) {
+    // An empty setup session selection means the Connect page has not chosen
+    // yet; only an explicit `--local-agents none` turns every agent off.
+    if (normalizeOptionalString(input.setupInput.localAgents) === "none") {
+      await turnOffUnselectedLocalAgentsForSetup({ selectedLocalAgentIds });
+    }
     return {
       routeCatalogSync: null,
       openMeldServiceRuntimeIdentity,
@@ -860,7 +952,7 @@ async function resolveDelegatedSetupCompletionFacts(input: {
     reason: "setup_session_capabilities_reported",
   });
   // The Connect page's selection arrives as the setup session's agents.
-  await addSetupSelectedMemberAgents({ selectedLocalAgentIds });
+  await addSetupMemberAgentsAfterLocalAgentChoice({ selectedLocalAgentIds });
 
   return {
     routeCatalogSync,
@@ -913,11 +1005,21 @@ function emitDefaultLocalAgentsNoticeIfNeeded(input: {
 }
 
 function resolveStandardSetupHumanLocalAgentState(input: {
+  explicitSelection: boolean;
   localAgents?: string;
+  readiness: Awaited<ReturnType<typeof collectStartLocalReadiness>>;
   selectedLocalAgentIds: readonly string[];
 }): SetupHumanLocalAgentState {
   if (input.selectedLocalAgentIds.length > 0) {
     return "reported";
+  }
+  if (
+    !input.explicitSelection &&
+    input.readiness.agents.candidates.some(
+      (candidate) => candidate.selectable && !candidate.enabled
+    )
+  ) {
+    return "kept_off";
   }
   return normalizeOptionalString(input.localAgents) === "none"
     ? "skipped"
@@ -1084,6 +1186,11 @@ function buildSetupHumanLocalAgentSections(input: {
   }
   if (input.humanLocalAgentState === "skipped") {
     return ["Local agents were skipped."];
+  }
+  if (input.humanLocalAgentState === "kept_off") {
+    return [
+      "Your local agents remain off. Turn them on in Computers when you're ready.",
+    ];
   }
   if (input.humanLocalAgentState === "none_found") {
     const guideUrl = buildLocalAgentsGuideUrl(input.gatewayUrl);

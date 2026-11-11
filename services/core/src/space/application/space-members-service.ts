@@ -42,6 +42,7 @@ import {
 } from "../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import type { CoreBindings } from "../../lib/bindings";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
+import { RUNTIME_TRANSPORT_LOOKUP_TIMEOUT_MS } from "../../strategy-constants";
 import {
   readSpaceMemberDisplayCache,
   type SpaceMemberDisplayCache,
@@ -612,6 +613,7 @@ async function buildSpaceMembersSnapshot(
             preloadAgentMemberDaemonRoutes({
               env: input.env,
               records: currentRecords,
+              spaceId: input.spaceId,
             })
           )
     ),
@@ -628,6 +630,7 @@ async function buildSpaceMembersSnapshot(
               preloadAgentMemberOwnerServices({
                 env: input.env,
                 records: currentRecords,
+                spaceId: input.spaceId,
               })
             )
     ),
@@ -660,7 +663,9 @@ async function buildSpaceMembersSnapshot(
       const service = preloadedOwnerServiceByOwnerUserId.get(
         record.ownerUserIdSnapshot ?? ""
       );
-      return service ? [[record.profileId, service] as const] : [];
+      return service === undefined
+        ? []
+        : [[record.profileId, service] as const];
     })
   );
   for (const record of records) {
@@ -1398,7 +1403,8 @@ async function resolveCurrentLocalPreloadRecords(input: {
 async function preloadAgentMemberDaemonRoutes(input: {
   env: CoreBindings;
   records: readonly SpaceMemberRecord[];
-}): Promise<ReadonlyMap<string, RuntimeTransportLookupRouteResponse>> {
+  spaceId: string;
+}): Promise<ReadonlyMap<string, RuntimeTransportLookupRouteResponse | null>> {
   const profileIdsByOwnerUserId = new Map<string, Set<string>>();
   for (const record of input.records) {
     if (!needsLocalMemberPreload(record)) {
@@ -1417,7 +1423,7 @@ async function preloadAgentMemberDaemonRoutes(input: {
   }
   const routesByProfileId = new Map<
     string,
-    RuntimeTransportLookupRouteResponse
+    RuntimeTransportLookupRouteResponse | null
   >();
   if (
     profileIdsByOwnerUserId.size === 0 ||
@@ -1428,12 +1434,32 @@ async function preloadAgentMemberDaemonRoutes(input: {
   await Promise.all(
     [...profileIdsByOwnerUserId.entries()].map(
       async ([ownerUserId, profileIds]) => {
-        const batch = await lookupRuntimeTransportRoutesBatch({
-          blockForgottenDevices: true,
-          env: input.env,
-          ownerUserId,
-          profileIds: [...profileIds],
-        });
+        let batch: Awaited<
+          ReturnType<typeof lookupRuntimeTransportRoutesBatch>
+        >;
+        try {
+          batch = await lookupRuntimeTransportRoutesBatch({
+            blockForgottenDevices: true,
+            env: input.env,
+            ownerUserId,
+            profileIds: [...profileIds],
+            readTimeoutMs: RUNTIME_TRANSPORT_LOOKUP_TIMEOUT_MS,
+          });
+        } catch (error) {
+          logMemberRuntimeLookupUnavailable({
+            error,
+            operation: "/lookup-routes-batch",
+            ownerUserId,
+            profileCount: profileIds.size,
+            spaceId: input.spaceId,
+          });
+          // Explicit failed-read evidence is interpreted by the readiness owner.
+          // Missing keys would instead retry this owner once per Profile.
+          for (const profileId of profileIds) {
+            routesByProfileId.set(profileId, null);
+          }
+          return;
+        }
         if (!batch) {
           return;
         }
@@ -1451,7 +1477,10 @@ async function preloadAgentMemberDaemonRoutes(input: {
 async function preloadAgentMemberOwnerServices(input: {
   env: CoreBindings;
   records: readonly SpaceMemberRecord[];
-}): Promise<ReadonlyMap<string, RuntimeTransportLookupOwnerServiceResponse>> {
+  spaceId: string;
+}): Promise<
+  ReadonlyMap<string, RuntimeTransportLookupOwnerServiceResponse | null>
+> {
   const ownerUserIds = new Set<string>();
   for (const record of input.records) {
     if (!needsLocalMemberPreload(record)) {
@@ -1464,22 +1493,49 @@ async function preloadAgentMemberOwnerServices(input: {
   }
   const servicesByOwnerUserId = new Map<
     string,
-    RuntimeTransportLookupOwnerServiceResponse
+    RuntimeTransportLookupOwnerServiceResponse | null
   >();
   if (ownerUserIds.size === 0 || !input.env.OPENMELD_RUNTIME_TRANSPORT) {
     return servicesByOwnerUserId;
   }
   await Promise.all(
     [...ownerUserIds].map(async (ownerUserId) => {
-      const ownerService = await lookupRuntimeTransportOwnerService({
-        blockForgottenDevices: true,
-        env: input.env,
-        ownerUserId,
-      });
-      servicesByOwnerUserId.set(ownerUserId, ownerService);
+      try {
+        const ownerService = await lookupRuntimeTransportOwnerService({
+          blockForgottenDevices: true,
+          env: input.env,
+          ownerUserId,
+        });
+        servicesByOwnerUserId.set(ownerUserId, ownerService);
+      } catch (error) {
+        logMemberRuntimeLookupUnavailable({
+          error,
+          operation: "/lookup-owner-service",
+          ownerUserId,
+          spaceId: input.spaceId,
+        });
+        servicesByOwnerUserId.set(ownerUserId, null);
+      }
     })
   );
   return servicesByOwnerUserId;
+}
+function logMemberRuntimeLookupUnavailable(input: {
+  error: unknown;
+  operation: "/lookup-routes-batch" | "/lookup-owner-service";
+  ownerUserId: string;
+  profileCount?: number;
+  spaceId: string;
+}): void {
+  console.warn("[core.space.member_runtime_lookup_unavailable]", {
+    event: CORE_LOG_EVENTS.spaceMemberRuntimeLookupUnavailable,
+    errorName:
+      input.error instanceof Error ? input.error.name : typeof input.error,
+    operation: input.operation,
+    ownerUserId: input.ownerUserId,
+    profileCount: input.profileCount,
+    spaceId: input.spaceId,
+  });
 }
 function needsLocalMemberPreload(record: SpaceMemberRecord): boolean {
   // Called only on records classified from the request's current binding.
@@ -1514,11 +1570,11 @@ async function buildAgentSnapshot(input: {
   latestAgentOriginFactsByProfileId: Map<string, LatestAgentOriginFacts>;
   preloadedDaemonRouteByProfileId: ReadonlyMap<
     string,
-    RuntimeTransportLookupRouteResponse
+    RuntimeTransportLookupRouteResponse | null
   >;
   preloadedOwnerServiceByProfileId: ReadonlyMap<
     string,
-    RuntimeTransportLookupOwnerServiceResponse
+    RuntimeTransportLookupOwnerServiceResponse | null
   >;
   generatedAt: string;
   readinessReads: AgentExecutionReadinessReads;

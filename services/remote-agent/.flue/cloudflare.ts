@@ -137,6 +137,9 @@ export default {
       remoteAgentWorkerSubmitCapabilitiesSchema.parse({
         v: 1,
         taskId: true,
+        ...(request.data.includePluginActionRecovery
+          ? { pluginActionRecovery: true }
+          : {}),
       })
     );
   },

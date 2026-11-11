@@ -351,6 +351,48 @@
       "when": 1792561440084,
       "tag": "0049_agent_activity_daily_session_keys_project_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1792937876774,
+      "tag": "0050_codex_read_conversation_proof",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1793180501876,
+      "tag": "0051_organization_owner_retention",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1793351721847,
+      "tag": "0052_permission_mode_change_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1793511994700,
+      "tag": "0053_center_agent_space_memory",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1793586862153,
+      "tag": "0054_auth_rate_limits_and_device_codes",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1793790646935,
+      "tag": "0055_feishu_group_history_settings",
+      "breakpoints": true
     }
   ]
 }

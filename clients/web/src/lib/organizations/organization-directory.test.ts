@@ -29,6 +29,10 @@ describe("readCurrentOrganizationDirectory", () => {
 			),
 			expect.objectContaining({ credentials: "include" })
 		);
+		const requestUrl = new URL(String(vi.mocked(fetch).mock.calls[0]?.[0]));
+		expect(requestUrl.searchParams.get("includePublicWakeabilityReason")).toBe(
+			"true"
+		);
 	});
 
 	it("reads profile identity without using the full runtime directory route", async () => {
@@ -100,5 +104,8 @@ describe("readCurrentOrganizationDirectory", () => {
 			"2"
 		);
 		expect(requestUrl.searchParams.get("includeTaskActivity")).toBe("true");
+		expect(requestUrl.searchParams.get("includePublicWakeabilityReason")).toBe(
+			"true"
+		);
 	});
 });

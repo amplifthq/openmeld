@@ -21,6 +21,7 @@ import {
 import {
   canonicalizeLocalProjectPath,
   findExactLocalProjectConnection,
+  isProjectConnectionReadableByOwner,
   resolveCanonicalLocalProjectConnection,
 } from "./project-binding-resolution";
 
@@ -181,7 +182,7 @@ export async function bindProject(
         if (
           existingProjectConnections.some(
             (current) =>
-              current.ownerUserId && current.ownerUserId !== ownerUserId
+              !isProjectConnectionReadableByOwner(current, ownerUserId)
           )
         ) {
           throw new ProjectBindingOperationError(
@@ -484,6 +485,59 @@ async function requireRepositoryDirectory(value: string): Promise<string> {
     throw error;
   });
   return canonicalPath;
+}
+
+/**
+ * Records the current account as the owner of a legacy connection that has
+ * none, keeping its generation, path and default. This is the explicit
+ * reconnect a legacy connection needs before it can run work. Refused when
+ * the Project already has a connection under another account.
+ */
+export async function claimLegacyProjectConnection(
+  input: StoreLocationInput & {
+    bindingGeneration: string;
+    organizationId: string;
+    ownerUserId: string;
+    projectId: string;
+  }
+): Promise<ProjectBinding> {
+  const ownerUserId = requireText(input.ownerUserId, "ownerUserId");
+  return await withAgentActivityDeliveryLock(
+    input,
+    async () =>
+      await withAgentActivityLocalStateLock(input, async () => {
+        const store = await readStore(input);
+        const connection = requireCurrentProjectConnection(store, {
+          expectedBindingGeneration: input.bindingGeneration,
+          organizationId: input.organizationId,
+          projectId: input.projectId,
+        });
+        if (connection.ownerUserId === ownerUserId) {
+          return connection;
+        }
+        if (
+          store.bindings.some(
+            (current) =>
+              current.organizationId === connection.organizationId &&
+              current.projectId === connection.projectId &&
+              !isProjectConnectionReadableByOwner(current, ownerUserId)
+          )
+        ) {
+          throw new ProjectBindingOperationError(
+            "owner_mismatch",
+            "This Project has local connections under another OpenMeld account."
+          );
+        }
+        const claimed: ProjectBinding = { ...connection, ownerUserId };
+        await writeStore(input, {
+          bindings: store.bindings.map((current) =>
+            current === connection ? claimed : current
+          ),
+          version: PROJECT_BINDING_STORE_VERSION,
+        });
+        return claimed;
+      })
+  );
 }
 
 export async function setDefaultProjectConnection(

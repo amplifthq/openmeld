@@ -222,11 +222,16 @@ each with an explicit short name. `profiles create --member-agent <agent>`
 refuses an Agent Controller whose harness differs from the parent's. Core
 refuses an update that would move an assigned Profile to another harness.
 
-`openmeld setup` adds a MemberAgent only for each local agent the member
-selected, with `--local-agent <id...>` or on the Connect page; `--local-agents
-all` selects every detected harness. Setup prints the other detected harnesses,
-and `openmeld agent add <harness>` adds one of them. A MemberAgent step that
-fails never fails setup; the next sync finishes it.
+`openmeld setup` treats the local agent selection (`--local-agent <id...>`,
+or the Connect page) as the Local agents switch of this Computer: it turns the
+selected agents on and every other detected agent off, through the running
+OpenMeld Service so Core sees the change at once, before it asks Core to add
+Agents. Core adds a MemberAgent for each harness turned on (see
+`developing/product/agent-profiles.md`, MemberAgent Layer); `--local-agents
+all` selects every detected harness. Setup prints the harnesses left off, and
+`openmeld agent add <harness>` adds one of them: Core turns it on where it is
+installed and creates its Agent, the same path as Add in OpenMeld Web. A
+MemberAgent step that fails never fails setup; the next sync finishes it.
 
 `openmeld agent list` prints one row per MemberAgent in the current
 Organization with its derived state, running and queued counts, and latest
@@ -258,6 +263,14 @@ and the command reports that it is waiting for that confirmation instead of
 applying the change. Ordinary terminal use is never interrupted, and the CLI
 keeps no TTY elevation cache. Every sensitive operation is written to the audit
 log with its request chain.
+
+One-time-token CLI login creates a distinct Better Auth session for the CLI,
+marked as a CLI credential before it is returned. It preserves the generating
+Web session's active Organization and leaves that Web session available for
+owner confirmations. The response body, session cookies, and signed
+`set-auth-token` header all identify the new CLI session. Previously shared or
+marked sessions retain their classification; a handoff never restores
+interactive authority to a credential a CLI already held.
 
 Other secrets on the computer, such as SSH keys, harness logins, and browser
 data, are not protected by OpenMeld; a harness that can run any command can
@@ -1248,7 +1261,7 @@ the current Space filesystem. The MVP commands are:
 ```text
 openmeld space files list <space-id> [--folder <folder-id>] [--all] [--json]
 openmeld space files read <space-id> <file-id> [--revision <n>]
-openmeld space files upload <space-id> <local-path> [--name <name>] [--folder <folder-id>]
+openmeld space files upload <space-id> <local-path> [--name <name>] [--folder <folder-id>] [--client-mutation-id <uuid>] [--timeout-ms <ms>]
 openmeld space files write <space-id> <file-id> --base-revision <n> (--file <local-path> | --stdin)
 openmeld space files mkdir <space-id> <name> [--folder <folder-id>]
 openmeld space files rename <space-id> <entry-id> <name>
@@ -1263,6 +1276,17 @@ structured error codes. A local Agent uses the signed-in account and its exact
 active Agent Profile; CLI does not turn local filesystem access or a Space
 password into Space membership. File writes use the same revision fence as Web
 and Center Agent tools and never auto-overwrite a conflict.
+
+Space file uploads default to a two-minute timeout per request, including each
+multipart part. `--timeout-ms` overrides `OPENMELD_SPACE_REQUEST_TIMEOUT_MS`
+for this upload (1,000–600,000 ms). Multipart progress reports acknowledged
+parts; only the returned saved revision confirms delivery. Errors identify the
+direct upload or multipart stage that failed. Ctrl-C stops the client without
+undoing a write. Reuse the printed retry ID (or supply a UUID up front for
+`--json`) with the same Space, Profile, destination, name, media type and
+bytes. After a lost response, use the suggested file history command with the
+same connection options to check the exact file before retrying. The same
+mutation identifies the original direct write or resumable multipart session.
 
 Before a Space File command starts, one `session_token_unavailable` credential
 read is reread once. A recovered reread continues without login guidance. A

@@ -44,6 +44,7 @@ import {
   assertManualOrganizationSlugAllowed,
   createWithGeneratedOrganizationSlug,
 } from "../organization/organization-slug";
+import { withOwnerRetentionError } from "../organization/owner-retention-error";
 import {
   isPersonalOrganization,
   PERSONAL_ORGANIZATION_METADATA,
@@ -684,6 +685,15 @@ export function createAuthConfig(
       `[auth] AUTH_COOKIE_DOMAIN="${validated.AUTH_COOKIE_DOMAIN}" is not compatible with auth host "${setterHost}". Cross-subdomain cookies disabled.`
     );
   }
+  const nativeDatabaseAdapter = drizzleAdapter(db, {
+    provider: "pg",
+    // Profile bootstrap hooks cross their own business-owner boundary.
+    // Keep the existing post-create/recovery contract; each paired
+    // business mutation uses its own explicit PostgreSQL transaction.
+    transaction: false,
+    schema,
+    usePlural: true,
+  });
   const organizationOptions = {
     ac: organizationAccessControl,
     organizationLimit: 5,
@@ -886,15 +896,20 @@ export function createAuthConfig(
         developmentTarget: validated.AUTH_DESKTOP_DEVELOPMENT_TARGET,
         request,
       }),
-    database: drizzleAdapter(db, {
-      provider: "pg",
-      // Profile bootstrap hooks cross their own business-owner boundary.
-      // Keep the existing post-create/recovery contract; each paired
-      // business mutation uses its own explicit PostgreSQL transaction.
-      transaction: false,
-      schema,
-      usePlural: true,
-    }),
+    database: (options: BetterAuthOptions) => {
+      const adapter = nativeDatabaseAdapter(options);
+      return {
+        ...adapter,
+        update: <T>(input: Parameters<typeof adapter.update>[0]) =>
+          withOwnerRetentionError(() => adapter.update<T>(input)),
+        updateMany: (input: Parameters<typeof adapter.updateMany>[0]) =>
+          withOwnerRetentionError(() => adapter.updateMany(input)),
+        delete: <T>(input: Parameters<typeof adapter.delete>[0]) =>
+          withOwnerRetentionError(() => adapter.delete<T>(input)),
+        deleteMany: (input: Parameters<typeof adapter.deleteMany>[0]) =>
+          withOwnerRetentionError(() => adapter.deleteMany(input)),
+      };
+    },
     // Account Display Name is owned by OpenMeld's paired account/profile
     // transaction. Leaving Better Auth's generic writer enabled would create a
     // second authority path that can drift from the default Human Profile.
@@ -1036,8 +1051,9 @@ export function createAuthConfig(
         coreWorker: env.OPENMELD_CORE_WORKER,
         db: env.AUTH_SCHEMA_CODEGEN ? undefined : getPostgresDatabase(env),
       }),
-      bearer(),
+      // Replace the OTT result before Bearer exposes its signed session token.
       createCliCredentialPlugin(),
+      bearer(),
       username(),
       multiSession({
         maximumSessions: 5,
@@ -1075,6 +1091,8 @@ export function createAuthConfig(
         },
       }),
       oneTimeToken({
+        // The CLI credential hook issues its own session and cookies.
+        disableSetSessionCookie: true,
         expiresIn: DEFAULT_OTT_EXPIRES_IN_MINUTES,
         storeToken: "hashed",
       }),
@@ -1119,15 +1137,13 @@ export function createAuthConfig(
         }
       : {}),
     rateLimit: AUTHENTICATION_RATE_LIMIT_CONFIG,
-    experimental: {
-      joins: true,
-    },
     advanced: {
       ...(validated.AUTH_COOKIE_PREFIX
         ? { cookiePrefix: validated.AUTH_COOKIE_PREFIX }
         : {}),
       database: {
         generateId: "uuid",
+        joins: true,
       },
       useSecureCookies: validated.AUTH_WORKER_NODE_ENV === "production",
       ...(cookieDomain && validated.AUTH_WORKER_NODE_ENV === "production"

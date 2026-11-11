@@ -221,7 +221,7 @@ describe("auth session secure storage boundary", () => {
       });
     });
   });
-  it("preserves an unreadable old session on rollback without blocking recovery cleanup", async () => {
+  it("preserves an unreadable old session and its owner on rollback without blocking recovery cleanup", async () => {
     await withTempHome(async (home) => {
       await setAuthSession({
         accessToken: secureStorage.accessToken,
@@ -260,7 +260,7 @@ describe("auth session secure storage boundary", () => {
       await expect(
         getInterruptedComputerAuthSessionRecovery()
       ).resolves.toMatchObject({
-        previousSession: null,
+        previousOwnerUserId: "owner",
         candidateSession: { accessToken: "replacement" },
       });
     });

@@ -66,6 +66,7 @@ export function buildMemberAgentIndex(input: {
 				profileName: profile.profileName,
 				isDefaultProfile,
 				profileDisplayName: formatMemberAgentProfileDisplayName({
+					harnessKind: memberAgent.harnessKind,
 					memberAgentName: displayName,
 					profileName: profile.profileName,
 					isDefaultProfile,

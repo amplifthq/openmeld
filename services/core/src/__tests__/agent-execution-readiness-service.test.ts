@@ -2374,7 +2374,10 @@ describe("Core Agent Execution Readiness", () => {
       agentControllerRef: "builtin:codex",
       agentControllerConversationId: "thread-ctx-1",
       db: expect.anything(),
-      method: "codex_app_server_thread_resume",
+      methods: [
+        "codex_app_server_thread_read",
+        "codex_app_server_thread_resume",
+      ],
       nowMs: GENERATED_AT_MS,
       provider: "codex",
       openMeldServiceRuntimeId: "runtime-1",

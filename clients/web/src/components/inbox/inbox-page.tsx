@@ -51,7 +51,8 @@ import {
 	InboxInitialError,
 	InboxItemLookupWarning,
 	InboxListSkeleton,
-	InboxRefreshWarning,
+	InboxSavedViewNotice,
+	inboxSavedViewNotice,
 } from "./inbox-page-presentation";
 import { INBOX_TABS } from "./inbox-page-tabs";
 import { useInboxRemoval } from "./inbox-removal-dialog";
@@ -309,6 +310,12 @@ export function InboxPage(input: {
 		INBOX_TABS.findIndex((tab) => tab.view === input.view)
 	);
 	const loadMoreState = resolveInboxFeedLoadMoreState(feed, snapshotExpired);
+	const savedViewNotice = inboxSavedViewNotice({
+		hasData: Boolean(feed.data),
+		isFetchNextPageError: feed.isFetchNextPageError,
+		isRefetchError: feed.isRefetchError,
+		snapshotExpired,
+	});
 	const openItem = (item: InboxItem) => setRead(item, true);
 	const confirmationLabel = markReadLabel(confirmation?.unreadCount ?? null);
 	return (
@@ -414,9 +421,10 @@ export function InboxPage(input: {
 				{deepLink.isError && deepLink.error.status !== 404 ? (
 					<InboxItemLookupWarning onRetry={() => deepLink.refetch()} />
 				) : null}
-				{feed.isRefetchError && feed.data && !feed.isFetchNextPageError ? (
-					<InboxRefreshWarning onRetry={() => feed.refetch()} />
-				) : null}
+				<InboxSavedViewNotice
+					kind={savedViewNotice}
+					onRefresh={() => feed.refetch()}
+				/>
 				{INBOX_TABS.map((tab, index) => (
 					<TabsSubtlePanel
 						idPrefix="inbox-view"
@@ -442,8 +450,10 @@ export function InboxPage(input: {
 										onSetRead={setRead}
 										organizationId={currentOrganization.id}
 										organizationSlug={currentOrganization.slug}
+										refreshWarningShown={savedViewNotice === "failed"}
 										rows={rows}
 										sectionAction={selectionAction}
+										snapshotExpired={snapshotExpired}
 										snapshotId={firstPage.snapshotId}
 									/>
 								) : null}

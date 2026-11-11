@@ -79,6 +79,11 @@ export type {
   SpaceHistoryNavigation,
   SpaceHistoryNavigationQuery,
 } from "./http/space-history-navigation";
+export type {
+  RemoteAgentResolveReplyMentionsRequest,
+  RemoteAgentResolveReplyMentionsResponse,
+  SpaceHumanMentionTarget,
+} from "./http/space-human-mentions";
 
 // Type-query import keeps this entrypoint type-only while locking the version type to the schema export.
 export type OpenMeldSchemaVersion =
@@ -89,6 +94,17 @@ export type {
   ComputerPowerRpcInput,
   ComputerPowerState,
 } from "../computer-power";
+export type {
+  OrganizationMemberRemovalPlan,
+  OrganizationMemberRemovalPrepareBody,
+  OrganizationMemberRemovalPrepareInput,
+  OrganizationMemberRemovalPrepareResponse,
+  OrganizationMemberRemovalPreviewBody,
+  OrganizationMemberRemovalPreviewInput,
+  OrganizationMemberRemovalSpace,
+  OrganizationMemberRemovalSpaceInput,
+  OrganizationMemberRemovalSpacePrepareInput,
+} from "../organization-member-removal";
 export type { RemoteAgentExecutionReconciliationObservation } from "../remote-agent-execution-reconciliation";
 export type {
   SpaceFileUpdateSettings,

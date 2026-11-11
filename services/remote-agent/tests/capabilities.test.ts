@@ -749,6 +749,9 @@ describe("remote agent Flue capability inventory", () => {
       "openmeld_draft_org_document"
     );
     expect(tools.map((tool) => tool.name)).toContain("github_search_commits");
+    expect(tools.map((tool) => tool.name)).toContain(
+      "openmeld_get_app_action_status"
+    );
     expect(tools.map((tool) => tool.name)).not.toContain("github_create_issue");
     expect(tools.map((tool) => tool.name)).not.toContain(
       "openmeld_read_center_agent_activity"
@@ -758,6 +761,20 @@ describe("remote agent Flue capability inventory", () => {
     );
     expect(tools.map((tool) => tool.name)).not.toContain(
       "openmeld_list_spaces"
+    );
+  });
+  it("lets personal Agents discover App status alongside App execution", async () => {
+    const tools = await getCapabilityCatalogForTest({
+      personalAgent: true,
+      coreWorker: {},
+      storage: new InMemoryDurableObjectStorage(),
+      turnEnvelope: createSubmitTurnRequest().turnEnvelope,
+    });
+    expect(tools.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining([
+        "openmeld_execute_app_action",
+        "openmeld_get_app_action_status",
+      ])
     );
   });
 });

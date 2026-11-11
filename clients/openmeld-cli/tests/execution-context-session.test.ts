@@ -304,6 +304,72 @@ describe("Execution Context local authority", () => {
     ).rejects.toThrow("fork_source_workspace_changed");
     expect(forkCodexAppServerThread).not.toHaveBeenCalled();
   });
+  it.each([
+    {
+      name: "the first fork still requires its source folder",
+      nativeConversationId: null,
+      existingNativeConversationId: null,
+      error: "profile.workspace.missing",
+    },
+    {
+      name: "a recorded child resumes after its source folder is removed",
+      nativeConversationId: "child-thread",
+      existingNativeConversationId: null,
+      error: null,
+    },
+    {
+      name: "a child recovered from the ledger resumes after its source folder is removed",
+      nativeConversationId: null,
+      existingNativeConversationId: "child-thread",
+      error: null,
+    },
+    {
+      name: "conflicting child identities fail before resolving the source folder",
+      nativeConversationId: "child-thread",
+      existingNativeConversationId: "other-thread",
+      error: "execution_context.native_identity_mismatch",
+    },
+  ])("$name", async ({
+    nativeConversationId,
+    existingNativeConversationId,
+    error,
+  }) => {
+    const workingDirectory = "/working/folder-b";
+    const prepared = prepareExecutionContextConversation({
+      context: {
+        ...context,
+        workspace: "current",
+        folderId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        nativeConversationId,
+        runtimeWorkspaceFingerprint:
+          buildRuntimeWorkspaceFingerprint(workingDirectory),
+        forkSource: {
+          contextId: "33333333-3333-4333-8333-333333333333",
+          folderId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          sourceWakeId: "wake-source",
+          nativeConversationId: "parent-thread",
+          completedHistoryId: "turn-1",
+          workspace: "current",
+          runtimeWorkspaceFingerprint:
+            buildRuntimeWorkspaceFingerprint("/removed/folder-a"),
+        },
+      },
+      unscopedNativeConversationId: null,
+      currentWorkingDirectory: workingDirectory,
+      resolveForkSourceWorkingDirectory: () =>
+        Promise.reject(new Error("profile.workspace.missing")),
+      workingDirectory,
+      existingNativeConversationId,
+      ledgerRootPath: workingDirectory,
+      agentControllerRef: "builtin:codex",
+      launchContract,
+    });
+    if (error) {
+      await expect(prepared).rejects.toThrow(error);
+    } else {
+      await expect(prepared).resolves.toBe("child-thread");
+    }
+  });
   it("refuses a Session from an earlier folder and starts a new one in the current folder (smoke R5-01)", async () => {
     const root = await mkdtemp(join(tmpdir(), "openmeld-folder-repair-"));
     roots.push(root);

@@ -27,6 +27,10 @@ node scripts/release/build-cli-binary.mjs
 
 - The build reads `clients/openmeld-cli/package.json` as the only version source.
 - The current output is written under `cli/dist/`, outside the npm package.
+- macOS Keychain addon builds use the running Node installation's headers when
+  the installed headers and version match. Otherwise node-gyp uses its normal
+  header acquisition. This avoids a redundant network download when the exact
+  headers are already installed without building against another Node version.
 - The artifact name is `openmeld-cli-<platform>-<version>`.
 - Local and production download channels also publish
   `openmeld-cli-<platform>-<version>.gz`. Setup and current binary CLI upgrades
@@ -167,7 +171,7 @@ node scripts/release/build-cli-binary.mjs --platform windows-x64 --background
 Artifacts are `cli/dist/openmeld-cli-windows-x64-<version>.exe` and
 `cli/dist/openmeld-service-windows-x64-<version>.exe`, with the shared
 `cli/dist/openmeld-windows-process.exe` next to them. The native helper is built
-with .NET SDK 10.0.401 / Native AOT on Windows; it needs no user-installed .NET
+with .NET SDK 10.0.403 / Native AOT on Windows; it needs no user-installed .NET
 runtime or compiler. Both the binary version bundle and npm's `dist/windows`
 must carry that helper. Signing and multi-platform publication assembly remain
 part of the installation/release gate; these development artifacts must not be
@@ -525,13 +529,36 @@ the same SHA resumes after the last completed stage.
 
 Binary publishers include `componentPolicy` from the exact release manifest.
 Each policy version must match its selected CLI or Service artifact; never rewrite
-a bundle hash to an executable SHA-256. Core reads `cli/local-components.json`,
-`cli/manifest.json`, and `cli/windows-preview/manifest.json` from R2 at runtime
-and caches them for one minute per isolate. A Windows-preview 404 means channel
-absence; a missing release manifest fails closed and blocks Wake until it is
-seeded. A read error keeps the last valid value. A new CLI or Windows preview
-therefore needs no Core deploy. Deploy all strict Gateway/Core/Web report
-receivers before publishing a new CLI/Service source field.
+a bundle hash to an executable SHA-256. Core reads the required policy from
+`cli/local-components.json` independently of the optional `cli/manifest.json`
+and `cli/windows-preview/manifest.json` channel catalogs. Each successful read
+is valid for at most one minute from its start, per isolate. Reads after 30
+seconds trigger one shared background refresh per source group through Workers
+`waitUntil`; queries continue using the validated, unexpired policy without
+waiting for that refresh. Cold or expired policy reads wait only for required
+policy, never for the optional channels. A slow first R2 policy read can therefore
+still delay a cold request.
+
+RuntimeTransportHub route, batch-route and owner-Service reads use only the
+current snapshot so a cold R2 read cannot delay a liveness query.
+RuntimeTransportHub constructor and registration gates are snapshot consumers:
+they start background refresh before entering the gate and never await it there.
+They use only unexpired validated policy, or a missing-policy snapshot while R2
+is pending. This keeps local initialization and registration responsive even
+when R2 never returns. The ordinary Core new-Wake admission path independently
+reads and validates required policy; a connected Service is not evidence that
+new work may bypass that check.
+
+A missing or invalid required manifest fails closed and blocks new Wake work.
+Transport failures retry after ten seconds but never extend a previously
+validated policy's expiry. Once that policy expires, a failed read leaves Wake
+blocked until a valid required manifest is read again. Channel reads and their
+pending work cannot hold up required-policy refresh. Channel availability also
+expires after one minute; it is derived against the current valid required
+policy, so a late channel read cannot restore an older required policy. A
+Windows-preview 404 means channel absence. A new CLI or Windows preview needs
+no Core deploy. Deploy all strict Gateway/Core/Web report receivers before
+publishing a new CLI/Service source field.
 
 The native Windows preview builder currently builds a fresh GUI Service carrier
 at the CLI version. It rejects a retained older Service policy before compilation;

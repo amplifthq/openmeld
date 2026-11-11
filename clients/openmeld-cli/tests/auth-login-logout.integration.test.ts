@@ -2,8 +2,12 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { bestEffortStopCurrentLaneDaemonServiceMock } = vi.hoisted(() => ({
+const {
+  bestEffortStopCurrentLaneDaemonServiceMock,
+  runDaemonServiceParticipationGateMock,
+} = vi.hoisted(() => ({
   bestEffortStopCurrentLaneDaemonServiceMock: vi.fn(),
+  runDaemonServiceParticipationGateMock: vi.fn(),
 }));
 
 vi.mock("../src/commands/service", () => ({
@@ -11,8 +15,17 @@ vi.mock("../src/commands/service", () => ({
     bestEffortStopCurrentLaneDaemonServiceMock(...args),
 }));
 
+vi.mock("../src/system/local-service-participation-gate", () => ({
+  runDaemonServiceParticipationGate: (...args: unknown[]) =>
+    runDaemonServiceParticipationGateMock(...args),
+}));
+
 import { runAuthLogin, runAuthLogout } from "../src/commands/auth";
-import { getAuthSession, setAuthSession } from "../src/config/auth-session";
+import {
+  beginAuthSessionTransition,
+  getAuthSession,
+  setAuthSession,
+} from "../src/config/auth-session";
 import {
   acquireDaemonServiceLifecycleLock,
   releaseDaemonServiceLifecycleLock,
@@ -163,6 +176,174 @@ describe("auth login/logout commands", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
       "https://auth.openmeld.invalid/api/auth/one-time-token/verify"
     );
+  });
+
+  it.each([
+    "login",
+    "logout",
+  ] as const)("finishes an interrupted Computer recovery whose previous sign-in expired before %s", async (command) => {
+    // Captured from the real Auth Worker (better-auth 1.6.30): get-session
+    // for an expired or deleted session is 200 `null`; sign-out with an
+    // unknown, expired, or deleted bearer is 200 success.
+    const authRequests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string | URL, init?: RequestInit) => {
+        const pathname = new URL(String(url)).pathname;
+        authRequests.push(
+          `${pathname} ${String(new Headers(init?.headers).get("authorization"))}`
+        );
+        if (pathname === "/api/auth/one-time-token/verify") {
+          return Promise.resolve(
+            createJsonResponse(
+              {
+                session: { expiresAt: "2099-02-23T00:00:00.000Z" },
+                user: { id: "replacement-owner", email: "next@company.com" },
+              },
+              200,
+              { "set-auth-token": "replacement-token" }
+            )
+          );
+        }
+        return Promise.resolve(
+          createJsonResponse(
+            pathname === "/api/auth/sign-out" ? { success: true } : null
+          )
+        );
+      })
+    );
+    bestEffortStopCurrentLaneDaemonServiceMock.mockResolvedValue({
+      status: "stopped",
+    });
+
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      try {
+        await setAuthSession({
+          accessToken: "previous-token",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          expiresAt: "2026-01-01T00:00:00.000Z",
+          user: { id: "previous-owner" },
+        });
+        const failedHandoff = await beginAuthSessionTransition(
+          {
+            accessToken: "candidate-token",
+            authBaseUrl: "https://auth.openmeld.invalid",
+            clientId: "openmeld-cli",
+            user: { id: "candidate-owner" },
+          },
+          {
+            computerHandoff: { gatewayUrl: "https://gateway.openmeld.invalid" },
+          }
+        );
+        await failedHandoff.rollback();
+        const transitionPath = join(
+          home,
+          ".openmeld",
+          "auth",
+          "session-transition.json"
+        );
+        await expect(readFile(transitionPath, "utf8")).resolves.toContain(
+          '"state": "recovery_required"'
+        );
+
+        await withCapturedStdio(async () => {
+          if (command === "login") {
+            await runAuthLogin({
+              view: "agent",
+              authUrl: "https://auth.openmeld.invalid",
+              clientId: "openmeld-cli",
+              method: "ott",
+              ott: "OTT_TOKEN_123",
+            });
+            return;
+          }
+          await runAuthLogout({ view: "agent" });
+        });
+
+        expect(runDaemonServiceParticipationGateMock).not.toHaveBeenCalled();
+        expect(authRequests.slice(0, 2)).toEqual([
+          "/api/auth/get-session Bearer previous-token",
+          "/api/auth/sign-out Bearer candidate-token",
+        ]);
+        await expect(readFile(transitionPath, "utf8")).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+        const session = await getAuthSession();
+        if (command === "login") {
+          expect(session).toMatchObject({
+            accessToken: "replacement-token",
+            user: { id: "replacement-owner" },
+          });
+        } else {
+          expect(session).toBeNull();
+        }
+      } finally {
+        Reflect.deleteProperty(
+          process.env,
+          "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
+        );
+      }
+    });
+  });
+
+  it("asks the user to wait, not to sign in, while another setup owns the transition", async () => {
+    bestEffortStopCurrentLaneDaemonServiceMock.mockResolvedValue({
+      status: "stopped",
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      try {
+        await setAuthSession({
+          accessToken: "previous-token",
+          authBaseUrl: "https://auth.openmeld.invalid",
+          clientId: "openmeld-cli",
+          user: { id: "previous-owner" },
+        });
+        // A live setup in this process still owns its pending transition.
+        const activeSetup = await beginAuthSessionTransition(
+          {
+            accessToken: "candidate-token",
+            authBaseUrl: "https://auth.openmeld.invalid",
+            clientId: "openmeld-cli",
+            user: { id: "candidate-owner" },
+          },
+          {
+            computerHandoff: { gatewayUrl: "https://gateway.openmeld.invalid" },
+          }
+        );
+        try {
+          const failure = await withCapturedStdio(() =>
+            runAuthLogin({
+              view: "agent",
+              authUrl: "https://auth.openmeld.invalid",
+              clientId: "openmeld-cli",
+              method: "ott",
+              ott: "OTT_TOKEN_123",
+            })
+          ).catch((error: unknown) => error);
+          expect(failure).toMatchObject({
+            message: expect.stringContaining("Wait for that setup to finish"),
+          });
+          expect(String((failure as Error).message)).not.toContain(
+            "openmeld login"
+          );
+          expect(fetchMock).not.toHaveBeenCalled();
+          expect(runDaemonServiceParticipationGateMock).not.toHaveBeenCalled();
+        } finally {
+          await activeSetup.rollback();
+        }
+      } finally {
+        Reflect.deleteProperty(
+          process.env,
+          "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN"
+        );
+      }
+    });
   });
 
   it("explains stale one-time token sessions without exposing auth internals", async () => {

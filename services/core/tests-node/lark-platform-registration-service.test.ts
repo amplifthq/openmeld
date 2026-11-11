@@ -1,3 +1,4 @@
+import { gunzipSync } from "node:zlib";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import capturedBegin from "../../../scripts/lark-platform/fixtures/registration-begin.lark.json";
 import capturedPending from "../../../scripts/lark-platform/fixtures/registration-pending.lark.json";
@@ -60,6 +61,80 @@ const ENV = {
 const classifyOrganizationWorkspace = async () =>
   ({ ok: true, personal: false }) as const;
 describe("Lark-platform registration service", () => {
+  it.each([
+    false,
+    true,
+  ])("defaults fresh Feishu setup to history (restart=%s) and preserves an existing basic choice", async (restartPending) => {
+    const h = await createRegistrationHarness();
+    try {
+      const common = {
+        actor: ACTOR,
+        db: h.db,
+        provider: "feishu" as const,
+        env: {
+          ...ENV,
+          OPENMELD_FEISHU_CHANNEL_ENABLED: "true",
+          OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS: "org_1",
+        },
+        nowMs: 1000,
+      };
+      const begin = (
+        options: {
+          includeGroupHistory?: boolean;
+          restartPending?: boolean;
+          nowMs?: number;
+        } = {}
+      ) =>
+        beginRemoteAgentLarkPlatformRegistration({
+          ...common,
+          ...options,
+          fetchImpl: jsonFetch(capturedBegin),
+        });
+      const scopes = (url: string | null) =>
+        JSON.parse(
+          gunzipSync(
+            Buffer.from(
+              new URL(url ?? "").searchParams.get("addons") ?? "",
+              "base64url"
+            )
+          ).toString()
+        ).scopes.tenant as string[];
+      const first = await begin({ restartPending });
+      expect(scopes(first.attempt.registrationUrl)).toContain(
+        "im:message.group_msg"
+      );
+      const expiredAt = Date.parse(first.attempt.expiresAt);
+      const restarted = await begin({ restartPending: true, nowMs: expiredAt });
+      expect(restarted.attempt.id).not.toBe(first.attempt.id);
+      expect(scopes(restarted.attempt.registrationUrl)).toContain(
+        "im:message.group_msg"
+      );
+      const basic = await begin({
+        includeGroupHistory: false,
+        nowMs: expiredAt + 1,
+      });
+      expect(basic.attempt.id).not.toBe(first.attempt.id);
+      expect(scopes(basic.attempt.registrationUrl)).not.toContain(
+        "im:message.group_msg"
+      );
+      expect((await begin()).attempt.id).toBe(basic.attempt.id);
+      const basicExpiry = Date.parse(basic.attempt.expiresAt);
+      await expireRemoteAgentLarkPlatformRegistrationAttempt({
+        db: h.db,
+        attemptId: basic.attempt.id,
+        nowMs: basicExpiry,
+      });
+      const restartedBasic = await begin({
+        restartPending: true,
+        nowMs: basicExpiry,
+      });
+      expect(scopes(restartedBasic.attempt.registrationUrl)).not.toContain(
+        "im:message.group_msg"
+      );
+    } finally {
+      await h.close();
+    }
+  });
   beforeAll(async () => {
     await preparePostgresTestTemplate();
   });

@@ -14,6 +14,18 @@ export const LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE = Object.freeze({
   version: permissionBundleSource.version,
 });
 
+export const FEISHU_GROUP_HISTORY_SCOPE = "im:message.group_msg";
+export const FEISHU_HISTORY_SCOPES = [
+  FEISHU_GROUP_HISTORY_SCOPE,
+  "im:chat.members:read",
+] as const;
+export const FEISHU_HISTORY_BUNDLE_VERSION = `${LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.version}+feishu-history`;
+export function currentMessagingBundle(provider: string, version: string) {
+  return (
+    version === LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.version ||
+    (provider === "feishu" && version === FEISHU_HISTORY_BUNDLE_VERSION)
+  );
+}
 export type LarkPlatformChannelPermissionBundle =
   typeof LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE;
 
@@ -24,9 +36,9 @@ export function requiresLarkPlatformAuthorizationUpdate(connection: {
   failureReasonCode: string | null;
 }): boolean | null {
   if (connection.status === "connected") {
-    return (
-      connection.permissionBundleVersion !==
-      LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.version
+    return !currentMessagingBundle(
+      connection.provider,
+      connection.permissionBundleVersion
     );
   }
   if (connection.status === "disconnected") {
@@ -67,7 +79,8 @@ function requireExactBundleValue<const T extends boolean | string>(
 }
 
 export async function encodeLarkPlatformRegistrationAddons(
-  bundle: LarkPlatformChannelPermissionBundle
+  bundle: LarkPlatformChannelPermissionBundle,
+  includeFeishuGroupHistory = false
 ): Promise<string> {
   const payload = JSON.stringify({
     callbacks: {
@@ -82,6 +95,7 @@ export async function encodeLarkPlatformRegistrationAddons(
     scopes: {
       tenant: [
         ...bundle.scopes,
+        ...(includeFeishuGroupHistory ? FEISHU_HISTORY_SCOPES : []),
         LARK_PLATFORM_APP_CONFIGURATION_SCOPE,
         LARK_PLATFORM_APP_SELF_MANAGE_SCOPE,
       ],

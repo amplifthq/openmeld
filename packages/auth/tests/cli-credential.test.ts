@@ -18,9 +18,9 @@ import {
   isCliCredentialSessionRecord,
 } from "../src/plugins/cli-credential";
 
-// A CLI can hold a browser session's own token (`openmeld setup --ott`), so
-// Core can only tell a Web or App session from the CLI credential if every
-// session a CLI holds is marked (member-agent-program.md §4.7).
+// Every session a CLI holds stays marked (member-agent-program.md §4.7).
+// The native OTT exchange is covered through Better Auth's handler in
+// cli-credential-handoff.test.ts.
 
 const plugin = createCliCredentialPlugin();
 const markHook = plugin.hooks?.after?.[0];
@@ -64,15 +64,11 @@ describe("CLI credential sessions", () => {
     });
   });
 
-  it("marks a device-login session, a one-time-token session and any Bearer use", async () => {
+  it("marks a device-login session and any Bearer use", async () => {
     const cases = [
       afterContext({
         newSession: { session: { token: "device-token" } },
         path: "/device/token",
-      }),
-      afterContext({
-        path: "/one-time-token/verify",
-        returned: { session: { token: "browser-token" } },
       }),
       afterContext({
         headers: { authorization: "Bearer bearer-token" },
@@ -86,7 +82,7 @@ describe("CLI credential sessions", () => {
     }
     expect(
       cases.map((context) => context.updateSession.mock.calls[0]?.[0])
-    ).toEqual(["device-token", "browser-token", "bearer-token"]);
+    ).toEqual(["device-token", "bearer-token"]);
     for (const context of cases) {
       expect(context.updateSession.mock.calls[0]?.[1]).toEqual({
         [CLI_CREDENTIAL_SESSION_FIELD]: expect.any(Date),
@@ -136,7 +132,7 @@ describe("CLI credential sessions", () => {
     }) => {
       // The context's session can come from the cookie cache; the stored one
       // is authoritative.
-      sessionFromContext.mockResolvedValueOnce({
+      sessionFromContext.mockResolvedValue({
         session: { token: input.session.token },
         user: { id: "user-1" },
       });

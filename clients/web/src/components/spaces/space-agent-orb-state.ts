@@ -11,6 +11,10 @@ export const DEFAULT_SPACE_AGENT_ORB_STATE: SpaceAgentOrbState = "solving";
 
 /** Appearance only: the shared Wake presenter owns status and wording. */
 export const WAKE_STATUS_ORB_STATE = {
+	sending: "breathing",
+	request_sent: "breathing",
+	connecting: "breathing",
+	retrying: "breathing",
 	queued: "breathing",
 	waiting_for_controller: "breathing",
 	waiting_for_device: "breathing",

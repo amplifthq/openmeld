@@ -9,6 +9,7 @@ import {
 import type {
 	GetSpaceMessageDetailsResponse,
 	PostSpaceWakeStopResponse,
+	WakeTiming,
 } from "@openmeld/schemas/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -49,12 +50,14 @@ import type { SpaceMessageReferencesById } from "./space-message-reference";
 
 const useQueryMock = vi.hoisted(() => vi.fn());
 const postNewTaskMessageMock = vi.hoisted(() => vi.fn());
-const createSpaceApiMock = vi.hoisted(() => vi.fn());
-vi.mock("#/lib/spaces/api", () => ({
-	createUnscopedWebSpaceApi: createSpaceApiMock.mockImplementation(() => ({
+const createSpaceApiMock = vi.hoisted(() =>
+	vi.fn(() => ({
 		postNormalMessage: postNewTaskMessageMock,
 		postThreadSignal: postNewTaskMessageMock,
-	})),
+	}))
+);
+vi.mock("#/lib/spaces/api", () => ({
+	createUnscopedWebSpaceApi: createSpaceApiMock,
 }));
 const REPORT_POINTER_COPY_PATTERN = /Message text is not included/;
 const COMPUTERS_RECOVERY_HREF_PATTERN = /\/computers$/u;
@@ -490,6 +493,46 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(
 			within(technicalSection).getByText("/Users/felix/.openmeld/workspace")
 		).toBeTruthy();
+	});
+
+	it("shows OpenMeld-measured Wake timing and copies it as structured data", async () => {
+		copyTextToClipboardMock.mockResolvedValue(true);
+		const details = createWakeSuccessReplyDetails();
+		const timing = createSettledWakeTiming();
+		useQueryMock.mockReturnValue(
+			createQueryResult({
+				data: {
+					...details,
+					wakeContext: {
+						...details.wakeContext,
+						targets: details.wakeContext.targets.map((target) => ({
+							...target,
+							timing,
+						})),
+					},
+				},
+			})
+		);
+
+		renderMessageDetailsPanel({ item: createAgentReplyTimelineItem() });
+
+		const section = screen
+			.getByText("Timing", { selector: "h3" })
+			.closest("section");
+		if (!section) {
+			throw new Error("Timing section must render");
+		}
+		expect(within(section).getByText("Total 48s")).toBeTruthy();
+		expect(within(section).getAllByText("Agent run")).toHaveLength(2);
+		fireEvent.click(within(section).getByText("Copy timing"));
+		await waitFor(() => {
+			expect(
+				JSON.parse(String(copyTextToClipboardMock.mock.lastCall?.[0]))
+			).toMatchObject({
+				signalId: details.message.signalId,
+				targets: [{ targetProfileId: "agt_triage", timing }],
+			});
+		});
 	});
 
 	it("keeps drawer text selectable and copies individual or complete technical details", async () => {
@@ -2490,6 +2533,54 @@ function createWakeContext(
 				...(input.status ? { status: input.status } : {}),
 			},
 		],
+	};
+}
+
+function createSettledWakeTiming(): WakeTiming {
+	return {
+		modelVersion: "openmeld.wake_timing.v1",
+		factSource: "platform_observed",
+		state: "settled",
+		asOf: "2026-06-03T22:08:00.000Z",
+		lastEvidenceAt: "2026-06-03T22:07:48.000Z",
+		milestones: [],
+		segments: [
+			{
+				kind: "routing",
+				startedAt: "2026-06-03T22:07:00.000Z",
+				endedAt: "2026-06-03T22:07:02.000Z",
+				durationMs: 2000,
+				reasonCode: null,
+			},
+			{
+				kind: "agent_run",
+				startedAt: "2026-06-03T22:07:02.000Z",
+				endedAt: "2026-06-03T22:07:47.000Z",
+				durationMs: 45_000,
+				reasonCode: null,
+			},
+			{
+				kind: "publishing",
+				startedAt: "2026-06-03T22:07:47.000Z",
+				endedAt: "2026-06-03T22:07:48.000Z",
+				durationMs: 1000,
+				reasonCode: null,
+			},
+		],
+		totals: {
+			endToEndMs: 48_000,
+			byKind: {
+				routing: 2000,
+				queue: 0,
+				delivery: 0,
+				startup: 0,
+				agent_run: 45_000,
+				waiting_for_input: 0,
+				result_delivery: 0,
+				publishing: 1000,
+				not_recorded: 0,
+			},
+		},
 	};
 }
 

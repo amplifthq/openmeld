@@ -105,7 +105,8 @@ jobs:
       - &checkout-source
         name: Checkout release source
         uses: actions/checkout@v5
-        with: { path: release-source, persist-credentials: false, ref: "${{ inputs.sha }}" }
+        # Renderer builds verify signed CLI Skill history against origin/main.
+        with: { fetch-depth: 0, path: release-source, persist-credentials: false, ref: "${{ inputs.sha }}" }
       - &require-postgresql-secrets
         name: Require PostgreSQL release credentials
         env: &release-secrets

@@ -1,4 +1,5 @@
 import {
+  AGENT_EXECUTION_READINESS_RESPONSE_VERSION_HEADER,
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
   agentProfileExecutionModeResponseSchema,
@@ -445,6 +446,11 @@ export function registerAgentProfileBindingRoutes(
       execute: async () =>
         await c.var.coreRpc.getAgentExecutionReadiness({
           agentProfileId: routeParams.value.agentProfileId,
+          ...(c.req.header(
+            AGENT_EXECUTION_READINESS_RESPONSE_VERSION_HEADER
+          ) === "2"
+            ? { responseVersion: 2 as const }
+            : {}),
           context: buildCoreRpcContext(c),
         }),
     });
@@ -488,6 +494,11 @@ export function registerAgentProfileBindingRoutes(
           ...(parsedBody.data.targetRuntime === undefined
             ? {}
             : { targetRuntime: parsedBody.data.targetRuntime }),
+          ...(c.req.header(
+            AGENT_EXECUTION_READINESS_RESPONSE_VERSION_HEADER
+          ) === "2"
+            ? { responseVersion: 2 as const }
+            : {}),
           context: buildCoreRpcContext(c),
         }),
     });

@@ -54,16 +54,40 @@ existing retry path. Center Agent member memory uses the existing provider
 deletion path and failure logs; this is not a guarantee of completed remote
 erasure when that provider is unavailable.
 
+Administrators can resolve Space ownership through an explicit preview and
+preparation in the Organization's member-removal flow, even if the departing
+person is unavailable and the administrator has not joined their Spaces. This
+requires a current human owner or admin with `member:delete`; the administrative
+endpoint excludes self-removal and removal of an Organization owner. Its preview
+discloses only the affected Space IDs, names, and actions, without granting the
+administrator access to their contents or adding them as a member.
+
+Preparation closes an eligible solely used private Space to retained read-only
+history, demotes the departing person when another owner remains, or assigns an
+explicit successor. Eligibility considers every historical participant and the
+current access, invitation, and unsettled-work state; `Welcome Space` is not a
+privileged name. A selected successor must be another current Organization member
+with an active Human Profile and receives Space membership and ownership, including
+access to private history. Confirmation must make that access grant explicit.
+The complete Space-owned rules live in `space-collaboration.md`.
+
+These explicitly confirmed Space changes happen before the existing native Auth
+member removal. They persist if preparation partially succeeds or native removal
+later fails. The UI reports the incomplete removal and refreshes the plan for an
+explicit retry; it must not claim rollback or automatically replay the mutation.
+Native permission checks, last-Organization-owner protection, Space ownership
+references, and post-removal private-data cleanup retain their existing owners.
+
 | Operation / asset | Boundary |
 | --- | --- |
 | Leave a Space or Organization; revoke membership | Remove the access grant, not shared messages, files, revisions, or attribution. Public link access remains an independent grant; close it separately when confidentiality requires it. |
-| Space ownership | Hand over management before leaving. Creator attribution alone grants no access. Keep the existing last-owner protection and restrictive membership references. |
+| Space ownership | Resolve active ownership before membership removal through handoff or explicitly confirmed eligible solo-Space closure. Creator attribution alone grants no access. Keep last-owner protection for active Spaces and restrictive membership references. |
 | Team Files, Space Files, Organization Skills, Center Agent | Keep them with their owning Organization or Space. A creator's departure must not delete them or create a second ownership model. |
 | Member-private Files and local agent sessions | Do not transfer them into Team Files or grant administrators ordinary read access. Private file retention is separate from member removal; see `files.md`. |
 | Private Session Inventory and member-specific Center Agent memory | Use the shared departure cleanup. This does not delete work already published into a shared Space. |
 | Explicit file deletion | Use the existing trash and restore mechanism. An independent copied revision is not deleted with its source. |
 | Explicit Skill removal | Disable use while retaining immutable releases and audit evidence under the existing Skill lifecycle. |
-| Explicit Space deletion | A human Space owner confirms permanent deletion for everyone. Pending Wake work blocks deletion; see `space-collaboration.md`. |
+| Explicit Space deletion | A human Space owner, or an authorized administrator preparing an eligible solo-Space member removal, confirms retained read-only closure. Shared history is preserved. Pending Wake work blocks closure; member-removal preparation requires a successor instead. See `space-collaboration.md`. |
 
 This deliberately separates access revocation, shared work retention, and explicit
 content deletion. It follows the purpose of
@@ -194,6 +218,39 @@ equivalent read or query without new scope, and stops once the evidence supports
 the requested decision or outcome. Latency and tool cost are part of that
 judgment. This is an intelligence contract, not a keyword classifier, fixed
 search budget, second model, or pre-agent gate.
+
+For interactive Space work, the Space persists one work-target record containing
+the requested goal, selected code repositories, and separate issue destinations.
+Each admitted source selects new work, corrects the same goal, or inherits it.
+The source is then bound immutably to that goal. A late callback follows its
+original source binding even after a new request changes the conversation's
+default. A retry reads newer corrections without overwriting them. Selection
+compares both the observed revision and source identity. An explicit earlier
+source reference can continue that goal without merging conversation histories.
+Defaults are scoped to the source author and logical conversation; an Agent's
+independent request cannot replace a Human's default. Correcting a non-Task goal
+requires its original requester. Task corrections use the existing Task roles.
+
+Core derives the source and logical conversation from live native admission.
+The worker request's `taskId` remains a per-Wake execution identifier and never
+selects a goal. The Space Task owner resolves real Tasks only from the original
+message's Task draft receipt or its exact retained Task handoff and Wake tuple.
+Agent-authored handoffs require the current Task role. Plugin connection and
+action continuations resolve their authenticated original source chain.
+Ordinary messages do not create Tasks to store this context.
+This record is a context constraint, not a Situation Snapshot, work planner,
+Project association, permission grant, execution ledger, or completion state.
+Its `requestGoal` describes the current requested operation; the Task's declared
+deliverable and completion conditions remain solely in the existing Task owner.
+The same Center Agent interprets the request; no second model or task-text router
+chooses the target. Each delivered input refreshes the current record after the
+runtime has durably applied that input and before the model starts. A failed
+context read must leave the admitted correction available to the next continuation.
+Every repository operation reads the owner again, including after compaction or
+rollover; a compressed model summary cannot replace the current record.
+Structured provider operations and repository publication must agree with it;
+an unrelated tool result never changes it. Explicit multi-repository work selects
+those repositories together. An issue destination does not replace the code target.
 
 The Kernel also teaches stable interaction mechanics that affect whether the
 user's next step can work. In an ordinary Space, a human must explicitly Wake
@@ -386,6 +443,16 @@ docs directly readable against our schema.
   roles, no dynamic access control in MVP. Org-scoped permission statements
   (via `createAccessControl`) carry our resources (for example
   `space: [create, ...]`, `centerAgent: [designate]`) on those three roles.
+- In Organization Settings, an Owner may change another Owner to Admin or
+  Member when another Owner remains. The current Owner's own row stays
+  read-only, and Admins and Members cannot edit Owner roles. Demotion requires
+  confirmation and preserves membership and assets; member removal keeps its
+  separate Space-handoff flow. Auth remains the sole membership writer and
+  retains its native permission and last-owner checks. PostgreSQL additionally
+  rejects concurrent writes that would leave retained members without an
+  Owner, using the existing Organization row lock. Empty membership sets and
+  closing Organizations remain compatible with the native deletion lifecycle.
+  Owner promotion and broader ownership-transfer UI remain deferred.
 - Invitations are the plugin's email-bound invitations (accepting requires a
   session whose email matches the invite). Email verification is on from day
   one; set `requireEmailVerificationOnInvitation` per its documented
@@ -2389,7 +2456,7 @@ reinterpreted under whichever Organization becomes the account default later.
 
 ### Memory policy
 
-Center Agent memory has two product scopes, both owned by Core policy rather
+Center Agent memory has three product scopes, all owned by Core policy rather
 than by the model provider:
 
 - **Member memory** is scoped to one member inside one organization. Completed
@@ -2397,10 +2464,19 @@ than by the model provider:
   verified requesting member, whether the private conversation is an OpenMeld
   DM, Slack DM, Lark DM, or Feishu DM. The member can wipe it without deleting
   messages, Spaces, or shared organization memory.
+- **Space memory** retains the original text messages sent to Center Agent in
+  an ordinary organization-shared Space after an admitted member-attributed turn
+  completes. It uses a separate subject for that Space under the Organization
+  memory enabled policy. Core reopens the source with current member and Space
+  access, preserving its author, message version and version time. The generated
+  reply is not copied into a new human statement. Semantic extraction is not
+  limited to predeclared fact categories or a special "remember" keyword. Recall
+  is limited to the current authorized Space and checks all supporting source
+  versions. Existing history is not automatically backfilled.
 - **Organization memory** is on by default for recall and explicit saves.
-  Completed turns in shared Spaces and Organization-shared Channels do not
-  automatically write any memory scope. Requester-private conversations retain
-  automatic Member capture; externally shared conversations capture neither.
+  Organization-shared Channels still require explicit saves. Requester-private
+  conversations retain automatic Member capture; externally shared conversations
+  capture neither. Space capture does not promote knowledge to Organization scope.
   The Center Agent may save an
   explicit Organization fact only from an `organization_shared` conversation
   while Organization memory is enabled. Remote Agent offers that explicit tool
@@ -2410,10 +2486,10 @@ than by the model provider:
   compromised worker attempts it.
 - For automatic completed-turn capture, Core selects the memory subject from
   the frozen `interactionEnvironment` and a currently verified requester/member
-  identity. `requester_private` selects Member memory,
-  `organization_shared` and `externally_shared` select neither. A carrier or provenance source such as
-  `slack_conversation` or `message_channel_conversation` never selects the
-  subject. Missing, conflicting, or mismatched environment and identity
+  identity. `requester_private` selects Member memory. `organization_shared`
+  selects Space memory only for an independently authorized ordinary Space
+  source; shared Channels and `externally_shared` select neither. Carrier names
+  alone do not establish source access. Missing or mismatched environment and identity
   evidence fails closed without a memory write. Automatic capture runs after
   the reply and is not a model-callable tool, so the Center Agent must not infer
   success, failure, or carrier support from the visible tool catalog.
@@ -2421,17 +2497,26 @@ than by the model provider:
   that produced it. Entering through a different DM, Space, Slack, Lark, or
   Feishu conversation must not relabel the memory as if it came from the
   current conversation.
+  Its model-facing provenance is historical. Space source versions are reopened
+  for the current turn; Member and Organization automatic recall retains its
+  historical-source treatment. Source verification and explicit saving do not
+  make a recollection an adopted rule. Current
+  Guide reads and published document references remain separate evidence.
 - Automatic recall reads existing active subjects without provisioning or
   reviving deleted memory, then rechecks policy and subject state after the
   provider returns. Selection preserves rank within each scope and shares both
-  the six-item and 1,600-character budgets. Provider fact validity is a bounded
+  the six-item and 1,600-character budgets across eligible scopes. Facts are
+  included whole or omitted, preserving exceptions and negations. Omission is
+  visible even when no whole fact fits. In automatic and explicit recall, a
+  provider match with unreadable provenance does not count as a verified miss:
+  coverage is partial when some matches are verifiable and unavailable when none are. Provider fact validity is a bounded
   text hint, with unknown times marked explicitly; occurrence time is not an
   approval time. Current approved documents take precedence over old memory
   for current work, while historical questions may still use historical facts.
-- A personal preference expressed in a shared conversation is not silently
-  saved to either scope. Acknowledge understanding without claiming durable
-  storage or suggesting team sharing as the default. Explicit personal writes
-  in shared conversations are outside this phase.
+- A personal preference expressed in a shared Space can remain part of that
+  Space's memory, but is not silently promoted to personal or Organization-wide
+  memory. Acknowledge it without claiming verified persistence. Explicit personal
+  writes in shared conversations are outside this phase.
 - A verified member keeps member-memory continuity across Center Agent DM,
   Space, Slack, Lark, Feishu, Task continuation, and a future Local Agent
   carrier. The current environment changes disclosure behavior, not who the
@@ -2457,6 +2542,14 @@ than by the model provider:
   replace a Space, Slack, Lark, or Feishu origin with `explicit_tool`, and it
   must consume the same non-conflicting frozen `interactionEnvironment` as an
   automatic write before Core admits the Organization subject.
+- An explicit OpenMeld save requires a source-message evidence reference and the
+  complete text of that version (aside from surrounding whitespace). An excerpt
+  that drops a qualification is not eligible. For a longer or mixed-purpose
+  message, the member can restate only what they want shared in a new message. Core rejects missing references,
+  changed/recalled sources, another Space's reference, and invented paraphrases.
+  It retains the original author and message-version time rather than attributing
+  an Agent summary to the human's later save request. This does not establish a
+  current rule or execution permission. Channel save contracts are unchanged.
 
 Core owns scope, authorization, enabled state, subject identity, and deletion
 lifecycle. `developing/architecture/data-and-observability.md` owns storage and
@@ -2515,6 +2608,15 @@ are withheld; absence does not prove that an action or authorization never
 existed. Audit evidence does not create execution, replay, or repair authority.
 
 ### Organization Documents
+
+Current document reads carry a content-versioned source reference. Automatic
+Brief context can opt into the same reference while preserving legacy response
+shapes. Pending drafts never supply the current Brief, including its source
+identity. Guide snapshots identify their admitted content version; the Center
+Agent can reread the owning Space's current Guide after compaction or a later
+correction. An empty Guide is evidence of empty current content, while a failed
+or revoked read is unavailable evidence. Source references locate context and
+do not grant permissions or establish who personally approved a rule.
 
 Documents are organization-scoped Markdown context. Every document body
 persists as plain CommonMark + GFM text so humans, the Center Agent, and

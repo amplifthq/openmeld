@@ -8,6 +8,10 @@ import type { WakeProgressItem } from "@openmeld/schemas/types";
 const LEADING_MENTION_MARKER_PATTERN = /^@/u;
 
 export type WakeProgressStatusKind =
+	| "sending"
+	| "request_sent"
+	| "connecting"
+	| "retrying"
 	| "queued"
 	| "working"
 	| "needs_input"
@@ -28,6 +32,10 @@ export const WAKE_PROGRESS_STATUS_PRIORITY = {
 	needs_input: 0,
 	confirmation_pending: 0,
 	working: 1,
+	sending: 2,
+	request_sent: 2,
+	connecting: 2,
+	retrying: 2,
 	queued: 3,
 	waiting_for_controller: 3,
 	waiting_for_device: 3,
@@ -134,12 +142,38 @@ export function resolveWakeProgressStatus(
 
 	switch (item.phase) {
 		case "sending":
+			return {
+				description: "OpenMeld is sending the request to the Agent.",
+				kind: "sending",
+				label: formatLabel("Sending request…"),
+				status: "pending",
+			};
 		case "request_sent":
+			return {
+				description:
+					"The request has been sent. Agent execution is not yet confirmed.",
+				kind: "request_sent",
+				label: formatLabel("Waiting to start…"),
+				status: "pending",
+			};
 		case "connecting":
+			return {
+				description:
+					"OpenMeld is connecting to the Agent. Execution is not yet confirmed.",
+				kind: "connecting",
+				label: formatLabel("Connecting…"),
+				status: "pending",
+			};
+		case "retrying":
+			return {
+				description: "OpenMeld is retrying delivery of the request.",
+				kind: "retrying",
+				label: formatLabel("Retrying delivery…"),
+				status: "pending",
+			};
 		case "running":
 		case "writing":
 		case "publishing":
-		case "retrying":
 			return presentWorkingStatus(item.targetLabel, options);
 		case "queued":
 			return {
@@ -155,7 +189,7 @@ export function resolveWakeProgressStatus(
 	}
 }
 
-/** Shared appearance for an active Wake or an admitted live reply stream. */
+/** Shared appearance for confirmed Agent work or an admitted live reply stream. */
 export function presentWorkingStatus(
 	targetLabel: string,
 	options: { showTargetName?: boolean } = {}

@@ -168,7 +168,18 @@ export function boundThreadPreviewSignal(
     return signal;
   }
   const text = boundThreadReplyPreviewText(signal.data.text);
-  return text === signal.data.text
-    ? signal
-    : { ...signal, data: { ...signal.data, text } };
+  if (text === signal.data.text) {
+    return signal;
+  }
+  return {
+    ...signal,
+    data: {
+      ...signal.data,
+      text,
+      // Keep the derived preview's message envelope consistent with its text.
+      ...(signal.data.messageEnvelope
+        ? { messageEnvelope: { ...signal.data.messageEnvelope, text } }
+        : {}),
+    },
+  };
 }

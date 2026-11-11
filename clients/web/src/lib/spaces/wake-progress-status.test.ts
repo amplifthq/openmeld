@@ -24,15 +24,15 @@ describe("resolveWakeProgressStatus", () => {
 		).toBe("Agent · Working…");
 	});
 	it.each([
-		["sending", "runner · Working…", "working"],
-		["request_sent", "runner · Working…", "working"],
+		["sending", "runner · Sending request…", "sending"],
+		["request_sent", "runner · Waiting to start…", "request_sent"],
 		["queued", "runner · Waiting for earlier tasks", "queued"],
-		["connecting", "runner · Working…", "working"],
-		["retrying", "runner · Working…", "working"],
+		["connecting", "runner · Connecting…", "connecting"],
+		["retrying", "runner · Retrying delivery…", "retrying"],
 		["running", "runner · Working…", "working"],
 		["writing", "runner · Working…", "working"],
 		["publishing", "runner · Working…", "working"],
-	] as const)("presents %s without exposing transport details", (phase, label, kind) => {
+	] as const)("distinguishes %s from confirmed Agent work", (phase, label, kind) => {
 		expect(
 			resolveWakeProgressStatus(createWakeProgressItem({ phase }))
 		).toEqual(expect.objectContaining({ kind, label }));

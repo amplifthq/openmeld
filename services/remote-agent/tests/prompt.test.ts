@@ -366,7 +366,28 @@ describe("remote agent system prompt", () => {
     );
   });
 
-  it("teaches the Center Agent to use authoritative People directory facts", () => {
+  it("reads the rest of a Space when a thread is not enough and raises the read limit to continue", () => {
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "A Wake inside a thread does not make that thread the whole Space."
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "read openmeld_read_space_context with scope=history, or openmeld_query_messages with this spaceId and no threadId"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Say when the result is truncated."
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "If the answer is still missing and coverage is not complete, continue that same read with its resumeId, the returned nextCursor, and a larger total limit."
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).not.toContain(
+      "openmeld_update_space_settings"
+    );
+  });
+
+  it("teaches the Center Agent to resolve and reuse source-backed member identities", () => {
+    const prompt = buildTestSystemPrompt({
+      turnEnvelope: createSubmitTurnRequest().turnEnvelope,
+    });
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
       "Use openmeld_list_organization_members to count or list the Organization's human members"
     );
@@ -387,6 +408,30 @@ describe("remote agent system prompt", () => {
     );
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
       "never substitute Computer, login/session, or Agent Activity time"
+    );
+    expect(prompt).toContain(
+      "Ground factual claims in trusted turn context, explicit member answers, and source-attributed conversation or tool evidence."
+    );
+    expect(prompt).not.toContain(
+      "Only claim what you verified with a tool in this conversation."
+    );
+    expect(prompt).toContain(
+      "Reuse a member or external-account mapping already resolved by authoritative directory facts or an explicit member answer in this Space, including across its threads."
+    );
+    expect(prompt).toContain(
+      "Different names or emails across services do not by themselves invalidate a confirmed mapping."
+    );
+    expect(prompt).toContain(
+      "If the confirmation is missing from current context, recover its source before asking again"
+    );
+    expect(prompt).toContain(
+      "openmeld_query_messages with this spaceId and a distinctive name or account handle"
+    );
+    expect(prompt).toContain(
+      "A prior assistant guess or an unanswered question is not confirmation."
+    );
+    expect(prompt).toContain(
+      "A conversational mapping never links login accounts, changes authenticated identity, grants permissions, or authorizes a new action."
     );
   });
 

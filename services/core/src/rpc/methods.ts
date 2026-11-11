@@ -47,6 +47,7 @@ import {
   addCenterAgentToSpaceBodySchema,
   addOrganizationDirectoryProfilesToSpaceBodySchema,
   agentDirectMessageSessionSelectorSchema,
+  agentExecutionReadinessResponseOptionsSchema,
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
   agentProfileBindingTargetSchema,
@@ -207,6 +208,15 @@ import {
   ensureSlackWorkspaceMemberOrganizationMembershipRpcResponseSchema,
   executeAgentProfileWorkRecoveryBodySchema,
   executeAgentProfileWorkRecoveryResponseSchema,
+  type FeishuGroupHistoryCall,
+  type FeishuGroupHistoryResult,
+  type FeishuHistoryAuthorizationRequest,
+  type FeishuHistoryGroupSetting,
+  type FeishuHistoryGroupsQuery,
+  feishuGroupHistoryCallSchema,
+  feishuGroupHistoryResultSchema,
+  feishuHistoryAuthorizationRequestSchema,
+  feishuHistoryAuthorizationSchema,
   firstWorkResponseSchema,
   forgetComputerResponseSchema,
   forgetComputerRouteParamsSchema,
@@ -320,6 +330,7 @@ import {
   profileFolderIdSchema,
   profileSpaceHistoryGatewayHostSchema,
   projectOwnerComputerLocalRuntimes,
+  projectProviderConversationProofMethod,
   type ReadPluginConnectionContinuationBindingRequest,
   readPluginConnectionContinuationBindingResponseSchema,
   recordSpaceAttachmentPayloadSchema,
@@ -412,6 +423,7 @@ import type {
   AgentActivityStatsRpcInput,
   AgentControllerCollaborationMode,
   AgentControllerPermissionMode,
+  AgentExecutionReadinessResponseOptions,
   AgentExecutionReadinessTargetRuntime,
   AgentProfileBindingOpenCodePermission,
   AgentProfileBindingProjection,
@@ -676,6 +688,7 @@ import type {
   OrganizationUsageOverviewRpcInput,
   OwnerComputerDiagnostics,
   PatchSpaceContractBody,
+  PatchSpaceMetaBody,
   PendingGitHubAppInstallation,
   PeopleComputerFileAccessReadRpcInput,
   PeopleComputerFileAccessUpdateRpcInput,
@@ -763,6 +776,7 @@ import type {
   SpaceTaskDetailOptions,
   SpaceTaskMutationReceipt,
   SpaceTaskPhase,
+  SpaceTaskRequesterRepresentation,
   SpaceTaskResponse,
   SpaceThreadContext,
   SpaceViewerMembershipResponse,
@@ -964,13 +978,12 @@ import {
 import {
   type CenterAgentDesignationRecord,
   insertCenterAgentAuditJournalEntry,
-  insertCenterAgentAuditJournalEntryIfMissing,
   listCenterAgentAuditJournalEntries,
   readCenterAgentDesignationRecord,
-  readCenterAgentWakeAuditAttribution,
   readResolvedOrganizationDirectorySpaceMember,
   readResolvedOrganizationOwnerHumanSpaceMember,
   readResolvedOrganizationSpaceMember,
+  recordCenterAgentWakeAudit,
   resolveCenterAgentAttribution,
   toCenterAgentAuditJournalEntryDto,
   toCenterAgentDesignationDto,
@@ -1007,6 +1020,7 @@ import {
   resolveExplicitMemorySourceTurnRequest,
 } from "../center-agent-memory/explicit-memory-origin";
 import { createPostgresCenterAgentMemoryRepository } from "../center-agent-memory/postgresql-memory-repository";
+import { readExplicitMemorySourceExcerpt } from "../center-agent-memory/source-excerpt";
 import { rpcCenterAgentReadChangelog as centerAgentReadChangelog } from "../changelog/changelog-center-agent-rpc";
 import { rpcReadChangelog as readChangelog } from "../changelog/changelog-read-rpc";
 import { createComputerFileAccessRpc } from "../computers/computer-file-access-rpc";
@@ -1049,6 +1063,7 @@ import {
   requireRemotePluginConnection,
   selectPluginConnection,
 } from "../connectors/plugin-access";
+import { readPluginActionRequestStatusForOperation } from "../connectors/plugin-action-requests";
 import {
   assertBoundPluginConnection,
   boundPluginConnectionPreference,
@@ -1071,6 +1086,7 @@ import {
   notifyRuntimeTransportRouteCatalogChanged,
   readRuntimeTransportAgentProfileExecutionState,
   readRuntimeTransportAgentProfileOperationalContexts,
+  readRuntimeTransportAgentProfileWorkRecovery,
   readRuntimeTransportComputerFileAccessPolicy,
   readRuntimeTransportProfileFolderProjection,
   readRuntimeTransportProfileWorkspace,
@@ -1176,6 +1192,7 @@ import {
   resolveRemoteAgentConnectorRequester,
 } from "../remote-agent/application/delegated-requester";
 import { listLarkPlatformProvidersEnabledForOrganization } from "../remote-agent/application/lark-platform-provider-policy";
+import { beginLarkPlatformRegistration } from "../remote-agent/application/lark-platform-registration-client";
 import {
   beginRemoteAgentLarkPlatformRegistration,
   disconnectRemoteAgentLarkPlatformRegistration,
@@ -1327,6 +1344,7 @@ import {
   resolveRemovableFolder,
 } from "../runtime-transport/application/profile-folder-projection-store";
 import { listActiveRuntimeCoordinatorExecutionTargetsBySpaceIds } from "../runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
+import { withPermissionModeAuditAttribution } from "../sensitive-operations/application/permission-mode-audit-context";
 import { recordSensitiveOperationOutcome } from "../sensitive-operations/application/sensitive-operation-gate";
 import {
   parseRpcErrorPayload,
@@ -1432,6 +1450,7 @@ import {
   readOwnedDeviceRegistryRecord,
   upsertOwnedDeviceRegistryRecord,
 } from "../start/infrastructure/postgresql/owned-device-registry-repo";
+import { RUNTIME_TRANSPORT_LOOKUP_TIMEOUT_MS } from "../strategy-constants";
 import { rpcReadOrganizationUsageOverview as readOrganizationUsageOverview } from "../usage/organization-usage-overview-rpc";
 import { recordUserTimeZoneObservation } from "../user-time-context/user-time-context-repository";
 import {
@@ -1445,6 +1464,7 @@ import {
   requireAcceptedLocalAgentUpdatePayload,
 } from "./local-agent-control-policy";
 import { callRequiredAuthWorkerRpc } from "./required-auth-worker-rpc";
+import { withSpaceReadRecovery } from "./space-read-recovery";
 import {
   isHexSpaceId,
   resolveNamedSpaceId,
@@ -2196,6 +2216,7 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
     purpose?: string;
     creator?: SpaceCreator;
     guide?: string;
+    guideEdit?: PatchSpaceMetaBody["guideEdit"];
     accessMode?: SpaceAccessMode;
     organizationId?: string;
     visibility?: "public" | "private";
@@ -2285,13 +2306,16 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
     input: GetSpaceDispatchLookupInput
   ): Promise<GetSpaceDispatchLookupResponse>;
   rpcGetWakeProgress(
-    input: GetSpaceWakeProgressInput
+    input: GetSpaceWakeProgressInput,
+    directAccountUserId?: string
   ): Promise<GetSpaceWakeProgressResponse>;
   rpcGetActiveWakeProgress(
-    input: GetActiveSpaceWakeProgressInput
+    input: GetActiveSpaceWakeProgressInput,
+    directAccountUserId?: string
   ): Promise<GetActiveSpaceWakeProgressResponse>;
   rpcPostWakeStop(
-    input: PostSpaceWakeStopInput
+    input: PostSpaceWakeStopInput,
+    directAccountUserId?: string
   ): Promise<PostSpaceWakeStopResponse>;
   rpcRespondToAgentInteraction(input: {
     spaceId: string;
@@ -2645,14 +2669,8 @@ export type GetSpaceMetaInput = {
   context?: CoreRpcContextInput;
   spaceAccess?: SpaceAccessContext;
 };
-export type UpdateSpaceMetaInput = {
-  ownership?: import("@openmeld/schemas/types").PatchSpaceMetaBody["ownership"];
-  allowGuests?: boolean;
+export type UpdateSpaceMetaInput = PatchSpaceMetaBody & {
   spaceId: string;
-  visibility?: SpaceMeta["visibility"];
-  name?: string;
-  purpose?: string;
-  guide?: string;
   password?: string;
   context?: CoreRpcContextInput;
 };
@@ -2922,6 +2940,7 @@ export type GetSpaceMessageDetailsInput = {
   spaceId: string;
   signalId: string;
   executionContextVersion?: 1;
+  timingVersion?: 1;
   password?: string;
   context?: CoreRpcContextInput;
   spaceAccess?: SpaceAccessContext;
@@ -3878,14 +3897,16 @@ export type ConvertDirectMessageToSpaceInput =
     context?: CoreRpcContextInput;
     spaceId: string;
   };
-export type GetAgentExecutionReadinessInput = {
-  agentProfileId: string;
-  context?: CoreRpcContextInput;
-};
-export type GetAgentExecutionReadinessBatchInput =
-  GetAgentExecutionReadinessBatchBody & {
+export type GetAgentExecutionReadinessInput =
+  AgentExecutionReadinessResponseOptions & {
+    agentProfileId: string;
     context?: CoreRpcContextInput;
   };
+export type GetAgentExecutionReadinessBatchInput =
+  GetAgentExecutionReadinessBatchBody &
+    AgentExecutionReadinessResponseOptions & {
+      context?: CoreRpcContextInput;
+    };
 type GetAgentExecutionReadinessResponseDraft = Omit<
   GetAgentExecutionReadinessResponse,
   "agentExecutionReadiness" | "routeLane"
@@ -5796,7 +5817,8 @@ export async function rpcSubmitRuntimeRegistration(
 }
 export async function rpcSubmitRuntimeAgentControllerReports(
   env: CoreBindings,
-  input: SubmitRuntimeAgentControllerReportsInput
+  input: SubmitRuntimeAgentControllerReportsInput,
+  markStage?: (stage: string) => void
 ): Promise<SubmitRuntimeAgentControllerReportsResponse> {
   const context = requireRpcContext(input.context);
   const request = requireRuntimeReportingRequest(context, input.deviceId);
@@ -5837,6 +5859,7 @@ export async function rpcSubmitRuntimeAgentControllerReports(
       })),
     });
   }
+  markStage?.("runtime_identity_read");
   const openMeldServiceRuntimeIdVerification =
     await verifySubmittedRuntimeIdForLookup({
       db,
@@ -5853,11 +5876,13 @@ export async function rpcSubmitRuntimeAgentControllerReports(
     });
   }
   const reports: SubmitRuntimeAgentControllerReportResult[] = [];
+  markStage?.("release_policy_read");
   const authFreshnessRequired = isServiceAuthFreshnessRequired(
     (await readCoreLocalComponentsRelease(env.OPENMELD_CLI_RELEASES)).manifest
   );
   for (const report of body.data.reports) {
     const acceptedAtMs = Date.now();
+    markStage?.("report_acceptance");
     const result = await acceptRuntimeAgentControllerReport({
       authFreshnessRequired,
       nowMs: acceptedAtMs,
@@ -5883,6 +5908,7 @@ export async function rpcSubmitRuntimeAgentControllerReports(
     });
     if (result.status === "accepted") {
       try {
+        markStage?.("usage_recovery");
         await notifyAgentProfileWorkUsageRecoveryAvailable({
           bindingStore: {
             listBindings: async (bindingInput) =>
@@ -5929,6 +5955,7 @@ export async function rpcSubmitRuntimeAgentControllerReports(
       }
     }
     if (result.status === "accepted") {
+      markStage?.("model_inbox_reconciliation");
       await reconcileRuntimeAgentModelInboxes({
         env,
         ownerUserId: request.userId,
@@ -6033,7 +6060,8 @@ export async function rpcSubmitRuntimeProviderConversationProofs(
     }
     if (
       proof.provider !== "codex" ||
-      proof.method !== "codex_app_server_thread_resume" ||
+      (proof.method !== "codex_app_server_thread_resume" &&
+        proof.method !== "codex_app_server_thread_read") ||
       proof.transportMode !== "codex-app-server" ||
       proof.intrusive !== false
     ) {
@@ -6350,14 +6378,16 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     request,
     parsedBody.data
   );
-  const ownerShard = resolveRuntimeTransportOwnerShard(env, request.owner.id);
   const recovery =
     runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
-      await ownerShard.rpcReadAgentProfileWorkRecovery({
+      await readRuntimeTransportAgentProfileWorkRecovery({
+        env,
         ownerUserId: request.owner.id,
+        requestId: request.context.actorContext.requestId,
         targetProfileId: request.agentProfileId,
       })
     );
+  const ownerShard = resolveRuntimeTransportOwnerShard(env, request.owner.id);
   if (recovery.status === "unavailable") {
     throw createCoreRpcHttpError({
       code: "agent_profile_work_recovery.temporarily_unavailable",
@@ -6565,8 +6595,10 @@ async function resumeUsageExhaustedAgentProfileWork(input: {
     try {
       const recovery =
         runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
-          await ownerShard.rpcReadAgentProfileWorkRecovery({
+          await readRuntimeTransportAgentProfileWorkRecovery({
+            env: input.env,
             ownerUserId: input.ownerUserId,
+            requestId: input.context.actorContext.requestId,
             targetProfileId,
           })
         );
@@ -6768,8 +6800,10 @@ async function executeAgentProfileWorkContinuation(input: {
   if (input.requireAutomaticForkEligibility) {
     const current =
       runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
-        await input.ownerShard.rpcReadAgentProfileWorkRecovery({
+        await readRuntimeTransportAgentProfileWorkRecovery({
+          env: input.env,
           ownerUserId: input.ownerUserId,
+          requestId: input.context.actorContext.requestId,
           targetProfileId: input.targetProfileId,
         })
       );
@@ -6989,6 +7023,7 @@ export async function rpcGetAgentProfileControllerChangeEligibility(
     agentProfileId: request.agentProfileId,
     env,
     ownerUserId: request.owner.id,
+    requestId: request.context.actorContext.requestId,
   });
 }
 // Contract: developing/architecture/agent-transport-contract.md ("Expected Routes Projection")
@@ -7341,6 +7376,7 @@ export async function rpcGetCurrentOrganizationDirectory(
     env,
     generatedAt,
     organizationId,
+    requestId,
     viewerUserId: activeOrganization.userId,
   });
   const runtimeByProfileId = new Map(
@@ -7513,6 +7549,7 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
     env,
     generatedAt,
     organizationId,
+    requestId: context.actorContext.requestId,
     viewerUserId: activeOrganization.userId,
   });
   let result = response;
@@ -7686,6 +7723,7 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
   env: CoreBindings;
   generatedAt: string;
   organizationId: string;
+  requestId?: string | null;
   viewerUserId: string | null;
 }): Promise<OrganizationAgentRuntimeOverviewResponse> {
   const [readinessByProfileId, operationalContextsByProfileId] =
@@ -7694,6 +7732,7 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
       readOrganizationDirectoryAgentProfileOperationalContexts({
         eligibleAgentProfiles: input.eligibleAgentProfiles,
         env: input.env,
+        requestId: input.requestId,
         viewerUserId: input.viewerUserId,
       }).catch((error) => {
         console.warn(
@@ -7786,6 +7825,7 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
   env: CoreBindings;
   generatedAt: string;
   organizationId: string;
+  requestId?: string | null;
   viewerUserId: string | null;
 }): Promise<
   ReadonlyMap<
@@ -7833,18 +7873,31 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
                 });
               })
           : null;
+      let routeLookupFailed = false;
       const [preloadedRoutes, preloadedOwnerService] = ownerUserId
         ? await Promise.all([
             lookupRuntimeTransportRoutesBatch({
               blockForgottenDevices: true,
               env: input.env,
               ownerUserId,
+              requestId: input.requestId,
               profileIds: profiles.map((profile) => profile.profileId),
+              readTimeoutMs: RUNTIME_TRANSPORT_LOOKUP_TIMEOUT_MS,
+            }).catch((error) => {
+              routeLookupFailed = true;
+              console.warn("[core.organization.runtime_routes_unavailable]", {
+                organizationId: input.organizationId,
+                ownerUserId,
+                requestId: input.requestId,
+                error,
+              });
+              return null;
             }),
             lookupRuntimeTransportOwnerService({
               blockForgottenDevices: true,
               env: input.env,
               ownerUserId,
+              requestId: input.requestId,
             }).catch(() => null),
           ])
         : [null, null];
@@ -7864,13 +7917,14 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             })
           : null;
       await readinessPreload;
+      const failedRoutePreload = routeLookupFailed ? null : undefined;
       return await mapWithConcurrency(
         profiles,
         ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY,
         async (agent) => {
           const preloadedRoute = preloadedRoutes
             ? (preloadedRoutes.routes[agent.profileId] ?? null)
-            : undefined;
+            : failedRoutePreload;
           const readiness = await resolveCoreAgentExecutionReadinessForProfile({
             reads,
             activeOrganizationId: input.organizationId,
@@ -7879,9 +7933,7 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
             ...(preloadedRoute === undefined
               ? {}
               : { preloadedDaemonRoute: preloadedRoute }),
-            ...(preloadedOwnerService === null
-              ? {}
-              : { preloadedOwnerService }),
+            preloadedOwnerService,
             ...(preloadedRoute?.online
               ? {
                   preloadedRuntimeDeviceDisplayName: displayNames
@@ -7975,6 +8027,7 @@ async function readOrganizationDirectoryAgentProfileOperationalContexts(input: {
     profileId: string;
   }[];
   env: CoreBindings;
+  requestId?: string | null;
   viewerUserId: string | null;
 }): Promise<Map<string, DirectoryOperationalContextRead>> {
   const profileIdsByOwner = new Map<string, string[]>();
@@ -8001,6 +8054,7 @@ async function readOrganizationDirectoryAgentProfileOperationalContexts(input: {
             env: input.env,
             includeWorkReferences: exposeWorkReferences,
             ownerUserId,
+            requestId: input.requestId,
             targetProfileIds: targetProfileIds.slice(start, start + 100),
           });
         for (const context of response.contexts) {
@@ -10063,6 +10117,195 @@ export async function rpcConsumeMessageChannelIdentityLink(
     openMeldUserId: ensuredMembership.membership.userId,
   });
 }
+/** Rolling-deploy tombstones: old clients must not display a successful toggle. */
+export function rpcListFeishuHistoryGroups(
+  _env: CoreBindings,
+  _input: { context?: CoreRpcContextInput; query: FeishuHistoryGroupsQuery }
+): never {
+  throw retiredFeishuHistorySetting();
+}
+export function rpcSetFeishuHistoryGroup(
+  _env: CoreBindings,
+  _input: { context?: CoreRpcContextInput; setting: FeishuHistoryGroupSetting }
+): never {
+  throw retiredFeishuHistorySetting();
+}
+function retiredFeishuHistorySetting() {
+  return createCoreRpcHttpError({
+    code: "message_channel.history_settings_removed",
+    status: 410,
+    reason:
+      "Group history settings have been removed. History is available when Feishu permits it. Refresh OpenMeld.",
+  });
+}
+export async function rpcAuthorizeFeishuHistory(
+  env: CoreBindings,
+  input: {
+    context?: CoreRpcContextInput;
+    request: FeishuHistoryAuthorizationRequest;
+  }
+) {
+  const request = feishuHistoryAuthorizationRequestSchema.parse(input.request);
+  const { actor, db } = await requireLarkPlatformRegistrationRequest(env, {
+    context: input.context,
+    provider: "feishu",
+  });
+  const connection = await readRemoteAgentLarkPlatformChannelConnection({
+    db,
+    connectionId: request.connectionId,
+  });
+  if (
+    !connection ||
+    connection.provider !== "feishu" ||
+    connection.organizationId !== actor.organizationId ||
+    connection.status !== "connected"
+  ) {
+    throw createCoreRpcHttpError({
+      code: "message_channel.connection_unavailable",
+      status: 403,
+      reason: "An active Feishu connection is required for this Organization.",
+    });
+  }
+  const consent = await beginLarkPlatformRegistration({
+    appId: connection.appId,
+    appName: connection.botName ?? "OpenMeld Center Agent",
+    appDescription:
+      "Connect your OpenMeld Center Agent to conversations in your workspace.",
+    expectedProvider: "feishu",
+    includeGroupHistory: true,
+    nowMs: Date.now(),
+    source: "openmeld-core",
+  });
+  return feishuHistoryAuthorizationSchema.parse({
+    authorizationUrl: consent.registrationUrl,
+  });
+}
+async function requireFeishuHistoryConnection(
+  env: CoreBindings,
+  db: PostgresDatabase,
+  organizationId: string,
+  connectionId: string
+) {
+  const connection = await readRemoteAgentLarkPlatformChannelConnection({
+    db,
+    connectionId,
+  });
+  const registry = createConfiguredMessageChannelProviderRegistry({ env, db });
+  if (
+    !connection ||
+    connection.provider !== "feishu" ||
+    !connection.tenantKey ||
+    connection.organizationId !== organizationId ||
+    connection.status !== "connected" ||
+    !registry ||
+    !listLarkPlatformProvidersEnabledForOrganization({
+      env,
+      organizationId,
+    }).includes("feishu")
+  ) {
+    throw createCoreRpcHttpError({
+      code: "message_channel.connection_unavailable",
+      status: 403,
+      reason: "An active Feishu connection is required for this Organization.",
+    });
+  }
+  const adapter = registry.require("feishu");
+  if (!adapter.readFeishuHistory) {
+    throw createCoreRpcHttpError({
+      code: "message_channel.history_unavailable",
+      status: 503,
+      reason: "Feishu history is unavailable.",
+    });
+  }
+  return {
+    connection,
+    adapter: { readHistory: adapter.readFeishuHistory },
+  };
+}
+export async function rpcReadFeishuGroupHistory(
+  env: CoreBindings,
+  input: FeishuGroupHistoryCall & { context?: CoreRpcContextInput }
+): Promise<FeishuGroupHistoryResult> {
+  const { request, includeCoverage, scope } =
+    feishuGroupHistoryCallSchema.parse(input);
+  const auth = await requireCurrentDesignatedCenterAgentCaller({
+    context: requireRpcContext(input.context),
+    env,
+  });
+  const submissionId = auth.context.agentControllerConversationId;
+  if (!submissionId) {
+    return { status: "forbidden" };
+  }
+  const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db: auth.db,
+    submissionId,
+  });
+  const locator = delivery?.messageChannelLocator;
+  const frozen = (
+    delivery?.executionRecoverySubmitRequest ?? delivery?.workerSubmitRequest
+  )?.turnEnvelope;
+  const sender = frozen?.sender;
+  if (
+    !(delivery && ["accepted", "retry_observed"].includes(delivery.status)) ||
+    delivery.routineRunId ||
+    delivery.conversationKind !== "message_channel" ||
+    delivery.organizationId !== auth.activeOrganization.organizationId ||
+    delivery.profileId !== auth.actorProfileId ||
+    locator?.provider !== "feishu" ||
+    frozen?.trigger.source !== "message_channel" ||
+    frozen.trigger.provider !== "feishu" ||
+    frozen.space.kind !== "space" ||
+    sender?.kind !== "member" ||
+    sender.messageChannelIdentity?.provider !== "feishu" ||
+    sender.messageChannelIdentity.connectionId !== locator.connectionId
+  ) {
+    return { status: "forbidden" };
+  }
+  const { connection, adapter } = await requireFeishuHistoryConnection(
+    env,
+    auth.db,
+    delivery.organizationId,
+    locator.connectionId
+  );
+  if (
+    connection.appId !== locator.appId ||
+    connection.tenantKey !== locator.tenantKey
+  ) {
+    return { status: "forbidden" };
+  }
+
+  const result = feishuGroupHistoryResultSchema.parse(
+    await adapter.readHistory({
+      connection,
+      locator,
+      triggerMessageId: delivery.triggerMessageId,
+      requesterOpenId: sender.messageChannelIdentity.providerUserId,
+      conversationId: frozen.trigger.conversationId,
+      lookbackMinutes: request.lookbackMinutes,
+      includeCoverage,
+      scope,
+    })
+  );
+  console.info("[core.message_channel.history_read]", {
+    event: "message_channel.history_read",
+    provider: "feishu",
+    submissionId,
+    organizationId: delivery.organizationId,
+    status: result.status,
+    ...(result.status === "read"
+      ? {
+          scope: result.scope,
+          requestedFromMs: result.startMs,
+          cutoffMs: result.endMs,
+          returnedMessageCount: result.context.messages.length,
+          syncStatus: result.context.sync.status,
+          examinedFromMs: result.coverage?.examinedFromMs,
+          gaps: result.coverage?.gaps,
+        }
+      : {}),
+  });
+  return result;
+}
 export async function rpcBeginLarkPlatformRegistration(
   env: CoreBindings,
   input: BeginLarkPlatformRegistrationInput
@@ -10071,6 +10314,11 @@ export async function rpcBeginLarkPlatformRegistration(
   try {
     const response = await beginRemoteAgentLarkPlatformRegistration({
       ...request,
+      includeGroupHistory:
+        input.mode === "setup_feishu_basic" ||
+        input.mode === "setup_feishu_with_history"
+          ? input.mode === "setup_feishu_with_history"
+          : undefined,
       repairExisting: input.mode === "repair",
       reauthorize: input.mode === "reauthorize",
       env,
@@ -12322,12 +12570,9 @@ export async function rpcCenterAgentRememberForOrganization(
   env: CoreBindings,
   input: CenterAgentRememberForOrganizationInput
 ): Promise<CenterAgentRememberForOrganizationResponse> {
-  const authorization = await requireCurrentDesignatedCenterAgentCaller({
-    context: requireRpcContext(input.context),
-    env,
-  });
   const parsed = centerAgentRememberForOrganizationBodySchema.safeParse({
     fact: input.fact,
+    ...(input.sourceRef ? { sourceRef: input.sourceRef } : {}),
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -12347,12 +12592,25 @@ export async function rpcCenterAgentRememberForOrganization(
       code: "center_agent_memory.speaker_member_required",
     });
   }
+  const prepared = await prepareCenterAgentRepresentedMemberRequest(
+    env,
+    requireRpcContext(input.context),
+    speakerMember
+  );
+  const authorization = prepared.authorization;
   const memoryService = requireCenterAgentMemoryService(env);
   let saveStatus: "processing" | "processed";
   try {
-    const origin = await requireExplicitMemoryEpisodeOrigin({
+    const saveOrigin = await requireExplicitMemoryEpisodeOrigin({
       authorization,
       env,
+    });
+    const origin = await readExplicitMemorySourceExcerpt({
+      env,
+      prepared,
+      fact: parsed.data.fact,
+      sourceRef: parsed.data.sourceRef,
+      origin: saveOrigin,
     });
     const receipt = await memoryService.rememberFactForOrganization({
       fact: parsed.data.fact,
@@ -13875,6 +14133,24 @@ function buildCenterAgentProductOperationDeps(
   const representedContext = preferenceOwner?.representedContext ?? null;
   const representedUserId = preferenceOwner?.representedUserId ?? null;
   const ownerContext = representedContext ?? context;
+  const auditPermissionChange = <T>(run: () => Promise<T>) => {
+    const actorUserId = ownerContext.actorContext.callerPrincipalId;
+    if (!actorUserId) {
+      throw new Error("agent_profile_binding.audit_actor_missing");
+    }
+    return withPermissionModeAuditAttribution(
+      {
+        actorUserId,
+        organizationId,
+        requestId: context.actorContext.requestId,
+        sourceKind: "center_agent",
+        chainRootProfileId: ownerContext.actorContext.openMeldProfileId,
+        taskExecutionId: null,
+        confirmationId: null,
+      },
+      run
+    );
+  };
   return {
     addAgentProfileToSpace: async ({ agentProfileId, onBehalfOf, spaceId }) => {
       await rpcCenterAgentAddAgentProfilesToSpace(env, {
@@ -13933,36 +14209,38 @@ function buildCenterAgentProductOperationDeps(
       candidate,
       settings,
     }) =>
-      await rpcEnsureAgentProfilePrimaryBinding(env, {
-        agentControllerRef: candidate.agentControllerRef,
-        agentProfileId,
-        context: ownerContext,
-        deviceId: candidate.deviceId,
-        lane: candidate.runtimeLane,
-        openMeldServiceRuntimeId: candidate.openMeldServiceRuntimeId,
-        writeMode: "reconnect",
-        ...(settings.agentControllerCollaborationMode === undefined
-          ? {}
-          : {
-              agentControllerCollaborationMode:
-                settings.agentControllerCollaborationMode,
-            }),
-        ...(settings.agentControllerPermissionMode === undefined
-          ? {}
-          : {
-              agentControllerPermissionMode:
-                settings.agentControllerPermissionMode,
-            }),
-        ...(settings.modelId === undefined
-          ? {}
-          : { modelId: settings.modelId }),
-        ...(settings.openCodePermission === undefined
-          ? {}
-          : { openCodePermission: settings.openCodePermission }),
-        ...(settings.reasoningLevel === undefined
-          ? {}
-          : { reasoningLevel: settings.reasoningLevel }),
-      }),
+      await auditPermissionChange(() =>
+        rpcEnsureAgentProfilePrimaryBinding(env, {
+          agentControllerRef: candidate.agentControllerRef,
+          agentProfileId,
+          context: ownerContext,
+          deviceId: candidate.deviceId,
+          lane: candidate.runtimeLane,
+          openMeldServiceRuntimeId: candidate.openMeldServiceRuntimeId,
+          writeMode: "reconnect",
+          ...(settings.agentControllerCollaborationMode === undefined
+            ? {}
+            : {
+                agentControllerCollaborationMode:
+                  settings.agentControllerCollaborationMode,
+              }),
+          ...(settings.agentControllerPermissionMode === undefined
+            ? {}
+            : {
+                agentControllerPermissionMode:
+                  settings.agentControllerPermissionMode,
+              }),
+          ...(settings.modelId === undefined
+            ? {}
+            : { modelId: settings.modelId }),
+          ...(settings.openCodePermission === undefined
+            ? {}
+            : { openCodePermission: settings.openCodePermission }),
+          ...(settings.reasoningLevel === undefined
+            ? {}
+            : { reasoningLevel: settings.reasoningLevel }),
+        })
+      ),
     listLocalAgentConnectionCandidates: async () => {
       const peopleComputers = await rpcListPeopleComputers(env, {
         context: ownerContext,
@@ -14058,13 +14336,12 @@ function buildCenterAgentProductOperationDeps(
       agentControllerPermissionMode,
       agentProfileId,
     }) =>
-      await rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode(
-        env,
-        {
+      await auditPermissionChange(() =>
+        rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode(env, {
           agentControllerPermissionMode,
           agentProfileId,
           context: ownerContext,
-        }
+        })
       ),
     updateAgentControllerCollaborationMode: async ({
       agentControllerCollaborationMode,
@@ -17517,6 +17794,7 @@ export async function rpcCenterAgentReadConnectorActionOperation(
   input: CenterAgentReadConnectorActionOperationInput
 ): Promise<CenterAgentReadConnectorActionOperationResponse> {
   const parsed = centerAgentReadConnectorActionOperationBodySchema.safeParse({
+    includeRequestAuthorization: input.includeRequestAuthorization,
     includeExecutionPermit: input.includeExecutionPermit,
     includeRecoveryWindow: input.includeRecoveryWindow,
     actionId: input.actionId,
@@ -17552,6 +17830,22 @@ export async function rpcCenterAgentReadConnectorActionOperation(
     service: parsed.data.service,
   });
   return centerAgentReadConnectorActionOperationResponseSchema.parse({
+    ...(parsed.data.includeRequestAuthorization
+      ? {
+          requestAuthorization: prepared.member.userId
+            ? await readPluginActionRequestStatusForOperation({
+                db: prepared.authorization.db,
+                organizationId:
+                  prepared.authorization.activeOrganization.organizationId,
+                userId: prepared.member.userId,
+                actorProfileId: prepared.authorization.actorProfileId,
+                operationId: parsed.data.operationId,
+                actionId: parsed.data.actionId,
+                service: parsed.data.service,
+              })
+            : null,
+        }
+      : {}),
     operation: existing
       ? {
           ...(parsed.data.includeExecutionPermit
@@ -17602,6 +17896,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     requestSignature: input.requestSignature,
     issueDestination: input.issueDestination,
     issueDestinationAuthority: input.issueDestinationAuthority,
+    issueActionRecovery: input.issueActionRecovery,
     linearIssueReceipt: input.linearIssueReceipt,
     githubIssueCompletion: input.githubIssueCompletion,
     includeGitHubTaskSync: input.includeGitHubTaskSync,
@@ -18429,32 +18724,16 @@ async function recordCenterAgentDirectWakeAttribution(input: {
     authorization: input.authorization,
     onBehalfOfProfileId: input.onBehalfOfProfileId,
   });
-  await insertCenterAgentAuditJournalEntryIfMissing({
-    action: "wake_agent_profiles_in_space",
-    actorProfileId: input.authorization.actorProfileId,
+  const root = await readCenterAgentRequestChainRoot(input.authorization);
+  await recordCenterAgentWakeAudit({
     attribution,
     db: input.authorization.db,
-    id: `center-agent-wake:${input.clientMessageId}`,
+    clientMessageId: input.clientMessageId,
     nowMs: Date.now(),
     organizationId: input.authorization.activeOrganization.organizationId,
-    resource: { type: "space", id: input.spaceId },
+    spaceId: input.spaceId,
+    sourceNativeDeliveryId: root?.nativeDeliveryId ?? null,
   });
-  const recorded = await readCenterAgentWakeAuditAttribution({
-    clientMessageId: input.clientMessageId,
-    db: input.authorization.db,
-  });
-  if (
-    recorded?.organizationId !==
-      input.authorization.activeOrganization.organizationId ||
-    recorded.actorProfileId !== input.authorization.actorProfileId ||
-    recorded.resourceType !== "space" ||
-    recorded.resourceId !== input.spaceId ||
-    recorded.onBehalfOfProfileId !==
-      (attribution.onBehalfOf?.profileId ?? null) ||
-    recorded.onBehalfOfUserId !== (attribution.onBehalfOf?.userId ?? null)
-  ) {
-    throw new Error("Center Agent Wake requester provenance conflicted");
-  }
   return attribution;
 }
 function buildCenterAgentWakeAgentProfilesInSpaceResponse(input: {
@@ -19953,20 +20232,28 @@ export async function rpcConvertDirectMessageToSpace(
   }
   return validated.data;
 }
+type DirectMessageSpaceOpenInput = {
+  context: CoreRpcContextInput;
+  member: ResolvedSpaceMemberProfile;
+  legacySpaceId?: string;
+  organizationId: string;
+  targetMember: ResolvedSpaceMemberProfile;
+  timing?: CenterAgentDirectMessageOpenTimingRecorder;
+};
+type OpenedDirectMessageSpace = { created: boolean; spaceId: string };
+
+export function openDirectMessageSpaceInternal(
+  env: CoreBindings,
+  input: DirectMessageSpaceOpenInput & { initialOnly: true }
+): Promise<OpenedDirectMessageSpace | null>;
+export function openDirectMessageSpaceInternal(
+  env: CoreBindings,
+  input: DirectMessageSpaceOpenInput
+): Promise<OpenedDirectMessageSpace>;
 export async function openDirectMessageSpaceInternal(
   env: CoreBindings,
-  input: {
-    context: CoreRpcContextInput;
-    member: ResolvedSpaceMemberProfile;
-    legacySpaceId?: string;
-    organizationId: string;
-    targetMember: ResolvedSpaceMemberProfile;
-    timing?: CenterAgentDirectMessageOpenTimingRecorder;
-  }
-): Promise<{
-  created: boolean;
-  spaceId: string;
-}> {
+  input: DirectMessageSpaceOpenInput & { initialOnly?: boolean }
+): Promise<OpenedDirectMessageSpace | null> {
   const measureStage = async <T>(
     stage: CenterAgentDirectMessageOpenTimingStage,
     operation: () => Promise<T> | T
@@ -20066,6 +20353,12 @@ export async function openDirectMessageSpaceInternal(
         pairKey,
       })
   );
+  // Automatic setup may finish its original chat, but a deleted or converted
+  // chat records a deliberate user choice. Only an explicit open creates the
+  // next generation. The index retains both deletion and conversion history.
+  if (input.initialOnly && generation > 0) {
+    return null;
+  }
   const spaceId = resolveDirectMessageSpaceId(env.OPENMELD_SPACES, {
     generation,
     organizationId: input.organizationId,
@@ -20242,6 +20535,7 @@ export async function rpcGetAgentExecutionReadiness(
   return buildGetAgentExecutionReadinessResponse({
     generatedAt,
     readiness,
+    responseVersion: request.responseVersion,
   });
 }
 export async function rpcGetAgentExecutionReadinessBatch(
@@ -20281,17 +20575,20 @@ export async function rpcGetAgentExecutionReadinessBatch(
     targetRuntime: request.targetRuntime ?? null,
   });
   // One RuntimeTransport round trip for the whole batch instead of one per profile.
-  // A null prefetch (DO busy, schema drift) falls back to per-profile lookups.
+  // Invalid batch responses retain the per-profile fallback; exhausted
+  // transport failures propagate without another read per Profile.
   const preloadedRoutes = await lookupRuntimeTransportRoutesBatch({
     blockForgottenDevices: true,
     env,
     ownerUserId: request.owner.id,
     profileIds: request.agentProfileIds,
+    requestId: request.context.actorContext.requestId,
   });
   const preloadedOwnerService = await lookupRuntimeTransportOwnerService({
     blockForgottenDevices: true,
     env,
     ownerUserId: request.owner.id,
+    requestId: request.context.actorContext.requestId,
   }).catch(() => null);
   const readinessItems = await mapWithConcurrency(
     request.agentProfileIds,
@@ -20315,6 +20612,7 @@ export async function rpcGetAgentExecutionReadinessBatch(
   return buildGetAgentExecutionReadinessBatchResponse({
     generatedAt,
     readinessItems,
+    responseVersion: request.responseVersion,
   });
 }
 export async function rpcEnsureAgentProfilePrimaryBinding(
@@ -21877,6 +22175,7 @@ export async function rpcUpdateSpaceMeta(
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.purpose === undefined ? {} : { purpose: input.purpose }),
     ...(input.guide === undefined ? {} : { guide: input.guide }),
+    ...(input.guideEdit === undefined ? {} : { guideEdit: input.guideEdit }),
   });
   if (!parsedBody.success) {
     throw createCoreRpcHttpError({
@@ -22239,16 +22538,15 @@ export async function rpcGetSpaceMembers(
   env: CoreBindings,
   input: GetSpaceMembersInput
 ): Promise<SpaceMembersSnapshot> {
-  const spaceAccess = resolveRpcSpaceAccess(input);
-  const context = getSpaceAccessRequestContext(spaceAccess) ?? undefined;
-  const password = getSpaceAccessPassword(spaceAccess);
-  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  return await stub.rpcGetMembers({
-    spaceId,
-    ...(password === undefined ? {} : { password }),
-    ...(context ? { context } : {}),
-    spaceAccess,
-  });
+  const access = resolveRpcSpaceAccessForwarding(input);
+  return await withSpaceReadRecovery(
+    "rpcGetMembers",
+    access.spaceAccess,
+    () => {
+      const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+      return stub.rpcGetMembers({ spaceId, ...access });
+    }
+  );
 }
 export async function rpcGetSpaceIdentityDirectory(
   env: CoreBindings,
@@ -22269,16 +22567,15 @@ export async function rpcGetSpaceMemberDirectory(
   env: CoreBindings,
   input: GetSpaceMembersInput
 ): Promise<SpaceMemberDirectory> {
-  const spaceAccess = resolveRpcSpaceAccess(input);
-  const context = getSpaceAccessRequestContext(spaceAccess) ?? undefined;
-  const password = getSpaceAccessPassword(spaceAccess);
-  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  return await stub.rpcGetMemberDirectory({
-    spaceId,
-    ...(password === undefined ? {} : { password }),
-    ...(context ? { context } : {}),
-    spaceAccess,
-  });
+  const access = resolveRpcSpaceAccessForwarding(input);
+  return await withSpaceReadRecovery(
+    "rpcGetMemberDirectory",
+    access.spaceAccess,
+    () => {
+      const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+      return stub.rpcGetMemberDirectory({ spaceId, ...access });
+    }
+  );
 }
 export async function rpcGetSpaceViewerMembership(
   env: CoreBindings,
@@ -23514,7 +23811,8 @@ export async function rpcGetSpaceDispatchLookup(
 }
 export async function rpcGetSpaceWakeProgress(
   env: CoreBindings,
-  input: GetSpaceWakeProgressInput
+  input: GetSpaceWakeProgressInput,
+  directAccountUserId?: string
 ): Promise<GetSpaceWakeProgressResponse> {
   const parsed = getSpaceWakeProgressInputSchema.safeParse({
     spaceId: input.spaceId,
@@ -23552,12 +23850,7 @@ export async function rpcGetSpaceWakeProgress(
     });
   }
   const access = resolveRpcSpaceAccessForwarding(input);
-  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(
-    env,
-    parsed.data.spaceId
-  );
-  return await stub.rpcGetWakeProgress({
-    spaceId,
+  const request = {
     clientMessageId: parsed.data.clientMessageId,
     includeDeviceWait: parsed.data.includeDeviceWait,
     ...(parsed.data.includeTiming === undefined
@@ -23577,16 +23870,33 @@ export async function rpcGetSpaceWakeProgress(
       : { includeWaitReason: parsed.data.includeWaitReason }),
     ...(parsed.data.includeWakeStopEligibility === undefined
       ? {}
-      : { includeWakeStopEligibility: parsed.data.includeWakeStopEligibility }),
+      : {
+          includeWakeStopEligibility: parsed.data.includeWakeStopEligibility,
+        }),
     ...(parsed.data.targetProfileId
       ? { targetProfileId: parsed.data.targetProfileId }
       : {}),
     ...access,
-  });
+  };
+  return await withSpaceReadRecovery(
+    "rpcGetWakeProgress",
+    access.spaceAccess,
+    () => {
+      const { spaceId, stub } = resolveRpcSpaceStubOrThrow(
+        env,
+        parsed.data.spaceId
+      );
+      return stub.rpcGetWakeProgress(
+        { ...request, spaceId },
+        directAccountUserId
+      );
+    }
+  );
 }
 export async function rpcGetActiveSpaceWakeProgress(
   env: CoreBindings,
-  input: GetActiveSpaceWakeProgressInput
+  input: GetActiveSpaceWakeProgressInput,
+  directAccountUserId?: string
 ): Promise<GetActiveSpaceWakeProgressResponse> {
   const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
     spaceId: input.spaceId,
@@ -23633,7 +23943,7 @@ export async function rpcGetActiveSpaceWakeProgress(
     env,
     parsed.data.spaceId
   );
-  return await stub.rpcGetActiveWakeProgress({
+  const request = {
     spaceId,
     includeDeviceWait: parsed.data.includeDeviceWait,
     ...(parsed.data.includePageInfo === undefined
@@ -23656,7 +23966,9 @@ export async function rpcGetActiveSpaceWakeProgress(
       : { includeWaitReason: parsed.data.includeWaitReason }),
     ...(parsed.data.includeWakeStopEligibility === undefined
       ? {}
-      : { includeWakeStopEligibility: parsed.data.includeWakeStopEligibility }),
+      : {
+          includeWakeStopEligibility: parsed.data.includeWakeStopEligibility,
+        }),
     ...(parsed.data.sourceProfileId
       ? { sourceProfileId: parsed.data.sourceProfileId }
       : {}),
@@ -23664,11 +23976,13 @@ export async function rpcGetActiveSpaceWakeProgress(
       ? { targetProfileId: parsed.data.targetProfileId }
       : {}),
     ...access,
-  });
+  };
+  return await stub.rpcGetActiveWakeProgress(request, directAccountUserId);
 }
 export async function rpcPostSpaceWakeStop(
   env: CoreBindings,
-  input: PostSpaceWakeStopInput
+  input: PostSpaceWakeStopInput,
+  directAccountUserId?: string
 ): Promise<PostSpaceWakeStopResponse> {
   const parsed = postSpaceWakeStopInputSchema.safeParse({
     spaceId: input.spaceId,
@@ -23687,11 +24001,12 @@ export async function rpcPostSpaceWakeStop(
     env,
     parsed.data.spaceId
   );
-  return await stub.rpcPostWakeStop({
+  const request = {
     spaceId,
     body: parsed.data.body,
     ...access,
-  });
+  };
+  return await stub.rpcPostWakeStop(request, directAccountUserId);
 }
 export async function rpcRespondToSpaceAgentInteraction(
   env: CoreBindings,
@@ -23835,6 +24150,7 @@ export async function rpcGetSpaceMessageDetails(
     ...(input.executionContextVersion
       ? { executionContextVersion: input.executionContextVersion }
       : {}),
+    ...(input.timingVersion ? { timingVersion: input.timingVersion } : {}),
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -23856,6 +24172,9 @@ export async function rpcGetSpaceMessageDetails(
     signalId: parsed.data.signalId,
     ...(parsed.data.executionContextVersion
       ? { executionContextVersion: parsed.data.executionContextVersion }
+      : {}),
+    ...(parsed.data.timingVersion
+      ? { timingVersion: parsed.data.timingVersion }
       : {}),
     ...access,
   });
@@ -26437,10 +26756,9 @@ function assertManagedCenterAgentProfile(input: {
     code: "center_agent.profile_invalid",
   });
 }
-function requireAgentExecutionReadinessRequest(input: {
-  agentProfileId: string;
-  context?: CoreRpcContextInput;
-}): {
+function requireAgentExecutionReadinessRequest(
+  input: GetAgentExecutionReadinessInput
+): AgentExecutionReadinessResponseOptions & {
   agentProfileId: string;
   context: CoreRpcContextInput;
   owner: AgentProfileBindingOwner;
@@ -26459,6 +26777,7 @@ function requireAgentExecutionReadinessRequest(input: {
   const context = requireRpcContext(input.context);
   const ownerUserId = requireAuthenticatedOwnerUserId(context);
   return {
+    ...requireAgentExecutionReadinessResponseOptions(input),
     agentProfileId: parsedRouteParams.data.agentProfileId,
     context,
     owner: {
@@ -26469,7 +26788,7 @@ function requireAgentExecutionReadinessRequest(input: {
 }
 function requireAgentExecutionReadinessBatchRequest(
   input: GetAgentExecutionReadinessBatchInput
-): {
+): AgentExecutionReadinessResponseOptions & {
   agentProfileIds: string[];
   context: CoreRpcContextInput;
   owner: AgentProfileBindingOwner;
@@ -26493,6 +26812,7 @@ function requireAgentExecutionReadinessBatchRequest(
   const context = requireRpcContext(input.context);
   const ownerUserId = requireAuthenticatedOwnerUserId(context);
   return {
+    ...requireAgentExecutionReadinessResponseOptions(input),
     agentProfileIds: parsedBody.data.agentProfileIds,
     context,
     owner: {
@@ -26501,6 +26821,21 @@ function requireAgentExecutionReadinessBatchRequest(
     },
     targetRuntime: parsedBody.data.targetRuntime ?? null,
   };
+}
+function requireAgentExecutionReadinessResponseOptions(
+  input: AgentExecutionReadinessResponseOptions
+): AgentExecutionReadinessResponseOptions {
+  const parsed = agentExecutionReadinessResponseOptionsSchema.safeParse({
+    responseVersion: input.responseVersion,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      reason: "Unsupported Agent Execution Readiness response version.",
+      code: "invalid_payload",
+    });
+  }
+  return parsed.data;
 }
 async function resolveAgentExecutionTargetRuntimeContext(input: {
   env: CoreBindings;
@@ -26896,10 +27231,12 @@ async function resolveAgentProfileControllerChangeEligibility(input: {
   agentProfileId: string;
   env: CoreBindings;
   ownerUserId: string;
+  requestId?: string | null;
 }): Promise<GetAgentProfileControllerChangeEligibilityResponse> {
   const executionState = await readRuntimeTransportAgentProfileExecutionState({
     env: input.env,
     ownerUserId: input.ownerUserId,
+    requestId: input.requestId,
     targetProfileId: input.agentProfileId,
   });
   let response: GetAgentProfileControllerChangeEligibilityResponse;
@@ -27147,12 +27484,27 @@ function buildListAgentProfileCreationDefaultsResponse(input: {
     userId: input.userId,
   });
 }
-function buildGetAgentExecutionReadinessResponse(input: {
-  generatedAt: string;
-  readiness: CoreAgentExecutionReadiness;
-}): GetAgentExecutionReadinessResponse {
+function buildGetAgentExecutionReadinessResponse(
+  input: {
+    generatedAt: string;
+    readiness: CoreAgentExecutionReadiness;
+  } & AgentExecutionReadinessResponseOptions
+): GetAgentExecutionReadinessResponse {
+  const readiness = input.readiness.agentExecutionReadiness;
   const response = {
-    agentExecutionReadiness: input.readiness.agentExecutionReadiness,
+    agentExecutionReadiness: {
+      ...readiness,
+      facts: {
+        ...readiness.facts,
+        providerConversation: {
+          ...readiness.facts.providerConversation,
+          method: projectProviderConversationProofMethod(
+            readiness.facts.providerConversation.method,
+            input.responseVersion
+          ),
+        },
+      },
+    },
     agentWakeAvailability: resolveHttpAgentWakeAvailability(input.readiness),
     agentWakeRouteRegistration: input.readiness.agentWakeRouteRegistration,
     agentProfileId: input.readiness.agentExecutionReadiness.agentProfileId,
@@ -27568,15 +27920,18 @@ function buildAgentExecutionReadinessPrimaryActionPlan(
     }
   }
 }
-function buildGetAgentExecutionReadinessBatchResponse(input: {
-  generatedAt: string;
-  readinessItems: readonly CoreAgentExecutionReadiness[];
-}): GetAgentExecutionReadinessBatchResponse {
+function buildGetAgentExecutionReadinessBatchResponse(
+  input: {
+    generatedAt: string;
+    readinessItems: readonly CoreAgentExecutionReadiness[];
+  } & AgentExecutionReadinessResponseOptions
+): GetAgentExecutionReadinessBatchResponse {
   const response = {
     items: input.readinessItems.map((readiness) =>
       buildGetAgentExecutionReadinessResponse({
         generatedAt: input.generatedAt,
         readiness,
+        responseVersion: input.responseVersion,
       })
     ),
   } satisfies GetAgentExecutionReadinessBatchResponse;
@@ -27854,17 +28209,17 @@ export type GetSpaceTaskInput = GetSpaceMetaInput &
   SpaceTaskDetailOptions & {
     taskId: string;
   };
-export type CreateSpaceTaskInput = GetSpaceMetaInput & {
-  body: CreateSpaceTaskBody;
-  taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
-};
-export type MutateSpaceTaskInput = GetSpaceMetaInput & {
-  taskId: string;
-  body: MutateSpaceTaskBody;
-  // Internal Core-to-Space projection. The public RPC always recomputes it.
-  representedRequester?: import("@openmeld/schemas/types").SpaceTaskActor;
-  taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
-};
+export type CreateSpaceTaskInput = GetSpaceMetaInput &
+  SpaceTaskRequesterRepresentation & {
+    body: CreateSpaceTaskBody;
+    taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+  };
+export type MutateSpaceTaskInput = GetSpaceMetaInput &
+  SpaceTaskRequesterRepresentation & {
+    taskId: string;
+    body: MutateSpaceTaskBody;
+    taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+  };
 export async function rpcSpaceFilePins(
   env: CoreBindings,
   input: SpaceFilePinsInput
@@ -27932,6 +28287,37 @@ export async function rpcGetSpaceTask(
   });
   return projectSpaceTaskDetailForClient(detail, input.taskContractVersion);
 }
+async function resolveCurrentSpaceTaskRequesterRepresentation(
+  env: CoreBindings,
+  context: CoreRpcContextInput,
+  spaceId: string
+): Promise<SpaceTaskRequesterRepresentation["representedRequester"]> {
+  const submissionId = context.agentControllerConversationId;
+  if (
+    context.actorContext.agentControllerRef !==
+      HOSTED_CENTER_AGENT_CONTROLLER_REF ||
+    !submissionId
+  ) {
+    return undefined;
+  }
+  const { authorizeRemoteAgentExecutionAccess } = await import(
+    "../remote-agent/application/remote-agent-execution-access"
+  );
+  await authorizeRemoteAgentExecutionAccess(env, { context, submissionId });
+  const parent = await requireCenterAgentContinuationParent({
+    actorProfileId: context.actorContext.openMeldProfileId ?? "",
+    db: requireCenterAgentDb(env),
+    organizationId: context.activeOrganizationId ?? "",
+    parentSubmissionId: submissionId,
+    destinationNeutralContinuations: true,
+    resumesParent: false,
+  });
+  const { resolveSpaceTaskRepresentedRequester } = await import(
+    "../space/application/space-task-delegation"
+  );
+  return resolveSpaceTaskRepresentedRequester(parent, spaceId);
+}
+
 export async function rpcCreateSpaceTask(
   env: CoreBindings,
   input: CreateSpaceTaskInput
@@ -27965,8 +28351,8 @@ export async function rpcCreateSpaceTask(
   }
   let body = input.body;
   const submissionId = context.agentControllerConversationId?.trim();
-  const db = getPostgresDatabase(env);
-  if (!body.sourceSignalId && submissionId && db) {
+  if (!body.sourceSignalId && submissionId) {
+    const db = getPostgresDatabase(env);
     const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
       db,
       submissionId,
@@ -27983,11 +28369,19 @@ export async function rpcCreateSpaceTask(
       };
     }
   }
+  const representedRequester = parsedBody.wakeAssignee
+    ? await resolveCurrentSpaceTaskRequesterRepresentation(
+        env,
+        context,
+        spaceId
+      )
+    : undefined;
   const receipt = await stub.rpcCreateTask({
     ...input,
     body,
     spaceId,
     context,
+    representedRequester,
   });
   return projectSpaceTaskReceiptForClient(receipt, input.taskContractVersion);
 }
@@ -28022,34 +28416,17 @@ export async function rpcMutateSpaceTask(
       });
     }
   }
-  const { resolveSpaceTaskRepresentedRequester } = await import(
-    "../space/application/space-task-delegation"
-  );
-  const submissionId = context.agentControllerConversationId;
-  let representedRequester: MutateSpaceTaskInput["representedRequester"];
-  if (
-    context.actorContext.agentControllerRef ===
-      HOSTED_CENTER_AGENT_CONTROLLER_REF &&
-    submissionId &&
-    ["assign", "set_reviewer", "update_brief"].includes(input.body.action)
-  ) {
-    const { authorizeRemoteAgentExecutionAccess } = await import(
-      "../remote-agent/application/remote-agent-execution-access"
-    );
-    await authorizeRemoteAgentExecutionAccess(env, { context, submissionId });
-    const parent = await requireCenterAgentContinuationParent({
-      actorProfileId: context.actorContext.openMeldProfileId ?? "",
-      db: requireCenterAgentDb(env),
-      organizationId: context.activeOrganizationId ?? "",
-      parentSubmissionId: submissionId,
-      destinationNeutralContinuations: true,
-      resumesParent: false,
-    });
-    representedRequester = resolveSpaceTaskRepresentedRequester(
-      parent,
-      spaceId
-    );
-  }
+  const representedRequester = [
+    "assign",
+    "set_reviewer",
+    "update_brief",
+  ].includes(input.body.action)
+    ? await resolveCurrentSpaceTaskRequesterRepresentation(
+        env,
+        context,
+        spaceId
+      )
+    : undefined;
   const receipt = await stub.rpcMutateTask({
     ...input,
     spaceId,
@@ -28287,23 +28664,47 @@ export async function rpcComputerPowerSettings(
     inventory: localRuntimes,
     ownerService,
   });
-  const result = computerPowerResultSchema.parse(
-    await callPowerTransport({
-      env,
+  const transportResult = await callPowerTransport({
+    env,
+    ownerUserId,
+    path: "/computer-power",
+    body: {
       ownerUserId,
-      path: "/computer-power",
-      body: {
-        ownerUserId,
-        deviceId: target.deviceId,
-        lane: target.runtimeLane,
-        requestId: crypto.randomUUID(),
-        request: input.request,
-      },
-    })
-  );
-  if ("status" in result) {
+      deviceId: target.deviceId,
+      lane: target.runtimeLane,
+      requestId: crypto.randomUUID(),
+      request: input.request,
+    },
+  });
+  const parsed = computerPowerResultSchema.safeParse(transportResult);
+  if (!parsed.success) {
     throw createCoreRpcHttpError({
-      status: 409,
+      status: transportResult === null ? 503 : 502,
+      code:
+        transportResult === null
+          ? "computer.power.unavailable"
+          : "computer.power.invalid_response",
+      reason:
+        transportResult === null
+          ? "The sleep-prevention request did not return a response. Check this computer before retrying."
+          : "The sleep-prevention request returned an invalid response.",
+    });
+  }
+  const result = parsed.data;
+  if ("status" in result) {
+    let status = 409;
+    if (result.code === "computer.power.timeout") {
+      status = 504;
+    } else if (result.code === "computer.power.offline") {
+      status = 503;
+    } else if (
+      result.code === "computer.power.invalid_response" ||
+      result.code === "computer.power.internal_error"
+    ) {
+      status = 502;
+    }
+    throw createCoreRpcHttpError({
+      status,
       code: result.code,
       reason: result.message,
     });

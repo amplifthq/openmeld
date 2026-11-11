@@ -190,6 +190,11 @@ describe("api-client agent profile binding api", () => {
     });
 
     expect(result.agentExecutionReadiness.displayState).toBe("ready");
+    expect(
+      new Headers(transport.mock.calls[0]?.[0].init?.headers).get(
+        "x-openmeld-agent-execution-readiness-version"
+      )
+    ).toBe("2");
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
         init: expect.objectContaining({
@@ -256,6 +261,11 @@ describe("api-client agent profile binding api", () => {
 
     expect(result.items).toHaveLength(1);
     expect(result.items[0]?.agentExecutionReadiness.displayState).toBe("ready");
+    expect(
+      new Headers(transport.mock.calls[0]?.[0].init?.headers).get(
+        "x-openmeld-agent-execution-readiness-version"
+      )
+    ).toBe("2");
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
         init: expect.objectContaining({

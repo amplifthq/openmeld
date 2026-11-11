@@ -3,6 +3,7 @@ import {
 	type StructuredApiClientFailure,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
+import { feishuHistoryAuthorizationSchema } from "@openmeld/schemas";
 import type {
 	LarkPlatformActiveRegistrationListResponse,
 	LarkPlatformProvider,
@@ -20,6 +21,22 @@ import {
 } from "#/lib/openmeld-api/client";
 
 export type MessageChannelFailure = StructuredApiClientFailure;
+
+export function requestCurrentOrganizationFeishuHistoryPermission(input: {
+	organizationId: string;
+	connectionId: string;
+}) {
+	return createOrganizationScopedWebOpenMeldApiFoundation({
+		organizationId: input.organizationId,
+	}).requestJson({
+		url: "/v1/organizations/current/message-channels/feishu/history-authorization",
+		method: "POST",
+		body: JSON.stringify({ connectionId: input.connectionId }),
+		schema: feishuHistoryAuthorizationSchema,
+		invalidMessage: "Invalid Feishu permission update.",
+		operation: "feishu.history.authorize",
+	});
+}
 
 export async function listCurrentOrganizationMessageChannels(input: {
 	organizationId: string;

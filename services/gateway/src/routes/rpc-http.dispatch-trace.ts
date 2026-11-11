@@ -1,5 +1,6 @@
 import {
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER,
+  SPACE_DISPATCH_TRACE_SDK_SCHEDULES_CONTRACT_VERSION,
   spaceDispatchTraceResponseContractVersionHeaderSchema,
 } from "@openmeld/schemas";
 import type { Hono } from "hono";
@@ -68,6 +69,25 @@ export function registerDispatchTraceRoutes(app: Hono<HonoBindings>): void {
       route: SPACE_DISPATCH_TRACE_ROUTE,
       method: "GET",
       spaceId,
+      resolveSuccessPayload: (result) => {
+        const trace = result as {
+          remoteAgentRuntimeDiagnostics?: { v?: number };
+        };
+        if (
+          trace?.remoteAgentRuntimeDiagnostics?.v === 3 &&
+          (responseContractVersion?.success
+            ? responseContractVersion.data
+            : 1) < SPACE_DISPATCH_TRACE_SDK_SCHEDULES_CONTRACT_VERSION
+        ) {
+          throw Object.assign(
+            new Error(
+              "Detailed runtime diagnostics require dispatch trace response version 8. Update OpenMeld CLI, or run the trace without --details."
+            ),
+            { status: 400, code: "invalid_request" }
+          );
+        }
+        return result;
+      },
       execute: async () => {
         return await c.var.coreRpc.getSpaceDispatchTrace({
           spaceId,

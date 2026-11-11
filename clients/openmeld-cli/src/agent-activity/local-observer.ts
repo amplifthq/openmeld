@@ -27,7 +27,10 @@ import {
   resolveObservedAgentActivityBinding,
 } from "./observer-adapters";
 import { resolveOpenCodeDatabasePath } from "./opencode-storage";
-import { canonicalizeLocalProjectPath } from "./project-binding-resolution";
+import {
+  canonicalizeLocalProjectPath,
+  isProjectConnectionReadableByOwner,
+} from "./project-binding-resolution";
 import { listProjectBindings } from "./project-bindings";
 import { readCodexSessionTitles } from "./provider-session-titles";
 import {
@@ -68,8 +71,8 @@ async function listCurrentOwnerProjectBindings(input: { rootDir?: string }) {
   const ownerUserId = (
     await getAuthSessionState({ validateRemote: false }).catch(() => null)
   )?.session?.user?.id;
-  return bindings.filter(
-    (binding) => !binding.ownerUserId || binding.ownerUserId === ownerUserId
+  return bindings.filter((binding) =>
+    isProjectConnectionReadableByOwner(binding, ownerUserId)
   );
 }
 

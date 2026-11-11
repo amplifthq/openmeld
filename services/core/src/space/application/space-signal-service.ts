@@ -446,6 +446,7 @@ export async function handlePostSignalUseCase(input: {
 export async function publishTextSignalUseCase(input: {
   signal: SignalEnvelope;
   signalContext?: SignalPublishContext;
+  inputGateId?: string;
   persistSignalWithOptionalOutbox: (
     signal: SignalEnvelope,
     createOutboxRecord: boolean,
@@ -458,7 +459,7 @@ export async function publishTextSignalUseCase(input: {
   flushPendingDispatchOutbox: () => Promise<void>;
   recordHumanActivity?: (signal: SignalEnvelope) => Promise<void>;
   waitUntil: (promise: Promise<unknown>) => void;
-  broadcast: (signal: SignalEnvelope) => void;
+  broadcast: (signal: SignalEnvelope) => void | Promise<void>;
 }): Promise<void> {
   const persistResult = await input.persistSignalWithOptionalOutbox(
     input.signal,
@@ -470,6 +471,7 @@ export async function publishTextSignalUseCase(input: {
   }
   console.info("[core.openmeld.space.signal_persisted]", {
     event: "core.openmeld.space.signal_persisted",
+    ...(input.inputGateId ? { gateId: input.inputGateId } : {}),
     spaceId: input.signal.spaceId,
     signalId: input.signal.id,
     signalType: input.signal.type,
@@ -493,7 +495,7 @@ export async function publishTextSignalUseCase(input: {
     input.waitUntil(input.recordHumanActivity(input.signal));
   }
   input.waitUntil(input.flushPendingDispatchOutbox());
-  input.broadcast(input.signal);
+  await input.broadcast(input.signal);
 }
 
 export function publishPresenceSignalUseCase(input: {

@@ -13,7 +13,9 @@ import {
   memberAgentSensitiveOperationAuditRouteParamsSchema,
   type RequestCredential,
   SENSITIVE_OPERATION_AUDIT_LIST_LIMIT,
+  type SensitiveOperationAuditQuery,
   type SensitiveOperationAuthorization,
+  sensitiveOperationAuditQuerySchema,
   sensitiveOperationAuthorizationInputSchema,
   sensitiveOperationAuthorizationSchema,
   sensitiveOperationOutcomeInputSchema,
@@ -181,9 +183,22 @@ export async function rpcDecideCredentialConfirmation(
 /** Owner-only: the sensitive operations on the owner's MemberAgent. */
 export async function rpcListMemberAgentSensitiveOperationAudit(
   env: CoreBindings,
-  input: { context?: CoreRpcContextInput; memberAgentId: string }
+  input: {
+    context?: CoreRpcContextInput;
+    memberAgentId: string;
+  } & SensitiveOperationAuditQuery
 ): Promise<ListSensitiveOperationAuditResponse> {
   const owner = await requireOwner(env, input.context);
+  const query = sensitiveOperationAuditQuerySchema.safeParse({
+    responseVersion: input.responseVersion,
+  });
+  if (!query.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid audit response version.",
+    });
+  }
   const params = memberAgentSensitiveOperationAuditRouteParamsSchema.safeParse({
     memberAgentId: input.memberAgentId,
   });
@@ -194,6 +209,7 @@ export async function rpcListMemberAgentSensitiveOperationAudit(
         memberAgentId: params.data.memberAgentId,
         organizationId: owner.organizationId,
         ownerUserId: owner.userId,
+        responseVersion: query.data.responseVersion,
       })
     : null;
   if (!events) {

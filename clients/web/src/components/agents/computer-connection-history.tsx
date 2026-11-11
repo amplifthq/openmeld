@@ -55,7 +55,7 @@ function ResolvedComputerConnectionHistory(input: {
 			className="relative border-t pt-3 text-sm"
 			onToggle={(event) => setOpen(event.currentTarget.open)}
 		>
-			<summary className="cursor-pointer pr-36 text-muted-foreground leading-8">
+			<summary className="cursor-pointer pr-36 font-medium text-muted-foreground text-sm leading-8">
 				Connection history
 			</summary>
 			{open ? (

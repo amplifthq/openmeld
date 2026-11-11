@@ -371,11 +371,13 @@ export const remoteAgentWorkerSubmitMessagesResultSchema = z.strictObject({
 
 export const remoteAgentWorkerSubmitCapabilitiesRequestSchema = z.strictObject({
   v: z.literal(1),
+  includePluginActionRecovery: z.literal(true).optional(),
 });
 
 export const remoteAgentWorkerSubmitCapabilitiesSchema = z.strictObject({
   v: z.literal(1),
   taskId: z.literal(true),
+  pluginActionRecovery: z.literal(true).optional(),
 });
 
 /** A missing or unfinished receipt never proves that execution did not occur. */
@@ -394,6 +396,7 @@ export const remoteAgentWorkerReadAdmissionResponseSchema =
   ]);
 
 export const remoteAgentWorkerAdmissionRejectionCodeSchema = z.enum([
+  "remote_agent.image_transform_quota_exceeded",
   "remote_agent.conversation_history_limit_exceeded",
   "remote_agent.routine_identity_mismatch",
   "remote_agent.member_research_identity_mismatch",
@@ -970,10 +973,34 @@ const remoteAgentWorkerRuntimeDiagnosticsResponseV2Schema =
       v: z.literal(2),
     });
 
+// Agents SDK schedules no longer expose creation or running timestamps.
+// Version 3 reports only facts from the SDK's public schedule projection.
+const remoteAgentWorkerRuntimeDiagnosticsResponseV3Schema =
+  remoteAgentWorkerRuntimeDiagnosticsResponseV2Schema
+    .omit({
+      schedules: true,
+      v: true,
+    })
+    .extend({
+      schedules: z
+        .array(
+          z.strictObject({
+            callback: nonEmptyStringSchema,
+            delayInSeconds: z.number().nullable(),
+            id: nonEmptyStringSchema,
+            timeMs: z.number().int(),
+            type: z.enum(["scheduled", "delayed", "cron", "interval"]),
+          })
+        )
+        .max(50),
+      v: z.literal(3),
+    });
+
 export const remoteAgentWorkerRuntimeDiagnosticsResponseSchema =
   z.discriminatedUnion("v", [
     remoteAgentWorkerRuntimeDiagnosticsResponseV1Schema,
     remoteAgentWorkerRuntimeDiagnosticsResponseV2Schema,
+    remoteAgentWorkerRuntimeDiagnosticsResponseV3Schema,
   ]);
 
 const remoteAgentCoreCallbackIdentitySchema = {

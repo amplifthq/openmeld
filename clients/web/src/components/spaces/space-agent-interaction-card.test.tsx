@@ -405,8 +405,15 @@ describe("SpaceAgentInteractionCard", () => {
 			/>
 		);
 		const { rerender } = render(card);
-		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
+		expect(
+			screen
+				.getByRole("radio", { name: "Keep current permissions" })
+				.getAttribute("aria-checked")
+		).toBe("true");
 		fireEvent.click(screen.getByRole("radio", { name: "Approve for me" }));
+		expect(onPermissionModeUpdate).not.toHaveBeenCalled();
+		expect(onRespond).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("radio", { name: "Allow once" }));
 		fireEvent.click(
 			screen.getByRole("button", { name: "Approve and continue" })
 		);

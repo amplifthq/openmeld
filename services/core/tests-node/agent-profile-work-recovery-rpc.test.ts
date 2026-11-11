@@ -241,6 +241,9 @@ describe("Agent Profile work recovery Core RPC", () => {
         },
       });
       expect(
+        runtimeTransportStub.rpcReadAgentProfileWorkRecovery
+      ).toHaveBeenCalledOnce();
+      expect(
         runtimeTransportStub.rpcApproveAgentProfileWorkQueue
       ).not.toHaveBeenCalled();
       expect(
@@ -257,10 +260,24 @@ describe("Agent Profile work recovery Core RPC", () => {
     }
   });
 
-  it("approves queued work from Auth scope despite a conflicting Core profile row", async () => {
+  it.each([
+    false,
+    true,
+  ])("approves queued work from Auth scope despite a conflicting Core profile row (transient read: %s)", async (transientRead) => {
     const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({
       recovery: buildAvailableRecovery({ action: "approve_queued_work" }),
+    });
+    const brokenStub = createRuntimeTransportStub();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const firstReadFailed = Promise.withResolvers<void>();
+    brokenStub.rpcReadAgentProfileWorkRecovery.mockImplementation(() => {
+      firstReadFailed.resolve();
+      return Promise.reject(
+        Object.assign(new Error("Transient owner-shard failure"), {
+          retryable: true,
+        })
+      );
     });
     try {
       await harness.query({
@@ -269,9 +286,16 @@ describe("Agent Profile work recovery Core RPC", () => {
           SET organization_id = $1, owner_user_id = $2
           WHERE profile_id = $3`,
       });
-      await expect(
+      if (transientRead) {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      }
+      const result = expect(
         rpcExecuteAgentProfileWorkRecovery(
-          createEnv({ db: harness.db, runtimeTransportStub }),
+          createEnv({
+            db: harness.db,
+            runtimeTransportStub,
+            ...(transientRead ? { firstRuntimeTransportStub: brokenStub } : {}),
+          }),
           {
             agentProfileId: AGENT_PROFILE_ID,
             body: {
@@ -286,9 +310,28 @@ describe("Agent Profile work recovery Core RPC", () => {
         action: "approve_queued_work",
         status: "accepted",
       });
+      if (transientRead) {
+        await firstReadFailed.promise;
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(
+          brokenStub.rpcReadAgentProfileWorkRecovery
+        ).toHaveBeenCalledOnce();
+        expect(
+          brokenStub.rpcApproveAgentProfileWorkQueue
+        ).not.toHaveBeenCalled();
+        expect(warn).toHaveBeenCalledWith(
+          "[core.runtime_transport.read_attempt_failed]",
+          expect.objectContaining({
+            operation: "rpcReadAgentProfileWorkRecovery",
+            requestId: CONTEXT.actorContext.requestId,
+            decision: "retry",
+          })
+        );
+      }
+      await result;
       expect(
         runtimeTransportStub.rpcReadAgentProfileWorkRecovery
-      ).toHaveBeenCalledWith({
+      ).toHaveBeenCalledExactlyOnceWith({
         ownerUserId: "owner-1",
         targetProfileId: AGENT_PROFILE_ID,
       });
@@ -302,6 +345,45 @@ describe("Agent Profile work recovery Core RPC", () => {
         ownerUserId: "owner-1",
         targetProfileId: AGENT_PROFILE_ID,
       });
+    } finally {
+      vi.useRealTimers();
+      warn.mockRestore();
+      await harness.close();
+    }
+  });
+
+  it("does not replay a recovery approval when its write fails", async () => {
+    const harness = await createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub({
+      recovery: buildAvailableRecovery({ action: "approve_queued_work" }),
+    });
+    const failure = Object.assign(new Error("Approval outcome unavailable"), {
+      retryable: true,
+    });
+    runtimeTransportStub.rpcApproveAgentProfileWorkQueue.mockRejectedValue(
+      failure
+    );
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(
+          createEnv({ db: harness.db, runtimeTransportStub }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: {
+              action: "approve_queued_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
+            context: CONTEXT,
+          }
+        )
+      ).rejects.toBe(failure);
+      expect(
+        runtimeTransportStub.rpcReadAgentProfileWorkRecovery
+      ).toHaveBeenCalledOnce();
+      expect(
+        runtimeTransportStub.rpcApproveAgentProfileWorkQueue
+      ).toHaveBeenCalledOnce();
     } finally {
       await harness.close();
     }
@@ -1115,6 +1197,7 @@ function createRuntimeTransportStub(input?: {
 function createEnv(input: {
   authResolveProfileById?: ResolveProfileByIdRpc;
   db: PostgresDatabase;
+  firstRuntimeTransportStub?: ReturnType<typeof createRuntimeTransportStub>;
   runtimeTransportStub: ReturnType<typeof createRuntimeTransportStub>;
   spaceStub?: Record<string, unknown>;
 }): CoreBindings {
@@ -1138,7 +1221,11 @@ function createEnv(input: {
     },
     OPENMELD_POSTGRESQL: postgresTestBinding(input.db),
     OPENMELD_RUNTIME_TRANSPORT: {
-      get: vi.fn(() => input.runtimeTransportStub),
+      get: vi
+        .fn(() => input.runtimeTransportStub)
+        .mockReturnValueOnce(
+          input.firstRuntimeTransportStub ?? input.runtimeTransportStub
+        ),
       idFromName: vi.fn((value: string) => value),
     } as unknown as CoreBindings["OPENMELD_RUNTIME_TRANSPORT"],
     OPENMELD_SPACES: {

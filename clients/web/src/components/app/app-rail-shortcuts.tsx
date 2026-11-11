@@ -77,7 +77,7 @@ export type RailShortcutGroup = "spaces" | "team";
 const SHORTCUT_GROUPS = {
 	spaces: {
 		label: "Spaces",
-		primaryLabel: "Your Spaces",
+		primaryLabel: "Chats",
 		icon: ChatCircleTextIcon,
 		path: buildOrganizationSpacesPath,
 		ids: ["messages", "discover"],

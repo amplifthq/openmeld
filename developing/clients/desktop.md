@@ -115,11 +115,23 @@ startup. Reading a missing background preference defaults to off; unreadable
 preferences show a problem, and startup keeps the window visible.
 
 The hidden window still loads the shared application for native notifications.
+
+The existing native notification refresh may check a disconnected local Computer
+for a confirmed Service authentication failure, at most once per minute with one
+check in flight. It uses the public CLI connection review and status, verifies
+the signed-in account before and after the read, and never infers authentication
+failure from a missing cloud heartbeat. Respect notification preferences and
+notify once per incident; a confirmed reconnection rearms the notice. Activation
+opens the existing Computer connection flow without changing credentials or
+starting maintenance. Healthy Computers require no extra local probe. This
+notification requires Desktop to be running and OS notifications to be available.
+
 This page explains that closing keeps notifications available and quitting stops
 desktop notifications, while Service and accepted local work remain independent.
 Global shortcuts and Service lifecycle controls remain separate. The Desktop
-Power section reuses the Local Computer setting and API. The independent
-Service owns its saved preference and task-scoped sleep prevention; Desktop
+sleep-prevention row reuses the Local Computer setting and API without a
+redundant Power heading. It defaults on only when no preference is saved. The
+independent Service owns its saved preference and task-scoped sleep prevention; Desktop
 does not hold an Electron power-save blocker.
 
 Window chrome, traffic-light insets, drag regions, tray, and native capabilities
@@ -349,6 +361,9 @@ one Electron call, owns OS callback delivery, and passes callbacks to the vendor
 public `handleDeepLink` API. SDK scheme registration, unrestricted IPC handlers,
 and the global CSP hook are disabled. Credentials never cross the
 renderer bridge. Storage is scoped to the configured Web origin.
+The browser entry treats an omitted `code_challenge_method` as S256, matching
+Better Auth 1.7's S256-only Electron contract. Explicit methods other than
+`S256`, including an empty value, remain invalid.
 Computer authorization uses the CLI environment's device-auth client ID, keeping
 the grant and its CLI exchange aligned in isolated development lanes. A signed-out
 CLI is unconnected; only a present, different account is an account mismatch.
@@ -528,8 +543,21 @@ Restoration of the previous account does not replace the original account-switch
 failure.
 
 The standalone connection page reads the same native account-aligned Computer
-projection as Working folder selection. A positive connection shows Connected
-and a destructive Disconnect this Mac action. The account menu's Computer entry
+projection as Working folder selection. A confirmed standalone connection shows
+Connected and a primary **Create an Agent** action. It opens the shared New Agent
+page inside Desktop, where **Choose a Local Agent** is selected by default and
+the existing Computer and local-agent selection owns the eventual Binding.
+It does not create or connect an Agent merely by opening the page. Disconnect
+this Mac and the optional Web progress link remain secondary actions. The
+confirmed standalone state describes Agent creation as the next step; embedded
+Continue retains its existing connection reassurance. Connection reads in progress,
+including background checks of cached connections, withhold the next step.
+Pending operations, stale/unconfirmed connections, failed connection reads,
+connection refresh warnings, or account-mismatched connection states do not
+offer this next step. A successful Check connection that confirms this Mac restores
+the action even when a previous Disconnect failed; its diagnostic context remains
+available. Embedded recovery and explicit reconnect/update keep their existing
+completion actions. The account menu's Computer entry
 opens the native account-aligned device's Computer details when connected, and
 the connection page when no local connection is available. A browser-selected
 remote Computer never replaces native device identity for this entry. The
@@ -965,7 +993,7 @@ version or a successful unguarded Service command.
 
 Native admitted `/v1/` requests use the Better Auth SDK's public fetch pipeline
 and return the original response status/body through the credential-stripping
-adapter. `patches/@better-auth__electron@1.6.30.patch` moves only the vendor's
+adapter. `patches/@better-auth__electron@1.7.7.patch` moves only the vendor's
 response-cookie persistence and session signal from `onSuccess` to `onResponse`.
 The pinned upstream otherwise loses legitimate renewal on 403/500 and deletion
 on 401. Successful session-data caching and existing error notifications remain
@@ -1226,7 +1254,7 @@ stable, isolated local test profile. Main sets and verifies Electron's
 that directory explicitly to Electron, keeping GUI preferences and credentials
 separate from other worktrees.
 
-Electron 44.7.2 is paired with electron-vite 5.0.0 and Vite 7.3.7. Hydrate the
+Electron 44.9.1 is paired with electron-vite 5.0.0 and Vite 7.3.7. Hydrate the
 native binary with `pnpm --filter @openmeld/desktop exec electron --version`.
 Electron is deliberately separate from the root Worker development stack.
 

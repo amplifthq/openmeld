@@ -1,3 +1,7 @@
+import {
+  RUNTIME_TRANSPORT_READ_ATTEMPT_HEADER,
+  RUNTIME_TRANSPORT_READ_ID_HEADER,
+} from "@openmeld/schemas";
 import type { CoreBindings } from "../../../lib/bindings";
 import { CORE_LOG_EVENTS } from "../../../shared/observability/log-events";
 import {
@@ -7,6 +11,7 @@ import {
   RUNTIME_TRANSPORT_WAIT_TIMEOUT_GRACE_MS,
   RUNTIME_TRANSPORT_WAIT_TIMEOUT_MAX_MS,
 } from "../../../strategy-constants";
+import { callRuntimeTransportRead } from "./runtime-transport-read-retry";
 import { resolveRuntimeTransportOwnerShard } from "./runtime-transport-shard";
 
 export type RuntimeTransportApiPath =
@@ -56,10 +61,12 @@ export const callRuntimeTransportApi = async (input: {
   env: CoreBindings;
   ownerUserId: string;
   path: RuntimeTransportApiPath;
+  requestId?: string | null;
+  // Callers may shorten, never extend, an audited read's existing budget.
+  readTimeoutMs?: number;
   query?: Record<string, string>;
   body: unknown;
 }): Promise<unknown> => {
-  const shard = resolveRuntimeTransportOwnerShard(input.env, input.ownerUserId);
   const requestUrl = new URL(`https://runtime-transport.internal${input.path}`);
   if (input.query) {
     requestUrl.search = new URLSearchParams(input.query).toString();
@@ -68,21 +75,84 @@ export const callRuntimeTransportApi = async (input: {
     path: input.path,
     body: input.body,
   });
+  const fetchResponse = (
+    shard: ReturnType<typeof resolveRuntimeTransportOwnerShard>,
+    signal: AbortSignal,
+    readHeaders?: Record<string, string>
+  ) =>
+    shard.fetch(requestUrl.toString(), {
+      method: "POST",
+      headers: { "content-type": "application/json", ...readHeaders },
+      body: JSON.stringify(input.body),
+      signal,
+    });
+  // Only these current-state lookups are safe to replay. Other read-named
+  // endpoints may forward commands or mutate coordinator state.
+  if (
+    input.path === "/lookup-route" ||
+    input.path === "/lookup-routes-batch" ||
+    input.path === "/lookup-owner-service"
+  ) {
+    if (
+      input.readTimeoutMs !== undefined &&
+      (!Number.isFinite(input.readTimeoutMs) || input.readTimeoutMs <= 0)
+    ) {
+      throw new RangeError(
+        "Runtime Transport read budget must be positive and finite."
+      );
+    }
+    const readTimeoutMs = Math.min(
+      requestTimeoutMs,
+      input.readTimeoutMs ?? requestTimeoutMs
+    );
+    return await callRuntimeTransportRead({
+      env: input.env,
+      ownerUserId: input.ownerUserId,
+      operation: input.path,
+      requestId: input.requestId,
+      timeoutMs: readTimeoutMs,
+      // Reserve time for a fresh-stub attempt without extending the total
+      // budget. Batch reads keep their existing longer allowance.
+      attemptTimeoutMs: readTimeoutMs / 2,
+      execute: async (shard, signal, readId, attempt) => {
+        const response = await fetchResponse(
+          shard,
+          signal,
+          input.path === "/lookup-owner-service"
+            ? {
+                [RUNTIME_TRANSPORT_READ_ID_HEADER]: readId,
+                [RUNTIME_TRANSPORT_READ_ATTEMPT_HEADER]: String(attempt),
+              }
+            : undefined
+        );
+        // Body transport failures must reach the retry classifier; only a
+        // successfully read body with invalid JSON follows the legacy fallback.
+        const body = await response.text();
+        return resolveRuntimeTransportApiResponse(
+          response,
+          parseJsonText(body),
+          input
+        );
+      },
+    });
+  }
+
+  const shard = resolveRuntimeTransportOwnerShard(input.env, input.ownerUserId);
   const abortController = new AbortController();
   const timeoutId = setTimeout(() => {
     abortController.abort();
   }, requestTimeoutMs);
 
   let response: Response;
+  let parsedBody: unknown | null;
   try {
-    response = await shard.fetch(requestUrl.toString(), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(input.body),
-      signal: abortController.signal,
-    });
+    response = await fetchResponse(shard, abortController.signal);
+    // The request budget covers the body; a body that stalls after its
+    // headers times out like a request that never answered.
+    parsedBody = await readJsonBodyBeforeAbort(
+      response,
+      abortController.signal
+    );
   } catch {
     if (abortController.signal.aborted) {
       console.warn("[core.runtime_transport_client.request_timeout]", {
@@ -96,7 +166,41 @@ export const callRuntimeTransportApi = async (input: {
     clearTimeout(timeoutId);
   }
 
-  const parsedBody = await parseJsonBody(response);
+  return resolveRuntimeTransportApiResponse(response, parsedBody, input);
+};
+
+const readJsonBodyBeforeAbort = (
+  response: Response,
+  signal: AbortSignal
+): Promise<unknown | null> => {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason);
+  }
+  return new Promise((resolve, reject) => {
+    const rejectOnAbort = () => {
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", rejectOnAbort, { once: true });
+    parseJsonBody(response)
+      .then(resolve)
+      .finally(() => {
+        signal.removeEventListener("abort", rejectOnAbort);
+      });
+  });
+};
+
+const resolveRuntimeTransportApiResponse = (
+  response: Response,
+  parsedBody: unknown,
+  input: { path: RuntimeTransportApiPath; body: unknown }
+): unknown => {
+  if (input.path === "/computer-power" && parsedBody === null) {
+    return {
+      status: "rejected",
+      code: "computer.power.invalid_response",
+      message: "The sleep-prevention request returned an invalid response.",
+    };
+  }
   if (response.ok) {
     return parsedBody;
   }
@@ -481,5 +585,16 @@ const parseJsonBody = async (response: Response): Promise<unknown | null> => {
     return await response.json();
   } catch {
     return null;
+  }
+};
+
+const parseJsonText = (body: string): unknown | null => {
+  try {
+    return JSON.parse(body);
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      return null;
+    }
+    throw error;
   }
 };

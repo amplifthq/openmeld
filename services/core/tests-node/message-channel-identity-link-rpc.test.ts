@@ -4,11 +4,34 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installPostgresWriteFailure } from "../../../tooling/postgresql/test-harness";
 import type { CoreBindings } from "../src/lib/bindings";
 import { buildMessageChannelIdentityLinkId } from "../src/remote-agent/application/message-channel-connection-projection";
-import { rpcDisconnectMessageChannelIdentityLink } from "../src/rpc/methods";
+import {
+  rpcDisconnectMessageChannelIdentityLink,
+  rpcListFeishuHistoryGroups,
+  rpcSetFeishuHistoryGroup,
+} from "../src/rpc/methods";
+
 import {
   createPostgresHarness,
   postgresTestBinding,
 } from "./helpers/postgresql-harness.test-support";
+
+it.each([
+  () =>
+    rpcListFeishuHistoryGroups({} as CoreBindings, {
+      query: { connectionId: "connection" },
+    }),
+  () =>
+    rpcSetFeishuHistoryGroup({} as CoreBindings, {
+      setting: {
+        connectionId: "connection",
+        generation: 1,
+        chatId: "group",
+        enabled: false,
+      },
+    }),
+])("rejects retired history settings without consulting or changing a group", (invoke) => {
+  expect(invoke).toThrow("Group history settings have been removed");
+});
 
 describe("Message Channel identity-link disconnect RPC", () => {
   let harness: Awaited<ReturnType<typeof createPostgresHarness>>;

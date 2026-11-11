@@ -185,7 +185,7 @@ export async function readFreshProviderConversationProofForBinding(input: {
   agentControllerRef: string;
   agentControllerConversationId: string;
   db: PostgresDatabase;
-  method: RuntimeProviderConversationProofMethod;
+  methods: readonly RuntimeProviderConversationProofMethod[];
   nowMs: number;
   provider: RuntimeProviderConversationProofProvider;
   openMeldServiceRuntimeId: string;
@@ -216,7 +216,7 @@ export async function readFreshProviderConversationProofForBinding(input: {
           AND agent_controller_ref = $4
           AND agent_controller_conversation_id = $5
           AND provider = $6
-          AND method = $7
+          AND method = ANY($7::text[])
           AND expires_at_ms > $8
         ORDER BY observed_at_ms DESC NULLS LAST
         LIMIT 1
@@ -228,7 +228,7 @@ export async function readFreshProviderConversationProofForBinding(input: {
         input.agentControllerRef,
         input.agentControllerConversationId,
         input.provider,
-        input.method,
+        input.methods,
         normalizeTimestampMs(input.nowMs),
       ],
     })
@@ -434,7 +434,8 @@ function mapProviderConversationProofRow(
 ): AcceptedProviderConversationProof | null {
   if (
     row.provider !== "codex" ||
-    row.method !== "codex_app_server_thread_resume" ||
+    (row.method !== "codex_app_server_thread_resume" &&
+      row.method !== "codex_app_server_thread_read") ||
     !(row.status === "passed" || row.status === "failed") ||
     row.transport_mode !== "codex-app-server" ||
     row.intrusive !== 0

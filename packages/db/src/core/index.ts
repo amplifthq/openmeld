@@ -150,6 +150,7 @@ export {
   inboxSpaceThreadReadWatermarks,
 } from "./inbox.schema.ts";
 export {
+  feishuGroupHistorySettings,
   openMeldRemoteAgentLarkPlatformChannelConnections,
   openMeldRemoteAgentLarkPlatformChannelCredentials,
   openMeldRemoteAgentLarkPlatformContextCursors,

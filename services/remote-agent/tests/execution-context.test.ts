@@ -176,6 +176,14 @@ describe("Remote Agent submission execution context", () => {
     expect(ordinaryToolNames).not.toContain(
       "openmeld_set_final_reply_mentions"
     );
+    const interactiveWorkTargetTools = [
+      "openmeld_read_work_target",
+      "openmeld_select_work_target",
+    ];
+    for (const name of interactiveWorkTargetTools) {
+      expect(ordinaryToolNames).toContain(name);
+      expect(routineToolNames).not.toContain(name);
+    }
     expect(
       routineToolNames.filter(
         (name) => name !== "openmeld_set_final_reply_mentions"
@@ -183,8 +191,11 @@ describe("Remote Agent submission execution context", () => {
     ).toEqual(
       ordinaryToolNames.filter(
         (name) =>
-          !REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES.some(
-            (hiddenName) => hiddenName === name
+          !(
+            interactiveWorkTargetTools.includes(name) ||
+            REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES.some(
+              (hiddenName) => hiddenName === name
+            )
           )
       )
     );
@@ -278,6 +289,7 @@ describe("Remote Agent submission execution context", () => {
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
     ]);
+    expect(toolNames).toContain("openmeld_get_app_action_status");
   });
 
   it("keeps legacy unverified participants without provider identity closed", async () => {

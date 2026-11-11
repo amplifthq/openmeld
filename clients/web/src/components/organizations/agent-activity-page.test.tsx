@@ -19,7 +19,7 @@ import {
 } from "@testing-library/react";
 import { NuqsTestingAdapter } from "nuqs/adapters/testing";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentActivityChanges } from "./agent-activity-changes";
 import { AgentActivityOverview } from "./agent-activity-overview";
 import {
@@ -152,18 +152,7 @@ vi.mock(
 	}
 );
 
-afterEach(() => {
-	cleanup();
-	vi.useRealTimers();
-	vi.clearAllMocks();
-	organization.id = "org-acme";
-	organization.isPersonal = false;
-	organization.name = "Acme";
-	organization.slug = "acme";
-	listProjects.mockImplementation(async (input) => ({
-		organizationId: input.organizationId,
-		projects: [],
-	}));
+beforeEach(() => {
 	readDirectory.mockResolvedValue(directory());
 	readSnapshot.mockImplementation(async (input) =>
 		snapshot({ organizationId: input.organizationId })
@@ -176,16 +165,14 @@ afterEach(() => {
 	);
 });
 
-readDirectory.mockResolvedValue(directory());
-readSnapshot.mockImplementation(async (input) =>
-	snapshot({ organizationId: input.organizationId })
-);
-readSessions.mockImplementation(async (input) =>
-	sessionInventory({ organizationId: input.organizationId })
-);
-readStats.mockImplementation(async (input) =>
-	stats({ organizationId: input.organizationId })
-);
+afterEach(() => {
+	cleanup();
+	vi.useRealTimers();
+	organization.id = "org-acme";
+	organization.isPersonal = false;
+	organization.name = "Acme";
+	organization.slug = "acme";
+});
 
 describe("Agent Activity pages", () => {
 	it("stacks the Project controls before they can clip a phone viewport", () => {

@@ -54,7 +54,7 @@ function observe(input: {
 }
 
 describe("runtime Harness presence fact", () => {
-  it("records detections in order and reports when a Harness newly appears", async () => {
+  it("records detections in order and reports when a Harness becomes detected", async () => {
     const suffix = crypto.randomUUID();
     const ownerUserId = `owner-${suffix}`;
     const runtimeId = `runtime-${suffix}`;
@@ -62,23 +62,23 @@ describe("runtime Harness presence fact", () => {
 
     expect(
       await observe({ detection: "detected", observedAtMs: 1000, runtimeId })
-    ).toEqual({ applied: true, becamePresent: true });
+    ).toEqual({ applied: true, becameDetected: true });
     expect(
       await observe({ detection: "detected", observedAtMs: 2000, runtimeId })
-    ).toEqual({ applied: true, becamePresent: false });
+    ).toEqual({ applied: true, becameDetected: false });
     expect(
       await observe({ detection: "undetected", observedAtMs: 3000, runtimeId })
-    ).toEqual({ applied: true, becamePresent: false });
+    ).toEqual({ applied: true, becameDetected: false });
     // A replayed or older report changes nothing.
     expect(
       await observe({ detection: "detected", observedAtMs: 3000, runtimeId })
-    ).toEqual({ applied: false, becamePresent: false });
+    ).toEqual({ applied: false, becameDetected: false });
     expect(
       await observe({ detection: "unknown", observedAtMs: 4000, runtimeId })
-    ).toEqual({ applied: true, becamePresent: false });
+    ).toEqual({ applied: true, becameDetected: false });
     expect(
       await observe({ detection: "undetected", observedAtMs: 5000, runtimeId })
-    ).toEqual({ applied: true, becamePresent: false });
+    ).toEqual({ applied: true, becameDetected: false });
 
     const [entry] = await listOwnerRuntimeHarnessCatalog({
       db: db(),
@@ -99,7 +99,7 @@ describe("runtime Harness presence fact", () => {
     // A reinstall resets the debounce and counts as a new appearance.
     expect(
       await observe({ detection: "detected", observedAtMs: 6000, runtimeId })
-    ).toEqual({ applied: true, becamePresent: true });
+    ).toEqual({ applied: true, becameDetected: true });
     const [reinstalled] = await listOwnerRuntimeHarnessCatalog({
       db: db(),
       ownerUserId,
@@ -109,6 +109,15 @@ describe("runtime Harness presence fact", () => {
       lastDetectedAtMs: 6000,
       undetectedReportCount: 0,
     });
+
+    // Turning the Harness off and on again counts as a new detection, so
+    // the catalog update adds it.
+    expect(
+      await observe({ detection: "unknown", observedAtMs: 7000, runtimeId })
+    ).toEqual({ applied: true, becameDetected: false });
+    expect(
+      await observe({ detection: "detected", observedAtMs: 8000, runtimeId })
+    ).toEqual({ applied: true, becameDetected: true });
   });
 
   it("excludes forgotten computers and other owners from the catalog", async () => {

@@ -243,6 +243,7 @@ export {
 } from "./desktop-release";
 export * from "./desktop-transport-diagnostics";
 export * from "./desktop-updater";
+export * from "./feishu-group-history";
 export {
   grokBotAccountSchema,
   grokBotConversationIdSchema,
@@ -289,6 +290,26 @@ export {
   organizationJoinRequestSchema,
 } from "./organization-join-request";
 export { normalizeOrganizationList } from "./organization-list";
+export {
+  type OrganizationMemberRemovalPlan,
+  type OrganizationMemberRemovalPrepareBody,
+  type OrganizationMemberRemovalPrepareInput,
+  type OrganizationMemberRemovalPrepareResponse,
+  type OrganizationMemberRemovalPreviewBody,
+  type OrganizationMemberRemovalPreviewInput,
+  type OrganizationMemberRemovalSpace,
+  type OrganizationMemberRemovalSpaceInput,
+  type OrganizationMemberRemovalSpacePrepareInput,
+  organizationMemberRemovalPlanSchema,
+  organizationMemberRemovalPrepareBodySchema,
+  organizationMemberRemovalPrepareInputSchema,
+  organizationMemberRemovalPrepareResponseSchema,
+  organizationMemberRemovalPreviewBodySchema,
+  organizationMemberRemovalPreviewInputSchema,
+  organizationMemberRemovalSpaceInputSchema,
+  organizationMemberRemovalSpacePrepareInputSchema,
+  organizationMemberRemovalSpaceSchema,
+} from "./organization-member-removal";
 export { ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE } from "./organization-request-context";
 export {
   appendPluginConnectionReplyLink,
@@ -328,6 +349,7 @@ export {
   projectLocalConnectionFailureReasonCodeSchema,
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY,
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
+  REMOTE_AGENT_IMAGE_TRANSFORM_QUOTA_EXCEEDED_PUBLIC_COPY,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
   REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY,
@@ -340,6 +362,7 @@ export {
   resolvePublicAgentAvailabilityCopy,
   resolvePublicAgentFailureRecovery,
   resolvePublicFailureCodeCategory,
+  SPACE_REPLY_MENTION_INVALID_PUBLIC_COPY,
   sanitizeDispatchErrorSummary,
   shouldPreferMappedPublicAgentFailureReason,
 } from "./public-agent-failure-reason";

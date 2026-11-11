@@ -1,9 +1,11 @@
+import { getAgentControllerPermissionModeDisplayMetadata } from "@openmeld/agent-runtime";
 import type {
 	SensitiveOperation,
 	SensitiveOperationAuditEvent,
 	SensitiveOperationOutcome,
 	SensitiveOperationSourceKind,
 } from "@openmeld/schemas";
+import { agentControllerPermissionModeSchema } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import {
@@ -85,6 +87,10 @@ const OPERATION_PRESENTATION: Record<
 		title: "Concurrent tasks changed",
 	},
 	profile_delete: { icon: TrashIcon, title: "Profile deleted" },
+	organization_member_removal_prepare: {
+		icon: UsersThreeIcon,
+		title: "Space ownership prepared for member removal",
+	},
 	session_archive: { icon: ArchiveIcon, title: "Chat archived" },
 	session_delete: { icon: TrashIcon, title: "Chat deleted" },
 	runtime_settings_write: { icon: GearSixIcon, title: "Settings changed" },
@@ -202,6 +208,16 @@ function SensitiveOperationAuditList(input: {
 	);
 }
 
+function permissionModeLabel(value: string | null): string {
+	if (value === null) {
+		return "Not set";
+	}
+	const parsed = agentControllerPermissionModeSchema.safeParse(value);
+	return parsed.success
+		? getAgentControllerPermissionModeDisplayMetadata(parsed.data).label
+		: value;
+}
+
 function AuditRow(input: {
 	event: SensitiveOperationAuditEvent;
 	profileName: string | null;
@@ -218,6 +234,12 @@ function AuditRow(input: {
 			</span>
 			<span className="min-w-0 flex-1">
 				<span className="block truncate text-sm">{presentation.title}</span>
+				{event.permissionModeChange ? (
+					<span className="block text-sm">
+						{permissionModeLabel(event.permissionModeChange.previousMode)} →{" "}
+						{permissionModeLabel(event.permissionModeChange.mode)}
+					</span>
+				) : null}
 				<span className="block truncate text-muted-foreground text-xs">
 					{[input.profileName, SOURCE_LABELS[event.sourceKind]]
 						.filter(Boolean)

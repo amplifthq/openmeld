@@ -178,6 +178,15 @@ contract change must be `required`. `pnpm run verify:release-ready` checks it.
 Every stage checks the platform first, so a rerun resumes; a version on npm
 from another commit is refused. `cli-release.yml` also checks clean npm
 installs on Ubuntu and Windows (Node 24) and the Node 20 rejection.
+When the binary channel already contains the target version, recovery hashes
+the published npm package and verifies its Service bytes against the channel's
+component policy before writing the release manifest. A binary without a
+visible npm package, a missing channel policy, or mismatched published bytes
+stops recovery; a newly rebuilt helper is not evidence for published bytes.
+If npm accepted the submission, wait for it to become visible and rerun. If
+the submission failed or never ran, release a new version and component policy.
+Completed releases also verify that npm, the channel, and the release manifest
+agree. Repair an already published mismatch with a new forward release.
 
 The repository no longer commits the manifest. Each publication writes it to
 `cli/local-components.json` and to an immutable per-version copy at

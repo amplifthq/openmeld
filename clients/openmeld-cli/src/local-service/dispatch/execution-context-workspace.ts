@@ -580,99 +580,118 @@ async function auditWorkspaceGitConfig(input: {
   return Object.values(audit).some((count) => count > 0) ? audit : undefined;
 }
 
-export async function releaseExecutionContextWorkspace(input: {
+export type TrackWorkspaceCleanup = (
+  cleanup: () => Promise<ExecutionContextWorkspaceRelease>
+) => Promise<ExecutionContextWorkspaceRelease>;
+
+type WorkspaceCleanupInput = {
   ledgerRootPath: string;
   context: ExecutionContextTask;
   ownedProcessesQuiescent: boolean;
   use?: ExecutionContextWorkspaceUse | null;
-}): Promise<ExecutionContextWorkspaceRelease> {
-  const root = await canonicalDirectory(input.ledgerRootPath);
+};
+
+export async function releaseExecutionContextWorkspace(
+  input: WorkspaceCleanupInput & {
+    trackWorkspaceCleanup?: TrackWorkspaceCleanup;
+  }
+): Promise<ExecutionContextWorkspaceRelease> {
+  const cleanup = () => cleanupExecutionContextWorkspace(input);
   try {
-    return await withWorkspaceLock(root, input.context.id, async () => {
-      await readExecutionContextWorkspace({
-        ledgerRootPath: root,
-        contextId: input.context.id,
-      });
-      const path = join(
-        root,
-        "execution-context-workspace-records",
-        `${input.context.id}.json`
-      );
-      let record = await readManifest(path);
-      if (!(record && ["completed", "in_use"].includes(record.status))) {
-        throw failure("workspace_creation_incomplete");
-      }
-      if (record.containerRuntime) {
-        await stopClaudeProjectContainersForContext({
-          contextId: record.identity.id,
-          runtime: record.containerRuntime,
-        });
-      }
-      if (!input.ownedProcessesQuiescent) {
-        return {
-          status: "retained",
-          reason: "execution_quiescence_unconfirmed",
-        };
-      }
-      const gitConfigAudit = await auditWorkspaceGitConfig({
-        use: input.use,
-        boundaryRoot: record.boundaryRoot,
-        ledgerRoot: root,
-        contextId: input.context.id,
-      });
-      const {
-        activeAttemptId: _activeAttemptId,
-        activeDispatchId: _activeDispatchId,
-        containerRuntime: _containerRuntime,
-        ...quiescentRecord
-      } = record;
-      const completed: Manifest = { ...quiescentRecord, status: "completed" };
-      await writeManifest(path, completed, "r+");
-      record = await removePristineRetirement(completed, path);
-      if (record.retirement) {
-        return {
-          status: "retained",
-          reason: "cleanup_incomplete",
-          gitConfigAudit,
-        };
-      }
-      // Old records have no pre-execution baseline. Never infer one from a task's
-      // current files, including apparently clean commits or ignored outputs.
-      if (!record.pristineFingerprint) {
-        return {
-          status: "retained",
-          reason: "baseline_unverified",
-          gitConfigAudit,
-        };
-      }
-      await verifyRetainedWorkspace(record);
-      if (
-        (await fingerprintDirectory(record.boundaryRoot)) !==
-        record.pristineFingerprint
-      ) {
-        return {
-          status: "retained",
-          reason: "workspace_changed",
-          gitConfigAudit,
-        };
-      }
-      if (record.sourceWorkingDirectory && !(await sourceHasCommit(record))) {
-        return {
-          status: "retained",
-          reason: "source_commit_unavailable",
-          gitConfigAudit,
-        };
-      }
-      const retired = await retirePristineWorkspace(record, path);
-      return retired.status === "released"
-        ? { status: "released", gitConfigAudit }
-        : { status: "retained", reason: "workspace_changed", gitConfigAudit };
-    });
+    return await (input.trackWorkspaceCleanup
+      ? input.trackWorkspaceCleanup(cleanup)
+      : cleanup());
   } finally {
     if (input.use) {
       await releaseLock(input.use.lock);
     }
   }
+}
+
+async function cleanupExecutionContextWorkspace(
+  input: WorkspaceCleanupInput
+): Promise<ExecutionContextWorkspaceRelease> {
+  const root = await canonicalDirectory(input.ledgerRootPath);
+  return await withWorkspaceLock(root, input.context.id, async () => {
+    await readExecutionContextWorkspace({
+      ledgerRootPath: root,
+      contextId: input.context.id,
+    });
+    const path = join(
+      root,
+      "execution-context-workspace-records",
+      `${input.context.id}.json`
+    );
+    let record = await readManifest(path);
+    if (!(record && ["completed", "in_use"].includes(record.status))) {
+      throw failure("workspace_creation_incomplete");
+    }
+    if (record.containerRuntime) {
+      await stopClaudeProjectContainersForContext({
+        contextId: record.identity.id,
+        runtime: record.containerRuntime,
+      });
+    }
+    if (!input.ownedProcessesQuiescent) {
+      return {
+        status: "retained",
+        reason: "execution_quiescence_unconfirmed",
+      };
+    }
+    const gitConfigAudit = await auditWorkspaceGitConfig({
+      use: input.use,
+      boundaryRoot: record.boundaryRoot,
+      ledgerRoot: root,
+      contextId: input.context.id,
+    });
+    const {
+      activeAttemptId: _activeAttemptId,
+      activeDispatchId: _activeDispatchId,
+      containerRuntime: _containerRuntime,
+      ...quiescentRecord
+    } = record;
+    const completed: Manifest = { ...quiescentRecord, status: "completed" };
+    await writeManifest(path, completed, "r+");
+    record = await removePristineRetirement(completed, path);
+    if (record.retirement) {
+      return {
+        status: "retained",
+        reason: "cleanup_incomplete",
+        gitConfigAudit,
+      };
+    }
+    // Old records have no pre-execution baseline. Never infer one from a task's
+    // current files, including apparently clean commits or ignored outputs.
+    if (!record.pristineFingerprint) {
+      return {
+        status: "retained",
+        reason: "baseline_unverified",
+        gitConfigAudit,
+      };
+    }
+    await verifyRetainedWorkspace(record);
+    if (
+      (await fingerprintDirectory(record.boundaryRoot)) !==
+      record.pristineFingerprint
+    ) {
+      return {
+        status: "retained",
+        reason: "workspace_changed",
+        gitConfigAudit,
+      };
+    }
+    if (record.sourceWorkingDirectory && !(await sourceHasCommit(record))) {
+      return {
+        status: "retained",
+        reason: "source_commit_unavailable",
+        gitConfigAudit,
+      };
+    }
+    const retired = await retirePristineWorkspace(record, path);
+    return retired.status === "released"
+      ? { status: "released", gitConfigAudit }
+      : { status: "retained", reason: "workspace_changed", gitConfigAudit };
+  });
 }
 
 export async function assertExecutionContextWorkspaceUse(input: {

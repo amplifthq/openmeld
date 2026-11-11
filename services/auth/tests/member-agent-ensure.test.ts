@@ -4,7 +4,6 @@ import {
   createOpenMeldProfileService,
 } from "@openmeld/auth/server";
 import { withPostgresRequest } from "@openmeld/db/postgresql";
-import { AUTO_DETECTED_PROFILE_NAME_LOCKED_CODE } from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createPostgresHarness,
@@ -419,7 +418,7 @@ describe("ensureDetectedMemberAgent RPC", () => {
     ).toEqual([]);
   });
 
-  it("locks the detected default Profile name", async () => {
+  it("lets the owner rename a detected default Profile and preserves it on sync", async () => {
     const created = await ensure({
       organizationId: "one",
       ownerUserId: "alice",
@@ -438,10 +437,30 @@ describe("ensureDetectedMemberAgent RPC", () => {
           profileName: "My Claude",
         })
       )
-    ).rejects.toMatchObject({ code: AUTO_DETECTED_PROFILE_NAME_LOCKED_CODE });
+    ).resolves.toMatchObject({ profileId, profileName: "My Claude" });
+    await ensure({
+      organizationId: "one",
+      ownerUserId: "alice",
+      harnessKind: "claude-code",
+    });
+    expect(
+      await rows(
+        `SELECT profile_name FROM "openmeld"."openmeld_profiles" WHERE profile_id = $1`,
+        [profileId]
+      )
+    ).toEqual([{ profile_name: "My Claude" }]);
+    await expect(
+      inRequest(() =>
+        profileService().updateProfileNameForOwner({
+          ownerUserId: "bob",
+          profileId,
+          profileName: "Someone else's Agent",
+        })
+      )
+    ).rejects.toMatchObject({ code: "profile.not_found" });
   });
 
-  it("locks a migrated default Profile name but not its other Profiles", async () => {
+  it("lets the owner rename both migrated default and additional Profiles", async () => {
     const created = await ensure({
       organizationId: "one",
       ownerUserId: "alice",
@@ -451,8 +470,7 @@ describe("ensureDetectedMemberAgent RPC", () => {
       throw new Error("setup failed");
     }
     const defaultProfileId = created.memberAgent.defaultProfileId;
-    // A migrated default keeps its original source; the lock follows the
-    // MemberAgent's default, not the source.
+    // Migrated defaults keep their original creation source.
     await harness.query({
       text: `UPDATE "openmeld"."openmeld_profiles" SET source = 'web_create' WHERE profile_id = $1`,
       values: [defaultProfileId],
@@ -472,7 +490,10 @@ describe("ensureDetectedMemberAgent RPC", () => {
           profileName: "My Codex",
         })
       )
-    ).rejects.toMatchObject({ code: AUTO_DETECTED_PROFILE_NAME_LOCKED_CODE });
+    ).resolves.toMatchObject({
+      profileId: defaultProfileId,
+      profileName: "My Codex",
+    });
     await expect(
       inRequest(() =>
         profileService().updateProfileNameForOwner({

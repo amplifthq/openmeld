@@ -121,6 +121,55 @@ describe("local agent catalog projection", () => {
     );
   });
 
+  it("keeps the last launch result when a ready report expires before its next check lands", () => {
+    // Core marks a report stale once its native check is older than the auth
+    // freshness window. That is missing evidence, not a failed launch.
+    const catalog = projectLocalAgentCatalogFromCapabilities({
+      capabilities: [
+        {
+          agentControllerRef: "builtin:codex",
+          reasonCodes: ["runtime.agent_controller_report.ready"],
+          status: "stale",
+        },
+      ],
+    });
+
+    expect(catalog.needsRepair).toBe(0);
+    expect(catalog.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          agentId: "codex",
+          detected: true,
+          enabled: true,
+          launchStatus: "ready",
+          selectable: true,
+        }),
+      ])
+    );
+  });
+
+  it("keeps launch repair when the expired report itself carried a launch failure", () => {
+    const catalog = projectLocalAgentCatalogFromCapabilities({
+      capabilities: [
+        {
+          agentControllerRef: "builtin:codex",
+          reasonCodes: ["controller.launch.needs_repair"],
+          status: "stale",
+        },
+      ],
+    });
+
+    expect(catalog.needsRepair).toBe(1);
+    expect(catalog.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          agentId: "codex",
+          launchStatus: "needs_repair",
+        }),
+      ])
+    );
+  });
+
   it("does not turn provider sign-in blockers into launch repair", () => {
     const catalog = projectLocalAgentCatalogFromCapabilities({
       capabilities: [

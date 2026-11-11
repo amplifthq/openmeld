@@ -148,6 +148,27 @@ must redrive that same dispatch and attempt through hosted recovery instead of
 retiring the outbox item or creating another attempt. If the exact worker
 request is already persisted, recovery submits that frozen request directly;
 it does not rebuild mutable conversation context before replay.
+This also applies when an interrupted direct call leaves the outbox `pending`
+after creating the dispatch attempt. A hosted `handed_off` seed keeps the Space
+recovery alarm armed until native admission or a terminal outcome is durable;
+a Queue receipt alone cannot retire that responsibility. Direct-to-Queue hosted
+recovery persists the existing hosted admission marker with the handoff. An
+older handoff with neither a frozen Controller nor an owner remains eligible
+for investigation; Space uses the existing Core preflight to identify its
+runtime family and treats unavailable evidence as unavailable, not as hosted.
+Confirmed workstation handoffs remain excluded from the scheduled hosted
+recovery batch; RuntimeCoordinator explicitly redrives their retained payload.
+An unaccepted hosted attempt resumes with the same identity,
+without requiring a workstation owner or entering RuntimeCoordinator. Accepted,
+terminal, replaced, or workstation-owned attempts cannot be reopened by that
+hosted recovery marker.
+When a hosted handoff has no dispatch ledger row, Space may redrive the same
+dispatch only if its durable admission fence proves no native exposure and the
+exact native delivery is absent. An unavailable ledger, an existing native
+delivery, or unknown exposure is not proof that execution never started.
+The bounded Space outbox scan persists its pagination position so unresolved
+handoffs cannot indefinitely hide later candidates, including across eviction.
+This cursor is scheduling metadata and does not establish execution or outcome.
 The dispatch attempt remains `dispatching` until the native admission
 acknowledgement is durably recorded. An ambiguous submit or failed ACK
 persistence must not advance it to `waiting_result`, which would prevent
@@ -909,12 +930,21 @@ Important execution rules:
 - Caller authority, owner evidence, Binding evidence, and execution truth come
   from verified Gateway/Core context, not request-body trust.
 - Space owns user-requested Wake Stop authorization. For ordinary Stop, after
-  writable Space access, only the authenticated source-message account or target
+  writable Space access, the authenticated source-message account or target
   Agent Profile owner may stop the exact target Wake. Resolve the source from
   the Space's persisted Signal and account ownership from Auth; caller selectors,
   member names, and other signed-in accounts are not ownership evidence. Use
   this ordinary policy for viewer-scoped progress eligibility and the ordinary
   Stop mutation, before native or workstation cancellation side effects.
+- A direct Human account request has one additional pre-delivery Stop path in
+  an ordinary Space: the actor must be an active Human member of that Space
+  and an owner in its current Organization. Gateway-authenticated calls carry
+  the direct principal to Space; delegated, Task and older callers confer no
+  additional authority. Space projects and rechecks eligibility for the exact
+  persisted source, target and dispatch. RuntimeCoordinator's pre-agent Stop
+  must never escalate this permission into controller Stop if linking wins a
+  race. For hosted Wakes, Space must prove the exact outbox is unexposed at
+  the cancellation write; missing or legacy exposure cannot authorize Stop.
 - Progress may carry an exact `dispatchId` within the source/Profile selector.
   Space verifies that dispatch against the same source, Space and target before
   invoking its existing execution owner. This lets a resumed parent stop its
@@ -1375,6 +1405,12 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   target still passes its own identity, revision, and freshness checks. A
   failed target read fails closed for that target and the next request reads
   fresh facts. Readiness does not grant an execution lease or publish a reply.
+  Organization directory and runtime-overview route preloads use the existing
+  five-second lookup budget. An exhausted owner read is passed explicitly to
+  the Core readiness owner as unavailable, preserving the other directory
+  entries without issuing a fresh lookup for every Profile. An unavailable
+  owner-service preload is likewise retained for this request, not retried per
+  Profile or interpreted as a confirmed disconnection.
 - Controller target changes, Controller unbinding, and local working-folder
   changes use an owner-sharded RuntimeCoordinator execution-state read that
   spans every Space. Web may use that read to disable disruptive actions
@@ -1945,6 +1981,25 @@ The success fact is the Space final signal and its `space_final_reply_claims`
 row. `dispatch_results` is an archive/query projection only. A Wake may choose
 not to archive a result, but it must still close through the Space final signal
 claim when a visible outcome is published.
+
+Gated text publications reserve their live queue positions when the Signal is
+persisted. The outermost input gate protects the write and its idempotency
+decision. It releases before waiting for the live send or its Inbox projection.
+A session may already be draining an access check started by an earlier input,
+and that check must be able to resume. New session drains start after release
+and verify current access. The publishing request still awaits delivery and
+projection, and recovery reads honor the same per-Signal receipt.
+
+Space queues authorized live delivery of a persisted final Signal before its
+Inbox projection can expose the corresponding notification. Outbox drains and
+Inbox read repair wait for delivery of their selected Signals, without waiting
+for later stream updates or Signals outside that selection. Delivery settles
+when the message is sent or its session closes under the existing access and
+transport policy; durable Inbox recovery remains available. These transient
+delivery receipts order server sends, not browser rendering or client acknowledgements,
+and are not execution authority. Clients continue to use the durable final
+Signal to retire stale Working presentation while RuntimeCoordinator completes
+its own finalization.
 
 Do not bypass this boundary for RuntimeCoordinator accepted result publication.
 Ordinary human/client Space APIs may still post messages, status, and system

@@ -23,11 +23,12 @@ export const pluginScopeParser = parseAsStringLiteral([
 	.withDefault("organization")
 	.withOptions(PAGE_TAB_OPTIONS);
 export const spacesViewParser = parseAsStringLiteral([
+	"conversations",
 	"spaces",
 	"messages",
 	"discover",
 ])
-	.withDefault("spaces")
+	.withDefault("conversations")
 	.withOptions(PAGE_TAB_OPTIONS);
 export const inboxViewParser = parseAsStringLiteral([
 	"all",

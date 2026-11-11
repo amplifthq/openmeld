@@ -16,6 +16,7 @@ export default defineConfig({
     // runtime at a time to bound loopback imports; storage stays isolated
     // per test file.
     maxWorkers: 1,
+    setupFiles: ["./tests/reset-mocks.setup.ts"],
     unstubGlobals: true,
     unstubEnvs: true,
   },

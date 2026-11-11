@@ -57,7 +57,6 @@ import type {
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { AgentProfileConversationsSection } from "#/components/directory/agent-conversations-section";
-import { useMemberAgentProfileNameLocked } from "#/components/member-agents/member-agent-harness-lock";
 import {
 	MemberAgentNewProfileButton,
 	MemberAgentSensitiveChanges,
@@ -1212,8 +1211,7 @@ function AgentProfileNameEditor(input: {
 	onRenameProfile: (profileName: string) => Promise<void>;
 	profileName: string;
 }) {
-	const nameLocked = useMemberAgentProfileNameLocked();
-	const canEdit = input.canEdit && !nameLocked;
+	const canEdit = input.canEdit;
 	const [open, setOpen] = useState(false);
 	const [draftName, setDraftName] = useState(input.profileName);
 	const [isSaving, setIsSaving] = useState(false);

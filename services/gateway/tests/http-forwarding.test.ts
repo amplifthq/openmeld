@@ -9,7 +9,12 @@ import {
   createDaemonRouteObservationSummary,
   DB_FACT_SCHEMA_VERSION,
   type DbDiagnosticsPayload,
+  getAgentExecutionReadinessResponseSchema,
+  organizationAgentRuntimeOverviewResponseSchema,
+  organizationDirectoryResponseSchema,
   organizationProfileDirectoryResponseSchema,
+  remoteAgentWorkerRuntimeDiagnosticsResponseSchema,
+  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
 } from "@openmeld/schemas";
 import { createSpaceMemberAgentExecutionReadiness } from "@openmeld/schemas/testing";
@@ -25,6 +30,8 @@ type CoreRpcMock = {
   inspectDbState: ReturnType<typeof vi.fn>;
   inspectDispatchStorageReadiness: ReturnType<typeof vi.fn>;
   createSpace: ReturnType<typeof vi.fn>;
+  createSpaceTask: ReturnType<typeof vi.fn>;
+  centerAgentGetOrganizationDirectory: ReturnType<typeof vi.fn>;
   getCurrentOrganizationAgentRuntimeOverview: ReturnType<typeof vi.fn>;
   getCurrentOrganizationDirectory: ReturnType<typeof vi.fn>;
   getCurrentOrganizationProfileDirectory: ReturnType<typeof vi.fn>;
@@ -442,6 +449,16 @@ function makeEnv(input?: {
       checkedAt: "2026-04-07T00:00:00.000Z",
     })),
     createSpace: vi.fn(async () => ({ spaceId: "from-core-space-id" })),
+    createSpaceTask: vi.fn(() =>
+      Promise.reject(
+        createCoreRpcHttpError({
+          code: "space_task.forbidden",
+          reason: "Task creation denied by its owner.",
+          status: 403,
+        })
+      )
+    ),
+    centerAgentGetOrganizationDirectory: vi.fn(),
     getCurrentOrganizationAgentRuntimeOverview: vi.fn(async () => ({
       organizationId: "org-1",
       generatedAt: "2026-07-04T00:00:00.000Z",
@@ -1090,6 +1107,9 @@ function makeEnv(input?: {
       inspectDbState: rpc.inspectDbState,
       inspectDispatchStorageReadiness: rpc.inspectDispatchStorageReadiness,
       createSpace: rpc.createSpace,
+      createSpaceTask: rpc.createSpaceTask,
+      centerAgentGetOrganizationDirectory:
+        rpc.centerAgentGetOrganizationDirectory,
       getCurrentOrganizationAgentRuntimeOverview:
         rpc.getCurrentOrganizationAgentRuntimeOverview,
       getCurrentOrganizationDirectory: rpc.getCurrentOrganizationDirectory,
@@ -1605,6 +1625,48 @@ describe("gateway http forwarding", () => {
     expect(rpc.createSpace).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { extra: {}, status: 403 },
+    { extra: { wakeAssignee: true, reviewerProfileId: null }, status: 403 },
+    { extra: { wakeAssignee: true }, status: 400 },
+  ])("preserves Task creation intent and owner denial, with $extra", async ({
+    extra,
+    status,
+  }) => {
+    const { env, rpc } = makeEnv();
+    const spaceId = "a".repeat(64);
+    const body = {
+      operationId: "task-create-intent",
+      title: "Deliver the requested Guide feature",
+      assigneeProfileId: "agt_22222222-2222-4222-8222-222222222222",
+      ...extra,
+    };
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${spaceId}/tasks?taskContractVersion=3`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(status);
+    if (status === 400) {
+      expect(rpc.createSpaceTask).not.toHaveBeenCalled();
+    } else {
+      expect(rpc.createSpaceTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          spaceId,
+          body: { ...body, externalWorkItems: [] },
+          taskContractVersion: 3,
+        })
+      );
+    }
+  });
+
   it("forwards POST /v1/spaces to core RPC", async () => {
     const { env, rpc } = makeEnv();
     const request = new Request("http://local/v1/spaces", {
@@ -1626,20 +1688,140 @@ describe("gateway http forwarding", () => {
     expect(response.headers.get("x-openmeld-request-id")).toBeTruthy();
   });
 
-  it("forwards GET /v1/organizations/current/directory to core RPC", async () => {
+  it.each([
+    {
+      route: "/v1/organizations/current/directory",
+      method: "getCurrentOrganizationDirectory" as const,
+    },
+    {
+      route: "/v1/organizations/current/agent-runtime-overview",
+      method: "getCurrentOrganizationAgentRuntimeOverview" as const,
+    },
+    {
+      route: "/v1/organizations/current/center-agent/directory",
+      method: "centerAgentGetOrganizationDirectory" as const,
+    },
+  ])("preserves legacy readiness and opt-in public reasons on $route", async ({
+    route,
+    method,
+  }) => {
     const { env, rpc } = makeEnv();
-    const request = new Request(
-      "http://local/v1/organizations/current/directory"
-    );
-
-    const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      organizationId: "org-1",
-      members: [],
-      agentProfiles: [],
+    const generatedAt = "2026-10-27T00:00:00.000Z";
+    const agentProfiles = [
+      {
+        profileId: VALID_CONTROLLER_AGENT_PROFILE_ID,
+        publicWakeabilityReason: { code: "computer_offline" as const },
+      },
+      {
+        profileId: VALID_VISITED_AGENT_PROFILE_ID,
+        publicWakeabilityReason: null,
+      },
+    ].map(({ profileId, publicWakeabilityReason }) => {
+      const member = buildOfflineAgentMemberSnapshot({
+        profileId,
+        profileName: "Agent",
+        agentControllerRef: "builtin:codex",
+        ownerName: "Mira",
+      });
+      return {
+        organizationId: "org-1",
+        profileId,
+        profileName: member.profileName,
+        profileHandle: profileId,
+        profileKind: "agent" as const,
+        isDefault: false as const,
+        status: "active" as const,
+        ownerUserId: member.ownerUserId,
+        source: "cli_create",
+        managedRole: null,
+        createdByUserId: member.ownerUserId,
+        creatorProfileId: null,
+        lastUsedAt: null,
+        createdAt: generatedAt,
+        updatedAt: generatedAt,
+        readiness: getAgentExecutionReadinessResponseSchema.parse({
+          agentProfileId: profileId,
+          agentControllerRef: member.agentControllerRef,
+          agentExecutionReadiness:
+            member.ownerWakeDiagnostics.agentExecutionReadiness,
+          agentWakeAvailability: member.agentWakeAvailability,
+          agentWakeRouteRegistration:
+            member.ownerWakeDiagnostics.agentWakeRouteRegistration,
+          generatedAt,
+          ownerUserId: member.ownerUserId,
+          primaryActionPlan: {
+            action: "check_status",
+            target: { kind: "status" },
+          },
+          profileName: member.profileName,
+          publicWakeabilityReason,
+          routeDeviceId: null,
+          routeLane: null,
+          runtimeDeviceDisplayName: null,
+          wakeRouteEvidence: member.ownerWakeDiagnostics.wakeRouteEvidence,
+          wakeRouteStatus: member.ownerWakeDiagnostics.wakeRouteStatus,
+        }),
+      };
     });
-    expect(rpc.getCurrentOrganizationDirectory).toHaveBeenCalledWith({
+    const runtimeOverview =
+      method === "getCurrentOrganizationAgentRuntimeOverview";
+    const responseSchema = runtimeOverview
+      ? organizationAgentRuntimeOverviewResponseSchema
+      : organizationDirectoryResponseSchema;
+    const canonical = responseSchema.parse({
+      organizationId: "org-1",
+      generatedAt,
+      ...(runtimeOverview ? {} : { members: [] }),
+      agentProfiles: runtimeOverview
+        ? agentProfiles.map(({ profileId, readiness }) => ({
+            profileId,
+            readiness,
+          }))
+        : agentProfiles,
+    });
+    rpc[method].mockResolvedValue(canonical);
+    // Desktop 0.1.38 predates this strict response field.
+    const legacyReadinessSchema = getAgentExecutionReadinessResponseSchema.omit(
+      {
+        publicWakeabilityReason: true,
+      }
+    );
+    const expectedReadiness = agentProfiles.map(({ readiness }) => readiness);
+
+    for (const option of [undefined, "false", "unknown", "true"]) {
+      const url = new URL(route, "http://local");
+      if (option !== undefined) {
+        url.searchParams.set("includePublicWakeabilityReason", option);
+      }
+      const response = await app.fetch(
+        new Request(url),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      const body = responseSchema.parse(await response.json());
+      expect(body).toMatchObject({
+        organizationId: "org-1",
+        ...(runtimeOverview ? {} : { members: [] }),
+      });
+      expect(body.agentProfiles).toHaveLength(agentProfiles.length);
+      const actualReadiness = body.agentProfiles.map(
+        ({ readiness }) => readiness
+      );
+      if (option === "true") {
+        expect(actualReadiness).toEqual(expectedReadiness);
+      } else {
+        expect(actualReadiness).toEqual(
+          expectedReadiness.map(
+            ({ publicWakeabilityReason, ...legacy }) => legacy
+          )
+        );
+        for (const readiness of actualReadiness) {
+          expect(legacyReadinessSchema.safeParse(readiness).success).toBe(true);
+        }
+      }
+    }
+    expect(rpc[method]).toHaveBeenCalledWith({
       context: EXPECTED_CORE_CONTEXT,
     });
   });
@@ -2651,6 +2833,37 @@ describe("gateway http forwarding", () => {
     );
   });
 
+  it.each([
+    undefined,
+    "1",
+    "2",
+  ])("forwards only the supported Message Details timing opt-in %s", async (value) => {
+    const { env, rpc } = makeEnv();
+    rpc.getSpaceMessageDetails.mockRejectedValue(
+      createCoreRpcHttpError({
+        code: "space.access_denied",
+        reason: "Access denied",
+        status: 403,
+      })
+    );
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/demo/message-details?signalId=message-1${value === undefined ? "" : `&timingVersion=${value}`}`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    if (value === "2") {
+      expect(response.status).toBe(400);
+      expect(rpc.getSpaceMessageDetails).not.toHaveBeenCalled();
+      return;
+    }
+    expect(response.status).toBe(403);
+    const [input] = rpc.getSpaceMessageDetails.mock.calls[0] ?? [];
+    expect(input).toMatchObject({ spaceId: "demo", signalId: "message-1" });
+    expect(input?.timingVersion).toBe(value === "1" ? 1 : undefined);
+  });
+
   it("asks Core to resolve exact Remote Agent runtime diagnostics for detailed traces", async () => {
     const { env, rpc } = makeEnv();
     const response = await app.fetch(
@@ -2678,6 +2891,8 @@ describe("gateway http forwarding", () => {
     "4",
     "5",
     "6",
+    "7",
+    String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
   ])("negotiates dispatch trace response version %s without changing the public route", async (version) => {
     const { env, rpc } = makeEnv();
     const response = await app.fetch(
@@ -2725,12 +2940,67 @@ describe("gateway http forwarding", () => {
     expect(rpc.getSpaceDispatchTrace).not.toHaveBeenCalled();
   });
 
+  it("requires the new trace contract only when runtime diagnostics use version 3", async () => {
+    const { env, rpc } = makeEnv();
+    const originalResponse = await app.fetch(
+      new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace"),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    const original = (await originalResponse.json()) as Record<string, unknown>;
+    const diagnostics = remoteAgentWorkerRuntimeDiagnosticsResponseSchema.parse(
+      {
+        activeRuns: [],
+        callbackContexts: [],
+        collectedAt: "2026-10-28T00:00:00.000Z",
+        durableObjectAlarmAtMs: null,
+        fibers: [],
+        schedules: [
+          {
+            id: "schedule-1",
+            callback: "retryCallback",
+            delayInSeconds: 5,
+            timeMs: 9000,
+            type: "delayed",
+          },
+        ],
+        spaceId: "demo",
+        submissions: [],
+        v: 3,
+      }
+    );
+    rpc.getSpaceDispatchTrace.mockResolvedValue({
+      ...original,
+      remoteAgentRuntimeDiagnostics: diagnostics,
+    });
+    for (const version of ["7", "8"]) {
+      const response = await app.fetch(
+        new Request(
+          "http://local/v1/spaces/demo/dispatches/dispatch-1/trace?includeRemoteAgentRuntimeDiagnostics=true",
+          {
+            headers: {
+              "x-openmeld-space-dispatch-trace-response-version": version,
+            },
+          }
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(version === "7" ? 400 : 200);
+      if (version === "7") {
+        expect(await response.text()).toContain("Update OpenMeld CLI");
+      }
+    }
+  });
+
   it("rejects unsupported dispatch trace response versions before Core RPC", async () => {
     const { env, rpc } = makeEnv();
     const response = await app.fetch(
       new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace", {
         headers: {
-          "x-openmeld-space-dispatch-trace-response-version": "7",
+          "x-openmeld-space-dispatch-trace-response-version": String(
+            SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION + 1
+          ),
         },
       }),
       env,
@@ -6852,6 +7122,8 @@ describe("gateway http forwarding", () => {
     });
     expect(rpc.listAccountSpaces).toHaveBeenCalledWith({
       gatewayHost: "localhost:8080",
+      includeDeletedSpaces: false,
+      includeDirectoryPreviews: false,
       limit: 20,
       ownerUserId: "owner-001",
       scope: "account",
@@ -6860,7 +7132,7 @@ describe("gateway http forwarding", () => {
     expect(authRpc.listProfileSpaceHistory).not.toHaveBeenCalled();
   });
 
-  it("forwards opt-in AccountSpaces presentation fields to Core", async () => {
+  it("forwards opt-in AccountSpaces fields to Core", async () => {
     const { env, rpc, authRpc } = makeEnv({
       coreOverrides: {
         listAccountSpaces: vi.fn(async () => ({
@@ -6903,7 +7175,7 @@ describe("gateway http forwarding", () => {
     });
 
     const request = new Request(
-      "http://local/v1/account/spaces?gatewayHost=localhost%3A8080&scope=account&selectedProfileId=11111111-1111-4111-8111-111111111111&limit=20&includeDirectMessageProfileIds=true&includePurposes=true",
+      "http://local/v1/account/spaces?gatewayHost=localhost%3A8080&scope=account&selectedProfileId=11111111-1111-4111-8111-111111111111&limit=20&includeDirectMessageProfileIds=true&includePurposes=true&includeDeletedSpaces=true&includeDirectoryPreviews=true",
       { method: "GET" }
     );
 
@@ -6921,7 +7193,9 @@ describe("gateway http forwarding", () => {
     });
     expect(rpc.listAccountSpaces).toHaveBeenCalledWith({
       gatewayHost: "localhost:8080",
+      includeDeletedSpaces: true,
       includeDirectMessageProfileIds: true,
+      includeDirectoryPreviews: true,
       includePurposes: true,
       limit: 20,
       ownerUserId: "owner-001",

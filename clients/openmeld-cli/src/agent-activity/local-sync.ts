@@ -32,6 +32,7 @@ import {
   startAgentActivityTranscriptWatchers,
 } from "./local-observer";
 import { withAgentActivityDeliveryLock } from "./local-state-lock";
+import { isProjectConnectionReadableByOwner } from "./project-binding-resolution";
 import {
   listProjectBindings,
   removeAgentActivityBindingsWhileDeliveryLocked,
@@ -224,8 +225,8 @@ async function submitDueAgentActivity(
   const ownerUserId = auth.session.user.id;
   const ownerProjectKeys = new Set(
     bindings
-      .filter(
-        (binding) => !binding.ownerUserId || binding.ownerUserId === ownerUserId
+      .filter((binding) =>
+        isProjectConnectionReadableByOwner(binding, ownerUserId)
       )
       .map((binding) => `${binding.organizationId}\u0000${binding.projectId}`)
   );

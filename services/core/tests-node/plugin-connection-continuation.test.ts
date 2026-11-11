@@ -234,12 +234,20 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
 
   it.each([
     ["approved", true],
+    ["approved-linear", true],
     ["approved-from-another-profile", true],
     ["approved-local-from-another-profile", true],
     ["approved-other-account", false],
     ["changed-source", false],
     ["changed-account", false],
   ] as const)("continues only the exact %s Plugin operation", async (scenario, allowed) => {
+    const service = scenario === "approved-linear" ? "linear" : "github";
+    const account = `${service}-member`;
+    const sourceInput = { ...input, service };
+    owner.connection.mockResolvedValue({
+      connection: { connectionName: account, scope: "member", updatedAtMs: 42 },
+      selection: "requester",
+    });
     if (scenario === "approved-other-account") {
       owner.localProfile.mockResolvedValue({
         profileKind: "human",
@@ -264,30 +272,50 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
             : request.triggerMessageId,
         connection: {
           connectionName:
-            scenario === "changed-account" ? "other-account" : "github-member",
+            scenario === "changed-account" ? "other-account" : account,
           scope: "member",
           ownerUserId: "user_1",
           ownerDisplayName: "Avery",
-          service: "github",
+          service,
         },
         connectionUpdatedAtMs: 42,
         accessRevision: 1,
-        service: "github",
-        actionId: "github.create_issue",
+        service,
+        actionId:
+          service === "linear"
+            ? "linear.create_linear_issue"
+            : "github.create_issue",
         effect: "write",
-        input: { owner: "northstar", repo: "review" },
+        input:
+          service === "linear"
+            ? { teamId: "team-id" }
+            : { owner: "northstar", repo: "review" },
+        ...(scenario === "approved-local-from-another-profile"
+          ? {}
+          : {
+              recovery: {
+                input:
+                  service === "linear"
+                    ? {
+                        title: "Original issue",
+                        description: "Original body",
+                        team_id: "team-id",
+                      }
+                    : { title: "Original issue", body: "Original body" },
+              },
+            }),
       }),
     };
     if (!allowed) {
       await expect(
-        continuePluginConnection(env, input, approval)
+        continuePluginConnection(env, sourceInput, approval)
       ).rejects.toThrow("plugin.continue.");
       expect(owner.post).not.toHaveBeenCalled();
       return;
     }
     const approvalInput = scenario.includes("from-another-profile")
       ? {
-          ...input,
+          ...sourceInput,
           context: {
             ...input.context,
             actorContext: {
@@ -296,7 +324,7 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
             },
           },
         }
-      : input;
+      : sourceInput;
     await continuePluginConnection(env, approvalInput, approval);
     const first = owner.post.mock.calls[0]?.[1];
     expect(first.context.actorContext.openMeldProfileId).toBe(humanId);
@@ -307,7 +335,20 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
           .openMeldProfileId
       ).toBe(humanId);
     }
-    expect(first.text).toContain("original-issue-write");
+    expect(first.text).not.toContain("Operation receipts");
+    expect(owner.receipts).not.toHaveBeenCalled();
+    if (approval.intent.recovery) {
+      expect(first.text).toBe(
+        `Approved creating the ${service === "linear" ? "Linear" : "GitHub"} issue. Continue the original request.`
+      );
+      expect(first.text).not.toContain(approval.requestId);
+      expect(first.text).not.toContain(approval.intent.operationId);
+      expect(first.pluginContinuation.approvedActionRequestId).toBe(
+        approval.requestId
+      );
+    } else {
+      expect(first.text).toContain("original-issue-write");
+    }
     expect(first.messageEnvelope.replyToSignalId).toBe(
       request.triggerMessageId
     );

@@ -2,6 +2,11 @@ export const CORE_LOG_EVENTS = {
   coreInternalError: "core_internal_error",
   runtimeTransportClientRequestTimeout:
     "runtime_transport_client_request_timeout",
+  runtimeTransportReadAttemptFailed: "runtime_transport_read_attempt_failed",
+  runtimeTransportOwnerReadStage: "runtime_transport_owner_read_stage",
+  runtimeTransportGatePhase: "runtime_transport_gate_phase",
+  spaceInputGate: "space_input_gate",
+  spaceReadRecovery: "space_read_recovery",
   runtimeTransportConnectionGenerationResultRejected:
     "runtime_transport_connection_generation_result_rejected",
   runtimeTransportDeliveryRouteAssessed:
@@ -16,6 +21,8 @@ export const CORE_LOG_EVENTS = {
   dispatchExecutionWaitStarted: "dispatch_execution_wait_started",
   agentExecutionReadinessResolved: "agent_execution_readiness_resolved",
   spaceMembersSnapshotBuilt: "space_members_snapshot_built",
+  spaceMemberRuntimeLookupUnavailable:
+    "space_member_runtime_lookup_unavailable",
   dispatchQueueBindingSource: "dispatch_queue_binding_source",
   dispatchQueueEnsureTablesFailed: "dispatch_queue_ensure_tables_failed",
   dispatchQueueHintEmitFailed: "dispatch_queue_hint_emit_failed",

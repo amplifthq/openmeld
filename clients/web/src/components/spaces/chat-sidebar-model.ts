@@ -83,3 +83,21 @@ export type Chat = {
 	centerAgentProfileId?: string;
 	centerAgentAvatarStyle?: import("@openmeld/schemas/types").AuthProfileView["avatarStyle"];
 };
+
+/** Ordinary Human–Agent chats use Core's Session archive, including colleagues' Agents. */
+export function chatSessionAgentProfileId(chat: Chat): string | null {
+	return !chat.session && chat.peer?.profileKind === "agent"
+		? chat.peer.profileId
+		: null;
+}
+
+export function isChatArchived(input: {
+	chat: Chat;
+	memberAgentsEnabled: boolean;
+	personalArchivedIds: readonly string[];
+	sessionArchivedIds: ReadonlySet<string>;
+}): boolean {
+	return input.memberAgentsEnabled && chatSessionAgentProfileId(input.chat)
+		? input.sessionArchivedIds.has(input.chat.spaceId)
+		: input.personalArchivedIds.includes(input.chat.spaceId);
+}

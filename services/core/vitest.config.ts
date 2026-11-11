@@ -34,6 +34,7 @@ export default defineConfig(async () => {
       include: ["src/__tests__/**/*.test.ts", "tests/**/*.test.ts"],
       maxWorkers: 1,
       setupFiles: [
+        "./test-support/reset-mocks.setup.ts",
         "./test-support/seed-published-local-components-release.setup.ts",
       ],
     },

@@ -3,6 +3,8 @@ import {
   agentExecutionReadinessImpactSourceSchema,
 } from "../../agent-execution-readiness-impact-taxonomy";
 import * as z from "../../lazy-zod";
+import type { AgentExecutionReadinessResponseOptions } from "../../types/http/agent-execution-readiness";
+import type { RuntimeProviderConversationProofMethod } from "../../types/http/runtime-reporting";
 import { daemonRouteObservationSummarySchema } from "../daemon/route-observation-summary";
 import { daemonServiceLaneSchema } from "../daemon/service-contract";
 import { openMeldDaemonProviderAccessEvidenceProviderSchema } from "../daemon/task-result";
@@ -24,6 +26,11 @@ const nullableTrimmedStringSchema = z.union([
   z.null(),
 ]);
 const nullableIsoDateTimeSchema = z.union([ISO_DATE_TIME_SCHEMA, z.null()]);
+export const AGENT_EXECUTION_READINESS_RESPONSE_VERSION_HEADER =
+  "x-openmeld-agent-execution-readiness-version";
+export const agentExecutionReadinessResponseOptionsSchema = z.strictObject({
+  responseVersion: z.literal(2).optional(),
+});
 export const agentExecutionReadinessRouteParamsSchema = z.strictObject({
   agentProfileId: agentProfileIdSchema,
 });
@@ -228,7 +235,13 @@ export const agentExecutionReadinessSchema = z.strictObject({
       errorMessage: nullableTrimmedStringSchema,
       errorType: nullableTrimmedStringSchema,
       expiresAtMs: z.number().int().nonnegative().nullable(),
-      method: z.union([z.literal("codex_app_server_thread_resume"), z.null()]),
+      method: z.union([
+        z.enum([
+          "codex_app_server_thread_resume",
+          "codex_app_server_thread_read",
+        ]),
+        z.null(),
+      ]),
       observedAtMs: z.number().int().nonnegative().nullable(),
       provider: z.union([z.literal("codex"), z.null()]),
       ready: z.boolean(),
@@ -294,6 +307,17 @@ export const agentExecutionReadinessSchema = z.strictObject({
   primaryAction: agentExecutionReadinessPrimaryActionSchema,
   reasonCodes: z.array(trimmedNonEmptyStringSchema),
 });
+
+// Unversioned readers only understand resume proofs. Null leaves the method
+// unspecified without misrepresenting a read as a resume or hiding its outcome.
+export function projectProviderConversationProofMethod(
+  method: RuntimeProviderConversationProofMethod | null,
+  responseVersion?: AgentExecutionReadinessResponseOptions["responseVersion"]
+): RuntimeProviderConversationProofMethod | null {
+  return responseVersion === 2 || method === "codex_app_server_thread_resume"
+    ? method
+    : null;
+}
 
 export const getAgentExecutionReadinessResponseSchema = z.strictObject({
   usageLimits: agentControllerUsageLimitsSchema.optional(),

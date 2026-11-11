@@ -1,3 +1,4 @@
+import { isFreshSessionRequiredError } from "#/lib/auth-errors";
 import { isSessionExpiredError } from "#/lib/session-expired";
 
 const MAX_NON_AUTH_QUERY_RETRIES = 2;
@@ -26,7 +27,7 @@ export function shouldRetryQuery(
 	failureCount: number,
 	error: unknown
 ): boolean {
-	if (isSessionExpiredError(error)) {
+	if (isSessionExpiredError(error) || isFreshSessionRequiredError(error)) {
 		return false;
 	}
 

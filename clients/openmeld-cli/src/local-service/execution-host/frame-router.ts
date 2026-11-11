@@ -34,6 +34,7 @@ import {
   flushDispatchResultOutbox,
 } from "../dispatch/dispatch-result-outbox";
 import { enqueueDispatchDeliverFrame } from "../dispatch/execute-dispatch-task";
+import type { TrackWorkspaceCleanup } from "../dispatch/execution-context-workspace";
 import { syncActiveTaskPermissionModes } from "../routing/active-permission-mode-sync";
 
 type InteractionResponseInput = {
@@ -272,6 +273,7 @@ function applyReasoningPreference(
 }
 
 export function handleExecutionHostFrame(input: {
+  trackWorkspaceCleanup?: TrackWorkspaceCleanup;
   readRouteByProfileId?: () => Map<string, DaemonProfileRouteConfig>;
   computerFileAccessStorePath: string;
   contextStore: Map<string, string>;
@@ -317,6 +319,7 @@ export function handleExecutionHostFrame(input: {
         },
       });
       enqueueDispatchDeliverFrame({
+        trackWorkspaceCleanup: input.trackWorkspaceCleanup,
         computerFileAccessStorePath: input.computerFileAccessStorePath,
         contextStore: input.contextStore,
         currentSocketRef: input.currentSocketRef,

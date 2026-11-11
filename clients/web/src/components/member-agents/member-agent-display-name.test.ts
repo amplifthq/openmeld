@@ -20,10 +20,14 @@ describe("MemberAgent display names", () => {
 		expect(formatHarnessDisplayName("grok-build")).toBe("Grok Build");
 	});
 
-	it("adds the Profile name only for a non-default Profile", () => {
+	it.each([
+		true,
+		false,
+	])("preserves a custom Profile name (default: %s)", (isDefaultProfile) => {
 		const memberAgentName = "Felix Lu’s Claude Code";
 		expect(
 			formatMemberAgentProfileDisplayName({
+				harnessKind: "claude-code",
 				memberAgentName,
 				profileName: "Claude Code",
 				isDefaultProfile: true,
@@ -31,9 +35,10 @@ describe("MemberAgent display names", () => {
 		).toBe("Felix Lu’s Claude Code");
 		expect(
 			formatMemberAgentProfileDisplayName({
+				harnessKind: "claude-code",
 				memberAgentName,
 				profileName: "PR Reviewer",
-				isDefaultProfile: false,
+				isDefaultProfile,
 			})
 		).toBe("Felix Lu’s Claude Code · PR Reviewer");
 	});

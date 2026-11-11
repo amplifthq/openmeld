@@ -41,6 +41,8 @@ const OPERATION_PHRASES: Record<SensitiveOperation, string> = {
   creation_defaults_write: "change defaults for new Agents",
   default_project_write: "change an Agent's default Project",
   execution_mode_write: "change how many tasks an Agent runs at once",
+  organization_member_removal_prepare:
+    "resolve Space ownership before removing a member",
   profile_delete: "delete an Agent Profile",
   session_archive: "archive a chat with an Agent",
   session_delete: "delete a chat with an Agent",

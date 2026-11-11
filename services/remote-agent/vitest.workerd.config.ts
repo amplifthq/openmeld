@@ -22,12 +22,17 @@ export default defineConfig({
             className: "ComputerCommandProbe",
             useSQLite: true,
           },
+          SCHEDULE_DIAGNOSTIC_PROBE: {
+            className: "ScheduleDiagnosticProbe",
+            useSQLite: true,
+          },
         },
       },
     }),
   ],
   test: {
     include: ["tests/workerd/**/*.test.ts"],
+    setupFiles: ["./tests/reset-mocks.setup.ts"],
     server: {
       deps: {
         inline: [

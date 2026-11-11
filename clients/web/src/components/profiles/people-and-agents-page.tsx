@@ -739,6 +739,7 @@ function AgentsWorkspaceHome(input: {
 						activeProfileId={memberAgentPageProfile?.openMeldProfileId ?? null}
 						defaultProfileId={memberAgentPageRow.defaultProfileId}
 						displayName={memberAgentPageRow.displayName}
+						harnessKind={memberAgentPageRow.harnessKind}
 						memberAgentId={memberAgentPageRow.memberAgentId}
 						onSelectProfile={input.onSelectProfile}
 						profiles={memberAgentPageRow.profiles}

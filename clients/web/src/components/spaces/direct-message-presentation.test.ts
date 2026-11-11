@@ -1,7 +1,15 @@
+import {
+	createSpaceMemberAgentSnapshot,
+	createSpaceMemberHumanSnapshot,
+	createSpaceMembersSnapshot,
+} from "@openmeld/schemas/testing";
 import type { OrganizationProfileDirectoryResponse } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
-import { resolveDirectMessagePresentation } from "./direct-message-presentation";
+import {
+	resolveDirectMessagePresentation,
+	resolveDirectMessageSessionAgentProfileId,
+} from "./direct-message-presentation";
 
 const { enabled } = vi.hoisted(() => ({ enabled: { value: true } }));
 vi.mock("#/lib/member-agents/member-agents-feature", () => ({
@@ -55,7 +63,90 @@ function present(profileIds: string[], viewer: "felix" | "tali") {
 	});
 }
 
-describe("resolveDirectMessagePresentation", () => {
+describe("Direct Message presentation", () => {
+	const human = createSpaceMemberHumanSnapshot({
+		profileId: "h-felix",
+		ownerUserId: "u-felix",
+	});
+	const colleagueAgent = createSpaceMemberAgentSnapshot({
+		profileId: "a-tali-cc",
+		ownerUserId: "u-tali",
+	});
+	const session = createSpaceMembersSnapshot({
+		humans: [human],
+		agents: [colleagueAgent],
+	});
+	it.each([
+		{
+			name: "the Human chatting with their own Agent",
+			input: {
+				snapshot: createSpaceMembersSnapshot({
+					humans: [human],
+					agents: [{ ...colleagueAgent, ownerUserId: "u-felix" }],
+				}),
+			},
+			expected: "a-tali-cc",
+		},
+		{
+			name: "the Human chatting with a colleague's Agent",
+			input: {},
+			expected: "a-tali-cc",
+		},
+		{
+			name: "an observer outside the Human-Agent pair",
+			input: { viewerProfileId: "h-observer" },
+			expected: null,
+		},
+		{
+			name: "a Human-Human Direct Message",
+			input: {
+				snapshot: createSpaceMembersSnapshot({
+					humans: [
+						human,
+						createSpaceMemberHumanSnapshot({ profileId: "h-tali" }),
+					],
+				}),
+			},
+			expected: null,
+		},
+		{
+			name: "a converted Space retaining its former pair",
+			input: { isDirectMessage: false },
+			expected: null,
+		},
+		{
+			name: "a Center Agent Direct Message",
+			input: { isCenterAgentDirectMessage: true },
+			expected: null,
+		},
+		{
+			name: "unavailable membership evidence",
+			input: { snapshot: null },
+			expected: null,
+		},
+		{
+			name: "MemberAgents disabled",
+			input: {},
+			enabled: false,
+			expected: null,
+		},
+	])("selects Session controls for $name", (testCase) => {
+		enabled.value = testCase.enabled !== false;
+		try {
+			expect(
+				resolveDirectMessageSessionAgentProfileId({
+					isDirectMessage: true,
+					isCenterAgentDirectMessage: false,
+					viewerProfileId: human.profileId,
+					snapshot: session,
+					...testCase.input,
+				})
+			).toBe(testCase.expected);
+		} finally {
+			enabled.value = true;
+		}
+	});
+
 	it("names another member's Agent with its owner", () => {
 		const presentation = present(["h-felix", "a-tali-cc"], "felix");
 		expect(presentation.name).toBe("Tali Smoke’s Claude Code");

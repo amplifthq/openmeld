@@ -108,6 +108,9 @@ export default defineConfig({
 		exclude: ["src/**/*.integration.test.{ts,tsx}"],
 		passWithNoTests: true,
 		pool: "threads",
-		setupFiles: ["./src/test-support/dom-observers.setup.ts"],
+		setupFiles: [
+			"./src/test-support/dom-observers.setup.ts",
+			"./src/test-support/reset-mocks.setup.ts",
+		],
 	},
 });

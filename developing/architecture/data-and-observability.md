@@ -278,6 +278,28 @@ ownership is checked synchronously before deletion in the owning Space.
 
 ## Space Task ownership
 
+The Space owns `space_work_targets` (SQLite schema version 55), the single private
+writer and read model for goal and destination constraints. Its source receipt
+index, `space_work_target_sources`, stores only source revision, logical identity,
+goal reference, and a selection fingerprint. `space_work_target_conversations`
+indexes the default reference per source author and logical conversation. Neither
+index copies goal content or owns execution. Bound callbacks use their immutable
+source reference; only unbound inputs consult a default or an explicit source
+reference. New requests retain independent records, including within one Thread.
+
+Core derives current source, author, executor, and logical identity from active
+admission. Space resolves actual Task associations from its publication receipts;
+the per-Wake execution `taskId` is not a Space Task ID. A Task handoff resolves
+through its deterministic event Signal and exact recorded Wake target. Goal
+selection, revision/source comparison, receipt insertion, and default update share
+one SQLite transaction. Retries check the receipt fingerprint and return the
+current goal without applying old input again. Goal correction rechecks the
+requester or current Task roles. Source edits, recall, missing evidence, and
+unproven edited legacy inputs fail closed. Space deletion clears all three tables.
+They contain no Task phase, assignee, delegation, execution, permission, or
+provider outcome. Remote Agent materializes this owner read after compaction or
+rollover, and Plugin continuations follow authenticated ancestry to its origin.
+
 The Space Durable Object is the only writer for Space Tasks. Its SQLite schema
 owns `space_tasks`, append-only `space_task_events`, and idempotent
 `space_task_operations`. The stored Task document is the current read model;
@@ -285,6 +307,17 @@ phase and revision columns support bounded board reads and conflict-safe writes.
 Every mutation compares the expected Task revision inside the Space transaction.
 An operation id may replay only the exact same request and returns the retained
 receipt without appending another event.
+Task creation can opt into an initial handoff. That same transaction writes the
+Task, event, operation receipt, and existing delivery outbox intent. A creation
+handoff is fenced by later assignment, cancellation/reopen, start, or brief
+changes exactly like an assignment handoff. No second delegation registry or
+execution owner is introduced. Core recomputes requester representation from the
+live native admission; Space rechecks current membership and requester/owner
+authority. Caller-supplied requester attribution is never forwarded as authority.
+GitHub completion receipts and verified webhooks can write only the linked
+issue observation. They do not write a Task result, review, cancellation, or
+phase transition. A closed issue may represent migration rather than delivery;
+the normal Task workflow remains the sole completion and cancellation owner.
 The same transaction writes `space_task_delivery_outbox` rows for necessary
 handoff, completion, Inbox, GitHub issue and Project link projections, and authorized
 Stop effects. The Project link PostgreSQL projection contains only Organization,
@@ -343,8 +376,9 @@ carry no actor authority and cannot use this Task-specific Stop path.
 Linked GitHub issues are references on the Task document. GitHub remains the
 only writer of issue state. `lastObservedState` is a Task-owned observation
 from an authorized GitHub tool result or a verified GitHub App webhook
-delivery, not a second issue store. Remote Agent may create or cancel Tasks
-after a GitHub tool succeeds; it does not write Task rows itself and does not
+delivery, not a second issue store. Remote Agent can create a linked Task after
+a GitHub tool succeeds, with no implicit assignee. It can cancel a Task only
+through the normal authorized Task workflow; it does not write Task rows itself and does not
 PATCH GitHub when a Task closes.
 
 `space_task_github_issue_links` is a Core PostgreSQL query projection written after
@@ -495,7 +529,88 @@ origin SQL execution time or proof of Hyperdrive queue delay. Compare it with
 PlanetScale query insights and parent/caller spans before assigning a cause.
 Overlapping spans must not be added together.
 
+For a stalled Runtime Agent Controller Report, inspect the last
+`openmeld.stage` on `core.controller-reports.submit`. It distinguishes runtime
+identity lookup, policy read, report acceptance, usage recovery, model Inbox
+reconciliation, Member Agent catalog and PostgreSQL cleanup. The label records
+the stage entered, not whether a write committed.
+
+## Runtime Transport owner-service lookup timeouts
+
+Start with the Gateway status and duration. For a failed `/lookup-owner-service`
+read, join the caller's `runtime_transport_read_attempt_failed` events to the
+Hub's `runtime_transport_owner_read_stage` events by `readId` and `attempt`.
+Each HTTP retry carries the same read ID and its own attempt number. The Hub
+records the following checkpoints with its object ID, boot ID and elapsed time:
+
+- `handler_entered` precedes reading the request body.
+- `body_read_settled` records that the body read returned, including a parse failure.
+- `lookup_completed` follows the in-memory lookup.
+- `response_ready` records the status of the constructed response. Confirm
+  receipt separately from the parent fetch and Gateway outcome.
+
+For a canceled attempt, inspect the last recorded checkpoint. If none was
+captured, use the native receiver request and span IDs and object-filtered
+invocation metrics to investigate dispatch or missing telemetry. Under
+sampling or cancellation, absence of an event cannot establish where a request
+was lost. The optional internal Core-to-Hub headers carry diagnostic identifiers
+only. Older callers and receivers can continue using the same request and response.
+
+## Space input gate timeouts
+
+Pending Profile lineage reads can be shared by callers in the same input-gate
+scope. A protected publication starts its own Auth read if another input owns
+the pending load. When the earlier read resumes, only the current load can
+publish its result into the in-memory and SQLite lineage caches. A superseded
+caller can use a completed replacement after rechecking its age and coverage
+of the owner's current Space members.
+
+For a slow Space PostgreSQL transaction, `pendingStages` identifies the active
+driver phase and `postgresCompletedPhaseMs` sums completed phases within the
+gate. `postgres_checkout` is local client acquisition. `postgres_begin` waits
+for the database to acknowledge BEGIN. `postgres_callback` begins after that
+acknowledgement. Commit, rollback, fatal server close and client disposal have
+their own phases. `alarmStep` identifies the background job when an alarm owns
+the transaction. Use the gate span's native parent to identify the invocation.
+
+For a Space `blockConcurrencyWhile` timeout, filter Core logs by
+`event = space_input_gate` and the affected `durableObjectId` around the
+reset. Each admitted PostgreSQL-backed input gate has a `gateId` and an
+`operation`. A nested gate also records its `parentGateId`. Match these IDs
+to the `openmeld.gate_id` attribute on sampled `space.input_gate.*` and
+`space.input_gate_step.*` spans, including when overlapping requests appear
+in different traces.
+
+While a gate is open, timers at 5 and 25 seconds capture snapshots. `pendingStages`
+counts unfinished calls at that instant. In older captures, a persisted
+Signal with `live_delivery` still pending could be waiting for a session queue
+owned by an earlier input. `background_dispatch_outbox` could overlap that
+wait. Gated text publications now finish their live sends, dispatch recovery
+and Inbox processing outside the publication gate. Once the callback returns,
+`phase = postgres_cleanup` covers the rest of
+the database scope. A gate that returns or throws after 5 seconds of observed
+elapsed time emits a final status even if its timer did not run. In production,
+the [Workers clock](https://developers.cloudflare.com/workers/runtime-apis/performance/)
+advances after I/O, so a purely synchronous stall can escape these measurements.
+A runtime reset can also interrupt the final record.
+
+For a keyed message, `persistedSignalId` records a successful SQLite write
+observed for that message inside this gate. A replay or a snapshot taken
+before the write may omit it. The existing `core.openmeld.space.signal_persisted`
+event also carries the publishing gate's ID, so a completed write can be
+correlated even if the runtime interrupts a later snapshot. These diagnostics
+record no message text or SQL.
+
 ## Space open read path
+
+Core can obtain a new stub for the same Space and repeat a members, member
+directory, or Wake progress read once when the platform reports an inactive
+instance or a code-update reset. The replacement read repeats authorization
+and uses the original query. A short jittered delay and the replacement
+attempt must fit within ten seconds of starting the original call. A healthy
+first call may finish later. Explicit overload and non-retryable errors pass
+through. To correlate an attempted recovery with the caller's result, look up
+`space_read_recovery` by request ID.
 
 Opening a Space reads bootstrap, members, and entry resolution. Their slow
 inputs are cross-service reads (Auth Profile lineage, PostgreSQL membership,
@@ -524,6 +639,17 @@ contract.
   `space.members.changed`. A null value is a confirmed absence; failed reads
   write nothing. These rows never feed access, readiness, or Wake policy.
   Readiness snapshots keep request-scoped Auth Profile facts.
+- **Member runtime status.** Members snapshots isolate failed Hub route and
+  owner-Service preloads to the affected owner. A failed read is an explicit
+  unavailable input to the existing Core readiness projection, not a missing
+  preload that permits per-Profile lookup fan-out. Successful owner reads remain
+  usable in the same snapshot. Failures retain bounded diagnostic context and
+  are not cached across snapshots. Membership, identity, lineage, and access
+  reads keep their existing fail-closed behavior. Members route-batch reads use
+  the same five-second total Hub budget as owner-Service lookups, so an
+  unavailable owner cannot hold this projection behind the general batch
+  reader's longer budget. The readiness owner still resolves independently
+  confirmed route evidence; the members reader does not override that policy.
 - **Thread previews.** A thread preview renders one line per reply, so
   bootstrap and thread-preview reads carry a text reply longer than 1,000
   characters only through the end of the line it shows
@@ -531,10 +657,13 @@ contract.
   cut, so its links and formatting render exactly as before on every client.
   Placements stay complete; opening the Thread reads full signals.
 - **Organization membership.** Concurrent membership checks for one caller
-  inside a Space object share one in-flight PostgreSQL read; nothing is kept
-  after it settles. Entry resolution reads membership and the route slug in
-  one query and overlaps it with the Space access check, keeping the previous
-  error precedence.
+  share one in-flight PostgreSQL read only within the same request scope,
+  identified by its database facade. A protected Durable Object gate has its
+  own scope and must never join a query started outside it: the gate blocks
+  that query's completion events. Nothing is kept after settlement, and
+  authorization still rechecks current membership. Entry resolution reads
+  membership and the route slug in one query and overlaps it with the Space
+  access check, keeping the previous error precedence.
 - **Member activity scans.** Latest activity and join-notice scans filter on
   the indexed `space_signals.type` and `profile_id`/`profile_kind` columns,
   which are written from the same envelope at insert and never change; only
@@ -981,6 +1110,18 @@ written only by a new claim holder after local presentation succeeds, so a
 preparation failure or exact completed replay does not create a misleading
 audit row.
 
+## Permission Mode Audit Data Boundary
+
+Permission-mode changes reuse `sensitive_operation_audit_events`. The canonical
+Binding writer records the verified request attribution, before/after mode,
+Binding identity and configuration revision in the same PostgreSQL transaction
+as the conditional settings update or reconnect. No-op/conflicting writes do not
+create successful change events. The request-local attribution carries no
+credentials or execution authority. Missing legacy details are not reconstructed.
+Migration `0052_permission_mode_change_audit` adds a nullable details column;
+legacy API readers omit it, and audit response version 2 opts into validated
+details under the existing owner/Organization access checks.
+
 ## Connector Connection Data Boundary
 
 Connection access policy and revision live on `connector_connections`.
@@ -1017,13 +1158,36 @@ provenance. Core's Plugin request owner is its sole writer. The row
 binds requester, Organization, executor, operation ID, frozen connection/access
 revisions, action, effect and input for one hour. Input stays in that protected
 owner record; Inbox receives only an opaque reference and generic private
-recipient text. The detail projection exposes bounded resource identifiers,
-not arbitrary input or credentials. Core permits approval only when the
+recipient text. The standard detail projection exposes bounded resource identifiers,
+not arbitrary input or credentials. An explicit `includeIssuePreview` read by
+the signed-in recipient may also expose the exact saved title and description
+of a recoverable Linear or GitHub issue. Only these allowlisted fields enter
+that private detail; lists, Inbox previews, legacy readers and Agent-principal
+reads retain the standard projection. Preview reads recheck access after any
+provider lookup. Linear target names come from an exact-ID read on the frozen
+account; unavailable or mismatched names leave the IDs visible without guessing.
+Core permits approval only when the
 authenticated account principal matches the request owner and the acting Profile
 is human. An Agent delegation/execution credential or a selected Human Profile
 alone cannot approve. This is the existing account credential boundary, not a
 human-presence guarantee when an Agent has the owner's full account credentials.
 No email code or separate factor enrollment is required.
+
+For hosted Linear and GitHub issue creation, that same private request may also
+retain signature-verified recovery input, bounded to 256 KiB. It is executable
+only by its exact admitted, approved continuation within the existing one-hour
+request lifetime. The approval recovery sweep removes expired recovery bodies
+in batches of at most 1,000 while preserving decision and operation identity.
+No provider credentials, public message copies or second execution ledger are
+introduced. Source edits, another requester, revoked membership, a changed
+connection/access revision, expiry and rejection prevent recovery.
+
+Recoverable issue approvals publish a short acknowledgement attributed to the
+approving member. The private continuation binding carries the approval ID;
+the existing executor retrieves and resumes the saved operation before the
+model continues. Operation IDs, authority declarations and executable input
+are not copied into that acknowledgement. Legacy Local Agent continuations
+retain their existing instruction contract until they have structured recovery.
 
 The decision and Inbox resolution share a conditional PostgreSQL transaction. Repeated or
 lost responses return the same decision and root. The operation owner rechecks
@@ -1588,6 +1752,95 @@ status or historical lifecycle event without explicit freshness is not enough.
 If the execution store is unavailable, stale, or internally invalid, the Board
 must fail or expose unavailable evidence rather than fall back to Dispatch
 Ledger, Agent Activity, service liveness, or client caches.
+
+### Wake Timing Read Model
+
+Wake timing partitions one workstation Wake target's elapsed time into
+contiguous, non-overlapping segments. Core projects it at read time from the
+same evidence Message Details already loads for the Wake trace waterfall; it
+adds no writer, table, event, or retention, and it never decides execution,
+Wakeability, or final outcome.
+
+Timing exists only for a workstation Wake whose dispatch trace was read and
+carries RuntimeCoordinator evidence: an execution record or a readable head
+lifecycle. A Space outbox record without a dispatch trace, a hosted native
+delivery (top-level or inside the dispatch snapshot), an unreadable head
+without an execution, a failed dispatch lookup or trace read, and an open
+execution whose interaction state could not be read for the viewer all omit
+the target, because elapsed time could not be attributed honestly. The
+interaction read reports `read` or `unavailable`; an unavailable read is never
+treated as having no pending request.
+
+Each boundary uses its earliest recorded fact. OpenMeld boundaries are fact
+times; computer boundaries are Service lifecycle times bounded by Core receipt,
+matching how RuntimeCoordinator records its own local progress:
+
+| Boundary | Source | Evidence |
+| --- | --- | --- |
+| Request received | OpenMeld | Space source Signal time |
+| Queued | OpenMeld | Head lifecycle `createdAt`, else Dispatch Ledger first-seen time |
+| Execution created | OpenMeld | Head `executionLinkedAt`, else RuntimeCoordinator execution creation |
+| Accepted on the computer | Computer | First `lifecycle_accepted_local` report |
+| Agent started | Computer | First recorded `runningAtMs` in a running or completed lifecycle payload |
+| Agent finished | Computer | First `lifecycle_completed_local` report |
+| Result accepted | OpenMeld | Result inbox acceptance |
+| Result visible | OpenMeld | Final visible Space message, else the reply Signal of the published result |
+
+The `result_accepted` event and `result_received` are not boundaries: the
+event can be written after Space publication, and a result can reach Core long
+after the Agent finished, for example from the Service outbox after a
+reconnect. Event observation times can also move under keepalive replacement,
+so Agent start uses only the recorded first running time. OpenMeld boundaries
+move only to stay in order and never past the read time; a computer boundary
+is kept inside the window between the surrounding OpenMeld boundaries, so clock
+skew can shift time between adjacent computer stages but never moves Space or
+Core facts. Redelivered attempts share one Agent run from the first recorded
+start; per-attempt intervals are never summed.
+
+The interval between adjacent boundaries takes that stage's kind: `routing`,
+`queue`, `delivery`, `startup`, `agent_run`, `result_delivery`, or
+`publishing`. An interval between non-adjacent boundaries is `not_recorded`;
+it is never attributed to the Agent or to OpenMeld.
+
+A RuntimeCoordinator decision ends work when it is a final execution outcome
+(not a retryable one, which leads to redelivery) or a head no-execution
+decision, follows every recorded progress boundary, and does not follow Space
+visibility. The stage before the decision keeps its kind only for stages the
+decision itself ends (`queue`, `delivery`, `publishing`); a computer stage may
+have ended earlier, so that interval is `not_recorded`. `publishing` then runs
+from the decision to the visible outcome. Without a visible outcome, it ends at
+the head's recorded publication exhaustion with
+`runtime_coordinator.publication_retry_exhausted`, or stays open while
+publication is still pending; exhausted retries never shorten the total.
+
+The waterfall summary and the shared final-visible-outcome projection decide
+the state: `settled` once the outcome is visible, `in_progress` while the
+summary is not terminal or publication is pending or retrying, otherwise
+`ended`. An in-progress Wake ends with one open segment. Without a decision,
+it keeps the last boundary's stage only when RuntimeCoordinator's current
+execution or head state reports that same stage, or when publication is pending
+after result acceptance; any other unlocated stage change is `not_recorded`.
+While RuntimeCoordinator reports an unanswered local Agent interaction for the
+viewer, the open segment splits into `waiting_for_input` at Core's recorded
+arrival time for that request (`pendingInteractionReceivedAtMs`), never the
+Service's request time or the interaction revision (`interactionUpdatedAtMs`),
+which later command writes can move. Without a recorded arrival time, the open
+segment is `not_recorded`. Resolved
+interactions are not historical evidence yet, so earlier input waits remain
+inside `agent_run`; the Agent run therefore includes tool use and any wait the
+Agent did not report.
+
+Segment reason codes reuse existing evidence: the head waiting boundary or
+no-execution reason, `runtime_coordinator.head_queued` for an Agent Profile
+queue wait, the Service local-queue and conversation-occupancy codes, and
+`runtime_coordinator.interaction_waiting`. Adjacent segments with the same kind
+and reason merge. Totals by kind always sum to the end-to-end time. The last
+evidence time includes lifecycle events, execution and head updates, and the
+latest interaction change.
+
+All timing facts are `platform_observed`. Agent- or integration-reported
+business phases, such as waiting for CI or retesting, need their own reporting
+contract with a separate source label before they can join this timeline.
 
 ## Organization Logo Data Boundary
 
@@ -3192,6 +3445,9 @@ clients never receive unknown enum values.
 
 ### Lark-platform connection and credential ownership
 
+The per-group history preference introduced in migration 0055 is retired. Existing rows are retained for rollback and have no effect on current readers. Core owns the active request, connection and requester checks; provider permissions and bot membership constrain access. No replacement global or organization setting is stored. The deprecated group-setting endpoints return HTTP 410 so older clients cannot report a successful toggle.
+
+
 Core owns Lark and Feishu Personal Agent registration, connection lifecycle,
 identity links, and provider credentials. One non-secret connection row is
 unique by Organization and provider, and by provider and App ID. Lark and
@@ -3815,17 +4071,54 @@ bundle hash; stamp that artifact available during final release integration.
 This change needs no data migration.
 
 Core owns the OpenMeld memory model. PostgreSQL stores the Organization enabled policy,
-member/organization subject identity, provider references, deletion lifecycle,
+member/organization/Space subject identity, provider references, deletion lifecycle,
 and deletion errors. Zep Cloud stores the semantic episodes and search index
 behind Core's `CenterAgentMemoryAdapter`; no client, worker, or tool may use Zep
 as an authorization, scope, or policy owner.
 
-Member memory and organization memory are separate subjects. The product rules
+Member, Organization and Space memory are separate subjects. A Space subject's
+canonical key includes its Organization and Space ID; it never supplies another
+Space's recall. The product rules
 for when each subject may be written live in
 `developing/product/organizations-and-center-agent.md`. Core alone resolves
 those rules, performs provider reads/writes, and projects a bounded memory list
 into the Remote Agent turn envelope. The worker consumes that projection and
 must not query provider state directly.
+
+Space memory uses the existing PostgreSQL subject registry with `subject_kind`
+`space` and a constrained `space_id`, not another store of business facts. Core
+checks current membership and owning-Space access before and after recall, and
+reopens every supporting message version within the recall deadline. Revoked,
+recalled, changed, unversioned, or cross-Space support is withheld. The model sees
+the public speaker identities attached to those readable Space messages. Private
+source-location identifiers and provider episode IDs stay out of automatic text.
+Whole facts share the existing context budget; facts that do not fit are omitted
+with an explicit truncation indication rather than clipped into a different claim.
+
+Provider invalidation is structured evidence, not only a text hint. When a
+superseded fact links to a later verified message, Core can retain that exact
+message as source grounding instead of discarding it after the version check.
+Mixed speakers likewise retain original-source context. Excerpts are JSON-quoted,
+deduplicated and kept whole within the same budget; historical semantic facts are
+not globally filtered out. This gives the model readable evidence for corrections
+without making a remembered rule an execution permission or adopted decision.
+
+Permanent Space purge erases its graph before removing the owning source storage.
+Deletion first fences new captures in the subject registry. Reads and new callbacks
+cannot revive the tombstone; an already-started write rechecks that fence and
+cleans up a late result. The write remains registered with `waitUntil` even if
+the caller's bounded wait expires. Only confirmed deletion or a provider HTTP 404 permits cleanup to finish. Permission failures, unknown outcomes and timeouts remain retryable.
+Account erasure distinguishes Space, member and Organization subjects. Ordinary
+Space deletion retains history under the existing Space retention/access policy;
+it is not a claim that retained source history was permanently erased.
+
+Versioned OpenMeld explicit saves reuse the existing message evidence contract.
+The submitted fact must equal the complete current message (after trimming) in
+the original conversation, with current represented-member access. The episode
+uses the source author and source-version time (`editedAt` when present), never
+the later save request's time or an Agent paraphrase labeled as a user statement.
+Source versions and author kinds are provider provenance metadata. They do not
+make a remembered fact an approved rule or replace current Guide/Document reads.
 
 Each Zep episode carries structured OpenMeld provenance metadata: the stable
 memory source, capture method, source conversation and message references,
@@ -3902,6 +4195,14 @@ is unavailable. Both failures remain observable without failing the Wake or
 native conversation.
 
 ## Organization Document Data Boundary
+
+Current Brief source references contain only document identity, current-content
+state, and a SHA-256 content fingerprint from the same query as the returned
+body. Draft-only identities are omitted. These are read projections, not another
+rule body, adoption ledger, approval authority, or document history store.
+Guide source references come from the owning Space through live access checks;
+the admitted Guide snapshot is kept distinct from a current read. No memory
+provider or compressed Agent summary can write either source.
 
 Core PostgreSQL owns `organization_documents`, including approved Markdown, the one
 replaceable Center Agent draft, document identity, kind, member subject, and
@@ -4104,6 +4405,10 @@ Detailed CLI trace is the supported handoff to local agents and operators. A
 caller supplies the normal Space and dispatch selectors; Core resolves the
 frozen runtime conversation identity and returns the bounded runtime diagnostic
 projection. Callers must not query PostgreSQL or supply a runtime generation identity.
+Schedule evidence comes from the Agents SDK's public schedule projection rather
+than SDK-private tables. The v3 projection does not assert creation or running
+state that the SDK does not report; its response is limited to 50 schedules and
+never contains callback payloads.
 
 Native continuations can have a native-delivery ledger record without a
 workstation Dispatch Ledger row. Negotiated trace response v6 reads the unique
@@ -4416,6 +4721,11 @@ Cloudflare evidence query tooling must derive its field order from the shared
 runtime evidence contract. Do not hand-maintain a second Analytics Engine schema
 inside scripts or runbooks.
 
+Auth stores sessions, one-time verification records, and sign-in rate limits in
+PostgreSQL. Better Auth consumes one-time records and updates shared counters
+atomically through the Drizzle adapter. Session renewal and revocation use the
+existing session rows.
+
 Organization entry and Account Session reads use the caller's `x-request-id` to
 correlate browser failures with Web and Auth. Web emits `web.openmeld.proxy_stage` at receipt,
 upstream URL construction, upstream dispatch, and upstream response headers;
@@ -4430,6 +4740,15 @@ Started records remain useful when a request never reaches its finalizer; their
 absence or a missing terminal record alone does not establish where a request
 failed. Successful/started HTTP records follow the existing console-log filter
 and remain queryable in Analytics Engine.
+
+Space file and attachment downloads also emit
+`web.openmeld.proxy_response_body` once the body has fully reached the client
+(`body_completed`), the client stopped reading (`body_cancelled`), or the
+upstream body failed (`body_failed`). Its duration starts at the response
+headers and `inputBytes` counts the body bytes Web streamed. A companion
+`web.openmeld.proxy_response_body_upstream` record with the same request ID
+carries only the time Web waited on the upstream body; the difference between
+the two durations is time spent waiting on the client.
 
 Select the deployed dataset explicitly when tracing these records:
 `pnpm ops:cf:query --dataset openmeld_runtime_evidence_prod --request <requestId>`.

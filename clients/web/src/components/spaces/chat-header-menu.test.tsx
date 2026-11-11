@@ -58,8 +58,8 @@ it("archives a personal chat from the existing chat menu", async () => {
 it("archives a MemberAgent Session through the same item and confirmation", async () => {
 	render(
 		<ChatHeaderMenu
-			archiveKind="session"
 			onOpenConversationInformation={vi.fn()}
+			sessionAgentProfileId="colleague-agent"
 			spaceId="s"
 		/>
 	);

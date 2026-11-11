@@ -1,6 +1,9 @@
 "use client";
 
-import type { OrganizationDirectoryResponse } from "@openmeld/schemas/types";
+import type {
+	OrganizationDirectoryResponse,
+	OrganizationMemberRemovalPlan,
+} from "@openmeld/schemas/types";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -56,6 +59,10 @@ import {
 } from "#/lib/organizations/auth-organizations";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { INVITE_PEOPLE_INTENT } from "#/lib/organizations/organization-entry-intent";
+import {
+	prepareOrganizationMemberRemoval,
+	previewOrganizationMemberRemoval,
+} from "#/lib/organizations/organization-member-removal";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import {
 	buildOrganizationOrgSettingsPath,
@@ -90,6 +97,12 @@ const MEMBER_ROLE_OPTIONS = [
 }[];
 
 type DirectoryMember = OrganizationDirectoryResponse["members"][number];
+
+const SPACE_REMOVAL_ACTION_DESCRIPTIONS = {
+	close: "Close this private Space and retain its history.",
+	demote: "Existing owners will continue managing this Space.",
+	transfer: "Transfer ownership to the member you choose below.",
+} as const;
 
 export function OrganizationSettingsPage({
 	section = "general",
@@ -610,6 +623,18 @@ function OrganizationMembersSection(input: {
 	isPending: boolean;
 	organizationId: string;
 }) {
+	const directory = input.directory;
+	const [removalError, setRemovalError] = useState<{
+		organizationId: string;
+		memberName: string;
+		message: string;
+	} | null>(null);
+	const currentMemberIsOwner =
+		input.directory?.members.some(
+			(member) =>
+				member.userId === input.currentUserId &&
+				member.role.split(",").includes("owner")
+		) === true;
 	return (
 		<SettingsSection
 			description="Manage members and their organization roles."
@@ -620,7 +645,16 @@ function OrganizationMembersSection(input: {
 			{input.errorMessage ? (
 				<p className="text-destructive text-sm">{input.errorMessage}</p>
 			) : null}
-			{input.directory ? (
+			{removalError?.organizationId === input.organizationId ? (
+				<div
+					className="wrap-anywhere mb-3 space-y-1 text-destructive text-sm"
+					role="alert"
+				>
+					<p className="font-medium">{removalError.memberName}</p>
+					<p>{removalError.message}</p>
+				</div>
+			) : null}
+			{directory ? (
 				<ScrollArea viewportClassName="max-h-[min(28rem,55dvh)]">
 					<Table aria-label="Members and roles">
 						<TableHeader>
@@ -631,18 +665,40 @@ function OrganizationMembersSection(input: {
 							</TableRow>
 						</TableHeader>
 						<TableBody>
-							{[...input.directory.members]
+							{[...directory.members]
 								.sort(
 									(a, b) => memberRoleOrder(a.role) - memberRoleOrder(b.role)
 								)
 								.map((member, index) => (
 									<OrganizationMemberRoleRow
 										canManage={input.canManage}
+										canManageOwner={
+											currentMemberIsOwner &&
+											directory.members.some(
+												(other) =>
+													other.userId !== member.userId &&
+													other.role.split(",").includes("owner")
+											)
+										}
 										canRemove={input.canRemoveMembers}
 										currentUserId={input.currentUserId}
 										index={index}
 										key={member.memberId}
 										member={member}
+										members={directory.members}
+										onRemovalError={(message) =>
+											setRemovalError(
+												message
+													? {
+															organizationId: input.organizationId,
+															memberName:
+																member.humanProfile?.profileName ??
+																member.user.name,
+															message,
+														}
+													: null
+											)
+										}
 										organizationId={input.organizationId}
 									/>
 								))}
@@ -667,23 +723,46 @@ function OrganizationMembersSection(input: {
 function OrganizationMemberRoleRow(input: {
 	index: number;
 	canManage: boolean;
+	canManageOwner: boolean;
 	canRemove: boolean;
 	currentUserId: string;
 	member: DirectoryMember;
+	members: readonly DirectoryMember[];
+	onRemovalError: (message: string | null) => void;
 	organizationId: string;
 }) {
 	const queryClient = useQueryClient();
 	const initialRole = normalizeEditableMemberRole(input.member.role);
-	const [role, setRole] = useState<OrganizationInviteRole>(initialRole);
+	const [role, setRole] = useState<OrganizationInviteRole | null>(initialRole);
+	const [roleDialogOpen, setRoleDialogOpen] = useState(false);
 	const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
+	const [successorUserId, setSuccessorUserId] = useState("");
 	const [savedMessage, setSavedMessage] = useState<string | null>(null);
+	const removalPreview = useMutation({
+		mutationFn: async () => {
+			const plan = await previewOrganizationMemberRemoval({
+				memberId: input.member.memberId,
+				organizationId: input.organizationId,
+			});
+			if (plan.userId !== input.member.userId) {
+				throw new Error(
+					"This member changed. Refresh the members list and try again."
+				);
+			}
+			return plan;
+		},
+	});
 	const roleMutation = useMutation({
-		mutationFn: async () =>
+		mutationFn: async () => {
+			if (!role) {
+				throw new Error("Choose a new role before saving.");
+			}
 			await updateOrganizationMemberRole({
 				memberId: input.member.memberId,
 				organizationId: input.organizationId,
 				role,
-			}),
+			});
+		},
 		onSuccess: async () => {
 			await queryClient.invalidateQueries(
 				organizationDirectoryQueryFilters({
@@ -691,18 +770,56 @@ function OrganizationMemberRoleRow(input: {
 				})
 			);
 			setSavedMessage("Role updated.");
+			setRoleDialogOpen(false);
 		},
 	});
 	const removeMutation = useMutation({
-		mutationFn: async () =>
-			await removeOrganizationMember({
-				memberIdOrEmail: input.member.memberId,
-				organizationId: input.organizationId,
-			}),
-		onError: () => {
+		mutationFn: async () => {
+			const plan = removalPreview.data;
+			if (!(removalPreview.isSuccess && plan)) {
+				throw new Error("Review this member's Spaces before removing them.");
+			}
+			if (plan.spaces.length > 0) {
+				try {
+					await prepareOrganizationMemberRemoval({
+						memberId: plan.memberId,
+						organizationId: input.organizationId,
+						spaces: plan.spaces,
+						...(plan.spaces.some((space) => space.action === "transfer")
+							? { successorUserId }
+							: {}),
+					});
+				} catch (error) {
+					throw new Error(
+						`The member was not removed. Some Space changes may have been saved. Review the updated Spaces before retrying. ${describeMemberRemovalError(error)}`
+					);
+				}
+			}
+			try {
+				await removeOrganizationMember({
+					memberIdOrEmail: input.member.memberId,
+					organizationId: input.organizationId,
+				});
+			} catch (error) {
+				if (plan.spaces.length > 0) {
+					throw new Error(
+						`The Space changes were saved, but member removal could not be confirmed. Refresh the members list before retrying. ${describeMemberRemovalError(error)}`
+					);
+				}
+				throw error;
+			}
+		},
+		onError: async (error) => {
+			input.onRemovalError(error.message);
 			setRemoveDialogOpen(false);
+			await queryClient.invalidateQueries(
+				organizationDirectoryQueryFilters({
+					organizationId: input.organizationId,
+				})
+			);
 		},
 		onSuccess: async () => {
+			input.onRemovalError(null);
 			await queryClient.invalidateQueries(
 				organizationDirectoryQueryFilters({
 					organizationId: input.organizationId,
@@ -720,11 +837,25 @@ function OrganizationMemberRoleRow(input: {
 	const memberName =
 		input.member.humanProfile?.profileName ?? input.member.user.name;
 	const isOwner = input.member.role === "owner";
-	const canEdit = input.canManage && !isOwner;
+	const canEdit =
+		input.canManage &&
+		(!isOwner ||
+			(input.canManageOwner && input.member.userId !== input.currentUserId));
 	const canRemove =
 		input.canRemove && !isOwner && input.member.userId !== input.currentUserId;
-	const hasChanges = canEdit && role !== input.member.role;
+	const hasChanges = canEdit && role !== null && role !== input.member.role;
 	const isMutating = roleMutation.isPending || removeMutation.isPending;
+	const requiresSuccessor = removalPreview.data?.spaces.some(
+		(space) => space.action === "transfer"
+	);
+	const successors = input.members.filter(
+		(member) =>
+			member.userId !== input.member.userId &&
+			member.humanProfile?.status === "active"
+	);
+	const successor = successors.find(
+		(member) => member.userId === successorUserId
+	);
 
 	return (
 		<TableRow index={input.index}>
@@ -740,41 +871,19 @@ function OrganizationMemberRoleRow(input: {
 						{roleMutation.error.message}
 					</p>
 				) : null}
-				{removeMutation.isError ? (
-					<p className="mt-1 text-destructive text-xs" role="alert">
-						{removeMutation.error.message}
-					</p>
-				) : null}
 				{savedMessage ? (
 					<p className="mt-1 text-muted-foreground text-xs">{savedMessage}</p>
 				) : null}
 			</TableCell>
 			<TableCell>
 				{canEdit ? (
-					<Select
+					<MemberRoleSelect
+						currentRole={input.member.role}
 						disabled={isMutating}
-						onValueChange={(value) =>
-							setRole(value === "admin" ? "admin" : "member")
-						}
-						value={role}
-					>
-						<SelectTrigger
-							aria-label={`Role for ${memberName}`}
-							className="w-32"
-							displayValue={resolveMemberRoleLabel(role)}
-						/>
-						<SelectContent>
-							{MEMBER_ROLE_OPTIONS.map((option, index) => (
-								<SelectItem
-									index={index}
-									key={option.value}
-									value={option.value}
-								>
-									{option.label}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+						memberName={memberName}
+						onChange={setRole}
+						role={role}
+					/>
 				) : (
 					<span className="text-muted-foreground capitalize">
 						{input.member.role}
@@ -791,7 +900,11 @@ function OrganizationMemberRoleRow(input: {
 							disabled={!hasChanges || isMutating}
 							onClick={() => {
 								setSavedMessage(null);
-								roleMutation.mutate();
+								if (isOwner) {
+									setRoleDialogOpen(true);
+								} else {
+									roleMutation.mutate();
+								}
 							}}
 							size="sm"
 							type="button"
@@ -807,6 +920,10 @@ function OrganizationMemberRoleRow(input: {
 							onClick={() => {
 								setSavedMessage(null);
 								removeMutation.reset();
+								input.onRemovalError(null);
+								setSuccessorUserId("");
+								removalPreview.reset();
+								removalPreview.mutate();
 								setRemoveDialogOpen(true);
 							}}
 							size="sm"
@@ -817,6 +934,15 @@ function OrganizationMemberRoleRow(input: {
 						</Button>
 					) : null}
 				</div>
+				<OwnerRoleChangeDialog
+					canConfirm={hasChanges}
+					isPending={roleMutation.isPending}
+					memberName={memberName}
+					onConfirm={() => roleMutation.mutate()}
+					onOpenChange={setRoleDialogOpen}
+					open={roleDialogOpen}
+					role={role}
+				/>
 				<AlertDialog
 					onOpenChange={(open) => {
 						if (!removeMutation.isPending) {
@@ -828,20 +954,34 @@ function OrganizationMemberRoleRow(input: {
 					}}
 					open={removeDialogOpen}
 				>
-					<AlertDialogContent>
+					<AlertDialogContent className="max-h-[85dvh] overflow-y-auto">
 						<AlertDialogHeader>
 							<AlertDialogTitle>Remove {memberName}?</AlertDialogTitle>
 							<AlertDialogDescription>
-								This action cannot be undone. {memberName} will immediately lose
-								access to this organization.
+								{memberName} will lose access to this organization. Review any
+								Space changes before confirming removal.
 							</AlertDialogDescription>
 						</AlertDialogHeader>
+						<OrganizationMemberRemovalReview
+							disabled={isMutating}
+							error={removalPreview.error}
+							isPending={removalPreview.isPending}
+							onRetry={() => removalPreview.mutate()}
+							onSuccessorChange={setSuccessorUserId}
+							plan={removalPreview.data}
+							successors={successors}
+							successorUserId={successorUserId}
+						/>
 						<AlertDialogFooter>
 							<AlertDialogCancel disabled={removeMutation.isPending}>
 								Cancel
 							</AlertDialogCancel>
 							<AlertDialogAction
-								disabled={removeMutation.isPending}
+								disabled={
+									removeMutation.isPending ||
+									!removalPreview.isSuccess ||
+									(requiresSuccessor && !successor)
+								}
 								onClick={() => removeMutation.mutate()}
 								type="button"
 								variant="destructive"
@@ -856,6 +996,197 @@ function OrganizationMemberRoleRow(input: {
 	);
 }
 
+function describeMemberRemovalError(error: unknown): string {
+	return error instanceof Error ? error.message : "Please try again.";
+}
+
+function OrganizationMemberRemovalReview(input: {
+	disabled: boolean;
+	error: Error | null;
+	isPending: boolean;
+	onRetry: () => void;
+	onSuccessorChange: (userId: string) => void;
+	plan: OrganizationMemberRemovalPlan | undefined;
+	successorUserId: string;
+	successors: readonly DirectoryMember[];
+}) {
+	if (input.isPending) {
+		return (
+			<output className="text-muted-foreground text-sm">
+				Checking Space ownership…
+			</output>
+		);
+	}
+	if (input.error) {
+		return (
+			<div className="space-y-2">
+				<p className="wrap-anywhere text-destructive text-sm" role="alert">
+					{input.error.message}
+				</p>
+				<Button onClick={input.onRetry} size="sm" variant="outline">
+					Try again
+				</Button>
+			</div>
+		);
+	}
+	if (!input.plan || input.plan.spaces.length === 0) {
+		return null;
+	}
+	const successor = input.successors.find(
+		(member) => member.userId === input.successorUserId
+	);
+	return (
+		<div className="space-y-3 text-sm">
+			<ul aria-label="Space changes" className="space-y-2">
+				{input.plan.spaces.map((space) => (
+					<li className="wrap-anywhere" key={space.spaceId}>
+						<p className="font-medium">{space.name}</p>
+						<p className="text-muted-foreground text-xs">
+							{SPACE_REMOVAL_ACTION_DESCRIPTIONS[space.action]}
+						</p>
+					</li>
+				))}
+			</ul>
+			{input.plan.spaces.some((space) => space.action === "transfer") ? (
+				<div className="space-y-2">
+					<Select
+						disabled={input.disabled}
+						onValueChange={input.onSuccessorChange}
+						value={input.successorUserId}
+					>
+						<SelectTrigger
+							aria-label="New Space owner"
+							className="w-full"
+							displayValue={
+								successor
+									? (successor.humanProfile?.profileName ?? successor.user.name)
+									: undefined
+							}
+							placeholder="Choose a new Space owner"
+						/>
+						<SelectContent>
+							{input.successors.map((member, index) => (
+								<SelectItem
+									index={index}
+									key={member.memberId}
+									value={member.userId}
+								>
+									{member.humanProfile?.profileName ?? member.user.name}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<p className="text-muted-foreground text-xs">
+						The new owner will join the transferred Spaces and gain access to
+						their history and files, including private content. You only gain
+						access if you select yourself.
+					</p>
+					{input.successors.length === 0 ? (
+						<p className="text-destructive text-xs" role="alert">
+							No other member has an active Human Profile. Add or enable a
+							teammate before transferring these Spaces.
+						</p>
+					) : null}
+				</div>
+			) : null}
+			<p className="text-muted-foreground text-xs">
+				Space changes are saved before membership is removed. If removal fails,
+				those changes remain.
+			</p>
+		</div>
+	);
+}
+
+function MemberRoleSelect(input: {
+	currentRole: string;
+	disabled: boolean;
+	memberName: string;
+	onChange: (role: OrganizationInviteRole) => void;
+	role: OrganizationInviteRole | null;
+}) {
+	const isOwner = input.currentRole === "owner";
+	return (
+		<Select
+			disabled={input.disabled}
+			onValueChange={(value) =>
+				input.onChange(value === "admin" ? "admin" : "member")
+			}
+			value={input.role ?? input.currentRole}
+		>
+			<SelectTrigger
+				aria-label={`Role for ${input.memberName}`}
+				className="w-32"
+				displayValue={input.role ? resolveMemberRoleLabel(input.role) : "Owner"}
+			/>
+			<SelectContent>
+				{isOwner ? (
+					<SelectItem disabled index={0} value="owner">
+						Owner
+					</SelectItem>
+				) : null}
+				{MEMBER_ROLE_OPTIONS.map((option, index) => (
+					<SelectItem
+						index={index + (isOwner ? 1 : 0)}
+						key={option.value}
+						value={option.value}
+					>
+						{option.label}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	);
+}
+
+function OwnerRoleChangeDialog(input: {
+	canConfirm: boolean;
+	isPending: boolean;
+	memberName: string;
+	onConfirm: () => void;
+	onOpenChange: (open: boolean) => void;
+	open: boolean;
+	role: OrganizationInviteRole | null;
+}) {
+	if (!input.role) {
+		return null;
+	}
+	return (
+		<AlertDialog
+			onOpenChange={(open) => {
+				if (!input.isPending) {
+					input.onOpenChange(open);
+				}
+			}}
+			open={input.open}
+		>
+			<AlertDialogContent>
+				<AlertDialogHeader>
+					<AlertDialogTitle>
+						Change {input.memberName}'s role to{" "}
+						{resolveMemberRoleLabel(input.role)}?
+					</AlertDialogTitle>
+					<AlertDialogDescription>
+						{input.memberName} will lose full control of this organization. They
+						will remain a member, and another Owner will remain in control.
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel disabled={input.isPending}>
+						Cancel
+					</AlertDialogCancel>
+					<AlertDialogAction
+						disabled={!input.canConfirm || input.isPending}
+						onClick={input.onConfirm}
+						type="button"
+					>
+						{input.isPending ? "Saving" : "Change role"}
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
+	);
+}
+
 function memberRoleOrder(role: string): number {
 	if (role === "owner") {
 		return 0;
@@ -863,7 +1194,12 @@ function memberRoleOrder(role: string): number {
 	return role === "admin" ? 1 : 2;
 }
 
-function normalizeEditableMemberRole(role: string): OrganizationInviteRole {
+function normalizeEditableMemberRole(
+	role: string
+): OrganizationInviteRole | null {
+	if (role === "owner") {
+		return null;
+	}
 	return role === "admin" ? "admin" : "member";
 }
 

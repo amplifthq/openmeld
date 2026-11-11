@@ -49,10 +49,13 @@ function useEnabledMemberAgentDirectory(input: {
 	const memberAgents = useMemberAgentIndex();
 	const humanProfileId = memberAgents.humanProfileId ?? "";
 	const archivedSpaceIds = useArchivedMemberAgentSessionIds(memberAgents);
+	// Presence needs only the Organization: read it alongside the listing,
+	// not after it, so a cold load shows Checking no longer than it must. A
+	// failed refresh keeps the last answer (stale-while-revalidate).
 	const presence = useQuery(
 		memberAgentPresenceQueryOptions({
 			organizationId: currentOrganization.id,
-			enabled: memberAgents.ready,
+			enabled: memberAgents.enabled,
 		})
 	);
 	const spaces = useQuery(

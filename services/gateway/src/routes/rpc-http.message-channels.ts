@@ -1,4 +1,10 @@
 import {
+  feishuHistoryAuthorizationRequestSchema,
+  feishuHistoryAuthorizationSchema,
+  feishuHistoryGroupSettingResultSchema,
+  feishuHistoryGroupSettingSchema,
+  feishuHistoryGroupsQuerySchema,
+  feishuHistoryGroupsSchema,
   larkPlatformActiveRegistrationListResponseSchema,
   larkPlatformProviderSchema,
   larkPlatformRegistrationAttemptIdSchema,
@@ -36,6 +42,68 @@ export const MESSAGE_CHANNEL_IDENTITY_LINK_CONSUME_ROUTE =
 export const MESSAGE_CHANNEL_IDENTITY_LINK_ROUTE = `${MESSAGE_CHANNEL_CONNECTIONS_ROUTE}/identity-links/:identityLinkId`;
 
 export function registerMessageChannelRoutes(app: Hono<HonoBindings>): void {
+  const authorization = `${MESSAGE_CHANNEL_CONNECTIONS_ROUTE}/feishu/history-authorization`;
+  app.post(authorization, async (c) => {
+    const body = await parseJsonBody(
+      c,
+      feishuHistoryAuthorizationRequestSchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      route: authorization,
+      method: "POST",
+      responseSchema: feishuHistoryAuthorizationSchema,
+      execute: async () =>
+        await c.var.coreRpc.authorizeFeishuHistory({
+          context: buildCoreRpcContext(c),
+          request: body.data,
+        }),
+    });
+  });
+  const historyGroups = `${MESSAGE_CHANNEL_CONNECTIONS_ROUTE}/feishu/history-groups`;
+  app.get(historyGroups, (c) => {
+    const q = feishuHistoryGroupsQuerySchema.safeParse(c.req.query());
+    if (!q.success) {
+      return respondBadRequest({
+        c,
+        route: historyGroups,
+        method: "GET",
+        message: "Invalid Feishu group request.",
+        reason: q.error.message,
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: historyGroups,
+      method: "GET",
+      responseSchema: feishuHistoryGroupsSchema,
+      execute: async () =>
+        await c.var.coreRpc.listFeishuHistoryGroups({
+          context: buildCoreRpcContext(c),
+          query: q.data,
+        }),
+    });
+  });
+  app.put(historyGroups, async (c) => {
+    const body = await parseJsonBody(c, feishuHistoryGroupSettingSchema);
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      route: historyGroups,
+      method: "PUT",
+      responseSchema: feishuHistoryGroupSettingResultSchema,
+      execute: async () =>
+        await c.var.coreRpc.setFeishuHistoryGroup({
+          context: buildCoreRpcContext(c),
+          setting: body.data,
+        }),
+    });
+  });
   app.get(MESSAGE_CHANNEL_CONNECTIONS_ROUTE, (c) =>
     executeRpcRoute({
       c,
@@ -260,7 +328,7 @@ async function parseJsonBody<T>(
           c,
           code: "invalid_json",
           message: "Invalid JSON",
-          method: "POST",
+          method: c.req.method === "PUT" ? "PUT" : "POST",
           route: c.req.path,
         }),
       };
@@ -274,7 +342,7 @@ async function parseJsonBody<T>(
         c,
         code: "invalid_payload",
         message: parsed.error.issues[0]?.message ?? "Invalid payload.",
-        method: "POST",
+        method: c.req.method === "PUT" ? "PUT" : "POST",
         route: c.req.path,
       }),
     };

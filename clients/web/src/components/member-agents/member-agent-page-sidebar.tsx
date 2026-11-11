@@ -1,3 +1,4 @@
+import type { HarnessKind } from "@openmeld/schemas";
 import type { AuthProfileView } from "@openmeld/schemas/types";
 import {
 	Tooltip,
@@ -57,6 +58,7 @@ const ICON_ONLY_TABS_MAX_WIDTH_PX = 160;
  * chats with it the same way.
  */
 export function MemberAgentPageSidebar(input: {
+	harnessKind: HarnessKind | null;
 	/** Null for a colleague's Agent, whose MemberAgent the viewer can't read. */
 	memberAgentId: string | null;
 	displayName: string;
@@ -73,6 +75,7 @@ export function MemberAgentPageSidebar(input: {
 		colleagueAgent: input.memberAgentId
 			? null
 			: {
+					harnessKind: input.harnessKind,
 					displayName: input.displayName,
 					defaultProfileId: input.defaultProfileId,
 					profiles: input.profiles,
@@ -102,6 +105,7 @@ export function MemberAgentPageSidebar(input: {
 								defaultProfileId={input.defaultProfileId}
 								displayName={input.displayName}
 								emptyLabel={emptyLabel}
+								harnessKind={input.harnessKind}
 								onSelectProfile={input.onSelectProfile}
 								profiles={input.profiles}
 								sections={sections}
@@ -238,6 +242,7 @@ function SessionStateTab({
 }
 
 function MemberAgentProfileNav(input: {
+	harnessKind: HarnessKind | null;
 	displayName: string;
 	profiles: readonly AuthProfileView[];
 	defaultProfileId: string | null;
@@ -260,6 +265,7 @@ function MemberAgentProfileNav(input: {
 				// The sidebar is titled with the Agent, so a row names the Profile.
 				const label = profile.profileName;
 				const fullName = formatMemberAgentProfileDisplayName({
+					harnessKind: input.harnessKind,
 					memberAgentName: input.displayName,
 					profileName: profile.profileName,
 					isDefaultProfile:

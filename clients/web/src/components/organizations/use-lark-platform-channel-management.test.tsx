@@ -10,6 +10,7 @@ import { useLarkPlatformChannelManagement } from "./use-lark-platform-channel-ma
 
 const api = vi.hoisted(() => ({
 	beginRegistration: vi.fn(),
+	historyAuthorization: vi.fn(),
 	disconnect: vi.fn(),
 	pollRegistration: vi.fn(),
 }));
@@ -31,6 +32,7 @@ vi.mock("#/lib/organizations/message-channels", async (importOriginal) => ({
 		typeof import("#/lib/organizations/message-channels")
 	>()),
 	beginCurrentOrganizationLarkPlatformRegistration: api.beginRegistration,
+	requestCurrentOrganizationFeishuHistoryPermission: api.historyAuthorization,
 	disconnectCurrentOrganizationLarkPlatform: api.disconnect,
 	pollCurrentOrganizationLarkPlatformRegistration: api.pollRegistration,
 }));
@@ -41,6 +43,57 @@ afterEach(() => {
 });
 
 describe("useLarkPlatformChannelManagement", () => {
+	it("starts Feishu consent directly without another history choice", async () => {
+		api.beginRegistration.mockReturnValue(
+			new Promise<never>(() => {
+				/* Keep provider consent pending. */
+			})
+		);
+		const { result } = renderHook(
+			() =>
+				useLarkPlatformChannelManagement({
+					connections: [],
+					organizationId: "org_1",
+				}),
+			{ wrapper: TestQueryClientProvider }
+		);
+		act(() => result.current.manage("feishu"));
+		await waitFor(() =>
+			expect(api.beginRegistration).toHaveBeenLastCalledWith({
+				organizationId: "org_1",
+				provider: "feishu",
+				mode: "resume",
+			})
+		);
+	});
+	it("updates permissions for the connected Feishu app without starting another registration", async () => {
+		const connection = {
+			...connectedLarkConnection(),
+			provider: "feishu" as const,
+		};
+		const url =
+			"https://open.feishu.cn/page/launcher?clientID=existing&user_code=fixture";
+		api.historyAuthorization.mockResolvedValue({ authorizationUrl: url });
+		authorization.prepare.mockReturnValue(authorization.browser);
+		const { result } = renderHook(
+			() =>
+				useLarkPlatformChannelManagement({
+					connections: [connection],
+					organizationId: "org_1",
+				}),
+			{ wrapper: TestQueryClientProvider }
+		);
+		act(() => result.current.manage("feishu"));
+		await act(async () => await result.current.reauthorize());
+		expect(api.historyAuthorization.mock.calls[0]?.[0]).toEqual({
+			organizationId: "org_1",
+			connectionId: connection.id,
+		});
+		expect(authorization.open).toHaveBeenCalledWith(authorization.browser, url);
+		expect(api.beginRegistration).not.toHaveBeenCalled();
+		expect(result.current.connection).toEqual(connection);
+		expect(result.current.registration).toBeNull();
+	});
 	it("does not open or apply an authorization result after the Organization changes", async () => {
 		let resolveRegistration:
 			| ((registration: ReturnType<typeof registrationFixture>) => void)

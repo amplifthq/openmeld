@@ -869,6 +869,14 @@ when SQL semantics are the risk, with focused PostgreSQL tests for shared relati
 tests for Durable Object or local Service storage. The skills' no-network advice applies to isolated unit tests, not
 to explicitly selected integration or real-user smoke.
 
+The CLI, Core, Gateway, Remote Agent, and Web Vitest suites run
+`vi.resetAllMocks()` after every test from a shared setup file, because Vitest
+4's `vi.restoreAllMocks()` only restores `vi.spyOn` spies. Put a shared mock's
+default in its implementation (`vi.fn(async () => value)`) or arm it in
+`beforeEach`. A default from `vi.fn().mockResolvedValue(...)` at module scope,
+in a `vi.mock` factory, or re-armed in `afterEach` is wiped before the next
+test.
+
 When cleaning substantial coverage, establish what still catches the important
 failure. A focused temporary fault can demonstrate this when useful; mutation
 testing is not mandatory for every PR. Control time when dates are fixtures,
@@ -1153,6 +1161,127 @@ Answer these questions in the PR, task handoff, or release note:
   stable, retryable capability gap rather than success. Record each direction
   separately; a single generic "Core before Remote Agent" statement is not a
   Contract Impact Audit.
+
+### Passive Codex Conversation Check Contract Impact Audit
+
+Passive conversation checks now use Codex `thread/read` with `includeTurns:
+false` instead of loading the conversation through `thread/resume`. The official
+[App Server contract](https://learn.chatgpt.com/docs/app-server#read-a-stored-thread-without-resuming)
+defines this as a stored-thread read without loading the thread or subscribing
+to its events. A successful check proves stored-conversation availability, not
+writer admission, tool startup, or the ability to complete a Wake.
+
+The Service proof method, Core reporting receiver, PostgreSQL check constraint,
+and diagnostic/readiness response readers accept `codex_app_server_thread_read`.
+Core still accepts legacy resume receipts and picks the newest fresh receipt
+across both methods for the exact execution identity. A newer failed read must
+not be masked by an older successful resume. No proof grants execution authority.
+Actual Wake resume, writer locking, Stop, Space actions, and runtime transport
+envelopes are unchanged. Skills and the execution epoch do not change.
+
+Public readiness uses `x-openmeld-agent-execution-readiness-version: 2` on
+single and batch reads. The API client sends it, Web preserves it, and Gateway
+forwards the exact opt-in to Core. Unversioned requests, including old CLI
+`doctor` calls, receive `method: null` for read-based evidence with the outcome,
+errors, identity and timestamps intact. Embedded Organization, Center Agent and
+Space readiness keeps this legacy view. Missing/unknown HTTP versions also use
+the legacy view; old Gateway/Core receivers ignore the new opt-in and upgraded
+readers accept their responses. No read receipt is relabeled as a resume.
+
+CLI and Service contract versions and minimum versions advance to 0.3.273:
+local Service diagnostics use the exact new method, and old Services keep
+performing the intrusive background operation. The required CLI floor does not
+replace public response negotiation; diagnostic commands bypass that gate.
+Rollout must apply the additive PostgreSQL migration and upgrade Web/Gateway
+response readers first, publish the supported CLI/Service release, then deploy
+Core. During the short local-first
+window, old Core can reject new passive reports; the Service preserves that
+reporting failure and never falls back to resume. New Core accepts old receipts
+while supported local components update. Publish local artifacts before Core
+enforces their floor. Setup, service status, trace and self-update retain their
+existing commands; use the new CLI with the new Service diagnostic schema.
+The current Desktop control surface reads CLI service status and controller
+inventory, not provider-conversation proof or agent-execution-readiness payloads;
+its IPC schemas do not contain this method enum. No Desktop release is required
+for this change.
+
+Rollback must stop new proof writers before reverting Core/readers. Retain the
+additive database constraint and existing rows. Do not lower published mandatory
+version floors; ship a forward corrective release. This audit authorizes no
+production migration, publication, or deployment.
+
+### Local Agent Recovery Reliability Contract Impact Audit
+
+The disconnect-recovery correction changes local Service installation, Claude
+SDK process supervision, Codex RPC failure handling, and Claude reply-review tool scope.
+It reuses the current Host receipt and delivery-only contracts. Authenticated
+local control adds `shutdown_if_idle`, backed by the Host's conditional
+`beginDrain` input. Ordinary automatic updates must not fall back when an old
+Service rejects the distinct command. Manual updates retain their existing graceful path. No cloud Runtime
+Transport, Wake, result receipt, Prepare or user CLI JSON output changes. Old and
+new cloud/local components can still perform setup, Wake, Space actions and
+diagnostics. Ordinary updates preserve workspaces in place, and a timed-out
+controlled stop cannot authorize automatic termination. Existing incomplete
+process receipts remain fenced; the change does not replay unknown work.
+
+Permission audit details require additive PostgreSQL migration 0052 before the
+new Core writer. Audit readers opt in with `responseVersion=2`; requests without
+it retain the strict legacy response shape. New readers accept omitted details
+from old receivers. Deploy the migration, Core, Gateway, then Web/packaged Desktop
+for this feature. Rollback retains the nullable column. Desktop authentication
+notifications require a Desktop release; a Web deployment does not install them.
+
+The candidate is version 0.3.282 with explicit `available` decisions for CLI and
+Service in `release/local-components-policy.json`. It does not require a contract
+floor increase. Publish the updated CLI/update worker with the Service. Do not force an old
+updater through a live Wake to deliver this fix. This implementation does not
+authorize a production migration, release, or production smoke.
+
+### Execution Host Previous-Work Recovery Contract Impact Audit
+
+A replacement Host now separates previous work that is still running from work
+that cannot be confirmed. Complete receipts naming a live Host or provider tree,
+and an owner lock held by an identified live Host, report
+`host.previous_work_running` with the existing `wait_for_previous_work` recovery
+action. The Host rechecks the unchanged same-boot rule until it can start.
+Incomplete and legacy receipts keep `host.previous_work_unconfirmed`; malformed
+receipts report `host.owner_corrupt` and holderless owner locks report
+`host.owner_lock_unverified`. None of those three is rechecked, and the update
+worker ends a waiting update for any of them as `needs_help`.
+
+Because waiting can now authorize a takeover, receipt evidence is per task and
+per provider invocation. It is complete only while no control, adapter maintenance
+or workspace cleanup runs, and each started task is either inside an invocation
+whose latest launch is recorded or between finished invocations. The shared local-execution
+slots add a pre-run hook, a task refusal callback, and a read of started work, so
+the Host records a task before its work begins. A task refused there reports
+`host.execution_record_unavailable` through the existing result outbox. The Host
+wraps each local adapter's `dispatch` to record every invocation, including repair
+rounds of the same task, before the adapter can launch a probe or provider.
+Queued tasks do not count, and idle slots keep any live recorded process group
+in the receipt.
+
+The private receipt gains `service-execution-host-owner-v3` for non-quiescent,
+per-task evidence. A non-quiescent v2 receipt from an older Service had
+Host-wide completeness and stays unconfirmed. Quiescent receipts keep the v2
+shape, so a verified rollback to 0.3.288 or earlier still starts; an older
+Service reading a non-quiescent v3 receipt reports it as corrupt, which matches
+the existing rule never to roll back over uncertain new-Host work. Host IPC
+methods, Runtime Transport, Wake, result receipts, Prepare, and CLI JSON output
+are unchanged; the Host IPC stays inside one Service artifact.
+
+The computer-care observation has accepted this code pattern and recovery action
+since 0.3.261, so current Core, Gateway, and Web read it without a deploy. Core
+copy for `restart_computer` no longer suggests that OpenMeld may recover by
+itself, which is also true for older Services that never recheck; the
+`wait_for_previous_work` copy says new tasks resume automatically. Either deploy
+order is safe. The update worker waits through `host.previous_work_running`
+and transient read failures. The three persistent refusals listed above end
+the update as `needs_help`. Desktop does not read Host reasons and needs no release.
+
+The candidate is version 0.3.290 with explicit `available` decisions for CLI and
+Service, without a contract floor increase. This implementation does not
+authorize a production release or production smoke.
 
 ### Trusted Delegation Contract Impact Audit
 
@@ -2281,6 +2410,13 @@ leave the SHA empty to select the dispatched main commit).
   rebuilds the candidate; it is not a publication-only retry. A local retry with
   the same signed bytes can reuse an already uploaded candidate. Never rebuild
   a candidate that has already been reviewed for promotion.
+- A failed candidate run preserves any built DMG, ZIP, and source receipt for
+  three days as `desktop-candidate-diagnostics-<release-sha>`. These unverified
+  diagnostic artifacts cannot supply promotion metadata; promotion still
+  requires a successful candidate run. Native verification failures report the
+  command and arguments, exit status or signal, launch error, stdout, and stderr.
+  Inspect the retained bytes without resigning or restapling them before deciding
+  whether another build is needed.
 - Complete the public-download and installed acceptance below. Then explicitly
   dispatch `operation=promote` with the same `release_sha`, successful
   `candidate_run_id`, reviewed `candidate_hash`, and `expected_version` (or

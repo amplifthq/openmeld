@@ -311,6 +311,7 @@ describe("Plugin continuation source and identity constraints", () => {
     const sql = createCloudflareSqlHarness(database) as unknown as SqlStorage;
     const repo = new PluginConnectionContinuationRepository(sql);
     const { binding } = fixture();
+    binding.approvedActionRequestId = "11111111-1111-4111-8111-111111111111";
     repo.reserve("plugin-continue:one", binding);
     const changedPreview = {
       ...binding,
@@ -328,6 +329,17 @@ describe("Plugin continuation source and identity constraints", () => {
     expect(() =>
       reopened.reserve("plugin-continue:one", { ...binding, scope: "member" })
     ).toThrow();
+    for (const approvedActionRequestId of [
+      undefined,
+      "22222222-2222-4222-8222-222222222222",
+    ]) {
+      expect(() =>
+        reopened.reserve("plugin-continue:one", {
+          ...binding,
+          approvedActionRequestId,
+        })
+      ).toThrow();
+    }
     expect(() =>
       reopened.accept("plugin-continue:one", "second-message")
     ).toThrow();

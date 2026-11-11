@@ -42,11 +42,11 @@ import { resolveLocalComponentsInstallationSource } from "./installation-source"
 import { readManagedCliInstallation } from "./managed-install";
 
 export const OPENMELD_CLI_COMMAND_CONTRACT_VERSION =
-  "openmeld-cli-command-contract-2026-09-project-work-v1";
+  "openmeld-cli-command-contract-2026-10-conversation-read-proof-v1";
 export const OPENMELD_SKILLS_CONTRACT_VERSION =
   "openmeld-skills-contract-2026-09-explicit-space-recipients-v1";
 export const OPENMELD_SERVICE_CONTRACT_VERSION =
-  "openmeld-service-contract-2026-10-auth-freshness-v1";
+  "openmeld-service-contract-2026-10-conversation-read-proof-v1";
 
 const LOCAL_COMPONENTS_SNAPSHOT_FILE = "local-components.json";
 const SERVICE_COMPONENT_UPDATE_CODES = new Set<DaemonServiceAnomalyCode>([

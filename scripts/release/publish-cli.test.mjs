@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { mock } from "node:test";
 import {
+  computeServiceBundleHash,
   resolveChangedLocalComponents,
   resolveTouchedLocalComponents,
 } from "./local-components.mjs";
@@ -26,6 +33,10 @@ const MISSING_GIT_HEAD = /openmeld@0\.3\.265 gitHead is still missing/u;
 const VERIFY_GIT_HEAD = /npm view openmeld@0\.3\.265 gitHead/u;
 const RERUN = /rerun/u;
 const WRONG_RECOVERY = /[Bb]ump|another|unknown commit/u;
+const RELEASE_MISMATCH = /release manifest disagrees/iu;
+const NPM_MISMATCH = /published npm.*binary channel/iu;
+const NPM_NOT_VISIBLE = /npm.*not.*visible/iu;
+const CHANNEL_MISSING = /without its matching binary channel/iu;
 
 test("only treats the exact Wrangler missing-key error as an absent object", () => {
   // Wrangler 4.147.0 emits this UserError for an object GET that returns null.
@@ -50,6 +61,70 @@ test("only treats the exact Wrangler missing-key error as an absent object", () 
         message: `Reading test-bucket/cli/local-components.json failed: ${stderr}`,
       });
     }
+  }
+});
+
+test("hashes the actual published npm package and verifies its source", async () => {
+  const directory = mkdtempSync(
+    path.join(tmpdir(), "openmeld-npm-recovery-test-")
+  );
+  const pkg = path.join(directory, "package");
+  try {
+    mkdirSync(path.join(pkg, "dist/windows"), { recursive: true });
+    writeFileSync(path.join(pkg, "README.md"), "test");
+    writeFileSync(path.join(pkg, "dist/openmeld.js"), "cli");
+    writeFileSync(
+      path.join(pkg, "dist/windows/openmeld-windows-process.exe"),
+      "original helper"
+    );
+    writeFileSync(
+      path.join(pkg, "package.json"),
+      JSON.stringify({
+        name: "openmeld",
+        version: "0.3.265",
+        gitHead: SHA,
+        bin: { openmeld: "dist/openmeld.js" },
+        dependencies: {},
+      })
+    );
+    const archive = path.join(directory, "original.tgz");
+    execFileSync("tar", ["-czf", archive, "-C", directory, "package"]);
+    const platform = createReleasePlatform({
+      cwd: directory,
+      env: process.env,
+      bucket: "unused",
+      spawn: (command, args, options) => {
+        if (command === "npm") {
+          copyFileSync(archive, path.join(args[3], "openmeld-0.3.265.tgz"));
+          return { status: 0, stdout: "openmeld-0.3.265.tgz\n", stderr: "" };
+        }
+        return spawnSync(command, args, options);
+      },
+    });
+    assert.deepEqual(
+      await platform.readPublishedNpmServiceHashes({
+        version: "0.3.265",
+        releaseSha: SHA,
+      }),
+      {
+        bundleHash: await computeServiceBundleHash({
+          rootDir: path.join(pkg, "dist"),
+        }),
+        portableBundleHash: await computeServiceBundleHash({
+          rootDir: path.join(pkg, "dist"),
+          excludeWindows: true,
+        }),
+      }
+    );
+    await assert.rejects(
+      platform.readPublishedNpmServiceHashes({
+        version: "0.3.265",
+        releaseSha: OTHER_SHA,
+      }),
+      { message: "The npm artifact gitHead does not match the release source." }
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 
@@ -259,7 +334,14 @@ function createPlatform(state) {
     platform: {
       readNpmVersion: () => state.npm,
       readPublishedRelease: () => state.published,
-      readChannelVersion: () => state.channel,
+      readChannel: () =>
+        state.channel
+          ? {
+              version: state.channel,
+              componentPolicy: state.channelPolicy ?? null,
+            }
+          : null,
+      readPublishedNpmServiceHashes: async () => state.npmHashes,
       buildPackagedCli: () => calls.push("build"),
       uploadBinary: () => calls.push("binary"),
       publishNpm: () => {
@@ -282,6 +364,18 @@ test("resumes at the same SHA without republishing and refuses a version from an
   try {
     const finished = createPlatform({
       npm: { version: "0.3.265", gitHead: releaseSha },
+      channel: "0.3.265",
+      channelPolicy: {
+        cli: {
+          ...publishedManifest().components.cli,
+          packageVersion: "0.3.265",
+        },
+        service: publishedManifest().components.service,
+      },
+      npmHashes: {
+        bundleHash: facts().service.bundleHash,
+        portableBundleHash: facts().service.portableBundleHash,
+      },
       published: {
         ...publishedManifest(),
         components: {
@@ -313,6 +407,20 @@ test("resumes at the same SHA without republishing and refuses a version from an
     assert.equal((await publishCli(input)).status, "current");
     assert.equal(tags.size, 1);
     assert.deepEqual(finished.calls, []);
+    finished.platform.readChannel = () => ({
+      version: "0.3.265",
+      componentPolicy: {
+        cli: {
+          ...publishedManifest().components.cli,
+          packageVersion: "0.3.265",
+        },
+        service: {
+          ...publishedManifest().components.service,
+          bundleHash: "9".repeat(64),
+        },
+      },
+    });
+    await assert.rejects(publishCli(input), RELEASE_MISMATCH);
 
     const foreign = createPlatform({
       npm: { version: "0.3.265", gitHead: OTHER_SHA },
@@ -327,6 +435,56 @@ test("resumes at the same SHA without republishing and refuses a version from an
       }),
       OTHER_SOURCE
     );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("resumes from published bytes instead of a newly rebuilt Windows helper", async () => {
+  const cwd = createSource("0.3.265");
+  const releaseSha = commitSource(cwd);
+  const originalService = { ...facts().service, bundleHash: "f".repeat(64) };
+  const state = {
+    npm: { version: "0.3.265", gitHead: releaseSha },
+    published: publishedManifest(),
+    channel: "0.3.265",
+    channelPolicy: {
+      cli: { ...facts().cli, ...CLI_POLICY },
+      service: { ...originalService, ...CLI_POLICY },
+    },
+    npmHashes: {
+      bundleHash: originalService.bundleHash,
+      portableBundleHash: originalService.portableBundleHash,
+    },
+  };
+  const { platform } = createPlatform(state);
+  const input = {
+    cwd,
+    releaseSha,
+    platform,
+    collectFacts: async () =>
+      facts({ service: { ...originalService, bundleHash: "9".repeat(64) } }),
+    readPolicy: async () => ({
+      version: "0.3.265",
+      cli: CLI_POLICY,
+      service: CLI_POLICY,
+    }),
+  };
+  try {
+    assert.equal((await publishCli(input)).status, "published");
+    assert.equal(
+      state.published.components.service.bundleHash,
+      originalService.bundleHash
+    );
+    state.published = publishedManifest();
+    state.npmHashes.bundleHash = "8".repeat(64);
+    await assert.rejects(publishCli(input), NPM_MISMATCH);
+    assert.equal(state.published.components.cli.packageVersion, "0.3.264");
+    state.npm = null;
+    await assert.rejects(publishCli(input), NPM_NOT_VISIBLE);
+    state.npm = { version: "0.3.265", gitHead: releaseSha };
+    state.channel = "0.3.264";
+    await assert.rejects(publishCli(input), CHANNEL_MISSING);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
@@ -356,6 +514,15 @@ test("waits for missing npm gitHead and lets a timed-out release resume", async 
   const state = {
     npm: { version: "0.3.265", gitHead: null },
     published: publishedManifest(),
+    channel: "0.3.265",
+    channelPolicy: {
+      cli: { ...facts().cli, ...CLI_POLICY },
+      service: publishedManifest().components.service,
+    },
+    npmHashes: {
+      bundleHash: facts().service.bundleHash,
+      portableBundleHash: facts().service.portableBundleHash,
+    },
   };
   const { platform, calls } = createPlatform(state);
   const input = {
@@ -379,7 +546,7 @@ test("waits for missing npm gitHead and lets a timed-out release resume", async 
       state.npm.gitHead = releaseSha;
     };
     assert.equal((await publishCli(input)).status, "published");
-    assert.deepEqual(calls, ["build", "binary", "tag:v0.3.265", "manifest"]);
+    assert.deepEqual(calls, ["build", "tag:v0.3.265", "manifest"]);
     assert.equal(state.published.components.cli.packageVersion, "0.3.265");
     state.npm.gitHead = null;
     platform.sleep = () => {

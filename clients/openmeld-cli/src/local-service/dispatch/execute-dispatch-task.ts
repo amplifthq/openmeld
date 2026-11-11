@@ -243,6 +243,7 @@ import {
   markExecutionContextWorkspaceInUse,
   prepareExecutionContextWorkspace,
   releaseExecutionContextWorkspace,
+  type TrackWorkspaceCleanup,
 } from "./execution-context-workspace";
 import {
   appendNonOwnerAudienceGuidance,
@@ -305,8 +306,10 @@ const AGENT_CONTROLLER_OCCUPANCY_KEEPALIVE_REASSERT_INTERVALS = 4;
 type EnqueueDispatchDeliverFrameInput = Parameters<
   typeof enqueueDispatchDeliverFrame
 >[0];
+type FailedTaskResultInput = Parameters<typeof buildFailedTaskResultPayload>[0];
 
 export function enqueueDispatchDeliverFrame(input: {
+  trackWorkspaceCleanup?: TrackWorkspaceCleanup;
   computerFileAccessStorePath: string;
   contextStore: Map<string, string>;
   currentSocketRef?: CurrentDaemonSocketRef;
@@ -551,8 +554,18 @@ function admitDispatchDeliverFrame(
     taskId: correlation.taskId,
     targetLabel: queueLogMeta.targetLabel,
     transportMode: queueLogMeta.transportMode,
+    onRunRefused: () =>
+      enqueueUnstartedTaskFailure({
+        errorCode: "host.execution_record_unavailable",
+        errorMessage:
+          "The local execution host could not record this task before starting it; the provider was not started.",
+        errorType: "internal",
+        localOwnerConflict: null,
+        suppressPublicOutcome: false,
+      }),
     run: async () => {
       return await handleDispatchDeliverFrame({
+        trackWorkspaceCleanup: input.trackWorkspaceCleanup,
         computerFileAccessStorePath: input.computerFileAccessStorePath,
         contextStore: input.contextStore,
         currentSocketRef,
@@ -619,9 +632,7 @@ function admitDispatchDeliverFrame(
       rejected.reason === "task.owner_conflict"
         ? `${queueRejectErrorCode}: local task owner conflict for task ${correlation.taskId}; activeOwner=${rejected.activeOwner.dispatchId}/${rejected.activeOwner.attemptId}`
         : `queue.full: local execution slot queue is full (queueMax=${String(rejected.snapshot.limits.queueMax)}, pending=${String(rejected.snapshot.queueDepth)})`;
-    const queueRejectPayload = buildFailedTaskResultPayload({
-      attemptId: correlation.attemptId,
-      agentControllerRef: correlation.agentControllerRef,
+    enqueueUnstartedTaskFailure({
       errorCode: queueRejectErrorCode,
       errorMessage: queueRejectMessage,
       errorType:
@@ -646,40 +657,7 @@ function admitDispatchDeliverFrame(
               rejectedTaskId: correlation.taskId,
             }
           : null,
-      sourceEventId: correlation.sourceEventId,
       suppressPublicOutcome: rejected.reason === "task.owner_conflict",
-      targetProfileId: correlation.targetProfileId,
-      taskId: correlation.taskId,
-    });
-    enqueueDispatchResultOutboxRecord({
-      attemptId: correlation.attemptId,
-      connectionGeneration: deliverRequest.connectionGeneration,
-      currentSocketRef,
-      daemonSessionId: input.daemonSessionId,
-      dispatchId: correlation.dispatchId,
-      executionIdentityEcho:
-        toRuntimeTransportResultIdentityEcho(deliverRequest),
-      executionTokenEcho:
-        toRuntimeCoordinatorExecutionTokenEcho(deliverRequest),
-      ledgerPaths: input.ledgerPaths,
-      leaseEpoch: deliverRequest.leaseEpoch,
-      payload: queueRejectPayload,
-      presenter: input.presenter,
-      runtimeCoordinatorExecutionId:
-        deliverRequest.payload.runtimeCoordinatorExecutionId,
-      taskId: correlation.taskId,
-    });
-    emitDaemonDispatchJournalEvent({
-      attemptId: correlation.attemptId,
-      connectionGeneration: deliverRequest.connectionGeneration,
-      daemonSessionId: input.daemonSessionId,
-      dispatchId: correlation.dispatchId,
-      leaseEpoch: deliverRequest.leaseEpoch,
-      metadata: buildResultDispatchJournalMetadata(queueRejectPayload),
-      profileId: deliverRequest.profileId,
-      result: queueRejectPayload.status,
-      taskId: correlation.taskId,
-      type: "dispatch.result.queued",
     });
     emitRunLine({
       presenter: input.presenter,
@@ -712,13 +690,61 @@ function admitDispatchDeliverFrame(
           : {}),
       },
     });
+  }
+  // A task that never started its own work still owes RuntimeCoordinator one
+  // explicit outcome through the durable result outbox.
+  function enqueueUnstartedTaskFailure(failure: {
+    errorCode: string;
+    errorMessage: string;
+    errorType: FailedTaskResultInput["errorType"];
+    localOwnerConflict: FailedTaskResultInput["localOwnerConflict"];
+    suppressPublicOutcome: boolean;
+  }): void {
+    const payload = buildFailedTaskResultPayload({
+      ...failure,
+      attemptId: correlation.attemptId,
+      agentControllerRef: correlation.agentControllerRef,
+      sourceEventId: correlation.sourceEventId,
+      targetProfileId: correlation.targetProfileId,
+      taskId: correlation.taskId,
+    });
+    enqueueDispatchResultOutboxRecord({
+      attemptId: correlation.attemptId,
+      connectionGeneration: deliverRequest.connectionGeneration,
+      currentSocketRef,
+      daemonSessionId: input.daemonSessionId,
+      dispatchId: correlation.dispatchId,
+      executionIdentityEcho:
+        toRuntimeTransportResultIdentityEcho(deliverRequest),
+      executionTokenEcho:
+        toRuntimeCoordinatorExecutionTokenEcho(deliverRequest),
+      ledgerPaths: input.ledgerPaths,
+      leaseEpoch: deliverRequest.leaseEpoch,
+      payload,
+      presenter: input.presenter,
+      runtimeCoordinatorExecutionId:
+        deliverRequest.payload.runtimeCoordinatorExecutionId,
+      taskId: correlation.taskId,
+    });
+    emitDaemonDispatchJournalEvent({
+      attemptId: correlation.attemptId,
+      connectionGeneration: deliverRequest.connectionGeneration,
+      daemonSessionId: input.daemonSessionId,
+      dispatchId: correlation.dispatchId,
+      leaseEpoch: deliverRequest.leaseEpoch,
+      metadata: buildResultDispatchJournalMetadata(payload),
+      profileId: deliverRequest.profileId,
+      result: payload.status,
+      taskId: correlation.taskId,
+      type: "dispatch.result.queued",
+    });
     emitDispatchRuntimeEvidenceTransition({
       currentSocketRef,
       daemonSessionId: input.daemonSessionId,
       deliverRequest,
       phase: "failed",
       presenter: input.presenter,
-      reasonCode: queueRejectErrorCode,
+      reasonCode: failure.errorCode,
     });
   }
   if (!enqueueResult.accepted) {
@@ -1017,6 +1043,7 @@ function normalizePositiveInteger(value: unknown): number | null {
 }
 
 export async function handleDispatchDeliverFrame(input: {
+  trackWorkspaceCleanup?: TrackWorkspaceCleanup;
   computerFileAccessStorePath: string;
   contextStore: Map<string, string>;
   currentSocketRef: CurrentDaemonSocketRef;
@@ -1587,12 +1614,13 @@ export async function handleDispatchDeliverFrame(input: {
         unscopedNativeConversationId: effectiveAgentControllerConversationId,
         context: parsedTask.executionContext,
         currentWorkingDirectory: originalWorkingDirectory,
-        forkSourceWorkingDirectory: await resolveForkSourceWorkingDirectory({
-          executionContext: parsedTask.executionContext,
-          ownerUserId: input.profileOwnerUserId,
-          routeConfig,
-          targetProfileId: parsedTask.targetProfileId,
-        }),
+        resolveForkSourceWorkingDirectory: () =>
+          resolveForkSourceWorkingDirectory({
+            executionContext: parsedTask.executionContext,
+            ownerUserId: input.profileOwnerUserId,
+            routeConfig,
+            targetProfileId: parsedTask.targetProfileId,
+          }),
         workingDirectory: activeRuntimeContext.providerRuntimeWorkingDirectory,
         existingNativeConversationId: existingContextId,
         ledgerRootPath: input.ledgerPaths.rootDirPath,
@@ -2529,6 +2557,7 @@ export async function handleDispatchDeliverFrame(input: {
     spaceActionReplyStream?.stop();
     await nativeQuiescence;
     await releaseDispatchTaskWorkspace({
+      trackWorkspaceCleanup: input.trackWorkspaceCleanup,
       workspaceUse,
       parsedTask,
       ledgerRootPath: input.ledgerPaths.rootDirPath,
@@ -3266,6 +3295,7 @@ async function prepareDispatchClaudeProjectContainer(input: {
 }
 
 async function releaseDispatchTaskWorkspace(input: {
+  trackWorkspaceCleanup?: TrackWorkspaceCleanup;
   workspaceUse: ExecutionContextWorkspaceUse | null;
   parsedTask: ParsedDispatchTask;
   ledgerRootPath: string;
@@ -3279,6 +3309,7 @@ async function releaseDispatchTaskWorkspace(input: {
   }
   try {
     const released = await releaseExecutionContextWorkspace({
+      trackWorkspaceCleanup: input.trackWorkspaceCleanup,
       ledgerRootPath: input.ledgerRootPath,
       context,
       use: input.workspaceUse,
@@ -4238,7 +4269,13 @@ async function coordinateConcurrentAgentReply(input: {
           prompt,
           routeConfig: input.routeConfig,
           runtimeContext: input.runtimeContext,
-          runtimeEnvOverrides: input.runtimeEnvOverrides,
+          runtimeEnvOverrides: {
+            ...input.runtimeEnvOverrides,
+            ...(input.runtimeControllerSupport.runtimeAdapterMatch.adapterId ===
+            "claude-code"
+              ? { [DISPATCH_SPACE_ACTION_DELIVERY_ONLY_ENV]: "1" }
+              : {}),
+          },
           runtimeControllerSupport: input.runtimeControllerSupport,
           streamingModeOverride: "final",
         });

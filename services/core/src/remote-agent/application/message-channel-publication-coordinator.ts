@@ -968,7 +968,7 @@ function resolveConfirmedFailureRetryAfterMs(input: {
     ? undefined
     : Math.min(input.retryAfterMs, remainingMs);
 }
-function assertMessageChannelCallbackAuthority(input: {
+export function assertMessageChannelCallbackAuthority(input: {
   body: RemoteAgentCoreCallbackBody;
   delivery: RemoteAgentNativeDeliveryRecord;
 }): void {

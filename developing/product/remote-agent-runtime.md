@@ -86,6 +86,13 @@ changes use the native journal and scoped database release in the
 
 ## Plugin connection action boundary
 
+An approved hosted issue action resumes its retained complete input through the
+ordinary provider tool and operation ledger before the model continues. Approval
+is not a request for the model to rewrite an issue description. Each batch item
+retains its own operation identity; an unrelated Thread cannot become its task
+context. A missing legacy input, changed access or unknown provider outcome
+remains explicit rather than becoming a new create attempt.
+
 The existing navigation action capability can offer `plugin_connection` with
 one supported service and `member`, `shared`, or `choose` setup intent. An
 explicit identity requirement is preserved; `choose` requests a permitted Web
@@ -1245,11 +1252,24 @@ text; its name and input contract remain distinct from Computer file transfers.
 Center Agent final Space replies and Space Routine reports may prepare explicit
 Human Profile recipients with `openmeld_set_final_reply_mentions`. The latest
 selection replaces the earlier selection for that turn; an empty list clears it.
-The native completion callback carries `mentionTargets`, and the existing Space
-publication boundary validates active Human membership and creates normal Mention
-notifications with the final message. Preparation is not publication, and plain
+`resolveRemoteAgentReplyMentions` rechecks the admitted execution, derives its
+destination from the delivery, and resolves every selected Human Profile before
+the tool changes that selection. A failed or incomplete resolution preserves the
+previous selection. The result distinguishes Space members from active people
+who belong only to the Organization. The native completion callback carries
+`mentionTargets`; Space repeats target validation at publication and seals display
+scope. Organization-only recipients receive a content-free mention receipt, with
+normal Space access unchanged. Preparation is not publication, and plain
 names never create notifications or Agent Wakes. Web renders explicit recipients
 even when the message prose does not contain an inline mention.
+
+A `space.addressing.target_invalid` publication rejection is deterministic. Core
+freezes a specific failure notice through the existing final-publication claim,
+instead of returning a retryable success-publication failure. Callback replays
+resume that frozen notice and never resend the rejected completed body. Temporary
+transport/publication failures keep their existing retry behavior. Routine Run
+history receives the bounded, public-safe addressing explanation, not the raw
+Worker exception or callback content.
 
 Contract Impact Audit: the optional callback field is Core/Remote Agent only.
 Deploy the accepting Core before a Remote Agent build can send this field; older
@@ -1334,7 +1354,8 @@ The agent worker is built on **Flue**, pinned by exact package version in
 Object session boundary, while keeping OpenMeld product facts out of Flue's
 private tables. Core talks to the worker through direct service-binding RPC;
 the worker addresses the Center Agent Durable Object by OpenMeld conversation
-id: a Space id for `space` conversations, or
+id: the request's canonical root in an ordinary Space, the Space id for a
+Center Agent DM, or
 `slack:{teamId}:{channelId}:{threadTs}` for Slack conversations.
 New provider-neutral Message Channel turns use
 `{provider}:{connectionId}:{chatId}:{rootMessageId}`. Existing Slack
@@ -1983,6 +2004,24 @@ environment contract. Only `web_dm` and `space_wake` label Core's
 locators, member-research task ids, and delegated-task ids retain their own
 trigger-specific names and are never presented as Space signal ids.
 
+For a verified member, the model-facing environment preserves the existing
+sender `profileId` and `ownerUserId` when supplied. Display names are labels,
+not identity keys. Missing optional identifiers remain absent; an unlinked
+provider identity or a speaking Agent is never promoted into a verified Human
+Profile by this rendering.
+
+Within one Space, including its threads, the Center Agent reuses member and
+external-account mappings established by authoritative directory facts or an
+explicit member answer. A different provider name or email alone does not
+invalidate that confirmation. If the source is outside the current context,
+the Agent recovers the original answer and later corrections through a known
+source/thread read, retained conversation recall, or a bounded same-Space
+message search before asking again. Prior assistant guesses and unanswered
+questions are not confirmations. The mapped provider account must still be
+resolved in the selected workspace before an authorized action. These facts
+remain conversation evidence: they do not link login identities, grant access,
+authorize another action, or require automatic shared-Space memory capture.
+
 Working-language choice is part of that same model inference. The worker does
 not call a second model or run a keyword detector before submission. The
 Organization hint is rendered separately from stable language-judgment rules
@@ -2249,6 +2288,13 @@ instruction, while Core remains responsible for returning the final result to
 the original conversation. Ordinary Space and Center Agent DM collaboration
 continue through this same path without any Channel dependency.
 
+For a Feishu delegation that resumes after all children finish, the scheduling turn
+leaves its working card open. The authorized continuation takes ownership of that
+card and publishes the result in the original topic. Channel continuations have
+no Space-owned work target. Core records the originating native delivery in the
+Wake audit before posting the Space signal so workstation admission can verify
+the human requester even if it runs immediately.
+
 The requester and the interaction environment are separate facts. A verified
 member remains the same requester across Center Agent Chat, a Space, Slack,
 Lark, Feishu, a Task continuation, and a future Local Agent carrier. Core may
@@ -2299,6 +2345,12 @@ system. Every continuation discards any inherited memory projection, rebuilds
 the environment from its frozen result destination, revalidates the requester,
 and recalls current bounded memory again. Core does not copy a parent turn's
 already-materialized memory into a child or resumed turn.
+
+Feishu history is available under the connected app's current provider permissions and bot membership, with no OpenMeld per-group, per-organization or global history switch. Ordinary traffic never starts a turn. Automatic context stays within the current root. When a requester refers to an earlier discussion, the default explicit read covers up to two hours of that requester's own earlier top-level text or rich-text messages.
+
+The explicit `current_thread_messages` scope also admits other authors and replies in the exact topic where the requester is currently replying. Core re-reads that human source, verifies its chat, root, author and provider thread ID, and confirms current group membership before reading the topic. A root mention alone is not thread-participation evidence, even when the bot subsequently creates a topic below it. This proof never authorizes another topic or other authors' independent group posts. Membership lookup is bounded to two pages of 100 people; a missing grant, absent member or unproven result returns no thread evidence.
+
+Both scopes exclude recalled records, revisions newer than the request, future messages and other chats, and report incomplete coverage. Source and coverage times are formatted as UTC by code before reaching the model. A provider refusal returns no history. New Feishu setup and same-app history consent request `im:message.group_msg` and `im:chat.members:read`; denied optional grants do not break ordinary messaging or an otherwise permitted requester-only read. Existing apps can update their permissions without replacing the bot.
 
 Channel context is not Slack-specific even though Slack is the first producer.
 Each provider adapter must translate its thread or conversation into the shared
@@ -2437,10 +2489,20 @@ Space, or a Routine whose frozen destination is an OpenMeld Space, Core reads
 `SpaceMeta.guide` from the owning Space Durable Object immediately before every
 native-delivery submission. A non-empty guide is attached as
 `turnEnvelope.space.guide`; an empty guide is omitted. The Remote Agent renders
-that value in the turn message, while the approved Organization Brief remains a
+that value as a content-versioned admission snapshot in the turn message. The
+Center Agent can read the current owning Guide through its scoped native tool;
+an empty result does not stand in for a failed read. The approved Organization Brief remains a
 separate organization-level system-prompt input. Center Agent DMs, Slack turns,
 and Slack-destination Routines do not read or carry a Space guide. Neither Core
 nor the Remote Agent caches this projection between turns.
+Brief context and explicit document reads also identify the returned current
+content by document ID and version. Drafts are not valid current Brief sources.
+Retained memory remains labeled historical instead of becoming a current rule
+through repetition in a summary.
+Source-reference opt-in negotiates the freshly authorized legacy prompt
+projection only when an older Core rejects that new request shape. This keeps
+current Brief and information-protection hints during the receiver-first Guide
+limit rollout; permission failures and invalid responses do not downgrade.
 
 Every hosted Center Agent materialization also renders the shared built-in
 information-protection guidance in its system prompt. Core may attach the
@@ -2792,6 +2854,14 @@ still carry all ten canonical Space File references. This is deliberately not
 one 4 MiB turn budget divided by image count: adding screenshots must not make
 each screenshot unreadable. Only the bounded textual observations survive the
 auxiliary calls.
+
+Image preparation runs before claiming a new primary-model submission or
+initializing its callback/execution context. Cloudflare Images error 9422 is a
+deterministic preparation rejection (`remote_agent.image_transform_quota_exceeded`).
+Core publishes the quota failure immediately and acknowledges the delivery;
+it does not retry it until the admission watchdog expires. Restoring image
+processing capacity requires a new user request. An already claimed or
+acknowledged submission retains its existing execution/recovery semantics.
 
 The registered provider route measures the complete serialized provider input
 after tools, routing, affinity, history, and current-turn context are composed.
@@ -3305,8 +3375,9 @@ surface adopts official features where they are free**:
   obligations; assignment, start, submission, review, and cancellation remain
   distinct. GitHub issues created from that shared Space record a linked Task
   with mutual references when the Task list can confirm the association;
-  closing the issue through GitHub tools closes
-  still-active linked Tasks, while completing a Task prompts the Agent to close
+  closing the issue through GitHub tools updates only its provider observation.
+  Task completion and cancellation require the Task's own workflow and stated
+  conditions. Completing a Task prompts the Agent to close
   still-open linked issues instead of silently writing GitHub. Task review
   handoffs use the existing Space Wake path and stop after
   two automatic rework rounds for a human decision. This Task surface does not
@@ -3728,6 +3799,18 @@ the recovered provider result as a failed write. Current membership, connection
 availability, and provider catalog state gate only a new claim; they cannot
 erase or redefine a provider execution that Core already claimed.
 
+Linear issue creation accepts `issueDestinationAuthority: explicit_request`
+when the verified interactive requester has authorized the exact team and
+optional project. Core applies the same live requester, execution-access and
+existing-confirmation checks as GitHub issue creation. The declaration is part
+of the operation signature and is never sent to OpenConnector. Without that
+authority or a verified Project default, the tool returns `awaiting_confirmation`
+with its stable operation ID and no provider submission. Approval continuation
+names the original request and action; retries keep the same input and authority.
+The read-only `openmeld_get_app_action_status` tool reads the retained operation
+and its private confirmation/continuation projection. It cannot approve or
+execute a write, and does not treat approval as a completed provider result.
+
 The path does not add confirmation to ordinary writes. A verified user's
 explicit request or an explicit Routine instruction is authorization. The
 shared OpenConnector action contract may supply first-class
@@ -3946,8 +4029,59 @@ configured Flue capability:
 
 ### Conversation Identity And Result Surface
 
-The per-conversation DO instance key is the OpenMeld conversation id. For
-`space` conversations, that id is the Space id. A DM with the Center Agent is a
+For verified interactive Space work, the model-facing direct and Code Mode
+catalogs share the same Space-owned work-target check. Each Human input selects
+or inherits its current goal and destinations before repository operations.
+Explicit corrections and independent requests are separate choices. A saved
+source-to-goal receipt fences callbacks from later defaults in the same Thread;
+the default index is scoped by author. An explicitly named earlier source is a
+context reference, never another requester or permission grant. Actual Space Task
+handoffs resolve at the Task owner; execution `taskId` attribution stays unchanged.
+GitHub search qualifiers are provider syntax, not task classification; global or
+ambiguous searches require an explicit bounded repository query. Native Plugin
+Git connections and publication of an existing checkout check the same target.
+Arbitrary Computer command text is not parsed as an alternative target authority.
+An approved Plugin continuation replays its original immutable operation through
+the normal action owner, independently of a new model-selected target.
+Personal Agents, Routines, and external Message Channels keep their current paths.
+
+Work-target refresh uses Flue's delivered-input start hook, after canonical input
+application and before the first model call. It does not perform a fallible Core
+read while the Agent function is being initialized. If that read fails, execution
+still fails closed, but the original Human input remains in canonical history for
+the next continuation. Each repository operation independently rechecks Space;
+the start-hook Signal is context, not another goal or execution owner.
+
+Contract impact: the new Core/Space work-target receiver and schemas are additive;
+no existing request, public read projection, or workstation contract changes.
+Deploy Core before Remote Agent; old Remote Agent does not call the receiver,
+while new Remote Agent fails closed against an older Core. Rolling Remote Agent
+back leaves the Space record retained. CLI/Service 0.3.279 package the added
+schemas as available updates without a minimum-version change. Existing CLI,
+Service, Skills, Gateway, and Web continue setup, Wake, Space actions, and
+diagnostics through their existing contracts. Desktop has no new payload or
+renderer dependency. The SQLite addition is local to each Space; no PostgreSQL
+migration or Cloudflare binding is added.
+
+Ordinary Space Center Agent requests use
+`center-space:{spaceId}:root:{rootSignalId}` as their logical conversation.
+The admitted Thread root selects the root; a new main message starts with its
+own signal ID. Replies and approvals in that Thread keep the same model history,
+while unrelated Threads do not share it. Core derives this identity from
+Space-owned addressing, never message text or a model-selected project.
+The existing runtime-generation owner still selects the physical DO instance.
+Already-admitted requests retain their frozen identity across retries and
+callbacks. Task continuations inherit their observer's logical identity.
+The Space id and Thread placement remain publication authority; this change
+does not hide authorized Space history or replace progressive context reads.
+Runtime rollover for a top-level request uses the Space owner's separate
+request-root continuity reader. Only that root and its Space-owned Thread
+placements enter the new runtime generation. Main-timeline quotations do not
+establish request membership and are excluded, including legacy reply references.
+The root is eligible as source evidence within the existing bounds. Center Agent DMs and already-frozen
+legacy conversation identities keep their existing continuity reader.
+
+A DM with the Center Agent keeps its Space id as its logical conversation and is a
 Direct Message Space as defined in
 `developing/product/space-collaboration.md`, so DMs need no separate
 conversation object. The Space timeline remains the durable user-facing record
@@ -4622,11 +4756,15 @@ contract in Core, with Zep Cloud behind a provider adapter:
 
 - Core recalls the current member's organization-scoped member memory for a
   turn. When organization memory is enabled, it may also recall the shared
-  organization subject.
+  organization subject. In an authorized ordinary Space it may additionally
+  recall that Space's isolated subject. That context must not be treated as
+  Organization-wide knowledge.
 - Completed requester-private Center Agent turns write only the verified
   member's memory across OpenMeld, Slack, Lark, and Feishu DMs. Completed shared
-  Space and Organization-shared Channel turns may write Organization memory
-  while it is enabled. Externally shared Channels write neither automatically.
+  Space turns capture the owning source message into that Space's memory while
+  the Organization policy is enabled. The generated reply is not reattributed
+  to the human. Organization-shared Channels still require explicit saves;
+  externally shared Channels write neither automatically.
 - Core reads automatic-write scope from the completed delivery's frozen
   `interactionEnvironment`, revalidates its verified sender against current
   Organization membership, and fails closed when those facts are missing,
@@ -4637,6 +4775,11 @@ contract in Core, with Zep Cloud behind a provider adapter:
   the call only while organization memory is enabled; it rejects stale or
   forged calls from requester-private and externally shared environments even
   if an old or compromised worker attempts the RPC.
+- An explicit OpenMeld save supplies a message evidence reference and its complete
+  message text. Core reopens the current source, checks its version and text, and
+  retains its author and version time. A recalled or changed message returns a
+  conflict; the worker must read the source again. Memory is still historical
+  reference data, not an adopted rule or action authority.
 - Core projects bounded memory items into the shared turn envelope before
   worker submission. The worker and Flue session must not query Zep, infer the
   enabled state, or create a parallel memory policy.

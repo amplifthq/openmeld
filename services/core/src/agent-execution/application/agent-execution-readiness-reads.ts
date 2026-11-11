@@ -212,7 +212,7 @@ export function createAgentExecutionReadinessReads(input?: {
             proof.agentControllerConversationId ===
               request.agentControllerConversationId &&
             proof.provider === request.provider &&
-            proof.method === request.method &&
+            request.methods.includes(proof.method) &&
             proof.expiresAtMs > request.nowMs
         ) ?? null
       );

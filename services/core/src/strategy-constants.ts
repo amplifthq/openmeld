@@ -9,6 +9,12 @@ export const PROVIDER_ACCESS_EVIDENCE_TTL_MS = 60 * 60 * 1000;
 export const DELIVERY_STABILITY_DEFAULT_METRICS_WINDOW_MS = 60_000;
 export const DELIVERY_STABILITY_DEFAULT_DISPATCHING_TIMEOUT_MS = 5000;
 export const RUNTIME_TRANSPORT_LOOKUP_TIMEOUT_MS = 5000;
+// Recovery reads may receive a platform shutdown error near the end of the
+// 30-second drain window. This is one total read budget, including retries;
+// it never limits or changes the lifetime of an Agent execution.
+export const RUNTIME_TRANSPORT_RECOVERY_READ_TIMEOUT_MS = 30_000;
+export const RUNTIME_TRANSPORT_READ_MAX_ATTEMPTS = 3;
+export const RUNTIME_TRANSPORT_READ_RETRY_BASE_DELAY_MS = 100;
 export const RUNTIME_TRANSPORT_DELIVER_TIMEOUT_MS = 30_000;
 export const RUNTIME_TRANSPORT_WAIT_TIMEOUT_FALLBACK_MS =
   DEFAULT_DISPATCH_WAIT_WINDOW_MS;
@@ -51,6 +57,10 @@ export const RUNTIME_COORDINATOR_PROGRESS_EVIDENCE_WATCHDOG_INTERVAL_MS = 30_000
 export const PREPARE_SESSION_TTL_MS = 30 * 60 * 1000;
 export const PREPARE_TOKEN_TTL_MS = 10 * 60 * 1000;
 export const SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS = 15_000;
+// Includes connection acquisition (itself capped at 10s). The PostgreSQL owner
+// allows 1s for origin cleanup and caps client disposal at 2s, keeping this
+// transaction gate below the platform's 30s reset limit.
+export const SPACE_POSTGRES_TRANSACTION_TIMEOUT_MS = 15_000;
 export const EXECUTION_TARGET_MUTATION_LEASE_MS = 5 * 60_000;
 // A Wake blocked by a target edit gets the full lease plus one outbox alarm
 // to retry before Core publishes a visible no-execution failure.

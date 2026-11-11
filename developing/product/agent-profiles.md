@@ -68,30 +68,58 @@ Profile of the group. The MemberAgent stores no status. Presence and state
 are derived at read time from its Profiles' Wakeability and their Computers'
 online state. A harness reads as missing on every Computer only after it has
 been absent from several consecutive catalog reports or for several minutes,
-so a PATH hiccup or an upgrade never greys the Agent. The display name
+so a PATH hiccup or an upgrade never greys the Agent. A presence read whose
+evidence read fails (the Computers' online lookup or the Profiles'
+Wakeability) fails as a whole instead of answering `Checking`: a failed read is
+no verdict, so a client keeps the state it last read and shows `Checking` only
+before any state has been read. A Profile the Wakeability answer leaves out
+still reads `Checking`. The display name
 `Felix Lu's Claude Code` is derived by the client from the owner's default
 Human Profile name and the harness display name. It is English only and never
 stored.
 
-A MemberAgent exists only for a harness the member chose. Setup creates one
-for each local agent the member selected (`--local-agent`, or the agents
-chosen on the Connect page), and `openmeld agent add <harness>` or the web add
-action creates one later. Each of these sends the harnesses to create to the
-catalog sync, and Core creates a MemberAgent only for a requested harness that
-the OpenMeld Service's harness catalog report shows on a connected Computer.
-Core asks Auth to create the MemberAgent and its default Agent Profile with the
-deterministic idempotency key `auto:{organizationId}:{harnessKind}`; the
-conditional insert on the unique key makes two Computers converge on one
-MemberAgent. Core then writes the Binding and assigns the default Profile under
-the same lock as every other assignment, and opens the owner's Direct Message.
-A sync without requested harnesses (surface open, catalog update) never
-creates a MemberAgent: it finishes interrupted creations, repairs unassigned
-bound Profiles, and reports the other detected harnesses as addable.
+A MemberAgent exists for every harness the member has turned on. The member's
+choice is the Local agents switch of each connected Computer: a harness that a
+Computer reports as turned on and detected gets a MemberAgent, and an
+installed harness that is turned off gets none and is listed as addable.
+Setup's selection is that switch: `openmeld setup` and the Connect page turn
+the selected local agents on and every other detected one off before any
+Agent is added, so choosing three of six harnesses adds three Agents. Turning
+a harness on is how the member adds it later: the Local agents switch in
+OpenMeld Web, the one-click Add in My Agents, and `openmeld agent add
+<harness>` all end in the same Core catalog sync, and Add or `agent add` name
+the harness so Core turns it on there first when it is installed but off. A
+harness that is newly installed and runnable is turned on by the OpenMeld
+Service, so it gets an Agent unless the member turns it off.
+
+Core runs the catalog sync when the member opens an Organization's Agents or
+Direct Message surface, when a harness is turned on from OpenMeld Web, and when
+a catalog report shows a harness that the previous report did not detect (in
+Organizations where the owner already has a MemberAgent). Members whose
+Agents predate this rule get their missing turned-on harnesses on the next
+surface open; no backfill is needed. Core asks Auth to create the MemberAgent
+and its default Agent Profile with the deterministic idempotency key
+`auto:{organizationId}:{harnessKind}`; the conditional insert on the unique
+key makes two Computers and repeated syncs converge on one MemberAgent. Core
+then writes the Binding and assigns the default Profile under the same lock
+as every other assignment, and opens the owner's Direct Message. Creation adds
+no Inbox item and no welcome message. Every sync also finishes interrupted
+creations and repairs unassigned bound Profiles. A shared-account harness
+(for example Grok Bot) waits for the owner to choose a provider conversation
+and is never added this way. Turning a harness off never deletes its
+MemberAgent: on every Computer with it turned off, it reads as missing and
+keeps its Profiles, Sessions, and history.
 MemberAgent `source` is `detected`, `migrated`, or `manual`; the default
 Profile's `source` is `auto_detected`.
 
 Personal Remote Agents are MemberAgents with `harnessKind = hosted` and
-`source = manual`. The Organization-owned Center Agent has no owner and stays
+`source = manual`. An accepted hosted Binding triggers an Auth transaction
+that atomically ensures this MemberAgent, assigns its Profile, and selects
+the first Profile as the default. Binding acceptance is separate from that
+transaction; catalog sync retries a failed hosted assignment without requiring
+a connected Computer. Later hosted Profiles join the same MemberAgent without
+replacing its default.
+The Organization-owned Center Agent has no owner and stays
 outside this structure. Two kinds of Profile cannot be grouped and stay
 unassigned: Profiles that never bound and Profiles bound to a `custom`
 controller. A disabled Binding still groups by its last Binding's harness and
@@ -99,7 +127,12 @@ reads as missing. Unassigned Profiles sit in their own section at the bottom of
 the Agents list, with the controller switcher as their assignment action. The
 system never guesses an assignment.
 
-The MemberAgent list and presence are owner reads. A MemberAgent link
+The MemberAgent list and presence are owner reads. Surfaces that need the
+title or archive state of every Session with the member's MemberAgents read
+them in one owner read
+(`GET /v1/organizations/current/member-agents/direct-message-sessions`, every
+Profile of every MemberAgent, active and archived), never one Session list per
+Profile. A MemberAgent link
 (`/agents?memberAgentId=`) still opens for any member of its Organization:
 `GET /v1/member-agents/:memberAgentId/profiles` resolves it to the Profiles the
 caller can see, with the same rule as All Agents (active Agent Profiles of the
@@ -112,8 +145,9 @@ Core accepts a Binding write (Create, a Personal Remote Agent, the controller
 switcher, or catalog sync), it asks Auth to assign the Profile to the owner's
 existing MemberAgent for that harness in the Profile's Organization. A Profile
 created on purpose therefore joins the existing Agent as one more Profile; it
-never creates a second MemberAgent. The assignment never creates a MemberAgent
-and never moves an assigned Profile. It reads the harness from the Profile's
+never creates a second MemberAgent. Local assignment never creates a MemberAgent;
+hosted assignment ensures the manually chosen hosted MemberAgent as above.
+Neither moves an assigned Profile. It reads the harness from the Profile's
 current Binding under a per-Profile lock that every Binding write also takes,
 so a controller switch that commits first is never grouped under the old
 harness. A failed assignment does not fail the Binding write: each catalog
@@ -121,15 +155,22 @@ sync, with or without a connected Computer, assigns any bound Profile still
 unassigned whose harness has a MemberAgent, grouping by the same Binding as
 the migration.
 
+Detected-Agent setup retries the initial owner Direct Message independently of
+the Binding. It repairs or reuses an existing chat, but never creates a replacement
+after the owner deletes or converts the earlier chat. The existing Space index
+history distinguishes those deliberate actions from setup that never created a
+chat; no separate setup-completion flag is stored.
+
 Nothing is configurable on the MemberAgent itself. Space participants remain
 Agent Profiles: a MemberAgent is a grouping, never a Space member, message
 author, or mention target.
 
-The default Agent Profile is created with its MemberAgent. Its name is the
-harness display name and is not editable, and it displays without a suffix:
-`Felix Lu's Claude Code`. Every other Agent Profile is created on purpose with
-a short owner-chosen name and displays as `Felix Lu's Claude Code · PR
-Reviewer`. Handle rules are unchanged. A new model, folder, or task never needs
+The default Agent Profile is created with its MemberAgent. Its initial name is
+the harness display name; the owner can rename it. An unchanged default displays
+without a suffix: `Felix Lu's Claude Code`. A renamed default or an additional
+Profile includes its chosen name, for example `Felix Lu's Claude Code · PR
+Reviewer`. Synchronizing detected harnesses preserves the chosen name. Every
+additional Profile is created on purpose. Handle rules are unchanged. A new model, folder, or task never needs
 a new Profile. A Profile runs on one Computer and cannot change harness: Core
 refuses a Binding write that would move an assigned Profile to another harness,
 a `custom` controller included, with
@@ -159,7 +200,8 @@ mention, and anyone else's mention creates a request to the owner (see
 two of the Agent's Profiles are members, the mention must name one. No "last
 used in this Space" state is stored.
 
-When a harness disappears, its MemberAgent reads as missing after the debounce,
+When a harness disappears, its MemberAgent reads as missing after the debounce
+(a harness turned off reads as missing at once),
 moves to an unavailable group, and keeps its Profiles, Sessions, and history.
 After 30 days the owner gets a manual Archive action; nothing is deleted
 automatically, and reinstalling restores the same MemberAgent. A second
@@ -217,8 +259,8 @@ An Agent Profile owns product identity and collaboration meaning:
 - Space membership meaning
 
 An Agent Profile name is a practical label for distinguishing configurations
-of one MemberAgent. A default Profile's name is its harness display name, set
-at creation and not editable. Ordinary interactive creation of another Profile
+of one MemberAgent. A default Profile starts with its harness display name and
+can be renamed by its owner, just like an additional Profile. Ordinary interactive creation of another Profile
 must not make a user create one profile per task: a new model, folder, or task
 uses the existing Profile's settings or a new Session. An additional Profile
 gets a short owner-chosen name such as `PR Reviewer`; it is shown after the
@@ -804,6 +846,15 @@ owner's explicit instruction in the current turn, with the confirmation and
 root-requester check defined in
 `developing/product/organizations-and-center-agent.md` (Permission model).
 
+Permission-mode changes through public Binding writes or the Center Agent retain
+the verified request source, actor, before/after mode, Binding identity and
+configuration revisions in the existing sensitive-operation audit. The mutation
+and its change event commit together; failed audit persistence rolls the mutation
+back. Reconnecting a Binding retains the same audit rule. Internal initialization
+does not invent a Human actor. Legacy audit readers retain their original shape;
+`responseVersion=2` explicitly requests optional change details. Audit evidence
+does not authorize a change or assert that a running controller applied it.
+
 Pending approvals remain explicit decisions. In the Space, an answered approval
 leaves the pending-action surface as soon as the owner submits it, and the next
 request that still needs the owner takes its place; a response that fails to
@@ -927,11 +978,24 @@ The controller's native mode still decides which requests occur and which
 choices are valid. OpenMeld does not turn `Ask`, `Plan`, or an approval mode into
 one generic permission policy. It maps only the choices the controller offers,
 never fabricates an approval, and never upgrades a one-time decision into a
-persistent rule without a separate explicit choice from the owner. When the
-owner chooses both, OpenMeld answers the current request first so the Wake can
-resume, then saves the controller-native low-interruption mode as a non-blocking
-follow-up. A failed Profile save must not undo or delay the accepted current
-response. When a controller offers a "don't ask again" choice but does not
+persistent rule without a separate explicit choice from the owner. Supported
+permission-mode choices are visible before an approval is selected, with
+current permissions selected by default. Choosing Deny clears any draft mode
+change. Codex command-prefix approvals preserve the exact native amendment;
+OpenMeld does not reinterpret "matching" as semantic similarity or broaden the
+prefix. When Codex omits its optional decision list, its explicit proposed
+execpolicy amendment supplies the reusable choice. A supplied decision list,
+including an empty one, remains authoritative. Native Codex policy owns saving
+and evaluating these rules across requests and sessions.
+Reusable command-prefix choices are withheld when their complete combined rule
+description cannot fit within the bounded request. Other native decisions remain
+available; OpenMeld never asks the owner to save a rule from a truncated preview.
+
+When the owner chooses both on a request that supports permission-mode updates,
+OpenMeld saves the Binding mode and includes its canonical reference with the
+current approval response. A failed mode save keeps the request actionable;
+the owner can retry or keep the current permissions. When a controller offers a
+"don't ask again" choice but does not
 honor it itself, as Grok Build's ACP does not (Claude Code, Codex, Cursor, and
 OpenCode honor theirs natively), OpenMeld keeps the owner's
 choice for that controller conversation while the OpenMeld Service keeps
@@ -2024,8 +2088,8 @@ Use scoped owner documents for detailed rules:
 - The harness catalog report is the single source of MemberAgent existence.
   Only the default Agent Profile is created with its MemberAgent; every other
   Agent Profile needs explicit intent.
-- A default Agent Profile's name is its harness display name and is not
-  editable.
+- A default Agent Profile starts with its harness display name; the owner can
+  rename it, and later harness synchronization preserves that name.
 - An assigned Agent Profile cannot change harness; the controller switcher is
   only the assignment action for unassigned Profiles.
 - Only the owner, as the root requester, changes Agent Profile settings,

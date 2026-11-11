@@ -57,7 +57,7 @@ export const openMeldDaemonProviderConversationProofs = applicationTable(
     ),
     check(
       "openMeldDaemon_provider_conversation_proofs_method_check",
-      sql`"method" = 'codex_app_server_thread_resume'`
+      sql`"method" in ('codex_app_server_thread_resume', 'codex_app_server_thread_read')`
     ),
     check(
       "openMeldDaemon_provider_conversation_proofs_status_check",

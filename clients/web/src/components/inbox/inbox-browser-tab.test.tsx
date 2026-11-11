@@ -34,6 +34,7 @@ describe("Inbox browser tab lifecycle", () => {
 		const summary: InboxSummaryResponse = {
 			organizationId: "org-a",
 			ordinaryUnreadCount: 127,
+			personalUnreadCount: 1,
 			totalUnreadCount: 127,
 			unreadMentionCount: 0,
 			unresolvedActionCount: 0,
@@ -43,7 +44,7 @@ describe("Inbox browser tab lifecycle", () => {
 		client.setQueryData(inboxQueryKeys.summary("org-b"), {
 			...summary,
 			organizationId: "org-b",
-			totalUnreadCount: 0,
+			personalUnreadCount: 0,
 		});
 		document.title = "Inbox | OpenMeld";
 		const icon = document.createElement("link");
@@ -91,7 +92,7 @@ describe("Inbox browser tab lifecycle", () => {
 		);
 		const view = render(app("org-a"));
 		await waitFor(() => expect(decode).toHaveBeenCalledOnce());
-		expect(document.title).toBe("127 unread · Inbox | OpenMeld");
+		expect(document.title).toBe("1 unread for you · Inbox | OpenMeld");
 		view.rerender(app("org-b"));
 		await act(async () => {
 			finishDecode();

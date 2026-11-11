@@ -127,7 +127,6 @@ import {
 import {
 	MemberAgentHarnessLock,
 	useMemberAgentHarnessLocked,
-	useMemberAgentProfileNameLocked,
 } from "#/components/member-agents/member-agent-harness-lock";
 import { useMemberAgentIndex } from "#/components/member-agents/use-member-agents";
 import {
@@ -198,6 +197,7 @@ import { projectsQueryOptions } from "#/query/organizations/projects";
 import {
 	agentProfileControllerChangeEligibilityQueryOptions,
 	agentProfilePrimaryBindingQueryKeys,
+	agentProfilePrimaryBindingQueryOptions,
 } from "#/query/profiles/primary-binding";
 import {
 	agentProfileWorkingFolderQueryOptions,
@@ -1662,8 +1662,26 @@ function AgentProfileDirectoryRow(input: {
 		entries: controller.localAgentCatalogEntries,
 		readiness,
 	});
-	const primaryBinding =
+	const projectedBinding =
 		controller.primaryBindingByProfileId.get(profile.openMeldProfileId) ?? null;
+	// A cold organization overview must not block this owner's saved settings.
+	const loadConfiguration =
+		input.presentation === "detail" && canManage && !projectedBinding;
+	const bindingQuery = useQuery(
+		agentProfilePrimaryBindingQueryOptions({
+			agentProfileId: profile.openMeldProfileId,
+			enabled: loadConfiguration,
+			organizationId: controller.currentOrganization.id,
+			storageScope: input.cardInput.recovery.storageScope,
+		})
+	);
+	const configurationReadFailed = bindingQuery.data
+		? bindingQuery.data.status === "unavailable"
+		: bindingQuery.isError;
+	const primaryBinding =
+		projectedBinding ??
+		(loadConfiguration ? bindingQuery.data?.binding : null) ??
+		null;
 	const directoryAgentControllerRef =
 		input.cardInput.agentControllerRefByProfileId?.get(
 			profile.openMeldProfileId
@@ -1693,137 +1711,156 @@ function AgentProfileDirectoryRow(input: {
 	});
 
 	return (
-		<AgentProfileExecutionReadinessRow
-			activityNavigation={
-				input.cardInput.agentProfileActivityNavigationByProfileId?.get(
-					profile.openMeldProfileId
-				) ?? null
-			}
-			actorProfileId={input.cardInput.recovery.selectedHumanProfileId}
-			controllerChangeOptions={controller.controllerChangeOptions}
-			directoryAgentControllerRef={directoryAgentControllerRef}
-			duplicateConversationProfileNames={
-				controller.duplicateConversationProfileNamesByProfileId.get(
-					profile.openMeldProfileId
-				) ?? []
-			}
-			errorMessage={
-				controller.agentExecutionReadinessErrorByProfileId.get(
-					profile.openMeldProfileId
-				) ?? null
-			}
-			localAgentCatalogEntries={controller.localAgentCatalogEntries}
-			modelCatalog={controller.modelCatalog}
-			modelCompatibilityContext={modelCompatibilityContext}
-			onCheckAgain={actions.onCheckAgain}
-			onControllerChange={actions.onControllerChange}
-			onControllerCollaborationModeUpdate={
-				actions.onControllerCollaborationModeUpdate
-			}
-			onControllerPermissionModeUpdate={
-				actions.onControllerPermissionModeUpdate
-			}
-			onDisablePrimaryBinding={actions.onDisablePrimaryBinding}
-			onModelSelectionUpdate={actions.onModelSelectionUpdate}
-			onOpenCodePermissionUpdate={actions.onOpenCodePermissionUpdate}
-			onOpenDirectMessage={actions.onOpenDirectMessage}
-			onProfileUpdated={actions.onProfileUpdated}
-			onRecoveryAction={actions.onRecoveryAction}
-			onRemoveProfile={actions.onRemoveProfile}
-			onRenameProfile={actions.onRenameProfile}
-			onRepairAction={actions.onRepairAction}
-			operationalContext={
-				controller.agentProfileOperationalContextByProfileId.get(
-					profile.openMeldProfileId
-				) ?? null
-			}
-			organizationId={controller.currentOrganization.id}
-			ownerAvatarUrl={
-				profile.ownerUserId
-					? (input.cardInput.ownerAvatarUrlByUserId?.get(profile.ownerUserId) ??
-						null)
-					: null
-			}
-			ownerProfile={
-				input.cardInput.recovery.selectedHumanProfile?.ownerUserId ===
-				profile.ownerUserId
-					? input.cardInput.recovery.selectedHumanProfile
-					: null
-			}
-			pendingState={{
-				checkAgain:
-					controller.pendingCheckProfileId === profile.openMeldProfileId,
-				controllerChange:
-					controller.pendingControllerChangeProfileId ===
-					profile.openMeldProfileId,
-				controllerCollaborationMode:
-					controller.pendingControllerCollaborationModeProfileId ===
-					profile.openMeldProfileId,
-				controllerPermissionMode:
-					controller.pendingControllerPermissionModeProfileId ===
-					profile.openMeldProfileId,
-				directMessage:
-					controller.pendingDirectMessageProfileId ===
-					profile.openMeldProfileId,
-				disablePrimaryBinding:
-					controller.pendingDisablePrimaryBindingProfileId ===
-					profile.openMeldProfileId,
-				modelSelection:
-					controller.pendingModelSelectionProfileId ===
-					profile.openMeldProfileId,
-				openCodePermission:
-					controller.pendingOpenCodePermissionProfileId ===
-					profile.openMeldProfileId,
-				remove: controller.pendingRemoveProfileId !== null,
-				rename: controller.pendingRenameProfileId === profile.openMeldProfileId,
-				recoveryAction:
-					controller.pendingRecoveryActionProfileId ===
-					profile.openMeldProfileId,
-				repair: controller.pendingRepairProfileIds.has(
-					profile.openMeldProfileId
-				),
-			}}
-			presentation={input.presentation}
-			primaryBinding={primaryBinding}
-			profile={profile}
-			readiness={readiness}
-			repairActions={configuration.repairActions}
-			rowRef={(node) => {
-				if (node) {
-					controller.profileRowElementsRef.current.set(
-						profile.openMeldProfileId,
-						node
-					);
-				} else {
-					controller.profileRowElementsRef.current.delete(
+		<>
+			{loadConfiguration && configurationReadFailed ? (
+				<div role="alert">
+					OpenMeld could not load this Agent’s settings.
+					<Button
+						onClick={() => bindingQuery.refetch()}
+						size="sm"
+						variant="outline"
+					>
+						Retry settings
+					</Button>
+				</div>
+			) : null}
+			<AgentProfileExecutionReadinessRow
+				activityNavigation={
+					input.cardInput.agentProfileActivityNavigationByProfileId?.get(
 						profile.openMeldProfileId
-					);
+					) ?? null
 				}
-			}}
-			rowState={{
-				autoRefreshExhausted: controller.autoRefreshExhaustedProfileIds.has(
-					profile.openMeldProfileId
-				),
-				canManage,
-				currentLocalRuntimeCanReply: controller.currentLocalRuntimeCanReply,
-				isFocused:
-					controller.highlightedProfileId === profile.openMeldProfileId,
-				isReadinessPending:
-					controller.agentExecutionReadinessPendingProfileIds.has(
+				actorProfileId={input.cardInput.recovery.selectedHumanProfileId}
+				configurationIsPending={
+					loadConfiguration ? bindingQuery.isPending : undefined
+				}
+				controllerChangeOptions={controller.controllerChangeOptions}
+				directoryAgentControllerRef={directoryAgentControllerRef}
+				duplicateConversationProfileNames={
+					controller.duplicateConversationProfileNamesByProfileId.get(
+						profile.openMeldProfileId
+					) ?? []
+				}
+				errorMessage={
+					controller.agentExecutionReadinessErrorByProfileId.get(
+						profile.openMeldProfileId
+					) ?? null
+				}
+				localAgentCatalogEntries={controller.localAgentCatalogEntries}
+				modelCatalog={controller.modelCatalog}
+				modelCompatibilityContext={modelCompatibilityContext}
+				onCheckAgain={actions.onCheckAgain}
+				onControllerChange={actions.onControllerChange}
+				onControllerCollaborationModeUpdate={
+					actions.onControllerCollaborationModeUpdate
+				}
+				onControllerPermissionModeUpdate={
+					actions.onControllerPermissionModeUpdate
+				}
+				onDisablePrimaryBinding={actions.onDisablePrimaryBinding}
+				onModelSelectionUpdate={actions.onModelSelectionUpdate}
+				onOpenCodePermissionUpdate={actions.onOpenCodePermissionUpdate}
+				onOpenDirectMessage={actions.onOpenDirectMessage}
+				onProfileUpdated={actions.onProfileUpdated}
+				onRecoveryAction={actions.onRecoveryAction}
+				onRemoveProfile={actions.onRemoveProfile}
+				onRenameProfile={actions.onRenameProfile}
+				onRepairAction={actions.onRepairAction}
+				operationalContext={
+					controller.agentProfileOperationalContextByProfileId.get(
+						profile.openMeldProfileId
+					) ?? null
+				}
+				organizationId={controller.currentOrganization.id}
+				ownerAvatarUrl={
+					profile.ownerUserId
+						? (input.cardInput.ownerAvatarUrlByUserId?.get(
+								profile.ownerUserId
+							) ?? null)
+						: null
+				}
+				ownerProfile={
+					input.cardInput.recovery.selectedHumanProfile?.ownerUserId ===
+					profile.ownerUserId
+						? input.cardInput.recovery.selectedHumanProfile
+						: null
+				}
+				pendingState={{
+					checkAgain:
+						controller.pendingCheckProfileId === profile.openMeldProfileId,
+					controllerChange:
+						controller.pendingControllerChangeProfileId ===
+						profile.openMeldProfileId,
+					controllerCollaborationMode:
+						controller.pendingControllerCollaborationModeProfileId ===
+						profile.openMeldProfileId,
+					controllerPermissionMode:
+						controller.pendingControllerPermissionModeProfileId ===
+						profile.openMeldProfileId,
+					directMessage:
+						controller.pendingDirectMessageProfileId ===
+						profile.openMeldProfileId,
+					disablePrimaryBinding:
+						controller.pendingDisablePrimaryBindingProfileId ===
+						profile.openMeldProfileId,
+					modelSelection:
+						controller.pendingModelSelectionProfileId ===
+						profile.openMeldProfileId,
+					openCodePermission:
+						controller.pendingOpenCodePermissionProfileId ===
+						profile.openMeldProfileId,
+					remove: controller.pendingRemoveProfileId !== null,
+					rename:
+						controller.pendingRenameProfileId === profile.openMeldProfileId,
+					recoveryAction:
+						controller.pendingRecoveryActionProfileId ===
+						profile.openMeldProfileId,
+					repair: controller.pendingRepairProfileIds.has(
 						profile.openMeldProfileId
 					),
-				isReadinessRefreshing:
-					input.cardInput.agentExecutionReadinessIsRefreshing === true,
-			}}
-			setupAction={configuration.setupAction}
-			storageScope={input.cardInput.recovery.storageScope}
-			wakeAvailabilityDisplayOverride={
-				controller.wakeAvailabilityDisplayOverrideByProfileId.get(
-					profile.openMeldProfileId
-				) ?? null
-			}
-			wakeAvailabilityNowMs={input.cardInput.wakeAvailabilityNowMs}
-		/>
+				}}
+				presentation={input.presentation}
+				primaryBinding={primaryBinding}
+				profile={profile}
+				readiness={readiness}
+				repairActions={configuration.repairActions}
+				rowRef={(node) => {
+					if (node) {
+						controller.profileRowElementsRef.current.set(
+							profile.openMeldProfileId,
+							node
+						);
+					} else {
+						controller.profileRowElementsRef.current.delete(
+							profile.openMeldProfileId
+						);
+					}
+				}}
+				rowState={{
+					autoRefreshExhausted: controller.autoRefreshExhaustedProfileIds.has(
+						profile.openMeldProfileId
+					),
+					canManage,
+					currentLocalRuntimeCanReply: controller.currentLocalRuntimeCanReply,
+					isFocused:
+						controller.highlightedProfileId === profile.openMeldProfileId,
+					isReadinessPending:
+						controller.agentExecutionReadinessPendingProfileIds.has(
+							profile.openMeldProfileId
+						),
+					isReadinessRefreshing:
+						input.cardInput.agentExecutionReadinessIsRefreshing === true,
+				}}
+				setupAction={configuration.setupAction}
+				storageScope={input.cardInput.recovery.storageScope}
+				wakeAvailabilityDisplayOverride={
+					controller.wakeAvailabilityDisplayOverrideByProfileId.get(
+						profile.openMeldProfileId
+					) ?? null
+				}
+				wakeAvailabilityNowMs={input.cardInput.wakeAvailabilityNowMs}
+			/>
+		</>
 	);
 }
 
@@ -2205,6 +2242,7 @@ type AgentProfileActionPendingState = {
 };
 
 type AgentProfileExecutionReadinessRowProps = {
+	configurationIsPending?: boolean;
 	activityNavigation: AgentProfileActivityNavigation | null;
 	actorProfileId: string | null;
 	directoryAgentControllerRef: string | null;
@@ -2558,6 +2596,7 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 				hasEnabledPrimaryBinding:
 					input.row.primaryBinding?.bindingState === "enabled_primary",
 			}}
+			configurationIsPending={input.row.configurationIsPending}
 			controllerChangeOptions={input.row.controllerChangeOptions}
 			details={input.details}
 			editState={resolveAgentProfileEditState({
@@ -3247,6 +3286,7 @@ function AgentProfileOptionsMenu(input: {
 }
 
 type AgentProfileRowMoreMenuProps = {
+	configurationIsPending?: boolean;
 	workingFolderTarget?: PeopleComputerTarget;
 	workingFolderBindingTarget?: AgentProfileBindingTarget;
 	activityNavigation: AgentProfileActivityNavigation | null;
@@ -4075,7 +4115,7 @@ function resolveWorkspaceModelPresentation(
 		input.editState !== null || input.publicProfileConfiguration !== null;
 	if (!configurationKnown) {
 		return {
-			isLoading: input.readinessIsPending,
+			isLoading: input.configurationIsPending ?? input.readinessIsPending,
 			summary: "Model unavailable",
 		};
 	}
@@ -4422,18 +4462,19 @@ export function AgentProfileConfigurationOverview(
 	input: AgentProfileConfigurationOverviewProps
 ) {
 	const editor = useAgentProfileConfigurationEditor(input);
+	const defaultSummary = input.editState ? "Default" : "Unavailable";
 	const collaboration = input.editState?.controllerCollaborationMode;
 	const collaborationSummary = collaboration
 		? (collaboration.options.find(
 				(option) => option.value === collaboration.value
 			)?.label ?? "Default")
-		: "Default";
+		: defaultSummary;
 	const permissionMode = input.editState?.controllerPermissionMode;
 	const permissionSummary = permissionMode?.value
 		? getAgentControllerPermissionModeDisplayMetadata(permissionMode.value, {
 				agentControllerRef: permissionMode.agentControllerRef,
 			}).label
-		: "Default";
+		: defaultSummary;
 	const owner = resolveProfileDetailsValue(input.details, "owner") ?? "You";
 	const ownerProfileId = input.ownerProfileId ?? owner;
 	const workingFolderNeedsAttention =
@@ -4728,18 +4769,19 @@ function AgentProfileModelConfigurationCard(input: {
 		(entry) => entry.id === selection?.modelId
 	);
 	// What a new chat uses; the hosted summary already names its model.
-	const cardValue = isHostedAgentControllerRef(props.agentControllerRef)
-		? null
-		: resolveAgentProfileModelCardValue({
-				agentControllerRef: props.agentControllerRef ?? null,
-				modelCatalog: props.modelCatalog,
-				modelSelection: selection
-					? {
-							modelId: selection.modelId,
-							reasoningLevel: selection.reasoningLevel || undefined,
-						}
-					: null,
-			});
+	const cardValue =
+		props.editState && !isHostedAgentControllerRef(props.agentControllerRef)
+			? resolveAgentProfileModelCardValue({
+					agentControllerRef: props.agentControllerRef ?? null,
+					modelCatalog: props.modelCatalog,
+					modelSelection: selection
+						? {
+								modelId: selection.modelId,
+								reasoningLevel: selection.reasoningLevel || undefined,
+							}
+						: null,
+				})
+			: null;
 	const retirement = resolveModelRetirementDisplay(
 		model,
 		props.modelCompatibilityContext
@@ -5471,7 +5513,6 @@ function AgentProfileEditDialogFields(input: {
 	permissionControlRef: Ref<HTMLButtonElement>;
 	profileNameInputId: string;
 }) {
-	const nameLocked = useMemberAgentProfileNameLocked();
 	return (
 		<div className="grid gap-5">
 			<AgentConfigurationEditorCard
@@ -5483,27 +5524,18 @@ function AgentProfileEditDialogFields(input: {
 					<Label className="sr-only" htmlFor={input.profileNameInputId}>
 						Name
 					</Label>
-					{nameLocked ? (
-						<p className="text-sm">
-							{input.activeDraft.profileName}
-							<span className="mt-1 block text-muted-foreground text-xs">
-								The default Profile is named after its harness.
-							</span>
-						</p>
-					) : (
-						<Input
-							disabled={input.disabled}
-							id={input.profileNameInputId}
-							onChange={(event) => {
-								input.onDraftChange({
-									...input.activeDraft,
-									key: input.draftKey,
-									profileName: event.target.value,
-								});
-							}}
-							value={input.activeDraft.profileName}
-						/>
-					)}
+					<Input
+						disabled={input.disabled}
+						id={input.profileNameInputId}
+						onChange={(event) => {
+							input.onDraftChange({
+								...input.activeDraft,
+								key: input.draftKey,
+								profileName: event.target.value,
+							});
+						}}
+						value={input.activeDraft.profileName}
+					/>
 					{input.dialogState.profileNameChanged &&
 					!input.dialogState.profileNameIsValid ? (
 						<p className="text-destructive text-xs">Enter an Agent name.</p>

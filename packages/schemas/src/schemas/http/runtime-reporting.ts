@@ -165,9 +165,10 @@ export const submitRuntimeAgentControllerReportsBodySchema = z.strictObject({
 export const runtimeProviderConversationProofProviderSchema =
   z.literal("codex");
 
-export const runtimeProviderConversationProofMethodSchema = z.literal(
-  "codex_app_server_thread_resume"
-);
+export const runtimeProviderConversationProofMethodSchema = z.enum([
+  "codex_app_server_thread_resume",
+  "codex_app_server_thread_read",
+]);
 
 export const runtimeProviderConversationProofStatusSchema = z.enum([
   "failed",

@@ -38,8 +38,10 @@ export function harnessKindsFromLocalAgentIds(
 
 /**
  * Ask Core to reconcile the member's Agents in the active Organization.
- * Only the Harnesses in `createHarnessKinds` get a new Agent; an empty list
- * finishes existing Agents and reports the addable Harnesses.
+ * Every Harness turned on in Local agents on a connected computer gets an
+ * Agent; `createHarnessKinds` names the ones the caller just turned on, so
+ * the response says why one was not added. Turned-off Harnesses come back
+ * as addable.
  */
 export async function syncMemberAgents(input: {
   createHarnessKinds: readonly DetectedHarnessKind[];
@@ -100,10 +102,11 @@ export type SetupMemberAgentsResult =
   | { status: "failed"; message: string };
 
 /**
- * Setup adds an Agent only for each local agent the member selected
- * (`--local-agent`, or the agents chosen on the Connect page). Other detected
- * Harnesses stay addable with `openmeld agent add`. Setup never fails here:
- * a skipped or failed step is reported and the next sync finishes it.
+ * Setup adds an Agent for each local agent the member selected
+ * (`--local-agent`, or the agents chosen on the Connect page); setup turned
+ * those on and the others off. Turned-off Harnesses stay addable with
+ * `openmeld agent add`. Setup never fails here: a skipped or failed step is
+ * reported and the next sync finishes it.
  */
 export async function addSetupSelectedMemberAgents(input: {
   selectedLocalAgentIds: readonly string[];

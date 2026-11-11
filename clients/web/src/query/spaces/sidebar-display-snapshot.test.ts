@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
+import { agentDirectMessageSessionQueryKeys } from "#/query/organizations/agent-direct-message-sessions";
 import { centerAgentSessionsQueryOptions } from "#/query/organizations/center-agent-sessions";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
@@ -125,5 +126,33 @@ describe("sidebar display snapshot", () => {
 			ownerAccountId: "account",
 		});
 		expect(client.getQueryData(itemsKey)).toBe(current);
+	});
+
+	it("keeps the newest MemberAgent Sessions when the list is too long", () => {
+		const live = new QueryClient();
+		live.setQueryData(accountSpaceQueryKeys.items("human", "account"), {
+			pinnedItems: [],
+			spaceItems: [item],
+		});
+		live.setQueryData(agentDirectMessageSessionQueryKeys.memberAgents("org"), {
+			generatedAt: "2026-10-01T00:00:00.000Z",
+			organizationId: "org",
+			memberProfileId: "human",
+			sessions: Array.from({ length: 2001 }, (_, index) => ({
+				spaceId: `space-${index}`,
+				agentProfileId: "agent",
+				name: null,
+				archivedAt: null,
+			})),
+			nextCursor: null,
+		});
+
+		const snapshot = readSidebarDisplaySnapshot(live, {
+			organizationId: "org",
+			profileId: "human",
+		});
+
+		expect(snapshot?.memberAgentSessions?.sessions).toHaveLength(2000);
+		expect(snapshot?.memberAgentSessions?.sessions[0]?.spaceId).toBe("space-0");
 	});
 });

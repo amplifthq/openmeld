@@ -106,6 +106,9 @@ export default defineConfig({
 		include: ["src/**/*.integration.test.{ts,tsx}"],
 		maxWorkers: 2,
 		passWithNoTests: true,
-		setupFiles: ["./src/test-support/dom-observers.setup.ts"],
+		setupFiles: [
+			"./src/test-support/dom-observers.setup.ts",
+			"./src/test-support/reset-mocks.setup.ts",
+		],
 	},
 });

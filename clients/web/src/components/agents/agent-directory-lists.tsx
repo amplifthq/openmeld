@@ -6,6 +6,7 @@ import { Link } from "@tanstack/react-router";
 import { type ReactNode, useMemo } from "react";
 import { CenterAgentItem } from "#/components/directory/center-agent-item";
 import { DirectorySearch } from "#/components/directory/directory-search";
+import { MemberAgentAddableHarnesses } from "#/components/member-agents/member-agent-add-harnesses";
 import { narrowMemberAgentDirectory } from "#/components/member-agents/member-agent-directory-model";
 import { MemberAgentDirectorySection } from "#/components/member-agents/member-agent-directory-section";
 import { useMemberAgentDirectory } from "#/components/member-agents/use-member-agent-directory";
@@ -495,6 +496,8 @@ function useOwnMemberAgentResults(args: {
 	};
 	return (visible: readonly AgentListItem[], filtered: boolean) => (
 		<MemberAgentDirectorySection
+			// A filtered list shows only matches, never the Add offers.
+			addable={filtered ? null : <MemberAgentAddableHarnesses />}
 			directory={narrowMemberAgentDirectory({
 				directory: memberAgentDirectory,
 				visibleProfileIds: visible.map(

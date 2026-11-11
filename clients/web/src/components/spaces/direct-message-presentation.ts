@@ -1,4 +1,7 @@
-import type { OrganizationProfileDirectoryResponse } from "@openmeld/schemas/types";
+import type {
+	OrganizationProfileDirectoryResponse,
+	SpaceMembersSnapshot,
+} from "@openmeld/schemas/types";
 import { formatAgentProfileOwnerHarnessName } from "#/components/member-agents/member-agent-display-name";
 import { isMemberAgentsEnabled } from "#/lib/member-agents/member-agents-feature";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
@@ -18,6 +21,33 @@ type DirectMessagePeer = {
 	/** A human Profile's member. */
 	userId?: string;
 };
+
+/** Session controls belong to the Human in the pair, regardless of Agent ownership. */
+export function resolveDirectMessageSessionAgentProfileId(input: {
+	isDirectMessage: boolean;
+	isCenterAgentDirectMessage: boolean;
+	viewerProfileId: string;
+	snapshot: SpaceMembersSnapshot | null;
+}): string | null {
+	if (
+		!(isMemberAgentsEnabled() && input.isDirectMessage) ||
+		input.isCenterAgentDirectMessage ||
+		!input.snapshot
+	) {
+		return null;
+	}
+	const humans = input.snapshot.humans.filter(
+		(member) => member.status === "active"
+	);
+	const agents = input.snapshot.agents.filter(
+		(member) => member.status === "active"
+	);
+	return humans.length === 1 &&
+		humans[0]?.profileId === input.viewerProfileId &&
+		agents.length === 1
+		? (agents[0]?.profileId ?? null)
+		: null;
+}
 
 export function resolveDirectMessagePresentation(input: {
 	item: AccountSpaceItem;

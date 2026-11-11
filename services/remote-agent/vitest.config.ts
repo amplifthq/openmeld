@@ -22,6 +22,7 @@ export default defineConfig({
     fileParallelism: false,
     include: ["tests/**/*.test.ts"],
     exclude: ["tests/workerd/**/*.test.ts"],
+    setupFiles: ["./tests/reset-mocks.setup.ts"],
     server: {
       deps: {
         // Force these through the vite pipeline so the cloudflare:workers

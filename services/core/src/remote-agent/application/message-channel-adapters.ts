@@ -1,4 +1,6 @@
 import type {
+  FeishuGroupHistoryResult,
+  FeishuGroupHistoryScope,
   NavigationAction,
   PluginChannelSourceProof,
 } from "@openmeld/schemas";
@@ -80,6 +82,17 @@ type MessageChannelAdapterTarget = {
 
 export type MessageChannelProviderAdapter = {
   provider: LarkPlatformMessageChannelProvider;
+
+  readFeishuHistory?(input: {
+    connection: RemoteAgentLarkPlatformChannelConnectionRecord;
+    locator: Extract<MessageChannelConversationLocator, { provider: "feishu" }>;
+    triggerMessageId: string;
+    requesterOpenId: string;
+    conversationId: string;
+    lookbackMinutes: number;
+    includeCoverage?: true;
+    scope?: FeishuGroupHistoryScope;
+  }): Promise<FeishuGroupHistoryResult>;
   // Optional only for compatibility with older adapters. Continuation refuses
   // to proceed if current source evidence cannot be read.
   readPluginSourceProof?(input: {

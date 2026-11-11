@@ -253,16 +253,8 @@ describe("Account Organization preference HTTP API", () => {
     if (!vendor) {
       throw new Error("The real sign-in must establish a session.");
     }
-    const kv = context.env.OPENMELD_AUTH_KV;
-    const storedSession = await kv.get(vendor.session.token);
-    if (!storedSession) {
-      throw new Error("The real session must be present in secondary storage.");
-    }
     const dueExpiry = Date.now() + 60 * 60 * 1000;
     const makeRenewalDue = async () => {
-      const cached = JSON.parse(storedSession);
-      cached.session.expiresAt = new Date(dueExpiry).toISOString();
-      await kv.put(vendor.session.token, JSON.stringify(cached));
       await context.harness.query({
         text: 'UPDATE "openmeld"."sessions" SET expires_at = $1 WHERE id = $2',
         values: [dueExpiry, vendor.session.id],
@@ -291,61 +283,33 @@ describe("Account Organization preference HTTP API", () => {
         context.env,
         TEST_EXECUTION_CONTEXT
       );
-    const writeStarted = Promise.withResolvers<void>();
-    const releaseWrites = Promise.withResolvers<void>();
-    const nativePut = kv.put.bind(kv);
-    const blockedPut = vi
-      .spyOn(kv, "put")
-      .mockImplementation(async (...args) => {
-        writeStarted.resolve();
-        await releaseWrites.promise;
-        return nativePut(...args);
-      });
-    const entry = request(
+    const entry = await request(
       "/v1/account/organization-context?deferSessionRefresh=true"
     );
-    try {
-      const first = await Promise.race([
-        entry.then((response) => ({ kind: "response" as const, response })),
-        writeStarted.promise.then(() => ({ kind: "renewal_write" as const })),
-      ]);
-      expect(first.kind).toBe("response");
-      if (first.kind !== "response") {
-        throw new Error(
-          "Organization entry waited for a session renewal write."
+    expect(entry.status).toBe(200);
+    expect(
+      accountOrganizationContextSchema.parse(await entry.json()).currentUserId
+    ).toBe(vendor.user.id);
+    const stored = await context.harness.queryFirst<{ expires_at: number }>({
+      text: 'SELECT expires_at FROM "openmeld"."sessions" WHERE id = $1',
+      values: [vendor.session.id],
+    });
+    expect(stored?.expires_at).toBe(dueExpiry);
+    const events = readEvents();
+    for (const stage of ["request", "session", "memberships", "preference"]) {
+      for (const status of ["started", "succeeded"]) {
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            event: `auth.openmeld.organization_context.${stage}`,
+            requestId,
+            status,
+          })
         );
       }
-      expect(first.response.status).toBe(200);
-      expect(
-        accountOrganizationContextSchema.parse(await first.response.json())
-          .currentUserId
-      ).toBe(vendor.user.id);
-      expect(blockedPut).not.toHaveBeenCalled();
-      const stored = await context.harness.queryFirst<{ expires_at: number }>({
-        text: 'SELECT expires_at FROM "openmeld"."sessions" WHERE id = $1',
-        values: [vendor.session.id],
-      });
-      expect(stored?.expires_at).toBe(dueExpiry);
-      const events = readEvents();
-      for (const stage of ["request", "session", "memberships", "preference"]) {
-        for (const status of ["started", "succeeded"]) {
-          expect(events).toContainEqual(
-            expect.objectContaining({
-              event: `auth.openmeld.organization_context.${stage}`,
-              requestId,
-              status,
-            })
-          );
-        }
-      }
-      const evidence = JSON.stringify(writeDataPoint.mock.calls);
-      expect(evidence.includes(vendor.session.token)).toBe(false);
-      expect(evidence.includes(account.email)).toBe(false);
-    } finally {
-      releaseWrites.resolve();
-      await entry;
-      blockedPut.mockRestore();
     }
+    const evidence = JSON.stringify(writeDataPoint.mock.calls);
+    expect(evidence.includes(vendor.session.token)).toBe(false);
+    expect(evidence.includes(account.email)).toBe(false);
 
     for (const path of [
       "/v1/account/session",
@@ -1037,33 +1001,12 @@ async function createTestContext(
       "1234567890123456789012345678901234567890123456789012345678901234",
     BETTER_AUTH_URL: AUTH_BASE_URL,
     PASSKEY_RP_ID: "localhost",
-    OPENMELD_AUTH_KV: createMemoryKvNamespace(),
     OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
     WEB_APP_URL,
   } as unknown as AuthBindings;
   const context = { app: createAuthWorkerTestApp(), env, harness };
   contexts.push(context);
   return context;
-}
-
-function createMemoryKvNamespace(): KVNamespace {
-  const values = new Map<string, string>();
-  return {
-    delete: (key: string) => {
-      values.delete(key);
-      return Promise.resolve();
-    },
-    get: (key: string) => Promise.resolve(values.get(key) ?? null),
-    put: (key: string, value: string | ArrayBuffer | ReadableStream) => {
-      if (typeof value !== "string") {
-        return Promise.reject(
-          new TypeError("The test KV only accepts string values.")
-        );
-      }
-      values.set(key, value);
-      return Promise.resolve();
-    },
-  } as unknown as KVNamespace;
 }
 
 function installLocalUserReadFailure(error: Error) {

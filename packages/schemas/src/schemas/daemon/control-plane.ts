@@ -34,6 +34,7 @@ export const openMeldDaemonControlPlaneCommandSchema = z.enum([
   "service_update_readiness",
   "account_control_capabilities",
   "shutdown",
+  "shutdown_if_idle",
 ]);
 
 export const openMeldDaemonHealthStateSchema = z.enum([
@@ -248,6 +249,7 @@ export const openMeldDaemonProviderConversationProofProviderSchema = z.enum([
 
 export const openMeldDaemonProviderConversationProofMethodSchema = z.enum([
   "codex_app_server_thread_resume",
+  "codex_app_server_thread_read",
 ]);
 
 export const openMeldDaemonProviderConversationProofSchema = z.strictObject({
@@ -465,6 +467,12 @@ export const openMeldDaemonControlPlaneRequestSchema = z.discriminatedUnion(
     openMeldDaemonControlPlaneRequestBaseSchema.extend({
       command: z.literal("shutdown"),
       payload: openMeldDaemonShutdownRequestPayloadSchema.optional(),
+    }),
+    openMeldDaemonControlPlaneRequestBaseSchema.extend({
+      command: z.literal("shutdown_if_idle"),
+      payload: openMeldDaemonShutdownRequestPayloadSchema
+        .pick({ gracePeriodMs: true })
+        .optional(),
     }),
   ]
 );

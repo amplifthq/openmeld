@@ -1,4 +1,6 @@
-import { DurableObject } from "cloudflare:workers";
+import { DurableObject, tracing } from "cloudflare:workers";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { deleteCoreCenterAgentSpaceMemory } from "../../../center-agent-memory/core-memory-service";
 import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   resolveWakeStopEligibility,
@@ -7,10 +9,12 @@ import {
 import type { QueryResult } from "@openmeld/db/postgresql";
 import {
   getPostgresDatabase,
+  type ObservePostgresTransactionPhase,
   type PostgresDatabase,
   withPostgresRequest,
 } from "@openmeld/db/postgresql";
 import {
+  OPENMELD_HEADER_CALLER_PRINCIPAL_ID,
   OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
   OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
   OPENMELD_SPACE_ADDRESSING_VERSION,
@@ -45,6 +49,8 @@ import {
   buildSpaceFileRevisionIdFromDigest,
   CENTER_AGENT_SESSION_TITLE_INPUT_MAX_LENGTH,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
+  centerAgentWorkTargetSourceInputSchema,
+  spaceTaskRequesterRepresentationSchema,
   clearSpaceReasoningReplaySchema,
   commitSpaceFileWriteInputSchema,
   copyOwnMessageExcerptBodySchema,
@@ -84,8 +90,13 @@ import {
   nativeReplyPlacementSchema,
   normalizeMessageEnvelope,
   normalizeSpaceCursorPatch,
+  type OrganizationMemberRemovalSpace,
+  type OrganizationMemberRemovalSpaceInput,
+  type OrganizationMemberRemovalSpacePrepareInput,
   openDirectMessageSpaceBodySchema,
   openMeldDaemonTaskResultEnvelopeSchema,
+  organizationMemberRemovalSpaceInputSchema,
+  organizationMemberRemovalSpacePrepareInputSchema,
   type PluginConnectionContinuationBinding,
   type PluginConnectionLocalSourceRequest,
   parseOptionalClientMessageId,
@@ -130,6 +141,7 @@ import {
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
+  SPACE_DISPATCH_TRACE_EXECUTION_CONTEXT_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_NATIVE_DELIVERY_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_MESSAGE_CHANGED_PURPOSE,
@@ -223,6 +235,7 @@ import type {
   OpenMeldDaemonDispatchQueueRecoveryReason,
   OpenMeldDaemonMentionDispatchResultPayload,
   OpenMeldRequestContext,
+  PatchSpaceMetaBody,
   RequestChain,
   PostSpaceDispatchOutboxRedriveResponse,
   PostSpaceMembersResponse,
@@ -295,6 +308,7 @@ import type {
   UpdateSpaceFileEntryResponse,
   WakeProgressItem,
   WakeProgressPhase,
+  WakeTiming,
   WakeTraceWaterfallItem,
 } from "@openmeld/schemas/types";
 import {
@@ -313,6 +327,8 @@ import {
   isAutomaticWakeSpace,
   isDirectMessageSpace,
   isOneHumanAgentConversation,
+  OPENMELD_WELCOMING_SPACE_PURPOSE,
+  resolveSpaceMemberDeparture,
   resolveThreadAutomaticWakeTarget,
   resolveThreadWakeContinuation,
   type SpaceAccessContext,
@@ -333,7 +349,9 @@ import {
   readCenterAgentDesignationRecord,
   readCenterAgentWakeAuditAttribution,
   readResolvedOrganizationOwnerHumanSpaceMember,
+  readResolvedOrganizationSpaceMember,
 } from "../../../center-agent/center-agent-repository";
+import { resolveSpaceHumanMentionTargets } from "../../application/human-mention-targets";
 import { projectSpaceDiagnosticReportPointers } from "../../../diagnostics/application/space-diagnostic-report-pointer";
 import { writeSpaceDiagnosticReport } from "../../../diagnostics/infrastructure/postgresql/space-diagnostic-report-repo";
 import {
@@ -342,6 +360,7 @@ import {
   finalizeAcceptedDispatchResult,
   recordConfirmedAcceptedDispatchFailure,
   recordConfirmedAcceptedDispatchSuccess,
+  runDispatchExecutionPreflightGate,
 } from "../../../dispatch/application/dispatch-execution-service";
 import {
   buildDispatchHumanLogContext,
@@ -361,6 +380,7 @@ import {
 import { recordMentionDispatchPlannerDecision } from "../../../dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
 import {
   readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace,
+  type RuntimeCoordinatorInteractionRead,
   readRuntimeTransportRuntimeCoordinatorInteraction,
   readRuntimeTransportRuntimeCoordinatorPublicationWakeStopEligibility,
   recordRuntimeTransportRuntimeCoordinatorHeadPreAgentStop,
@@ -370,6 +390,7 @@ import {
 import { callRuntimeTransportApi } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-api-client";
 import {
   cancelRuntimeTransportDeletedAgentProfileWakes,
+  readRuntimeTransportAgentProfileWorkRecovery,
   readRuntimeTransportPluginConnectionExecutionSource,
 } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import { resolveRuntimeTransportOwnerShard } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
@@ -418,6 +439,10 @@ import {
   eraseAccountConversation,
   stopAccountConversation,
 } from "../../../organizations/account-conversation-deletion";
+import {
+  requireOrganizationMemberRemovalManager,
+  requireOrganizationMemberRemovalSuccessor,
+} from "../../../organizations/member-removal-authorization";
 import {
   ConcurrentOrganizationMembershipReads,
   readOrganizationAccountIdentityProjection,
@@ -537,7 +562,10 @@ import {
   writeDirectMessageSessionArchivedAt,
 } from "../../../space-index/space-index-repository";
 import { captureSpaceMessagePreview } from "../../../space-index/space-message-preview";
-import { SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS } from "../../../strategy-constants";
+import {
+  SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS,
+  SPACE_POSTGRES_TRANSACTION_TIMEOUT_MS,
+} from "../../../strategy-constants";
 import { resolveUserRequestTimeContext } from "../../../user-time-context/user-time-context-repository";
 import { buildAcceptedDispatchFinalizationQueueMessage } from "../../application/accepted-dispatch-finalization";
 import {
@@ -705,6 +733,7 @@ import {
   type SpaceTaskMutationContext,
   SpaceTaskWorkflowError,
 } from "../../application/space-task-workflow";
+import { accessSpaceWorkTarget } from "../../application/space-work-target";
 import { resolveExistingThreadSignalRetry } from "../../application/space-thread-signal-idempotency";
 import {
   readSpaceUpdatesUseCase,
@@ -727,6 +756,10 @@ import type {
 } from "../../application/types";
 import { projectWakeProgressItemsForClient } from "../../application/wake-progress-client-projection";
 import {
+  projectWakeTiming,
+  type WakeTimingInteraction,
+} from "../../application/wake-timing";
+import {
   isRuntimeCoordinatorExecutionLocallyQueued,
   projectWakeTraceWaterfall,
   resolveRuntimeCoordinatorWakeProgressWaitReasonCode,
@@ -738,6 +771,7 @@ import {
   createDispatchOutboxRecord,
   type DispatchSourceSignalSnapshotInput,
   deleteDispatchOutboxRecord,
+  hasRecoverableDispatchOutboxHandoffRecords,
   hasPendingDispatchOutboxRecords,
   hasUnsettledDispatchOutboxRecords,
   insertDispatchOutboxHandoffSeed,
@@ -932,6 +966,7 @@ import {
   listSpaceThreadSignalPlacements,
   listSpaceThreadSignalPlacementsAfter,
   listSpaceThreadSignalPlacementsBefore,
+  listSpaceRequestRootSignalIds,
   listSpaceThreads,
   readLatestExplicitThreadWake,
   readSpaceThread,
@@ -988,6 +1023,7 @@ import {
   SpaceLiveDelivery,
   type SpaceLiveDeliveryClosure,
 } from "./space-live-delivery";
+import { duringSpaceGateStage, SpaceInputGateObservation } from "./space-input-gate-observation";
 import { logSpaceOutboxConsoleEvent } from "./space-outbox-console-log-policy";
 import {
   acceptSpaceWebSocketHello,
@@ -1134,6 +1170,7 @@ class SpaceHistoryAnchorNotFoundError extends Error {
 const OUTBOX_QUEUE_MAX_ATTEMPTS = 3;
 const OUTBOX_QUEUE_BACKOFF_MS = [1000, 3000] as const;
 const OUTBOX_ALARM_REDRIVE_INTERVAL_MS = SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS;
+const OUTBOX_RECOVERY_OFFSET_KEY = "dispatch-outbox-recovery-offset-v1";
 const OUTBOX_CANDIDATE_POISON_FAILURE_THRESHOLD = 3;
 const OUTBOX_POISON_VISIBLE_FAILURE_REASON_CODE =
   "dispatch.outbox.candidate_failed";
@@ -1718,6 +1755,7 @@ const requiresPreparedWakeHandoff = (
   signalContext: SignalPublishContext | undefined
 ): boolean =>
   isUserAuthoredSignalContext(signalContext) ||
+  Boolean(signalContext?.spaceTaskDeliveryId) ||
   (signalContext?.authoringPolicy === "system_emitted" &&
     signalContext.finalOutcomeAuthority !== undefined);
 const readWakeActivationTargetProfileIds = (
@@ -1887,7 +1925,7 @@ function assertEditedMessageTargetsAreActiveMembers(
     return;
   }
   const before = previous.data.messageEnvelope;
-  assertCurrentSpaceAddressingTargetsAreActiveMembers({
+  assertCurrentSpaceAddressingTargets({
     sql,
     messageEnvelope: {
       ...envelope,
@@ -1903,7 +1941,8 @@ function assertEditedMessageTargetsAreActiveMembers(
     },
   });
 }
-const assertCurrentSpaceAddressingTargetsAreActiveMembers = (input: {
+const assertCurrentSpaceAddressingTargets = (input: {
+  resolvedHumanMentions?: SignalPublishContext["resolvedHumanMentions"];
   messageEnvelope: SignalTextBuildOptions["messageEnvelope"];
   sql: SqlStorage;
 }): void => {
@@ -1949,6 +1988,13 @@ const assertCurrentSpaceAddressingTargetsAreActiveMembers = (input: {
   }
   for (const targetProfileId of input.messageEnvelope.mentionTargets ?? []) {
     const member = readSpaceMemberRecord(input.sql, targetProfileId);
+    const organizationMention = input.resolvedHumanMentions?.find(
+      (target) =>
+        target.profileId === targetProfileId && target.scope === "organization"
+    );
+    if (organizationMention) {
+      continue;
+    }
     if (member?.status === "active" && member.profileKindSnapshot === "human") {
       continue;
     }
@@ -2101,6 +2147,7 @@ type SpaceDispatchAccessOptions = {
   lineageLoader?: SpaceBootstrapLineageLoader;
   finalOutcomeAuthority?: SignalPublishContext["finalOutcomeAuthority"];
   requireActiveActorMembership?: boolean;
+  directAccountUserId?: string | undefined;
   spaceAccess?: SpaceAccessContext;
   supportsCurrentSpaceAddressing?: boolean;
 };
@@ -2145,6 +2192,19 @@ type SpaceReadViewerIdentity = {
   viewerOwnerUserId?: string;
   viewerProfileId?: string;
   creatorProfileIdByProfileId?: CreatorProfileIdsByProfileId;
+};
+type SpaceWakeTraceEvidenceInput = {
+  agentLocalOriginFactsViewer?: SpaceReadViewerIdentity;
+  executionContextVersion?: 1;
+  clientMessageId?: string | null;
+  sourceSignalId?: string | null;
+  targetProfileId?: string;
+};
+type SpaceWakeTraceEvidence = {
+  lookupError: unknown | null;
+  // A null value is a dispatch whose trace read failed.
+  tracesByDispatchId: ReadonlyMap<string, SpaceDispatchTraceResponse | null>;
+  waterfall: GetSpaceWakeTraceWaterfallResponse;
 };
 const stripLiveSignalHistory = (
   frame: SpaceLiveSignalFrame
@@ -2571,6 +2631,7 @@ type PatchSpaceMetaInput = {
   purpose?: string;
   creator?: SpaceCreator;
   guide?: string;
+  guideEdit?: PatchSpaceMetaBody["guideEdit"];
   accessMode?: SpaceAccessMode;
   linkJoinPolicy?: SpaceLinkJoinPolicy;
   organizationId?: string;
@@ -2757,6 +2818,10 @@ export class Space extends DurableObject<CoreBindings> {
   private readonly organizationMembershipReads =
     new ConcurrentOrganizationMembershipReads();
   private readonly profileLineageCache = new SpaceProfileLineageCache({
+    activeGateId: () => {
+      const gate = this.postgresGateContext.getStore();
+      return gate?.active ? gate.id : undefined;
+    },
     authRpc: () => this.bindings.OPENMELD_AUTH_WORKER,
     onLoadError: (error, ownerUserId) => {
       console.warn("[core.openmeld.space.profile_lineage_load_failed]", {
@@ -2782,12 +2847,23 @@ export class Space extends DurableObject<CoreBindings> {
   private lastTimestamp = 0;
   private lastLiveInvalidationVersion = 0;
   private liveInvalidationVersionUpdate: Promise<void> = Promise.resolve();
+  private readonly pendingSignalLiveDeliveries = new Map<
+    string,
+    Promise<void>
+  >();
   private readonly liveDelivery = new SpaceLiveDelivery<
     Session,
     Parameters<Space["encodeLiveMessageForSession"]>[0]
   >({
-    authorize: async (session) =>
-      (await this.authorizeLiveSession(session)) ? "authorized" : "denied",
+    authorize: async (session) => {
+      const gate = this.postgresGateContext.getStore();
+      const checkAccess = () =>
+        this.withPostgresRequest(() => this.authorizeLiveSession(session));
+      const authorized = gate?.active
+        ? await gate.during("live_session_authorization", checkAccess)
+        : await checkAccess();
+      return authorized ? "authorized" : "denied";
+    },
     close: (target, closure) => this.closeLiveSession(target, closure),
     deliver: (target, messages) =>
       this.deliverAuthorizedLiveMessages(target, messages),
@@ -2814,7 +2890,7 @@ export class Space extends DurableObject<CoreBindings> {
     this.bindings = env;
     this.durableObjectId = this.ctx.id.toString();
     this.spaceId = this.durableObjectId;
-    this.blockConcurrencyWithPostgres(async () => {
+    this.blockConcurrencyWithPostgres("constructor", async () => {
       measureSpaceSchemaInitialization({
         env: this.bindings,
         initialize: () => ensureSpaceSqlSchema(this.ctx.storage.sql),
@@ -2832,11 +2908,16 @@ export class Space extends DurableObject<CoreBindings> {
             "Organization Agent ownership migration requires identity storage"
           );
         }
-        const changed = await reconcileOrganizationAgentOwnership({
-          db,
-          organizationId: ownershipMeta.organizationId,
-          sql: this.ctx.storage.sql,
-        });
+        const changed = await duringSpaceGateStage(
+          this.postgresGateContext.getStore(),
+          "ownership_migration",
+          () =>
+            reconcileOrganizationAgentOwnership({
+              db,
+              organizationId: ownershipMeta.organizationId,
+              sql: this.ctx.storage.sql,
+            })
+        );
         if (changed) {
           this.closeAllSessions("space_access_changed");
         }
@@ -2853,7 +2934,11 @@ export class Space extends DurableObject<CoreBindings> {
       ) {
         this.lastTimestamp = Math.max(this.lastTimestamp, persistedClock);
       }
-      await this.syncSpaceBackgroundAlarm();
+      await duringSpaceGateStage(
+        this.postgresGateContext.getStore(),
+        "alarm_schedule",
+        () => this.syncSpaceBackgroundAlarm()
+      );
     });
     for (const webSocket of this.ctx.getWebSockets()) {
       try {
@@ -2895,22 +2980,131 @@ export class Space extends DurableObject<CoreBindings> {
     );
     this.ctx.setWebSocketAutoResponse(keepalivePair);
   }
-  private blockConcurrencyWithPostgres<T>(
+  private withPostgresRequest<T>(
+    callback: () => T | Promise<T>
+  ): Promise<T> {
+    return withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, callback, {
+      runTransaction: this.runPostgresTransaction,
+    });
+  }
+
+  private readonly runPostgresTransaction = async <T>(
+    callback: (observe?: ObservePostgresTransactionPhase) => Promise<T>
+  ): Promise<T> => {
+    const run = () => {
+      const gate = this.postgresGateContext.getStore();
+      return callback(
+        gate?.active
+          ? (phase, work) => gate.duringPostgresPhase(phase, work)
+          : undefined
+      );
+    };
+    const currentGate = this.postgresGateContext.getStore();
+    if (currentGate?.active) {
+      return currentGate.during("postgres_transaction", run);
+    }
+    // A later input gate must not suspend a transaction that still owns an
+    // origin-pool slot. Admit the transaction before it opens its connection.
+    const outcome = await this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        return {
+          value: await this.withPostgresGateScope("postgres_transaction", run),
+        };
+      } catch (error) {
+        // Include rollback and pool-close failures. Ordinary transaction
+        // errors still reach their caller without resetting the whole Space.
+        return { error };
+      }
+    });
+    if ("error" in outcome) {
+      throw outcome.error;
+    }
+    return outcome.value;
+  };
+
+  private readonly postgresGateContext =
+    new AsyncLocalStorage<SpaceInputGateObservation>();
+  private readonly alarmStepContext = new AsyncLocalStorage<string>();
+
+  private readonly publicationGate = new AsyncLocalStorage<{
+    active: boolean;
+    released: Promise<void>;
+    completions: Promise<void>[];
+  }>();
+
+  private withPostgresGateScope<T>(
+    operation: string,
+    callback: () => Promise<T>
+  ): Promise<T> {
+    const parent = this.postgresGateContext.getStore();
+    const gate = new SpaceInputGateObservation(
+      this.durableObjectId,
+      operation,
+      parent?.active ? parent.id : undefined,
+      this.alarmStepContext.getStore()
+    );
+    return tracing.enterSpan(`space.input_gate.${operation}`, (span) => {
+      span.setAttribute("openmeld.gate_id", gate.id);
+      return this.postgresGateContext.run(gate, () =>
+        gate.observe(() =>
+          withPostgresRequest(
+            this.bindings.OPENMELD_POSTGRESQL,
+            async () => {
+              try {
+                return await callback();
+              } finally {
+                gate.cleaningUp();
+              }
+            },
+            {
+              reuseConnection: false,
+              runTransaction: this.runPostgresTransaction,
+              transactionTimeoutMs: SPACE_POSTGRES_TRANSACTION_TIMEOUT_MS,
+            }
+          )
+        )
+      );
+    });
+  }
+
+  private async blockConcurrencyWithPostgres<T>(
+    operation: string,
     callback: () => Promise<T>
   ): Promise<T> {
     // Input gates block socket events initiated before the gate. Keep all
     // PostgreSQL connections used by this protected operation inside it.
     // Preserve the caller's existing serialization boundary and close the
     // pool before reopening the gate; never borrow the outer request pool.
-    return this.ctx.blockConcurrencyWhile(() =>
-      withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, callback, {
-        reuseConnection: false,
-      })
-    );
+    const run = () =>
+      this.ctx.blockConcurrencyWhile(() =>
+        this.withPostgresGateScope(operation, callback)
+      );
+    // A nested publication (for example in a Direct Message) still holds
+    // its caller's gate. Only the outermost gate may release its live sends.
+    if (this.publicationGate.getStore()?.active) {
+      return run();
+    }
+    const release = Promise.withResolvers<void>();
+    const completions: Promise<void>[] = [];
+    const gate = { active: true, released: release.promise, completions };
+    let result: T;
+    try {
+      result = await this.publicationGate.run(gate, run);
+    } catch (error) {
+      // Preserve the original failure if earlier writes in this gate committed.
+      if (completions.length) {
+        this.ctx.waitUntil(Promise.allSettled(completions));
+      }
+      throw error;
+    } finally {
+      gate.active = false;
+      release.resolve();
+    }
+    await Promise.all(completions);
+    return result;
   }
   async alarm(): Promise<void> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         logSpaceOutboxConsoleEvent({
           eventName: "alarm_fired",
@@ -2985,7 +3179,7 @@ export class Space extends DurableObject<CoreBindings> {
       return;
     }
     try {
-      await run();
+      await this.alarmStepContext.run(step, run);
       await this.getAlarmFailureBackoff().succeeded(step);
     } catch (error) {
       const retryAtMs = await this.getAlarmFailureBackoff().failed(
@@ -3022,8 +3216,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
   }
   async fetch(request: Request): Promise<Response> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const response = await handleErrors(request, () => {
           const url = new URL(request.url);
@@ -3039,6 +3232,10 @@ export class Space extends DurableObject<CoreBindings> {
           if (url.pathname === INTERNAL_SPACE_INDEX_REPROJECT_PATH) {
             return this.dispatchInternalSpaceIndexReprojectRequest(request);
           }
+          const directWakeAccess = () => ({
+            directAccountUserId:
+              request.headers.get(OPENMELD_HEADER_CALLER_PRINCIPAL_ID) ?? undefined,
+          });
           return dispatchSpaceHttpRequest({
             pathName: url.pathname,
             request,
@@ -3060,13 +3257,13 @@ export class Space extends DurableObject<CoreBindings> {
               dispatchDispatchResultRequest: (nextRequest) =>
                 this.dispatchDispatchResultRequest(nextRequest),
               dispatchActiveWakeProgressRequest: (nextRequest) =>
-                this.dispatchActiveWakeProgressRequest(nextRequest),
+                this.dispatchActiveWakeProgressRequest(nextRequest, directWakeAccess()),
               dispatchAgentInteractionResponseRequest: (nextRequest) =>
                 this.dispatchAgentInteractionResponseRequest(nextRequest),
               dispatchWakeStopRequest: (nextRequest) =>
-                this.dispatchWakeStopRequest(nextRequest),
+                this.dispatchWakeStopRequest(nextRequest, directWakeAccess()),
               dispatchWakeProgressRequest: (nextRequest) =>
-                this.dispatchWakeProgressRequest(nextRequest),
+                this.dispatchWakeProgressRequest(nextRequest, directWakeAccess()),
               dispatchWakeTraceWaterfallRequest: (nextRequest) =>
                 this.dispatchWakeTraceWaterfallRequest(nextRequest),
               dispatchMessageDetailsRequest: (nextRequest) =>
@@ -3118,8 +3315,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceId: string;
     query?: ListSpaceFilesQuery;
   }): Promise<ListSpaceFilesResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await assertRpcSpaceAccessAuthorized(
@@ -3150,8 +3346,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<ResolveSpaceComposerUploadScopeResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3168,8 +3363,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<SpaceFileDescriptor> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await assertRpcSpaceAccessAuthorized(
@@ -3187,8 +3381,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     command: import("@openmeld/schemas/types").SpaceFileUpdateSettingsCommand;
   }): Promise<import("@openmeld/schemas/types").SpaceFileUpdateSettings> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3384,8 +3577,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<ListSpaceFileRevisionsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await assertRpcSpaceAccessAuthorized(
@@ -3403,8 +3595,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<CreateSpaceFolderResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3442,8 +3633,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<UpdateSpaceFileEntryResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3477,8 +3667,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<TrashSpaceFileEntryResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3511,8 +3700,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<RestoreSpaceFileEntryResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3547,8 +3735,7 @@ export class Space extends DurableObject<CoreBindings> {
     command: SpaceFileUploadCommand;
     body?: ReadableStream<Uint8Array>;
   }) {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3735,8 +3922,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     write: unknown;
   }): Promise<PrepareSpaceFileWriteResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const write = commitSpaceFileWriteInputSchema.parse(input.write);
         this.applySpaceRef(write.spaceId);
@@ -3772,8 +3958,7 @@ export class Space extends DurableObject<CoreBindings> {
     name: string;
     parentId: string | null;
   }): Promise<void> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await this.requireSpaceFileWriteActor(input.spaceAccess);
@@ -3799,8 +3984,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceId: string;
     copy: unknown;
   }): Promise<void> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const copy = copyOwnMessageExcerptBodySchema.parse(input.copy);
         this.applySpaceRef(input.spaceId);
@@ -3861,8 +4045,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     spaceId: string;
   }): Promise<SpaceFileDescriptor | null> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const clientMutationId = spaceFileClientMutationIdSchema.parse(
           input.clientMutationId
@@ -3885,8 +4068,7 @@ export class Space extends DurableObject<CoreBindings> {
     spaceAccess: SpaceAccessContext;
     write: unknown;
   }): Promise<SpaceFileDescriptor> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const write = commitSpaceFileWriteInputSchema.parse(input.write);
         this.applySpaceRef(write.spaceId);
@@ -3948,8 +4130,7 @@ export class Space extends DurableObject<CoreBindings> {
     content: unknown;
     spaceAccess: SpaceAccessContext;
   }): Promise<ResolveSpaceFileContentResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const content = resolveSpaceFileContentInputSchema.parse(input.content);
         this.applySpaceRef(content.spaceId);
@@ -4123,8 +4304,7 @@ export class Space extends DurableObject<CoreBindings> {
   // They reuse application use cases or dispatch handlers so HTTP and RPC
   // paths keep identical validation, business behavior, and public errors.
   async rpcRecordMemberWebActivity(input: unknown): Promise<void> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         try {
           const profileId = recordSpaceMemberWebActivityUseCase({
@@ -4150,8 +4330,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcListSignals(input: ListSignalsInput): Promise<ListSignalsResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return unwrapSpaceRpcJsonResult(await this.rpcListSignalsResult(input));
       }
@@ -4160,8 +4339,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListSignalsResult(
     input: ListSignalsInput
   ): Promise<SpaceRpcJsonResult<ListSignalsResult>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -4184,8 +4362,18 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListDispatchConversationContinuitySignalsResult(
     input: ListSignalsInput
   ): Promise<SpaceRpcJsonResult<ListSignalsResult>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.readDispatchConversationContinuitySignalsResult(input, false);
+  }
+  async rpcListRequestRootContinuitySignalsResult(
+    input: ListSignalsInput
+  ): Promise<SpaceRpcJsonResult<ListSignalsResult>> {
+    return await this.readDispatchConversationContinuitySignalsResult(input, true);
+  }
+  private async readDispatchConversationContinuitySignalsResult(
+    input: ListSignalsInput,
+    requestRoot: boolean
+  ): Promise<SpaceRpcJsonResult<ListSignalsResult>> {
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const spaceAccess = input.spaceAccess;
@@ -4219,6 +4407,7 @@ export class Space extends DurableObject<CoreBindings> {
             sourceSignalId: actor.sourceSignalId,
             spaceAccess,
             targetProfileId: actor.targetProfileId,
+            requestRoot,
           }
         );
         return readSpaceRpcJsonResult(response);
@@ -4286,7 +4475,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcFinalizeAcceptedDispatchResult(
     input: FinalizeAcceptedDispatchResultInput
   ): Promise<FinalizeAcceptedDispatchResultResponse> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcFinalizeAcceptedDispatchResult(this, input)
     );
   }
@@ -4440,7 +4629,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcApplyRuntimeCoordinatorFinalizationCommand(
     input: RuntimeCoordinatorFinalizationCommand
   ): Promise<RuntimeCoordinatorFinalizationOutcome> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcApplyRuntimeCoordinatorFinalizationCommand(this, input)
     );
   }
@@ -4649,8 +4838,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcApplyRuntimeCoordinatorPublicationExhaustionCommand(
     input: RuntimeCoordinatorFinalizationCommand
   ): Promise<RuntimeCoordinatorFinalizationClaimRead> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return await this.applyRuntimeCoordinatorFinalNoticeCommand(
           input,
@@ -4662,8 +4850,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcApplyRuntimeCoordinatorWakeStopCommand(
     input: RuntimeCoordinatorFinalizationCommand
   ): Promise<RuntimeCoordinatorFinalizationClaimRead> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return await this.applyRuntimeCoordinatorFinalNoticeCommand(
           input,
@@ -4768,14 +4955,6 @@ export class Space extends DurableObject<CoreBindings> {
       false,
       signalContext
     );
-    if (persistResult.persistedSignal) {
-      await flushAndScheduleSpaceInboxProjection({
-        flush: () => this.flushPendingSpaceInboxProjectionOutbox(),
-        schedule: () => this.syncSpaceBackgroundAlarm(),
-        spaceId: this.spaceId,
-        storage: this.ctx.storage,
-      });
-    }
     const settledClaim = readClaim();
     if (
       persistResult.persistedSignal &&
@@ -4785,12 +4964,20 @@ export class Space extends DurableObject<CoreBindings> {
     ) {
       this.broadcastSignal(signal, signalContext, { persisted: true });
     }
+    if (persistResult.persistedSignal) {
+      await flushAndScheduleSpaceInboxProjection({
+        flush: () => this.flushPendingSpaceInboxProjectionOutbox(),
+        schedule: () => this.syncSpaceBackgroundAlarm(),
+        spaceId: this.spaceId,
+        storage: this.ctx.storage,
+      });
+    }
     return settledClaim;
   }
   async rpcApplyRuntimeCoordinatorFailurePublicationCommand(
     input: RuntimeCoordinatorFailurePublicationCommand
   ): Promise<RuntimeCoordinatorFailurePublicationOutcome> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcApplyRuntimeCoordinatorFailurePublicationCommand(
         this,
         input
@@ -4901,14 +5088,6 @@ export class Space extends DurableObject<CoreBindings> {
       signalContext
     );
     if (persistResult.persistedSignal) {
-      await flushAndScheduleSpaceInboxProjection({
-        flush: () => owner.flushPendingSpaceInboxProjectionOutbox(),
-        schedule: () => owner.syncSpaceBackgroundAlarm(),
-        spaceId: owner.spaceId,
-        storage: owner.ctx.storage,
-      });
-    }
-    if (persistResult.persistedSignal) {
       const visibleFinal =
         resolveRuntimeCoordinatorFailurePublicationVisibleFinalMessage({
           command,
@@ -4918,6 +5097,14 @@ export class Space extends DurableObject<CoreBindings> {
         });
       if (visibleFinal?.kind === "failure_notice") {
         owner.broadcastSignal(signal, signalContext, { persisted: true });
+      }
+      await flushAndScheduleSpaceInboxProjection({
+        flush: () => owner.flushPendingSpaceInboxProjectionOutbox(),
+        schedule: () => owner.syncSpaceBackgroundAlarm(),
+        spaceId: owner.spaceId,
+        storage: owner.ctx.storage,
+      });
+      if (visibleFinal?.kind === "failure_notice") {
         await recordRuntimeCoordinatorFailureTaskOutcome({
           command,
           db: getPostgresDatabase(owner.bindings),
@@ -5311,7 +5498,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcMutateSpaceMessage(
     input: import("../../../rpc/methods").MutateSpaceMessageInput
   ) {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcMutateSpaceMessage(this, input)
     );
   }
@@ -5536,7 +5723,7 @@ export class Space extends DurableObject<CoreBindings> {
     return { message: result.message };
   }
   async rpcPostSignal(input: PostSignalInput): Promise<SignalEnvelope> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcPostSignal(this, input)
     );
   }
@@ -5619,7 +5806,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
   ): Promise<SignalEnvelope> {
     this.applySpaceRef(input.spaceId);
-    const result = await this.blockConcurrencyWithPostgres(async () => {
+    const result = await this.blockConcurrencyWithPostgres("post_direct_message", async () => {
       try {
         const meta = this.requireConvertibleDirectMessageMeta();
         const members = listSpaceMemberRecords(this.ctx.storage.sql, {
@@ -5681,8 +5868,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcReadPluginConnectionLocalSource(
     raw: PluginConnectionLocalSourceRequest
   ) {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const { execution, source, reply, completedAtMs } =
           await this.readPluginConnectionLocalExecutionSource(raw);
@@ -5775,8 +5961,7 @@ export class Space extends DurableObject<CoreBindings> {
       pluginContinuation: PluginConnectionContinuationBinding;
     }
   ): Promise<SignalEnvelope> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const binding = pluginConnectionContinuationBindingSchema.parse(
           input.pluginContinuation
@@ -5891,8 +6076,7 @@ export class Space extends DurableObject<CoreBindings> {
     input: PostSignalOnceByClientMessageIdInput,
     workRecoveryQueueHandoff?: SignalPublishContext["workRecoveryQueueHandoff"]
   ): Promise<SignalEnvelope> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const agentStreamId = parseOptionalAgentStreamId(input.agentStreamId);
@@ -5932,11 +6116,17 @@ export class Space extends DurableObject<CoreBindings> {
           ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
         });
         const resolution = await this.blockConcurrencyWithPostgres(
+          "post_idempotent_signal",
           async (): Promise<
             | IdempotentPostSignalResolution
             | { status: "failed"; error: unknown }
           > => {
             try {
+              const gate = this.postgresGateContext.getStore();
+              gate?.watchMessage(
+                clientMessageId,
+                input.context?.actorContext.requestId
+              );
               const pluginContinuation = input.pluginContinuation
                 ? new PluginConnectionContinuationRepository(
                     this.ctx.storage.sql
@@ -5976,10 +6166,15 @@ export class Space extends DurableObject<CoreBindings> {
                 clientMessageId,
                 input,
               });
-              const signal = await this.postIdempotentTextSignal(
-                postInput,
-                workRecoveryQueueHandoff,
-                pluginContinuation?.binding
+              const signal = await duringSpaceGateStage(
+                gate,
+                "idempotent_publication",
+                () =>
+                  this.postIdempotentTextSignal(
+                    postInput,
+                    workRecoveryQueueHandoff,
+                    pluginContinuation?.binding
+                  )
               );
               return { signal, status: "accepted" };
             } catch (error) {
@@ -6043,6 +6238,46 @@ export class Space extends DurableObject<CoreBindings> {
       localSource
     );
   }
+  async rpcCenterAgentWorkTarget(
+    input: import("@openmeld/schemas/types").CenterAgentWorkTargetSourceInput & {
+      spaceAccess: SpaceAccessContext;
+    }
+  ) {
+    const { spaceAccess, ...sourceInput } = input;
+    const parsed = centerAgentWorkTargetSourceInputSchema.safeParse(sourceInput);
+    if (!parsed.success) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        code: "center_agent.work_target.invalid_source",
+        reason: "The admitted work source is invalid.",
+      });
+    }
+    this.applySpaceRef(spaceAccess.spaceId);
+    const access = await this.authorizeSpaceAccess(spaceAccess);
+    if (!access.ok) {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "center_agent.work_target.access_denied",
+        reason: "Work target access is unavailable.",
+      });
+    }
+    const source = parsed.data;
+    const sourceIsOwner = source.sourceAuthorProfileId && source.sourceOwnerUserId
+      ? this.buildSpaceTaskMemberContext(
+          source.sourceAuthorProfileId,
+          source.sourceOwnerUserId
+        ).isSpaceOwner
+      : false;
+    return this.ctx.storage.transactionSync(() =>
+      accessSpaceWorkTarget(
+        this.ctx.storage.sql,
+        source,
+        (id) => this.readSourceTextSignalById(id),
+        sourceIsOwner
+      )
+    );
+  }
+
   private buildIdempotentPostSignalInput(input: {
     agentStreamId: string | undefined;
     clientMessageId: string;
@@ -6392,8 +6627,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcPostStatusSignal(
     input: PostStatusSignalInput
   ): Promise<SignalEnvelope> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const author = await authorizeRpcSignalWrite({
@@ -6427,7 +6661,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcPostSystemNoticeSignal(
     input: PostSystemNoticeSignalInput
   ): Promise<SignalEnvelope> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcPostSystemNoticeSignal(this, input)
     );
   }
@@ -6541,7 +6775,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcPostExecutionRecoveryNoticeSignal(
     input: PostExecutionRecoveryNoticeSignalInput
   ): Promise<PostExecutionRecoveryNoticeSignalResponse> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcPostExecutionRecoveryNoticeSignal(this, input)
     );
   }
@@ -6613,14 +6847,6 @@ export class Space extends DurableObject<CoreBindings> {
       false,
       signalContext
     );
-    if (persistResult.persistedSignal) {
-      await flushAndScheduleSpaceInboxProjection({
-        flush: () => owner.flushPendingSpaceInboxProjectionOutbox(),
-        schedule: () => owner.syncSpaceBackgroundAlarm(),
-        spaceId: owner.spaceId,
-        storage: owner.ctx.storage,
-      });
-    }
     if (!persistResult.persistedSignal) {
       const concurrentlyPublished = owner.readSignalById(signalId);
       if (!concurrentlyPublished) {
@@ -6638,13 +6864,18 @@ export class Space extends DurableObject<CoreBindings> {
       };
     }
     owner.broadcastSignal(signal, signalContext, { persisted: true });
+    await flushAndScheduleSpaceInboxProjection({
+      flush: () => owner.flushPendingSpaceInboxProjectionOutbox(),
+      schedule: () => owner.syncSpaceBackgroundAlarm(),
+      spaceId: owner.spaceId,
+      storage: owner.ctx.storage,
+    });
     return { publishedSignalId: signal.id, status: "published" };
   }
   async rpcInspectExecutionRecovery(
     input: InspectExecutionRecoveryInput
   ): Promise<InspectExecutionRecoveryResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const traceResponse = await this.rpcGetDispatchTrace({
@@ -6670,8 +6901,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcExecuteExecutionRecovery(
     input: ExecuteExecutionRecoveryInput
   ): Promise<ExecuteExecutionRecoveryResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const inspected = await this.rpcInspectExecutionRecovery({
@@ -6734,7 +6964,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcStartUsageExhaustedContinuation(
     input: StartUsageExhaustedContinuationInput
   ): Promise<StartUsageExhaustedContinuationResponse> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcStartUsageExhaustedContinuation(this, input)
     );
   }
@@ -7689,7 +7919,7 @@ export class Space extends DurableObject<CoreBindings> {
     };
   }
   async rpcPostTransientSignal(input: PostTransientSignalInput): Promise<void> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcPostTransientSignal(this, input)
     );
   }
@@ -7936,10 +8166,10 @@ export class Space extends DurableObject<CoreBindings> {
     if (!this.canSubmitDispatchOutbox()) {
       return null;
     }
-    const hasPendingWork = hasPendingDispatchOutboxRecords(
-      this.ctx.storage.sql
-    );
-    if (!hasPendingWork) {
+    if (
+      !hasPendingDispatchOutboxRecords(this.ctx.storage.sql) &&
+      !hasRecoverableDispatchOutboxHandoffRecords(this.ctx.storage.sql)
+    ) {
       return null;
     }
     if (this.dispatchOutboxRetryNotBeforeMs > Date.now()) {
@@ -8141,8 +8371,7 @@ export class Space extends DurableObject<CoreBindings> {
     input: GetSpaceMetaInput &
       import("@openmeld/schemas/types").SpaceEntryTarget
   ): Promise<import("@openmeld/schemas/types").SpaceEntryTarget> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         if (!input.spaceAccess) {
@@ -8171,8 +8400,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcGetMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchMetaRequest(
@@ -8194,8 +8422,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetEntryAccess(
     input: GetSpaceMetaInput
   ): Promise<SpaceEntryAccessResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const meta = await this.rpcGetMeta(input);
         const context = input.spaceAccess
@@ -8221,8 +8448,7 @@ export class Space extends DurableObject<CoreBindings> {
     meta: SpaceMeta;
     isDirectMessage: boolean;
   }> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         // Reuse normal member authorization. Keep DM internals out of the public
         // metadata DTO; expose only the canonical current audience fact.
@@ -8241,8 +8467,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcMessagePins(
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         if (!input.mutation && input.spaceAccess) {
@@ -8271,8 +8496,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListTasks(
     input: ListSpaceTasksInput
   ): Promise<ListSpaceTasksResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         if (input.spaceAccess) {
@@ -8302,8 +8526,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcInputQueue(
     input: SpaceInputQueueInput
   ): Promise<SpaceInputQueueResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         if (input.mutation) {
@@ -8354,8 +8577,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcAgentWorkload(
     raw: SpaceAgentWorkloadInput
   ): Promise<AgentWorkloadSnapshot> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const input = spaceAgentWorkloadInputSchema.parse(raw);
         this.applySpaceRef(input.spaceId);
@@ -8833,11 +9055,10 @@ export class Space extends DurableObject<CoreBindings> {
       }
       const recovery =
         runtimeTransportAgentProfileWorkRecoveryReadResponseSchema.parse(
-          await resolveRuntimeTransportOwnerShard(
-            this.bindings,
-            ownerUserId
-          ).rpcReadAgentProfileWorkRecovery({
+          await readRuntimeTransportAgentProfileWorkRecovery({
+            env: this.bindings,
             ownerUserId,
+            requestId: context.actorContext.requestId,
             targetProfileId: agent.profileId,
           })
         );
@@ -9519,8 +9740,7 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   async rpcGetTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         if (input.spaceAccess) {
@@ -9569,8 +9789,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcCreateTask(
     input: CreateSpaceTaskInput
   ): Promise<SpaceTaskMutationReceipt> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchPasswordProtectedMethod(
@@ -9588,10 +9807,29 @@ export class Space extends DurableObject<CoreBindings> {
                   input.body.sourceSignalId ?? null,
                   input.body.threadId ?? null
                 );
-                const createContext = this.buildSpaceTaskCreateContext(
+                let createContext = this.buildSpaceTaskCreateContext(
                   taskContext,
                   normalizedBody.sourceSignalId ?? null
                 );
+                const representation =
+                  spaceTaskRequesterRepresentationSchema.parse({
+                    representedRequester: input.representedRequester,
+                  });
+                if (
+                  normalizedBody.wakeAssignee &&
+                  representation.representedRequester
+                ) {
+                  const represented = this.buildSpaceTaskMemberContext(
+                    representation.representedRequester.profileId,
+                    representation.representedRequester.ownerUserId
+                  );
+                  if (represented.actor.profileKind === "human") {
+                    createContext = {
+                      ...createContext,
+                      representedRequester: represented.actor,
+                    };
+                  }
+                }
                 await this.armSpaceTaskRecovery();
                 const receipt = this.createSpaceTaskService(context).create(
                   normalizedBody,
@@ -9612,8 +9850,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcMutateTask(
     input: MutateSpaceTaskInput
   ): Promise<SpaceTaskMutationReceipt> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchPasswordProtectedMethod(
@@ -9637,8 +9874,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcApplyGitHubIssueObservation(
     input: ApplyGitHubIssueObservationInput
   ): Promise<ApplyGitHubIssueObservationResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await this.armSpaceTaskRecovery();
@@ -9656,8 +9892,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         if (!input.mutation && input.spaceAccess) {
@@ -9702,8 +9937,11 @@ export class Space extends DurableObject<CoreBindings> {
           receipt,
           previous,
           authorizedActor: Boolean(context),
-          wakeAssignee:
-            command?.action === "assign" && command.wakeAssignee === true,
+          wakeAssignee: Boolean(
+            command &&
+              "wakeAssignee" in command &&
+              command.wakeAssignee === true
+          ),
           ...(context
             ? {
                 sourceDispatchChainContext:
@@ -9743,13 +9981,24 @@ export class Space extends DurableObject<CoreBindings> {
       pendingActions: context
         ? new SpaceTaskDeliveryRepository(this.ctx.storage.sql)
             .status(taskId)
-            .filter(
-              (
-                action
-              ): action is NonNullable<
-                SpaceTaskResponse["pendingActions"]
-              >[number] => action.kind !== "inbox_projection"
-            )
+            .flatMap((action) => {
+              if (action.kind === "inbox_projection") {
+                return [];
+              }
+              if (
+                action.delivery &&
+                !isSpaceTaskDeliveryCurrent(
+                  action.delivery,
+                  detail.task,
+                  new SpaceTaskRepository(this.ctx.storage.sql)
+                )
+              ) {
+                return [];
+              }
+              return [
+                { kind: action.kind, state: action.state, error: action.error },
+              ];
+            })
         : [],
     };
   }
@@ -10144,7 +10393,10 @@ export class Space extends DurableObject<CoreBindings> {
       sourceDispatchChainContext,
       id: deliveryId,
     } = delivery;
-    if (receipt.event.type === "assigned" && receipt.task.assignee) {
+    if (
+      (receipt.event.type === "created" || receipt.event.type === "assigned") &&
+      receipt.task.assignee
+    ) {
       await this.publishSpaceTaskDirectedNotice({
         actor,
         eventId: receipt.event.eventId,
@@ -10303,6 +10555,14 @@ export class Space extends DurableObject<CoreBindings> {
       ...(threadContext
         ? { threadContext, threadPlacement: "thread" as const }
         : {}),
+    }).catch((error: unknown) => {
+      if (error instanceof SpaceSignalAuthoringError) {
+        throw new SpaceTaskDeliveryError(
+          error.message,
+          error.code === SPACE_WAKE_TARGET_INVALID_ERROR_CODE
+        );
+      }
+      throw error;
     });
   }
   private async handleSpaceTaskOperation<T>(
@@ -10734,8 +10994,7 @@ export class Space extends DurableObject<CoreBindings> {
     return Response.json(this.readMessagePins());
   }
   async rpcGetContract(input: GetSpaceContractInput): Promise<SpaceContract> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchContractRequest(
@@ -10756,8 +11015,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetBoard(
     input: GetSpaceBoardInput
   ): Promise<SpaceBoardRoomProjection> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return unwrapSpaceRpcJsonResult(await this.rpcGetBoardResult(input));
       }
@@ -10766,8 +11024,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetBoardResult(
     input: GetSpaceBoardInput
   ): Promise<SpaceRpcJsonResult<SpaceBoardRoomProjection>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -10789,8 +11046,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetStatus(
     input: GetSpaceStatusInput
   ): Promise<GetSpaceStatusResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return unwrapSpaceRpcJsonResult(await this.rpcGetStatusResult(input));
       }
@@ -10799,8 +11055,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetStatusResult(
     input: GetSpaceStatusInput
   ): Promise<SpaceRpcJsonResult<GetSpaceStatusResponse>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -10822,8 +11077,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetConversationState(
     input: GetSpaceConversationStateRpcInput
   ): Promise<GetSpaceConversationStateResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -10845,12 +11099,11 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcResolveNativeReplyPlacement(
     raw: ResolveNativeReplyPlacementInput
   ): Promise<NativeReplyPlacement> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const input = resolveNativeReplyPlacementInputSchema.parse(raw);
         this.applySpaceRef(input.spaceId);
-        const outcome = await this.blockConcurrencyWithPostgres(async () => {
+        const outcome = await this.blockConcurrencyWithPostgres("resolve_native_reply_placement", async () => {
           try {
             return { value: await this.resolveNativeReplyPlacement(input) };
           } catch (error) {
@@ -11053,8 +11306,7 @@ export class Space extends DurableObject<CoreBindings> {
         reasonCode: string;
       }
   > {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(raw.spaceId);
         const input = await this.projectAgentStreamReplyPlacement(raw);
@@ -11116,8 +11368,7 @@ export class Space extends DurableObject<CoreBindings> {
         reasonCode: string;
       }
   > {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(raw.spaceId);
         const input = await this.projectAgentStreamReplyPlacement(raw);
@@ -11155,8 +11406,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcCloseAgentStream(
     input: CloseSpaceAgentStreamInput
   ): Promise<SpaceAgentStreamTerminalFrame | null> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const nowMs = Date.now();
@@ -11195,8 +11445,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetBootstrap(
     input: GetSpaceBootstrapInput
   ): Promise<SpaceBootstrapResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return (await this.rpcGetBootstrapWithTiming(input)).payload;
       }
@@ -11205,8 +11454,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetBootstrapWithTiming(
     input: GetSpaceBootstrapInput
   ): Promise<SpaceBootstrapWithTiming> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const collector = createSpaceBootstrapTimingCollector();
@@ -11479,8 +11727,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetUpdates(
     input: GetSpaceUpdatesInput
   ): Promise<GetSpaceUpdatesResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchUpdatesRequest(
@@ -11508,8 +11755,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetDispatchResult(
     input: GetSpaceDispatchResultInput
   ): Promise<DispatchResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchDispatchResultRequest(
@@ -11540,8 +11786,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetMembers(
     input: GetSpaceMembersInput
   ): Promise<SpaceMembersSnapshot> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchMembersRequest(
@@ -11562,8 +11807,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetHistoryNavigation(
     input: GetSpaceMembersInput & SpaceHistoryNavigationQuery
   ): Promise<SpaceHistoryNavigation> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -11640,8 +11884,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetIdentityDirectory(
     input: GetSpaceMembersInput
   ): Promise<SpaceIdentityDirectory> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchIdentityDirectoryRequest(
@@ -11662,8 +11905,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetMemberDirectory(
     input: GetSpaceMembersInput
   ): Promise<SpaceMemberDirectory> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchMemberDirectoryRequest(
@@ -11684,8 +11926,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetViewerMembership(
     input: GetSpaceViewerMembershipInput
   ): Promise<SpaceViewerMembershipResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -11707,8 +11948,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListThreads(
     input: ListSpaceThreadsInput
   ): Promise<ListSpaceThreadsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return unwrapSpaceRpcJsonResult(await this.rpcListThreadsResult(input));
       }
@@ -11717,8 +11957,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListThreadsResult(
     input: ListSpaceThreadsInput
   ): Promise<SpaceRpcJsonResult<ListSpaceThreadsResponse>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -11745,8 +11984,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetThread(
     input: GetSpaceThreadInput
   ): Promise<GetSpaceThreadResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return unwrapSpaceRpcJsonResult(await this.rpcGetThreadResult(input));
       }
@@ -11755,8 +11993,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetThreadResult(
     input: GetSpaceThreadInput
   ): Promise<SpaceRpcJsonResult<GetSpaceThreadResponse>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -11783,8 +12020,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListThreadEvents(
     input: ListSpaceThreadEventsInput
   ): Promise<ListSpaceThreadEventsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return unwrapSpaceRpcJsonResult(
           await this.rpcListThreadEventsResult(input)
@@ -11795,8 +12031,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListThreadEventsResult(
     input: ListSpaceThreadEventsInput
   ): Promise<SpaceRpcJsonResult<ListSpaceThreadEventsResponse>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -11823,8 +12058,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListThreadSignals(
     input: ListSpaceThreadSignalsInput
   ): Promise<ListSpaceThreadSignalsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         return unwrapSpaceRpcJsonResult(
           await this.rpcListThreadSignalsResult(input)
@@ -11835,8 +12069,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcListThreadSignalsResult(
     input: ListSpaceThreadSignalsInput
   ): Promise<SpaceRpcJsonResult<ListSpaceThreadSignalsResponse>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -11868,8 +12101,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcCheckDeviceWaitingWakeAccess(
     request: import("@openmeld/schemas/types").WakeDeviceWaitAccessRequest
   ): Promise<import("@openmeld/schemas/types").WakeDeviceWaitAccessResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const parsed = wakeDeviceWaitAccessRequestSchema.safeParse(request);
         if (!parsed.success) {
@@ -11933,8 +12165,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcCheckTaskSummaryRecoveryAccess(
     raw: ReturnType<typeof taskSummaryRecoveryAccessRequestSchema.parse>
   ): Promise<ReturnType<typeof taskSummaryRecoveryAccessResponseSchema.parse>> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const parsed = taskSummaryRecoveryAccessRequestSchema.safeParse(raw);
         if (!parsed.success) {
@@ -11976,8 +12207,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetClaimTimeLiveness(
     input: SpaceClaimTimeLivenessInput
   ): Promise<SpaceClaimTimeLivenessResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         return await resolveSpaceClaimTimeLiveness({
@@ -12031,8 +12261,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetDispatchTrace(
     input: GetSpaceDispatchTraceInput
   ): Promise<SpaceDispatchTraceResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const url = new URL(
@@ -12068,8 +12297,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetDispatchLookup(
     input: GetSpaceDispatchLookupInput
   ): Promise<GetSpaceDispatchLookupResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const url = new URL("https://openmeld.local/dispatches/lookup");
@@ -12100,10 +12328,10 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcGetWakeProgress(
-    input: GetSpaceWakeProgressInput
+    input: GetSpaceWakeProgressInput,
+    directAccountUserId?: string
   ): Promise<GetSpaceWakeProgressResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const url = new URL("https://openmeld.local/wake-progress");
@@ -12143,22 +12371,24 @@ export class Space extends DurableObject<CoreBindings> {
         });
         const response = await this.dispatchWakeProgressRequest(
           request,
-          pickSpaceDispatchAccessOptions(input)
+          { ...pickSpaceDispatchAccessOptions(input), directAccountUserId }
         );
         return readSpaceRpcJsonOrThrow(response);
       }
     );
   }
   async rpcGetActiveWakeProgress(
-    input: GetActiveSpaceWakeProgressInput
+    input: GetActiveSpaceWakeProgressInput,
+    directAccountUserId?: string
   ): Promise<GetActiveSpaceWakeProgressResponse> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
-      Space.#executeRpcGetActiveWakeProgress(this, input)
+    return await this.withPostgresRequest(() =>
+      Space.#executeRpcGetActiveWakeProgress(this, input, directAccountUserId)
     );
   }
   static async #executeRpcGetActiveWakeProgress(
     owner: Space,
-    input: GetActiveSpaceWakeProgressInput
+    input: GetActiveSpaceWakeProgressInput,
+    directAccountUserId?: string
   ): Promise<GetActiveSpaceWakeProgressResponse> {
     owner.applySpaceRef(input.spaceId);
     const url = new URL("https://openmeld.local/active-wake-progress");
@@ -12203,7 +12433,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
     const response = await owner.dispatchActiveWakeProgressRequest(
       request,
-      pickSpaceDispatchAccessOptions(input)
+      { ...pickSpaceDispatchAccessOptions(input), directAccountUserId }
     );
     return readSpaceRpcJsonOrThrow(response);
   }
@@ -12213,9 +12443,8 @@ export class Space extends DurableObject<CoreBindings> {
     password?: string;
     context?: CoreRpcContextInput;
     spaceAccess?: SpaceAccessContext;
-  }): Promise<PostSpaceWakeStopResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+  }, directAccountUserId?: string): Promise<PostSpaceWakeStopResponse> {
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -12230,7 +12459,7 @@ export class Space extends DurableObject<CoreBindings> {
         });
         const response = await this.dispatchWakeStopRequest(
           request,
-          pickSpaceDispatchAccessOptions(input)
+          { ...pickSpaceDispatchAccessOptions(input), directAccountUserId }
         );
         return readSpaceRpcJsonOrThrow(response);
       }
@@ -12243,8 +12472,7 @@ export class Space extends DurableObject<CoreBindings> {
     context?: CoreRpcContextInput;
     spaceAccess?: SpaceAccessContext;
   }): Promise<RespondToSpaceAgentInteractionResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -12268,8 +12496,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetWakeTraceWaterfall(
     input: GetSpaceWakeTraceWaterfallInput
   ): Promise<GetSpaceWakeTraceWaterfallResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const url = new URL("https://openmeld.local/wake-trace-waterfall");
@@ -12304,8 +12531,7 @@ export class Space extends DurableObject<CoreBindings> {
       spaceAccess: SpaceAccessContext;
     }
   ): Promise<GetSpaceMessageReactionsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await assertRpcSpaceAccessAuthorized(
@@ -12336,7 +12562,7 @@ export class Space extends DurableObject<CoreBindings> {
       spaceAccess: SpaceAccessContext;
     }
   ): Promise<GetSpaceMessageReactionsResponse> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcSetMessageReaction(this, input)
     );
   }
@@ -12480,8 +12706,7 @@ export class Space extends DurableObject<CoreBindings> {
       spaceAccess: SpaceAccessContext;
     }
   ) {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await assertRpcSpaceAccessAuthorized(
@@ -12521,8 +12746,7 @@ export class Space extends DurableObject<CoreBindings> {
       spaceAccess: SpaceAccessContext;
     }
   ): Promise<import("@openmeld/schemas").SpaceMessageLinks> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await assertRpcSpaceAccessAuthorized(
@@ -12560,8 +12784,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcGetMessageDetails(
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const url = new URL("https://openmeld.local/message-details");
@@ -12571,6 +12794,9 @@ export class Space extends DurableObject<CoreBindings> {
         }
         if (input.executionContextVersion === 1) {
           url.searchParams.set("executionContextVersion", "1");
+        }
+        if (input.timingVersion === 1) {
+          url.searchParams.set("timingVersion", "1");
         }
         const request = this.buildDirectRpcRequest({
           path: `${url.pathname}${url.search}`,
@@ -12592,8 +12818,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcCreateDiagnosticReport(
     input: CreateSpaceDiagnosticReportInput
   ): Promise<CreateSpaceDiagnosticReportResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -12617,8 +12842,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcPostMembers(
     input: AddSpaceMembersInput
   ): Promise<PostSpaceMembersResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchMembersRequest(
@@ -12647,12 +12871,13 @@ export class Space extends DurableObject<CoreBindings> {
   } | null> {
     const input = spaceOwnerDepartureSpaceInputSchema.parse(raw);
     this.applySpaceRef(input.spaceId);
-    return this.blockConcurrencyWithPostgres(async () => {
+    return this.blockConcurrencyWithPostgres("check_owner_departure", async () => {
       const meta = this.readSpaceMetaRecord();
       if (meta && meta.organizationId !== input.organizationId) {
         throw new Error("Space organization mismatch.");
       }
       if (
+        !meta?.deletedAt &&
         meta?.ownerUserIds?.includes(input.userId) &&
         !(meta.directMessage && !meta.directMessage.convertedAt)
       ) {
@@ -12670,6 +12895,255 @@ export class Space extends DurableObject<CoreBindings> {
       });
       return null;
     });
+  }
+  async rpcPreviewOrganizationMemberRemovalSpace(
+    raw: OrganizationMemberRemovalSpaceInput
+  ): Promise<OrganizationMemberRemovalSpace | null> {
+    const parsed = organizationMemberRemovalSpaceInputSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        reason: "Invalid member removal request.",
+      });
+    }
+    const input = parsed.data;
+    this.applySpaceRef(input.spaceId);
+    const result = await this.blockConcurrencyWithPostgres("preview_member_removal", async () => {
+      try {
+        const authorized = await requireOrganizationMemberRemovalManager(
+          this.bindings,
+          input
+        );
+        return {
+          ok: true as const,
+          value: await this.readOrganizationMemberRemovalSpace(authorized),
+        };
+      } catch (error) {
+        return { ok: false as const, error };
+      }
+    });
+    if (!result.ok) {
+      throw result.error;
+    }
+    return result.value;
+  }
+  async rpcPrepareOrganizationMemberRemovalSpace(
+    raw: OrganizationMemberRemovalSpacePrepareInput
+  ): Promise<void> {
+    const parsed =
+      organizationMemberRemovalSpacePrepareInputSchema.safeParse(raw);
+    if (!parsed.success) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        reason: "Invalid member removal request.",
+      });
+    }
+    const input = parsed.data;
+    this.applySpaceRef(input.spaceId);
+    const result = await this.blockConcurrencyWithPostgres("prepare_member_removal", async () => {
+      try {
+        await this.prepareOrganizationMemberRemovalSpace(input);
+        return { ok: true as const };
+      } catch (error) {
+        return { ok: false as const, error };
+      }
+    });
+    if (!result.ok) {
+      throw result.error;
+    }
+  }
+  private async prepareOrganizationMemberRemovalSpace(
+    input: OrganizationMemberRemovalSpacePrepareInput
+  ): Promise<void> {
+    const authorized = await requireOrganizationMemberRemovalManager(
+      this.bindings,
+      input
+    );
+    const current = await this.readOrganizationMemberRemovalSpace(authorized);
+    if (
+      !current ||
+      current.spaceId !== input.expected.spaceId ||
+      current.action !== input.expected.action ||
+      current.name !== input.expected.name
+    ) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: "organization.member_removal_changed",
+        reason:
+          "This Space changed. Review this member's Spaces again before removing them.",
+      });
+    }
+    const meta = this.readSpaceMetaRecord();
+    if (!meta) {
+      throw new Error("Space metadata is unavailable.");
+    }
+    if (current.action === "close") {
+      await this.retainDeletedSpace(meta);
+    } else {
+      const owners = new Set(meta.ownerUserIds);
+      let successor: ResolvedSpaceMemberProfile | null = null;
+      if (current.action === "transfer") {
+        const nextOwner = await requireOrganizationMemberRemovalSuccessor(
+          authorized,
+          input.successorUserId
+        );
+        successor = nextOwner;
+        // The FK protects the successor before either membership or ownership
+        // is granted. The processing administrator is never added to the Space.
+        await this.protectSpaceOwnerMembership(
+          authorized.organizationId,
+          nextOwner.ownerUserId
+        );
+        owners.add(nextOwner.ownerUserId);
+      }
+      owners.delete(authorized.userId);
+      if (owners.size === 0) {
+        throw new Error("A shared Space must retain an owner.");
+      }
+      const now = Date.now();
+      let addedMemberIds: string[] = [];
+      this.ctx.storage.transactionSync(() => {
+        if (successor) {
+          addedMemberIds = addSpaceMembersUseCase({
+            sql: this.ctx.storage.sql,
+            env: this.bindings,
+            spaceId: this.spaceId,
+            members: [successor],
+            actorProfileId: input.context.actorContext.openMeldProfileId,
+            actorOwnerUserId: authorized.actorUserId,
+            actorDisplayName: input.context.actorContext.profileName,
+            liveSessions: this.sessions.values(),
+          }).addedMemberIds;
+          this.ctx.storage.sql.exec(
+            "INSERT INTO space_ownership_audit (id, actor_user_id, target_user_id, role, created_at) VALUES (?, ?, ?, 'owner', ?)",
+            crypto.randomUUID(),
+            authorized.actorUserId,
+            successor.ownerUserId,
+            now
+          );
+        }
+        this.ctx.storage.sql.exec(
+          "UPDATE space_meta SET owner_user_ids_json = ?, updated_at = ? WHERE space_id = ?",
+          JSON.stringify([...owners].sort()),
+          now,
+          this.spaceId
+        );
+        this.ctx.storage.sql.exec(
+          "INSERT INTO space_ownership_audit (id, actor_user_id, target_user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)",
+          crypto.randomUUID(),
+          authorized.actorUserId,
+          authorized.userId,
+          now
+        );
+      });
+      // Persist/schedule the index outbox before cleanup can fail, so the new
+      // owner can discover the Space even when membership removal needs retry.
+      await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
+      if (addedMemberIds.length > 0) {
+        await this.broadcastSpaceMembersChanged({
+          profileIds: addedMemberIds,
+          reason: "space.members.added",
+        });
+      }
+      await authorized.db.query({
+        text: 'DELETE FROM "openmeld"."space_owner_member_references" WHERE space_id = $1 AND member_id = $2',
+        values: [this.spaceId, authorized.memberId],
+      });
+      await this.broadcastSpaceMetaChanged({ reason: "space.meta.updated" });
+    }
+    console.info("[core.organization.member_removal_space_prepared]", {
+      event: "core.organization.member_removal_space_prepared",
+      action: current.action,
+      actorUserId: authorized.actorUserId,
+      organizationId: authorized.organizationId,
+      memberId: authorized.memberId,
+      spaceId: this.spaceId,
+      successorUserId:
+        current.action === "transfer" ? input.successorUserId : undefined,
+      requestId: input.context.actorContext.requestId,
+    });
+  }
+  private async readOrganizationMemberRemovalSpace(input: {
+    organizationId: string;
+    userId: string;
+  }): Promise<OrganizationMemberRemovalSpace | null> {
+    const meta = this.readSpaceMetaRecord();
+    if (!meta || meta.organizationId !== input.organizationId) {
+      throw new Error("Space ownership could not be verified.");
+    }
+    const isDirectMessage = Boolean(
+      meta.directMessage && !meta.directMessage.convertedAt
+    );
+    if (meta.deletedAt || isDirectMessage) {
+      return null;
+    }
+    // A restrictive reference cannot substitute for canonical ownership.
+    if (
+      !meta.ownerUserIds?.length ||
+      meta.ownerUserIds.some((ownerUserId) => !ownerUserId.trim())
+    ) {
+      throw createCoreRpcHttpError({
+        status: 503,
+        code: "space.ownership_unavailable",
+        reason: "Space ownership could not be verified. Try again.",
+      });
+    }
+    const db = this.requireSpaceIndexDb();
+    const members = listSpaceMemberRecords(this.ctx.storage.sql);
+    // Only a verified Organization-managed Center Agent may count as a solo
+    // user's assistant; a missing owner on any other participant is ambiguous.
+    const center = members.some(
+      (member) =>
+        member.profileKindSnapshot === "agent" && !member.ownerUserIdSnapshot
+    )
+      ? (
+          await db.query<{ profile_id: string }>({
+            text: `SELECT p.profile_id FROM "openmeld"."center_agent_designations" d
+            JOIN "openmeld"."openmeld_profiles" p ON p.profile_id = d.agent_profile_id
+            WHERE d.organization_id = $1 AND p.organization_id = $1
+              AND p.profile_kind = 'agent' AND p.managed_role = 'center_agent'
+              AND p.owner_user_id IS NULL`,
+            values: [input.organizationId],
+          })
+        ).rows[0]?.profile_id
+      : undefined;
+    const decision = resolveSpaceMemberDeparture({
+      departingUserId: input.userId,
+      ownerUserIds: meta.ownerUserIds,
+      visibility: meta.visibility,
+      accessMode: meta.accessMode,
+      allowGuests: meta.allowGuests,
+      isDirectMessage,
+      historicalMembers: members.map((member) => ({
+        profileId: member.profileId,
+        profileKind: member.profileKindSnapshot,
+        ownerUserId: member.ownerUserIdSnapshot,
+        isOrganizationCenterAgent: member.profileId === center,
+      })),
+    });
+    if (decision === "not_owner") {
+      return null;
+    }
+    let action: OrganizationMemberRemovalSpace["action"] =
+      decision === "handoff_required" ? "transfer" : decision;
+    if (action === "close") {
+      const invitation = await db.query({
+        text: `SELECT 1 FROM "openmeld"."space_invitations" WHERE space_id = $1
+          AND status IN ('pending', 'accepting') AND expires_at > $2 LIMIT 1`,
+        values: [this.spaceId, Date.now()],
+      });
+      if (
+        invitation.rows.length ||
+        Object.values(await this.readDeletionPendingWork()).some(Boolean)
+      ) {
+        action = "transfer";
+      }
+    }
+    return {
+      spaceId: this.spaceId,
+      name: meta.name ?? "Untitled Space",
+      action,
+    };
   }
   rpcAuthorizeSpaceInvitation(raw: SpaceInvitationAccessInput): {
     name: string;
@@ -12766,8 +13240,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcAcceptSpaceInvitation(
     raw: SpaceInvitationGrantInput
   ): Promise<"accepted" | "revoked"> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         const input = spaceInvitationGrantInputSchema.parse(raw);
         if (
@@ -12855,10 +13328,9 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcConvertDirectMessageToSpace(
     input: ConvertDirectMessageToSpaceInput
   ): Promise<ConvertDirectMessageToSpaceResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
-        const result = await this.blockConcurrencyWithPostgres(async () => {
+        const result = await this.blockConcurrencyWithPostgres("convert_direct_message", async () => {
           try {
             return {
               ok: true as const,
@@ -13051,8 +13523,7 @@ export class Space extends DurableObject<CoreBindings> {
     ok: true;
     spaceId: string;
   }> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const requestedProfileIds = normalizeProfileIds(input.agentProfileIds);
@@ -13104,8 +13575,7 @@ export class Space extends DurableObject<CoreBindings> {
     ok: true;
     spaceId: string;
   }> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const agentProfileIds = normalizeProfileIds(input.agentProfileIds);
@@ -13135,8 +13605,7 @@ export class Space extends DurableObject<CoreBindings> {
   }): Promise<{
     status: "removed" | "skipped_creator" | "noop" | "deferred";
   }> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const status = await this.reconcileDeletedAgentProfileMemberInternal({
@@ -13163,8 +13632,7 @@ export class Space extends DurableObject<CoreBindings> {
   }): Promise<{
     recorded: boolean;
   }> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const record = readSpaceMemberRecord(
@@ -13197,8 +13665,7 @@ export class Space extends DurableObject<CoreBindings> {
     projectionStatus: string;
     spaceId: string;
   }> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const metaRecord = this.readSpaceMetaRecord();
@@ -13454,8 +13921,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcRemoveMembers(
     input: RemoveSpaceMembersInput
   ): Promise<RemoveSpaceMembersResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchRemoveMembersRequest(
@@ -13476,8 +13942,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcLeaveSpace(input: LeaveSpaceInput): Promise<LeaveSpaceResponse> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchLeaveSpaceRequest(
@@ -13495,7 +13960,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcPatchMeta(input: PatchSpaceMetaInput): Promise<SpaceMeta> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcPatchMeta(this, input)
     );
   }
@@ -13522,6 +13987,7 @@ export class Space extends DurableObject<CoreBindings> {
           : {}),
         ...(input.creator ? { creator: input.creator } : {}),
         ...(typeof input.guide === "string" ? { guide: input.guide } : {}),
+        ...(input.guideEdit === undefined ? {} : { guideEdit: input.guideEdit }),
         ...(input.accessMode === undefined
           ? {}
           : { accessMode: input.accessMode }),
@@ -13542,7 +14008,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcInitializeSpaceMetaWithOwners(
     input: InitializeSpaceMetaWithOwnersInput
   ): Promise<InitializeSpaceMetaWithOwnersResponse> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcInitializeSpaceMetaWithOwners(this, input)
     );
   }
@@ -13551,7 +14017,7 @@ export class Space extends DurableObject<CoreBindings> {
     input: InitializeSpaceMetaWithOwnersInput
   ): Promise<InitializeSpaceMetaWithOwnersResponse> {
     owner.applySpaceRef(input.spaceId);
-    const result = await owner.blockConcurrencyWithPostgres(async () => {
+    const result = await owner.blockConcurrencyWithPostgres("initialize_meta_with_owners", async () => {
       try {
         const existing = owner.readSpaceMetaRecord();
         if (existing) {
@@ -13669,7 +14135,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcInitializeDirectMessageMeta(
     input: InitializeDirectMessageSpaceMetaInput
   ): Promise<InitializeDirectMessageSpaceMetaResponse> {
-    return await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, () =>
+    return await this.withPostgresRequest(() =>
       Space.#executeRpcInitializeDirectMessageMeta(this, input)
     );
   }
@@ -13748,8 +14214,7 @@ export class Space extends DurableObject<CoreBindings> {
     };
   }
   async rpcPutContract(input: PutSpaceContractInput): Promise<SpaceContract> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchContractRequest(
@@ -13770,8 +14235,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcPatchContract(
     input: PatchSpaceContractInput
   ): Promise<SpaceContract> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchContractRequest(
@@ -13792,8 +14256,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcPatchMetaWithPasswordAtomic(
     input: PatchSpaceMetaWithPasswordAtomicInput
   ): Promise<SpaceMeta> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const request = this.buildDirectRpcRequest({
@@ -13824,8 +14287,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcDelete(input: DeleteSpaceInput): Promise<DeleteSpaceResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const approvedAgentCreatorProfileId =
@@ -13873,7 +14335,7 @@ export class Space extends DurableObject<CoreBindings> {
       }
     | { kind: "deleted"; spaceId: string; organizationId: string }
   > {
-    return await this.blockConcurrencyWithPostgres(async () => {
+    return await this.blockConcurrencyWithPostgres("manage_direct_message_session", async () => {
       this.applySpaceRef(input.spaceId);
       const meta = await this.requireDirectMessageSessionAccess(input.context);
       const db = this.requireSpaceIndexDb();
@@ -13980,7 +14442,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcDeleteConversationForMe(
     input: import("@openmeld/schemas").DeleteConversationForMeInput
   ): Promise<import("@openmeld/schemas").DeleteConversationForMeResponse> {
-    return await this.blockConcurrencyWithPostgres(async () => {
+    return await this.blockConcurrencyWithPostgres("delete_conversation", async () => {
       this.applySpaceRef(input.spaceId);
       const meta = this.readSpaceMetaRecord();
       const actor = input.context.actorContext;
@@ -14084,7 +14546,7 @@ export class Space extends DurableObject<CoreBindings> {
     };
     // Stop can call back into this Space to close its stream. Do not hold the
     // Space concurrency gate while waiting for that callback.
-    await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, async () => {
+    await this.withPostgresRequest(async () => {
       const authorized = await authorize();
       if (authorized) {
         await stopAccountConversation({
@@ -14094,7 +14556,7 @@ export class Space extends DurableObject<CoreBindings> {
         });
       }
     });
-    return this.blockConcurrencyWithPostgres(async () => {
+    return this.blockConcurrencyWithPostgres("purge_account", async () => {
       const authorized = await authorize();
       if (!authorized) {
         return true;
@@ -14148,8 +14610,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
   async rpcGetCursor(input: GetSpaceCursorInput): Promise<SpaceCursor> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const profileId = String(input.profileId ?? "").trim();
@@ -14172,8 +14633,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   async rpcPatchCursor(input: UpdateSpaceCursorInput): Promise<SpaceCursor> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const profileId = String(input.profileId ?? "").trim();
@@ -14211,8 +14671,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcUpsertPassword(
     input: UpsertSpacePasswordInput
   ): Promise<SpacePasswordStateResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchPasswordRequest(
@@ -14230,8 +14689,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcClearPassword(
     input: ClearSpacePasswordInput
   ): Promise<SpacePasswordStateResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchPasswordRequest(
@@ -14248,8 +14706,7 @@ export class Space extends DurableObject<CoreBindings> {
   async rpcSetAccessMode(
     input: SetSpaceAccessModeInput
   ): Promise<SpaceAccessModeStateResult> {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         const response = await this.dispatchAccessModeRequest(
@@ -15321,7 +15778,9 @@ export class Space extends DurableObject<CoreBindings> {
         { status: 400 }
       );
     }
-    return await this.blockConcurrencyWithPostgres(async () => {
+    return await this.blockConcurrencyWithPostgres("post_thread_signal", async () => {
+      const gate = this.postgresGateContext.getStore();
+      gate?.watchMessage(parsed.data.clientMessageId, input.context.actorContext.requestId);
       const existingSignal = this.readSourceTextSignalByClientMessageId(
         parsed.data.clientMessageId
       );
@@ -15382,8 +15841,8 @@ export class Space extends DurableObject<CoreBindings> {
         }
       );
       // Resolve once, after the retry check and before ordinary authorized publication.
-      const automaticWakeEnabled = await this.readAutomaticWakePreference(
-        signal.profile.profileId
+      const automaticWakeEnabled = await duringSpaceGateStage(gate, "thread_wake_preference", () =>
+        this.readAutomaticWakePreference(signal.profile.profileId)
       );
       applyAutomaticThreadWake(signal, () => {
         if (!automaticWakeEnabled) {
@@ -16077,7 +16536,8 @@ export class Space extends DurableObject<CoreBindings> {
                   ? { sourceProfileId: parsed.data.sourceProfileId }
                   : {}),
               }),
-              resolved.spaceAccess
+              resolved.spaceAccess,
+              options.directAccountUserId
             )
           );
         } catch (err) {
@@ -16273,14 +16733,19 @@ export class Space extends DurableObject<CoreBindings> {
     }
     const response = await this.handlePostWakeStop(
       parsed.data.body,
-      requireWritableSpaceActor(resolved.spaceAccess)
+      requireWritableSpaceActor(resolved.spaceAccess),
+      undefined,
+      resolved.spaceAccess.actor.kind === "authenticated"
+        ? options.directAccountUserId
+        : undefined
     );
     return Response.json(response);
   }
   private async handlePostWakeStop(
     body: PostSpaceWakeStopBody,
     context: OpenMeldRequestContext,
-    taskCancellation?: SpaceTaskDelivery
+    taskCancellation?: SpaceTaskDelivery,
+    directAccountUserId?: string
   ): Promise<PostSpaceWakeStopResponse> {
     if (
       taskCancellation &&
@@ -16341,27 +16806,60 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileId: body.target.targetProfileId,
       });
     }
-    if (
-      !(
-        ordinaryStopAuthorized ||
-        isAuthorizedSpaceTaskStop({
-          actorOwnerUserId: context.actorContext.ownerUserId,
-          actorProfileId: context.actorContext.openMeldProfileId,
-          delivery: taskCancellation,
-          wake: lookupMatch,
-          taskRepository: new SpaceTaskRepository(this.ctx.storage.sql),
-          deliveryRepository: new SpaceTaskDeliveryRepository(
-            this.ctx.storage.sql
-          ),
-        })
-      )
-    ) {
-      throw createCoreRpcHttpError({
-        status: 403,
-        code: "space.wake_stop.forbidden",
-        reason:
-          "You can't stop this Wake from this request. Ask its requester or the target Agent's owner to stop it in OpenMeld Web.",
+    const ordinaryOrTaskStop =
+      ordinaryStopAuthorized ||
+      isAuthorizedSpaceTaskStop({
+        actorOwnerUserId: context.actorContext.ownerUserId,
+        actorProfileId: context.actorContext.openMeldProfileId,
+        delivery: taskCancellation,
+        wake: lookupMatch,
+        taskRepository: new SpaceTaskRepository(this.ctx.storage.sql),
+        deliveryRepository: new SpaceTaskDeliveryRepository(
+          this.ctx.storage.sql
+        ),
       });
+    if (!ordinaryOrTaskStop) {
+      if (
+        !(await this.isJoinedOrganizationOwner(context, directAccountUserId))
+      ) {
+        throw createCoreRpcHttpError({
+          status: 403,
+          code: "space.wake_stop.forbidden",
+          reason:
+            "You can't stop this Wake. Ask its requester or the Agent's owner to stop it.",
+        });
+      }
+      const progress = await this.readSpaceWakeProgress({
+        ...(body.target.by === "client_message"
+          ? { clientMessageId: body.target.clientMessageId }
+          : {}),
+        sourceSignalId: lookupMatch.sourceSignalId,
+        targetProfileId: lookupMatch.targetProfileId,
+        includeWakeStopEligibility: true,
+      });
+      const item = progress.items.find(
+        (candidate) =>
+          candidate.dispatchId === lookupMatch.dispatchId &&
+          candidate.sourceSignalId === lookupMatch.sourceSignalId &&
+          candidate.targetProfileId === lookupMatch.targetProfileId
+      );
+      const family = item ? await this.readUndeliveredWakeFamily(item) : null;
+      if (family === "workstation") {
+        return this.requestPreAgentWakeStop({
+          body,
+          lookupMatch,
+          beforeDeliveryOwner: context,
+        });
+      }
+      if (family === "hosted") {
+        const stop = await this.requestRemoteAgentNativeDeliveryStop({
+          body,
+          lookupMatch,
+          beforeDeliveryOwner: context,
+        });
+        if (stop) return stop;
+      }
+      return wakeStopBeforeDeliveryUnavailable(lookupMatch.targetProfileId);
     }
 
     const finalSignalId =
@@ -16396,7 +16894,6 @@ export class Space extends DurableObject<CoreBindings> {
       lookupMatch,
     });
   }
-
   private async tryStopUnreceivedWake(
     body: PostSpaceWakeStopBody,
     context: OpenMeldRequestContext
@@ -16672,11 +17169,134 @@ export class Space extends DurableObject<CoreBindings> {
       ? provenance.actorProfileId
       : null;
   }
+  private isJoinedOrdinarySpaceMember(
+    context: OpenMeldRequestContext
+  ): boolean {
+    const meta = this.readSpaceMetaRecord();
+    if (
+      !meta ||
+      meta.deletedAt ||
+      context.activeOrganizationId !== meta.organizationId ||
+      meta.purpose === OPENMELD_WELCOMING_SPACE_PURPOSE ||
+      isDirectMessageSpace({
+        purpose: meta.purpose,
+        directMessageConvertedAt: meta.directMessage?.convertedAt,
+      })
+    ) {
+      return false;
+    }
+    const member = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      context.actorContext.openMeldProfileId
+    );
+    return (
+      member?.status === "active" &&
+      member.profileKindSnapshot === "human" &&
+      member.ownerUserIdSnapshot === context.actorContext.ownerUserId
+    );
+  }
+
+  private async isJoinedOrganizationOwner(
+    context: OpenMeldRequestContext,
+    directAccountUserId?: string
+  ): Promise<boolean> {
+    // Only the account-facing Core entrypoints pass the authenticated principal.
+    // Represented Human and Task contexts retain their existing Stop authority.
+    if (
+      !directAccountUserId ||
+      context.actorContext.profileKind !== "human" ||
+      context.actorContext.ownerUserId !== directAccountUserId ||
+      context.actorContext.callerPrincipalId !== directAccountUserId ||
+      !context.activeOrganizationId ||
+      !this.isJoinedOrdinarySpaceMember(context)
+    ) {
+      return false;
+    }
+    const membership = await this.organizationMembershipReads.read({
+      env: this.bindings,
+      organizationId: context.activeOrganizationId,
+      userId: directAccountUserId,
+    });
+    if (!membership.ok && membership.status === 503) {
+      throw createCoreRpcHttpError({
+        status: 503,
+        code: membership.code,
+        reason: membership.message,
+      });
+    }
+    return (
+      membership.ok &&
+      membership.role.split(",").includes("owner") &&
+      this.isJoinedOrdinarySpaceMember(context)
+    );
+  }
+
+  private async readUndeliveredWakeFamily(
+    item: WakeProgressItem
+  ): Promise<"workstation" | "hosted" | null> {
+    if (
+      !item.dispatchId ||
+      !item.sourceSignalId ||
+      item.terminal ||
+      item.runtimeCoordinatorExecutionId
+    ) {
+      return null;
+    }
+    const mode = item.wakeStopEligibility?.controlMode;
+    if (mode !== "openmeld_owned_pre_agent_cancel" && mode !== "cancel") {
+      return null;
+    }
+    const outbox = readDispatchOutboxRecordByDispatchId(
+      this.ctx.storage.sql,
+      item.dispatchId
+    );
+    if (mode === "openmeld_owned_pre_agent_cancel") {
+      if (outbox?.controllerSnapshot?.agentControllerRef) {
+        return outbox.outboxStatus !== "cancelled" &&
+          !isHostedAgentControllerRef(
+            outbox.controllerSnapshot.agentControllerRef
+          )
+          ? "workstation"
+          : null;
+      }
+      // A legacy Wake can outlive its outbox. Absence alone does not prove it
+      // was never delivered; require the surviving workstation head.
+      const { trace } = await this.readSpaceDispatchTrace(item.dispatchId, {
+        responseContractVersion: SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
+      });
+      const head = trace?.runtimeCoordinatorHeadLifecycle;
+      return !trace?.nativeDelivery &&
+        !trace?.runtimeCoordinatorExecution &&
+        head?.readStatus === "found" &&
+        (head.status === "queued" ||
+          head.status === "accepted" ||
+          head.status === "waiting") &&
+        !head.runtimeCoordinatorExecutionId
+        ? "workstation"
+        : null;
+    }
+    return isHostedAgentControllerRef(
+      outbox?.controllerSnapshot?.agentControllerRef
+    ) &&
+      outbox?.outboxStatus !== "cancelled" &&
+      isSpaceNativeWakeUnexposed(this.ctx.storage.sql, {
+        spaceId: this.spaceId,
+        dispatchId: item.dispatchId,
+        targetProfileId: item.targetProfileId,
+      })
+      ? "hosted"
+      : null;
+  }
+
   private async projectWakeStopEligibilityForViewer<
     T extends {
       items: WakeProgressItem[];
     },
-  >(response: T, spaceAccess: SpaceAccessContext): Promise<T> {
+  >(
+    response: T,
+    spaceAccess: SpaceAccessContext,
+    directAccountUserId?: string
+  ): Promise<T> {
     if (!response.items.some((item) => item.wakeStopEligibility != null)) {
       return response;
     }
@@ -16684,6 +17304,7 @@ export class Space extends DurableObject<CoreBindings> {
     const context = getSpaceAccessRequestContext(spaceAccess);
     // Reuse ownership reads only inside this viewer's request, never across accounts.
     const profileOwnership = new Map<string, Promise<boolean>>();
+    let joinedOwner: Promise<boolean> | undefined;
     const items = await Promise.all(
       response.items.map(async (item) => {
         if (item.wakeStopEligibility == null) {
@@ -16700,12 +17321,39 @@ export class Space extends DurableObject<CoreBindings> {
             },
             profileOwnership
           ));
-        return authorized ? item : { ...item, wakeStopEligibility: null };
+        if (authorized) {
+          return item;
+        }
+        if (
+          access.ok &&
+          context &&
+          directAccountUserId &&
+          spaceAccess.actor.kind === "authenticated" &&
+          !item.runtimeCoordinatorExecutionId &&
+          !item.terminal &&
+          item.wakeStopEligibility.status === "eligible" &&
+          (item.wakeStopEligibility.controlMode ===
+            "openmeld_owned_pre_agent_cancel" ||
+            item.wakeStopEligibility.controlMode === "cancel")
+        ) {
+          joinedOwner ??= this.isJoinedOrganizationOwner(
+            context,
+            directAccountUserId
+          );
+          if (
+            (await joinedOwner) &&
+            (await this.readUndeliveredWakeFamily(item))
+          ) {
+            return item;
+          }
+        }
+        return { ...item, wakeStopEligibility: null };
       })
     );
     return { ...response, items };
   }
   private async requestRemoteAgentNativeDeliveryStop(input: {
+    beforeDeliveryOwner?: OpenMeldRequestContext | undefined;
     body: PostSpaceWakeStopBody;
     lookupMatch: SpaceDispatchLookupMatch;
   }): Promise<PostSpaceWakeStopResponse | null> {
@@ -16754,6 +17402,17 @@ export class Space extends DurableObject<CoreBindings> {
       spaceId: this.spaceId,
       storage: this.ctx.storage,
     });
+    if (
+      input.beforeDeliveryOwner &&
+      !(await this.isJoinedOrganizationOwner(
+        input.beforeDeliveryOwner,
+        input.beforeDeliveryOwner.actorContext.callerPrincipalId
+      ))
+    ) {
+      return wakeStopBeforeDeliveryUnavailable(
+        input.lookupMatch.targetProfileId
+      );
+    }
     // Final publication and Stop compete at Space's existing claim boundary.
     // This synchronous check/write cannot race a Space publication in between.
     const settled = this.readHostedWakeStopFinalOutcome({
@@ -16762,6 +17421,19 @@ export class Space extends DurableObject<CoreBindings> {
     });
     if (settled) {
       return settled;
+    }
+    if (
+      input.beforeDeliveryOwner &&
+      (delivery?.submissionId ||
+        !isSpaceNativeWakeUnexposed(this.ctx.storage.sql, {
+          spaceId: this.spaceId,
+          dispatchId: input.lookupMatch.dispatchId,
+          targetProfileId: input.lookupMatch.targetProfileId,
+        }))
+    ) {
+      return wakeStopBeforeDeliveryUnavailable(
+        input.lookupMatch.targetProfileId
+      );
     }
     outbox =
       readDispatchOutboxRecordByDispatchId(
@@ -17078,6 +17750,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
   }
   private async requestPreAgentWakeStop(input: {
+    beforeDeliveryOwner?: OpenMeldRequestContext | undefined;
     body: PostSpaceWakeStopBody;
     lookupMatch: SpaceDispatchLookupMatch;
   }): Promise<PostSpaceWakeStopResponse> {
@@ -17112,6 +17785,21 @@ export class Space extends DurableObject<CoreBindings> {
     const targetDisplay = this.resolveWakeStopTargetDisplay(
       input.lookupMatch.targetProfileId
     );
+    if (
+      input.beforeDeliveryOwner &&
+      (!(await this.isJoinedOrganizationOwner(
+        input.beforeDeliveryOwner,
+        input.beforeDeliveryOwner.actorContext.callerPrincipalId
+      )) ||
+        readFinalReplyClaimSignalId(this.ctx.storage.sql, {
+          dispatchId: input.lookupMatch.dispatchId,
+          profileId: input.lookupMatch.targetProfileId,
+        }))
+    ) {
+      return wakeStopBeforeDeliveryUnavailable(
+        input.lookupMatch.targetProfileId
+      );
+    }
     const stopResponse =
       await recordRuntimeTransportRuntimeCoordinatorHeadPreAgentStop({
         env: this.bindings,
@@ -17148,6 +17836,7 @@ export class Space extends DurableObject<CoreBindings> {
       });
     }
     if (
+      !input.beforeDeliveryOwner &&
       !stopResponse.ok &&
       stopResponse.status === "execution_linked" &&
       stopResponse.runtimeCoordinatorExecutionId
@@ -17227,19 +17916,30 @@ export class Space extends DurableObject<CoreBindings> {
       "runtimeCoordinatorExecutionId" | "openMeldServiceRuntimeId"
     >;
   }): Promise<RuntimeTransportRuntimeCoordinatorReadInteractionRevisionResponse> {
-    const unavailable = {
-      interactionUpdatedAtMs: null,
-      pendingInteraction: null,
-    };
+    const read = await this.readAgentInteraction(input);
+    return read.readStatus === "read"
+      ? {
+          interactionUpdatedAtMs: read.interactionUpdatedAtMs,
+          pendingInteraction: read.pendingInteraction,
+        }
+      : { interactionUpdatedAtMs: null, pendingInteraction: null };
+  }
+  private async readAgentInteraction(input: {
+    actorOwnerUserId?: string | null;
+    execution: Pick<
+      RuntimeCoordinatorExecutionRecord,
+      "runtimeCoordinatorExecutionId" | "openMeldServiceRuntimeId"
+    >;
+  }): Promise<RuntimeCoordinatorInteractionRead> {
     const actorOwnerUserId = normalizeOptionalText(input.actorOwnerUserId);
     if (!actorOwnerUserId) {
-      return unavailable;
+      return { readStatus: "unavailable" };
     }
     const runtimeOwnerUserId = await this.readRuntimeOwnerUserId(
       input.execution.openMeldServiceRuntimeId.value
     );
     if (!runtimeOwnerUserId) {
-      return unavailable;
+      return { readStatus: "unavailable" };
     }
     return await readRuntimeTransportRuntimeCoordinatorInteraction({
       env: this.bindings,
@@ -17446,7 +18146,8 @@ export class Space extends DurableObject<CoreBindings> {
                 ? { targetProfileId: parsed.data.targetProfileId }
                 : {}),
             }),
-            resolved.spaceAccess
+            resolved.spaceAccess,
+            options.directAccountUserId
           )
         );
       },
@@ -17523,6 +18224,9 @@ export class Space extends DurableObject<CoreBindings> {
                 ),
               }
             : {}),
+          ...(url.searchParams.has("timingVersion")
+            ? { timingVersion: Number(url.searchParams.get("timingVersion")) }
+            : {}),
         });
         if (!parsed.success) {
           return new Response(
@@ -17535,6 +18239,7 @@ export class Space extends DurableObject<CoreBindings> {
           signalId: parsed.data.signalId,
           includeThreadContext: parsed.data.includeThreadContext,
           executionContextVersion: parsed.data.executionContextVersion,
+          timingVersion: parsed.data.timingVersion,
           viewer: await this.resolveReadViewerIdentity(spaceAccess),
         });
         if (!details) {
@@ -17689,7 +18394,7 @@ export class Space extends DurableObject<CoreBindings> {
       return Promise.resolve(this.unauthenticatedResponse(resolved.requestId));
     }
     if (request.method === "PATCH") {
-      return this.blockConcurrencyWithPostgres(() =>
+      return this.blockConcurrencyWithPostgres("initialize_meta", () =>
         this.handlePatchMeta(request, {
           context: resolved.context,
           initializeIfAbsent: true,
@@ -17708,7 +18413,7 @@ export class Space extends DurableObject<CoreBindings> {
       return Promise.resolve(this.unauthenticatedResponse(resolved.requestId));
     }
     if (request.method === "PATCH") {
-      return this.blockConcurrencyWithPostgres(() =>
+      return this.blockConcurrencyWithPostgres("initialize_meta_with_password", () =>
         this.handlePatchMetaWithPasswordAtomic(
           request,
           resolved.context,
@@ -17789,8 +18494,7 @@ export class Space extends DurableObject<CoreBindings> {
     this.ctx.waitUntil(this.flushPendingDispatchOutbox());
   }
   async webSocketMessage(webSocket: WebSocket, msg: string | ArrayBuffer) {
-    return await withPostgresRequest(
-      this.bindings.OPENMELD_POSTGRESQL,
+    return await this.withPostgresRequest(
       async () => {
         let payload: Record<string, unknown> | undefined;
         try {
@@ -18459,6 +19163,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
   private async handleDispatchConversationContinuitySignals(input: {
+    requestRoot?: boolean;
     beforeCount: number;
     dispatchId: string;
     signalTypes: readonly (
@@ -18488,6 +19193,29 @@ export class Space extends DurableObject<CoreBindings> {
     const accessResult = await this.authorizeSpaceAccess(input.spaceAccess);
     if (!accessResult.ok) {
       return accessResult.response;
+    }
+    if (input.requestRoot) {
+      if (!this.readSourceTextSignalById(input.sourceSignalId)) {
+        return Response.json(
+          { error: {
+            code: "space.continuity.source_not_found",
+            message: "The request root is unavailable.",
+          } },
+          { status: 404 }
+        );
+      }
+      const viewer = await this.resolveReadViewerIdentity(input.spaceAccess);
+      const signals = listSpaceRequestRootSignalIds(this.ctx.storage.sql, {
+        rootSignalId: input.sourceSignalId,
+        limit: input.beforeCount,
+        signalTypes: input.signalTypes,
+      })
+        .map((id) => this.readSignalById(id))
+        .filter((signal): signal is SignalEnvelope => signal !== null);
+      return Response.json({
+        nextCursor: null,
+        signals: this.redactSignalsForReadViewer(signals, viewer),
+      });
     }
     const scope = resolveSpaceDispatchConversationContinuityScope({
       dispatch: readDispatchOutboxRecordByDispatchId(
@@ -20178,7 +20906,7 @@ export class Space extends DurableObject<CoreBindings> {
       }
     }
     if (Object.hasOwn(body ?? {}, "ownership")) {
-      return this.blockConcurrencyWithPostgres(() =>
+      return this.blockConcurrencyWithPostgres("change_space_owner", () =>
         this.handleChangeSpaceOwner(body, context)
       );
     }
@@ -20596,7 +21324,7 @@ export class Space extends DurableObject<CoreBindings> {
     request: Request,
     context: CoreRpcContextInput
   ): Promise<Response> {
-    return this.blockConcurrencyWithPostgres(() =>
+    return this.blockConcurrencyWithPostgres("delete_space", () =>
       this.deleteSpace(request, context)
     );
   }
@@ -20644,17 +21372,10 @@ export class Space extends DurableObject<CoreBindings> {
     context: CoreRpcContextInput
   ): Promise<Response> {
     if (existing.deletedAt) {
+      await this.retainDeletedSpace(existing);
       return Response.json({ spaceId: this.spaceId, deleted: true as const });
     }
-    const pendingWork = {
-      ...(await readSpaceDeletionPendingWork({
-        db: this.requireSpaceIndexDb(),
-        spaceId: this.spaceId,
-      })),
-      dispatch: hasUnsettledDispatchOutboxRecords(this.ctx.storage.sql),
-      stopPublication:
-        listPendingWakeStopOutcomes(this.ctx.storage.sql, 1).length > 0,
-    };
+    const pendingWork = await this.readDeletionPendingWork();
     if (Object.values(pendingWork).some(Boolean)) {
       console.info("[core.space.deletion_blocked]", {
         event: "core.space.deletion_blocked",
@@ -20672,7 +21393,23 @@ export class Space extends DurableObject<CoreBindings> {
         { status: 409 }
       );
     }
-    const deletedAt = new Date().toISOString();
+    await this.retainDeletedSpace(existing);
+    return Response.json({ spaceId: this.spaceId, deleted: true as const });
+  }
+  private async readDeletionPendingWork() {
+    return {
+      ...(await readSpaceDeletionPendingWork({
+        db: this.requireSpaceIndexDb(),
+        spaceId: this.spaceId,
+      })),
+      dispatch: hasUnsettledDispatchOutboxRecords(this.ctx.storage.sql),
+      stopPublication:
+        listPendingWakeStopOutcomes(this.ctx.storage.sql, 1).length > 0,
+    };
+  }
+  /** Retain history and close writes before releasing membership protection. */
+  private async retainDeletedSpace(existing: SpaceMetaRecord): Promise<void> {
+    const deletedAt = existing.deletedAt ?? new Date().toISOString();
     upsertSpaceMetaRecord(this.ctx.storage.sql, {
       ...existing,
       deletedAt,
@@ -20684,7 +21421,6 @@ export class Space extends DurableObject<CoreBindings> {
       values: [this.spaceId],
     });
     await this.broadcastSpaceMetaChanged({ reason: "space.deleted" });
-    return Response.json({ spaceId: this.spaceId, deleted: true as const });
   }
   private async deleteSpaceStorage(
     existing: SpaceMetaRecord,
@@ -20694,6 +21430,12 @@ export class Space extends DurableObject<CoreBindings> {
       profileName?: string | null;
     }
   ): Promise<void> {
+    if (existing.organizationId) {
+      await deleteCoreCenterAgentSpaceMemory(this.bindings, {
+        organizationId: existing.organizationId,
+        spaceId: this.spaceId,
+      });
+    }
     await this.projectDeletedSpaceIndexSnapshot({
       deletedAt: new Date().toISOString(),
       deletedByOwnerUserId: actor.ownerUserId,
@@ -20990,6 +21732,7 @@ export class Space extends DurableObject<CoreBindings> {
       if (!record) {
         continue;
       }
+      await this.pendingSignalLiveDeliveries.get(record.signalId);
       const selected = await selectSpaceInboxRecipients(
         record.candidates.filter(
           (candidate) =>
@@ -21078,6 +21821,16 @@ export class Space extends DurableObject<CoreBindings> {
         limit: SPACE_INBOX_PROJECTION_OUTBOX_REDRIVE_BATCH_SIZE,
         nowMs: Date.now(),
       }
+    );
+    // Include recovery alarms and concurrent publishers in the same ordering:
+    // notification eligibility follows each source Signal's captured send.
+    // Later stream frames cannot extend these per-Signal receipts.
+    await duringSpaceGateStage(
+      this.postgresGateContext?.getStore(),
+      "inbox_live_receipts",
+      () => Promise.all(records.map((record) =>
+        this.pendingSignalLiveDeliveries.get(record.signalId)
+      ))
     );
     for (const record of records) {
       const targetInboxDb = getPostgresDatabase(this.bindings);
@@ -21861,17 +22614,19 @@ export class Space extends DurableObject<CoreBindings> {
       | SpaceLiveInvalidationFrame
       | SpaceAgentStreamDeltaFrame
       | SpaceAgentStreamPartFrame
-      | SpaceAgentStreamTerminalFrame
-  ) {
+      | SpaceAgentStreamTerminalFrame,
+    gateReleased?: Promise<void>
+  ): Promise<void> {
     if (this.sessions.size === 0) {
-      return;
+      return Promise.resolve();
     }
-    this.liveDelivery.enqueue(
+    return this.liveDelivery.enqueue(
       [...this.sessions].map(([webSocket, session]) => ({
         session,
         webSocket,
       })),
-      message
+      message,
+      gateReleased
     );
   }
   private async authorizeLiveSession(session: Session): Promise<boolean> {
@@ -22128,15 +22883,15 @@ export class Space extends DurableObject<CoreBindings> {
   private broadcastSignal(
     signal: SignalEnvelope,
     signalContext?: SignalPublishContext,
-    history?: SpaceLiveSignalFrame["history"]
-  ): void {
+    history?: SpaceLiveSignalFrame["history"],
+    gateReleased?: Promise<void>
+  ): Promise<void> {
     const finalReplyClaim = resolveSignalFinalReplyClaimForLog(signal);
     if (finalReplyClaim) {
       this.activeReplyingSignalsByDispatchId.delete(finalReplyClaim.dispatchId);
     }
     if (!(signalContext?.threadContext || history)) {
-      this.broadcast(signal);
-      return;
+      return this.broadcast(signal);
     }
     const frame: SpaceLiveSignalFrame = {
       type: "space.signal",
@@ -22154,7 +22909,24 @@ export class Space extends DurableObject<CoreBindings> {
           }
         : {}),
     };
-    this.broadcast(frame);
+    const delivery = gateReleased
+      ? this.broadcast(frame, gateReleased)
+      : this.broadcast(frame);
+    return history?.persisted
+      ? this.trackSignalLiveDelivery(signal.id, delivery)
+      : delivery;
+  }
+  private trackSignalLiveDelivery(
+    signalId: string,
+    delivery: Promise<void>
+  ): Promise<void> {
+    const pending = delivery.finally(() => {
+      if (this.pendingSignalLiveDeliveries.get(signalId) === pending) {
+        this.pendingSignalLiveDeliveries.delete(signalId);
+      }
+    });
+    this.pendingSignalLiveDeliveries.set(signalId, pending);
+    return pending;
   }
   private closeAllSessions(
     reason: "space_deleted" | "space_access_changed"
@@ -22193,8 +22965,9 @@ export class Space extends DurableObject<CoreBindings> {
     > | null = null;
     const persistNowMs = Date.now();
     if (signal.type === "signal.text") {
-      assertCurrentSpaceAddressingTargetsAreActiveMembers({
+      assertCurrentSpaceAddressingTargets({
         messageEnvelope: signal.data.messageEnvelope,
+        resolvedHumanMentions: signalContext?.resolvedHumanMentions,
         sql: this.ctx.storage.sql,
       });
     }
@@ -22552,8 +23325,9 @@ export class Space extends DurableObject<CoreBindings> {
     let repostedSource: SignalEnvelope | null = null;
     const persistNowMs = Date.now();
     if (signal.type === "signal.text") {
-      assertCurrentSpaceAddressingTargetsAreActiveMembers({
+      assertCurrentSpaceAddressingTargets({
         messageEnvelope: signal.data.messageEnvelope,
+        resolvedHumanMentions: signalContext?.resolvedHumanMentions,
         sql: this.ctx.storage.sql,
       });
     }
@@ -22790,6 +23564,12 @@ export class Space extends DurableObject<CoreBindings> {
         );
       },
     });
+    if (persistedSignal && signal.type === "signal.text") {
+      this.postgresGateContext?.getStore()?.stored(
+        signal.id,
+        signal.data.meta?.clientMessageId
+      );
+    }
     this.broadcastRepostedSource(repostedSource);
     this.finishEarlyWakeStops(stoppedNotices, signalContext);
     this.maybeEmitRetentionWarningSignal({
@@ -22799,7 +23579,11 @@ export class Space extends DurableObject<CoreBindings> {
       nowMs: persistNowMs,
     });
     if (persistedSignal && agentAccessHolds.length > 0) {
-      await this.flushSpaceAgentAccessHoldsBestEffort();
+      await duringSpaceGateStage(
+        this.postgresGateContext?.getStore(),
+        "agent_access_hold_projection",
+        () => this.flushSpaceAgentAccessHoldsBestEffort()
+      );
     }
     if (persistedSignal) {
       this.scheduleInitialSessionTitle(signal, signalContext);
@@ -22917,8 +23701,9 @@ export class Space extends DurableObject<CoreBindings> {
             input.signalContext.threadContext.threadId
           ).map((participant) => participant.profileId)
         : undefined,
-      threadRootAuthorUserId: this.resolveSpaceInboxThreadRootAuthorUserId({
+      replyRecipientUserId: this.resolveSpaceInboxReplyRecipientUserId({
         activeMemberRecords,
+        signal: input.signal,
         signalContext: input.signalContext,
       }),
       wakeRequesterUserId: this.resolveSpaceInboxWakeRequesterUserId({
@@ -22960,21 +23745,40 @@ export class Space extends DurableObject<CoreBindings> {
       return count;
     });
   }
-  private resolveSpaceInboxThreadRootAuthorUserId(input: {
+  private resolveSpaceInboxReplyRecipientUserId(input: {
     activeMemberRecords: readonly SpaceMemberRecord[];
+    signal: SignalEnvelope;
     signalContext?: SignalPublishContext;
   }): string | null {
-    const rootSignalId = input.signalContext?.threadContext?.rootSignalId;
-    if (!rootSignalId) {
+    if (input.signal.type !== "signal.text") {
       return null;
     }
-    const rootSignal = this.readSignalById(rootSignalId);
-    if (rootSignal?.profile.kind !== "human") {
+    const thread = input.signalContext?.threadContext;
+    const parentId =
+      readMessageDetailsReplyToSignalId(input.signal) ?? thread?.rootSignalId;
+    if (!parentId) {
+      return null;
+    }
+    // An explicit reply addresses its retained parent in this conversation.
+    // A missing or cross-thread parent cannot redirect attention to the root.
+    if (
+      parentId !== thread?.rootSignalId &&
+      (this.resolveThreadContextForSignal(parentId)?.threadId ?? null) !==
+        (thread?.threadId ?? null)
+    ) {
+      return null;
+    }
+    const parent = this.readSignalById(parentId);
+    if (
+      parent?.type !== "signal.text" ||
+      parent.profile.kind !== "human" ||
+      parent.data.meta?.recalledAt
+    ) {
       return null;
     }
     return resolveActiveHumanOwnerUserId(
       input.activeMemberRecords,
-      rootSignal.profile.profileId
+      parent.profile.profileId
     );
   }
   private resolveSpaceInboxWakeRequesterUserId(input: {
@@ -23478,7 +24282,7 @@ export class Space extends DurableObject<CoreBindings> {
   }): Promise<{ outcome: "applied" | "voided" | "closed" }> {
     this.applySpaceRef(input.spaceId);
     // A throw inside the gate resets the Space, so refusals leave it first.
-    const gated = await this.blockConcurrencyWithPostgres(async () => {
+    const gated = await this.blockConcurrencyWithPostgres("apply_agent_access_decision", async () => {
       try {
         return { value: await this.applyAgentAccessDecision(input) };
       } catch (error) {
@@ -23491,7 +24295,7 @@ export class Space extends DurableObject<CoreBindings> {
     const applied = gated.value;
     // Projection and dispatch can call back into this Space, so they run
     // after the gate opens.
-    await withPostgresRequest(this.bindings.OPENMELD_POSTGRESQL, async () => {
+    await this.withPostgresRequest(async () => {
       if (applied.addedMemberIds?.length) {
         await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
         await this.broadcastSpaceMembersChanged({
@@ -23712,7 +24516,7 @@ export class Space extends DurableObject<CoreBindings> {
   }): Promise<{ requestId: string }> {
     this.applySpaceRef(input.spaceId);
     // A throw inside the gate resets the Space, so refusals leave it first.
-    const outcome = await this.blockConcurrencyWithPostgres(async () => {
+    const outcome = await this.blockConcurrencyWithPostgres("request_agent_for_space", async () => {
       try {
         return { value: await this.requestAgentForSpace(input) };
       } catch (error) {
@@ -24281,7 +25085,7 @@ export class Space extends DurableObject<CoreBindings> {
     });
     if (fallsBackToQueue) {
       const enqueued = await this.enqueueDispatchMessageWithRetry(
-        message,
+        { ...message, deliveryRecoveryReason: "hosted_admission_incomplete" },
         reason,
         candidate,
         human
@@ -24313,6 +25117,8 @@ export class Space extends DurableObject<CoreBindings> {
         markDispatchOutboxHandedOff(this.ctx.storage.sql, {
           dispatchId: message.dispatchId,
           handedOffAtMs: Date.now(),
+          hostedAdmissionRecovery:
+            message.deliveryRecoveryReason === "hosted_admission_incomplete",
         });
         logSpaceOutboxConsoleEvent({
           eventName: "queue_sent",
@@ -24368,14 +25174,29 @@ export class Space extends DurableObject<CoreBindings> {
     this.dispatchOutboxContinuationDueAtMs = null;
     const nowMs = Date.now();
     const handedOffRedriveBeforeMs = nowMs - OUTBOX_HANDED_OFF_REDRIVE_AFTER_MS;
-    const recoveryCandidates = listDispatchOutboxRecoveryCandidates(
+    const savedOffset = await this.ctx.storage.get<number>(OUTBOX_RECOVERY_OFFSET_KEY);
+    let offset = Number.isSafeInteger(savedOffset) && (savedOffset ?? 0) >= 0
+      ? (savedOffset ?? 0)
+      : 0;
+    let recoveryCandidates = listDispatchOutboxRecoveryCandidates(
       this.ctx.storage.sql,
       {
         limit: DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE,
         handedOffRedriveBeforeMs,
+        offset,
       }
     ).slice(0, DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE);
+    if (recoveryCandidates.length === 0 && offset > 0) {
+      offset = 0;
+      recoveryCandidates = listDispatchOutboxRecoveryCandidates(
+        this.ctx.storage.sql,
+        { limit: DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE, handedOffRedriveBeforeMs, offset }
+      );
+    }
     if (recoveryCandidates.length === 0) {
+      if (savedOffset !== undefined && savedOffset !== 0) {
+        await this.ctx.storage.put(OUTBOX_RECOVERY_OFFSET_KEY, 0);
+      }
       logSpaceOutboxConsoleEvent({
         eventName: "flush_started",
         fields: {
@@ -24436,6 +25257,13 @@ export class Space extends DurableObject<CoreBindings> {
       },
       resolveTargetProfileId: (candidate) => candidate.targetProfileId,
     });
+    const nextOffset =
+      recoveryCandidates.length === DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE
+        ? offset + DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE
+        : 0;
+    if (nextOffset !== (savedOffset ?? 0)) {
+      await this.ctx.storage.put(OUTBOX_RECOVERY_OFFSET_KEY, nextOffset);
+    }
     if (
       recoveryCandidates.length === DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE &&
       advancedCandidateCount === recoveryCandidates.length &&
@@ -24736,14 +25564,6 @@ export class Space extends DurableObject<CoreBindings> {
         signalContext
       );
       if (persistResult.persistedSignal) {
-        await flushAndScheduleSpaceInboxProjection({
-          flush: () => this.flushPendingSpaceInboxProjectionOutbox(),
-          schedule: () => this.syncSpaceBackgroundAlarm(),
-          spaceId: this.spaceId,
-          storage: this.ctx.storage,
-        });
-      }
-      if (persistResult.persistedSignal) {
         const finalSignalId = readFinalReplyClaimSignalId(
           this.ctx.storage.sql,
           {
@@ -24753,6 +25573,14 @@ export class Space extends DurableObject<CoreBindings> {
         );
         if (finalSignalId === signal.id) {
           this.broadcastSignal(signal, signalContext, { persisted: true });
+        }
+        await flushAndScheduleSpaceInboxProjection({
+          flush: () => this.flushPendingSpaceInboxProjectionOutbox(),
+          schedule: () => this.syncSpaceBackgroundAlarm(),
+          spaceId: this.spaceId,
+          storage: this.ctx.storage,
+        });
+        if (finalSignalId === signal.id) {
           return { ok: true, publishedSignalId: finalSignalId };
         }
         if (finalSignalId && this.readSignalById(finalSignalId)) {
@@ -24869,7 +25697,12 @@ export class Space extends DurableObject<CoreBindings> {
         lastAttemptAtMs,
       });
     };
-    if (candidate.outboxStatus !== "handed_off") {
+    if (
+      candidate.outboxStatus !== "handed_off" &&
+      !isHostedAgentControllerRef(
+        candidate.controllerSnapshot?.agentControllerRef
+      )
+    ) {
       const stoppedGuard =
         await this.readPreAgentStoppedGuardForOutboxCandidate(candidate);
       if (stoppedGuard.stopped) {
@@ -24891,20 +25724,24 @@ export class Space extends DurableObject<CoreBindings> {
     const ledgerRow =
       ledgerEvidence.kind === "found" ? ledgerEvidence.row : null;
     const shouldReadHostedNativeDeliveryHandoffState =
-      ledgerRow !== null &&
-      ledgerRow.latestAttemptStatus !== "profile_queue_waiting";
+      ledgerEvidence.kind !== "unavailable" &&
+      ledgerRow?.latestAttemptStatus !== "profile_queue_waiting";
     const hostedNativeDeliveryHandoffState =
       shouldReadHostedNativeDeliveryHandoffState
-        ? await this.readHostedNativeDeliveryHandoffState(candidate)
+        ? await this.readHostedNativeDeliveryHandoffState(candidate, ledgerRow === null)
         : "not_applicable";
-    const policyDecision = resolveHandedOffOutboxCandidatePolicyDecision({
-      hostedNativeDeliveryHandoffState,
-      outboxStatus: candidate.outboxStatus,
-      ledgerRow,
-      nowMs,
-      recentInflightSkipWithinMs: OUTBOX_HANDED_OFF_SKIP_REDRIVE_WITHIN_MS,
-      staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
-    });
+    const policyDecision =
+      ledgerEvidence.kind === "unavailable"
+        ? { kind: "skip" as const }
+        : resolveHandedOffOutboxCandidatePolicyDecision({
+            hostedNativeDeliveryHandoffState,
+            outboxStatus: candidate.outboxStatus,
+            ledgerRow,
+            nowMs,
+            recentInflightSkipWithinMs:
+              OUTBOX_HANDED_OFF_SKIP_REDRIVE_WITHIN_MS,
+            staleReclaimMs: DISPATCH_IN_FLIGHT_STALE_RECLAIM_MS,
+          });
     const human = buildHuman(ledgerRow?.lastAttemptAtMs ?? null);
     const candidateTransitionViolation =
       resolveCoreOutboxCandidateTransitionContractViolation({
@@ -25191,7 +26028,8 @@ export class Space extends DurableObject<CoreBindings> {
     return row ? { kind: "found", row } : { kind: "missing" };
   }
   private async readHostedNativeDeliveryHandoffState(
-    candidate: OpenMeldDaemonDispatchOutboxRecoveryCandidate
+    candidate: OpenMeldDaemonDispatchOutboxRecoveryCandidate,
+    missingDispatchLedger = false
   ): Promise<HostedNativeDeliveryHandoffState> {
     const evidenceDb = getPostgresDatabase(this.bindings);
     if (!(evidenceDb && typeof evidenceDb.query === "function")) {
@@ -25205,13 +26043,27 @@ export class Space extends DurableObject<CoreBindings> {
         spaceId: candidate.spaceId,
       });
       if (delivery) {
+        if (missingDispatchLedger) {
+          return "evidence_unavailable";
+        }
         return delivery.status === "submitted"
           ? "admission_incomplete"
           : "durably_owned";
       }
       if (
-        candidate.controllerSnapshot?.agentControllerRef ===
-        HOSTED_CENTER_AGENT_CONTROLLER_REF
+        missingDispatchLedger &&
+        !isSpaceNativeWakeUnexposed(this.ctx.storage.sql, {
+          spaceId: candidate.spaceId,
+          dispatchId: candidate.dispatchId,
+          targetProfileId: candidate.targetProfileId,
+        })
+      ) {
+        return "evidence_unavailable";
+      }
+      if (
+        isHostedAgentControllerRef(
+          candidate.controllerSnapshot?.agentControllerRef
+        )
       ) {
         return "admission_incomplete";
       }
@@ -25227,6 +26079,33 @@ export class Space extends DurableObject<CoreBindings> {
           owner: { id: ownerUserId, kind: "owner_account" },
         });
         return isHostedAgentRuntimeKind(binding?.runtimeKind)
+          ? "admission_incomplete"
+          : "not_applicable";
+      }
+      if (!candidate.controllerSnapshot?.agentControllerRef) {
+        const preflight = await runDispatchExecutionPreflightGate({
+          env: this.bindings,
+          message: candidate,
+        });
+        if (!preflight.ok) {
+          if (
+            preflight.finalStatus === "failed_terminal" &&
+            candidate.deliveryRecoveryReason === "hosted_admission_incomplete" &&
+            isSpaceNativeWakeUnexposed(this.ctx.storage.sql, {
+              spaceId: candidate.spaceId,
+              dispatchId: candidate.dispatchId,
+              targetProfileId: candidate.targetProfileId,
+            })
+          ) {
+            // The existing queue owner publishes the failure; this read does
+            // not turn current readiness into execution truth.
+            return "admission_incomplete";
+          }
+          return "evidence_unavailable";
+        }
+        return isHostedAgentRuntimeKind(
+          preflight.effectiveTargetBindingSnapshot.runtimeKind
+        )
           ? "admission_incomplete"
           : "not_applicable";
       }
@@ -25312,7 +26191,9 @@ export class Space extends DurableObject<CoreBindings> {
       readRuntimeCoordinatorHeadLifecycleTrace: (input) =>
         readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
           env: this.bindings,
-          includeExecutionContext: options.responseContractVersion === 7,
+          includeExecutionContext:
+            (options.responseContractVersion ?? 1) >=
+            SPACE_DISPATCH_TRACE_EXECUTION_CONTEXT_CONTRACT_VERSION,
           ownerUserId: input.ownerUserId,
           request: input.request,
         }),
@@ -26595,6 +27476,7 @@ export class Space extends DurableObject<CoreBindings> {
     includeThreadContext?: true;
     signalId: string;
     executionContextVersion?: 1;
+    timingVersion?: 1;
     viewer?: SpaceReadViewerIdentity;
   }): Promise<GetSpaceMessageDetailsResponse | null> {
     if (
@@ -26641,17 +27523,24 @@ export class Space extends DurableObject<CoreBindings> {
     const wakeClientMessageId = wakeSourceSignal
       ? normalizeOptionalText(wakeSourceSignal.data.meta?.clientMessageId)
       : null;
-    const wakeTraceItems = wakeSourceSignal
-      ? (
-          await this.readSpaceWakeTraceWaterfall({
-            agentLocalOriginFactsViewer: input.viewer,
-            executionContextVersion: input.executionContextVersion,
-            ...(wakeClientMessageId
-              ? { clientMessageId: wakeClientMessageId }
-              : { sourceSignalId: wakeSourceSignal.id }),
+    const wakeTraceEvidence = wakeSourceSignal
+      ? await this.readSpaceWakeTraceEvidence({
+          agentLocalOriginFactsViewer: input.viewer,
+          executionContextVersion: input.executionContextVersion,
+          ...(wakeClientMessageId
+            ? { clientMessageId: wakeClientMessageId }
+            : { sourceSignalId: wakeSourceSignal.id }),
+        })
+      : null;
+    const wakeTraceItems = wakeTraceEvidence?.waterfall.items ?? [];
+    const wakeTimingByTargetProfileId =
+      input.timingVersion === 1 && wakeSourceSignal && wakeTraceEvidence
+        ? await this.readMessageDetailsWakeTiming({
+            evidence: wakeTraceEvidence,
+            requestReceivedAtMs: wakeSourceSignal.ts,
+            viewerOwnerUserId: input.viewer?.viewerOwnerUserId,
           })
-        ).items
-      : [];
+        : undefined;
     const workingDetails = await readAgentWorkingDetailsForSignal({
       storage: this.agentStreamProjectionStorage,
       signalId: signal.id,
@@ -26698,6 +27587,7 @@ export class Space extends DurableObject<CoreBindings> {
         : null,
       visibleSignal,
       wakeSourceSignal,
+      ...(wakeTimingByTargetProfileId ? { wakeTimingByTargetProfileId } : {}),
       wakeTraceItems,
       workingDetails,
       viewerOwnerUserId: input.viewer?.viewerOwnerUserId,
@@ -26803,13 +27693,84 @@ export class Space extends DurableObject<CoreBindings> {
       return new Map();
     }
   }
-  private async readSpaceWakeTraceWaterfall(input: {
-    agentLocalOriginFactsViewer?: SpaceReadViewerIdentity;
-    executionContextVersion?: 1;
-    clientMessageId?: string | null;
-    sourceSignalId?: string | null;
-    targetProfileId?: string;
-  }): Promise<GetSpaceWakeTraceWaterfallResponse> {
+  private async readMessageDetailsWakeTiming(input: {
+    evidence: SpaceWakeTraceEvidence;
+    requestReceivedAtMs: number;
+    viewerOwnerUserId?: string;
+  }): Promise<ReadonlyMap<string, WakeTiming>> {
+    if (input.evidence.lookupError !== null) {
+      return new Map();
+    }
+    const asOfMs = Date.now();
+    const entries = await Promise.all(
+      input.evidence.waterfall.items.map(
+        async (item): Promise<[string, WakeTiming] | null> => {
+          const dispatchId = item.correlation.dispatchId;
+          // A Space outbox record alone, an unread trace, and a hosted native
+          // delivery all leave `trace` null; the projection rejects the rest.
+          const trace = dispatchId
+            ? (input.evidence.tracesByDispatchId.get(dispatchId)?.trace ?? null)
+            : null;
+          if (!trace) {
+            return null;
+          }
+          const execution = trace.runtimeCoordinatorExecution;
+          let interaction: WakeTimingInteraction | null = null;
+          if (
+            execution &&
+            execution.terminalOutcome === null &&
+            (item.summary.status === "running" ||
+              item.summary.status === "pending")
+          ) {
+            try {
+              const read = await this.readAgentInteraction({
+                actorOwnerUserId: input.viewerOwnerUserId,
+                execution,
+              });
+              interaction =
+                read.readStatus === "read"
+                  ? {
+                      readStatus: "read",
+                      hasPendingRequest: read.pendingInteraction !== null,
+                      pendingRequestArrivedAtMs:
+                        read.pendingInteractionReceivedAtMs ?? null,
+                      updatedAtMs: read.interactionUpdatedAtMs,
+                    }
+                  : { readStatus: "unavailable" };
+            } catch (error) {
+              console.warn(
+                "[core.space.message_details.wake_timing_interaction_read_failed]",
+                {
+                  dispatchId,
+                  errorMessage: formatUnknownErrorMessage(error),
+                  spaceId: this.spaceId,
+                  targetProfileId: item.targetProfileId,
+                }
+              );
+              interaction = { readStatus: "unavailable" };
+            }
+          }
+          const timing = projectWakeTiming({
+            asOfMs,
+            interaction,
+            requestReceivedAtMs: input.requestReceivedAtMs,
+            summaryStatus: item.summary.status,
+            trace,
+          });
+          return timing ? [item.targetProfileId, timing] : null;
+        }
+      )
+    );
+    return new Map(entries.filter((entry) => entry !== null));
+  }
+  private async readSpaceWakeTraceWaterfall(
+    input: SpaceWakeTraceEvidenceInput
+  ): Promise<GetSpaceWakeTraceWaterfallResponse> {
+    return (await this.readSpaceWakeTraceEvidence(input)).waterfall;
+  }
+  private async readSpaceWakeTraceEvidence(
+    input: SpaceWakeTraceEvidenceInput
+  ): Promise<SpaceWakeTraceEvidence> {
     const targetProfileId = normalizeOptionalText(input.targetProfileId);
     const clientMessageId = normalizeOptionalText(input.clientMessageId);
     const selectorSourceSignalId = normalizeOptionalText(input.sourceSignalId);
@@ -26878,7 +27839,7 @@ export class Space extends DurableObject<CoreBindings> {
         traceErrorsByDispatchId.add(match.dispatchId);
       }
     }
-    return projectWakeTraceWaterfall({
+    const waterfall = projectWakeTraceWaterfall({
       agentLocalOriginFactsViewer: input.agentLocalOriginFactsViewer,
       clientMessageId,
       sourceSignalId,
@@ -26898,6 +27859,7 @@ export class Space extends DurableObject<CoreBindings> {
       traceErrorsByDispatchId,
       tracesByDispatchId,
     });
+    return { lookupError, tracesByDispatchId, waterfall };
   }
   private readWakeTraceWaterfallSourceSignal(input: {
     clientMessageId: string | null;
@@ -27538,10 +28500,11 @@ export class Space extends DurableObject<CoreBindings> {
     signal: SignalEnvelope,
     signalContextInput?: SignalPublishContext
   ): Promise<void> {
+    const gate = this.postgresGateContext?.getStore();
     this.assertActiveSpaceForPublication();
     // Freeze legacy HTTP/RPC/WebSocket input here, before ordinary dispatch or
     // active Steer. Queue promotion already carries its original accepted anchor.
-    const signalContext =
+    let signalContext =
       signal.type === "signal.text" && !signalContextInput?.requestTimeContext
         ? {
             ...signalContextInput,
@@ -27611,6 +28574,48 @@ export class Space extends DurableObject<CoreBindings> {
       signal,
       signalContext,
     });
+    if (normalizedSignal.type === "signal.text") {
+      const profileIds =
+        normalizedSignal.data.messageEnvelope?.mentionTargets ?? [];
+      const resolvedHumanMentions = await resolveSpaceHumanMentionTargets({
+        profileIds,
+        readSpaceMember: (profileId) => {
+          const member = readSpaceMemberRecord(this.ctx.storage.sql, profileId);
+          return member?.status === "active"
+            ? {
+                profileId,
+                profileName: member.profileNameSnapshot,
+                profileKind: member.profileKindSnapshot,
+                ownerUserId: member.ownerUserIdSnapshot,
+              }
+            : null;
+        },
+        readOrganizationProfile: (profileId) => {
+          const organizationId = this.readSpaceMetaRecord()?.organizationId;
+          if (!organizationId) {
+            throw new Error("Space Organization is unavailable.");
+          }
+          return readResolvedOrganizationSpaceMember({
+            db: this.requireSpaceIndexDb(),
+            organizationId,
+            profileId,
+          });
+        },
+      });
+      signalContext = { ...signalContext, resolvedHumanMentions };
+      const { humanMentions: _untrustedMentions, ...meta } =
+        normalizedSignal.data.meta ?? {};
+      normalizedSignal.data.meta = {
+        ...meta,
+        ...(resolvedHumanMentions.length
+          ? {
+              humanMentions: resolvedHumanMentions.map(
+                ({ ownerUserId: _ownerUserId, ...target }) => target
+              ),
+            }
+          : {}),
+      };
+    }
     let signalWithAgentActivity = normalizedSignal;
     try {
       signalWithAgentActivity = await attachAgentActivityToFinalReply({
@@ -27645,12 +28650,16 @@ export class Space extends DurableObject<CoreBindings> {
       signalContext
     );
     if (typeof this.preloadDispatchContinuityCreatorProfileIds === "function") {
-      await this.preloadDispatchContinuityCreatorProfileIds();
+      await duringSpaceGateStage(gate, "profile_lineage", () =>
+        this.preloadDispatchContinuityCreatorProfileIds()
+      );
     }
-    await armSpaceInboxProjectionRecoveryAlarm({
-      spaceId: this.spaceId,
-      storage: this.ctx.storage,
-    });
+    await duringSpaceGateStage(gate, "prearm_inbox_alarm", () =>
+      armSpaceInboxProjectionRecoveryAlarm({
+        spaceId: this.spaceId,
+        storage: this.ctx.storage,
+      })
+    );
     const persistSignalWithOptionalOutbox =
       typeof this.persistTextSignalWithOptionalOutbox === "function"
         ? (
@@ -27675,23 +28684,62 @@ export class Space extends DurableObject<CoreBindings> {
                 signalContextArg
               )
             );
-    await publishTextSignalUseCase({
-      signal: signalWithAgentActivity,
-      signalContext,
-      persistSignalWithOptionalOutbox,
-      flushPendingDispatchOutbox: () => this.flushPendingDispatchOutbox(),
-      recordHumanActivity: (currentSignal) =>
-        this.recordOrganizationMemberHumanActivity(currentSignal),
-      waitUntil: (promise) => this.ctx.waitUntil(promise),
-      broadcast: (currentSignal) =>
-        this.broadcastSignal(currentSignal, signalContext, { persisted: true }),
-    });
-    await flushAndScheduleSpaceInboxProjection({
-      flush: () => this.flushPendingSpaceInboxProjectionOutbox(),
-      schedule: () => this.syncSpaceBackgroundAlarm(),
-      spaceId: this.spaceId,
-      storage: this.ctx.storage,
-    });
+    const publicationGate = this.publicationGate?.getStore();
+    const held = publicationGate?.active ? publicationGate : undefined;
+    // New drains cannot borrow the gate's pool. An existing drain keeps its
+    // FIFO and may need an input that the gate currently excludes.
+    const afterRelease = (work: () => Promise<void>) =>
+      held ? held.released.then(() => this.withPostgresRequest(work)) : work();
+    // Register before persistence can yield: an alarm or Inbox read can
+    // select this Signal while its live send is still being prepared.
+    const previousSend = this.pendingSignalLiveDeliveries.get(signal.id);
+    const send = Promise.withResolvers<void>();
+    const delivered = this.trackSignalLiveDelivery(signal.id, send.promise);
+    try {
+      await publishTextSignalUseCase({
+        signal: signalWithAgentActivity,
+        signalContext,
+        inputGateId: gate?.active ? gate.id : undefined,
+        persistSignalWithOptionalOutbox: (...args) =>
+          duringSpaceGateStage(gate, "signal_persistence", () =>
+            persistSignalWithOptionalOutbox(...args)
+          ),
+        flushPendingDispatchOutbox: () =>
+          afterRelease(() => this.flushPendingDispatchOutbox()),
+        recordHumanActivity: (currentSignal) =>
+          afterRelease(() =>
+            this.recordOrganizationMemberHumanActivity(currentSignal)
+          ),
+        waitUntil: (promise) => this.ctx.waitUntil(promise),
+        broadcast: (currentSignal) => {
+          const history = { persisted: true } as const;
+          send.resolve(
+            held
+              ? this.broadcastSignal(currentSignal, signalContext, history, held.released)
+              : this.broadcastSignal(currentSignal, signalContext, history)
+          );
+        },
+      });
+    } finally {
+      // A rejected or duplicate write never enqueues a send. For a queued
+      // Signal the receipt already follows its actual delivery promise.
+      send.resolve(previousSend);
+    }
+    const completed = delivered.then(() =>
+      afterRelease(() =>
+        flushAndScheduleSpaceInboxProjection({
+          flush: () => this.flushPendingSpaceInboxProjectionOutbox(),
+          schedule: () => this.syncSpaceBackgroundAlarm(),
+          spaceId: this.spaceId,
+          storage: this.ctx.storage,
+        })
+      )
+    );
+    if (held?.active) {
+      held.completions.push(completed);
+    } else {
+      await completed;
+    }
   }
   private async recordOrganizationMemberHumanActivity(
     signal: SignalEnvelope
@@ -28296,6 +29344,14 @@ function buildRequestedHostedWakeStop(
     cancellationStatus: "requested",
     reasonCode,
     status: "cancellation_requested",
+    targetProfileId,
+  });
+}
+function wakeStopBeforeDeliveryUnavailable(targetProfileId: string) {
+  return buildSpaceWakeStopFailureResponse({
+    reasonCode: "space.wake_stop_before_delivery_unavailable",
+    status: "not_stoppable",
+    runtimeCoordinatorExecutionId: null,
     targetProfileId,
   });
 }

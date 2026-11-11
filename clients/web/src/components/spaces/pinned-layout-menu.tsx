@@ -31,7 +31,7 @@ export function usePinnedLayout(profileId: string, organizationId: string) {
 		`openmeld.spaces.pinned-layout:${profileId}:${organizationId}`
 	);
 	return {
-		pinnedLayout: saved === "list" ? ("list" as const) : ("grid" as const),
+		pinnedLayout: saved === "grid" ? ("grid" as const) : ("list" as const),
 		setPinnedLayout: (layout: PinnedLayout) => setSaved(layout),
 	};
 }

@@ -26,6 +26,8 @@ export type SpaceTaskDelivery = {
 
 const MAX_DELIVERY_ATTEMPTS = 12;
 const TERMINAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const UNREADABLE_DELIVERY_MESSAGE =
+  "Stored Task delivery cannot be read. Contact support.";
 
 /** Delivery intent and execution references only; Task and runtime retain their owners. */
 export class SpaceTaskDeliveryRepository {
@@ -84,12 +86,7 @@ export class SpaceTaskDeliveryRepository {
       try {
         deliveries.push(this.parse(row.payload_json));
       } catch {
-        this.fail(
-          row.id,
-          nowMs,
-          "Stored Task delivery cannot be read. Contact support.",
-          true
-        );
+        this.fail(row.id, nowMs, UNREADABLE_DELIVERY_MESSAGE, true);
       }
     }
     return deliveries;
@@ -170,16 +167,31 @@ export class SpaceTaskDeliveryRepository {
 
   status(taskId: string) {
     return this.sql
-      .exec<{ kind: SpaceTaskDeliveryKind; last_error: string | null }>(
-        "SELECT kind, last_error FROM space_task_delivery_outbox WHERE task_id = ? ORDER BY rowid",
+      .exec<{
+        kind: SpaceTaskDeliveryKind;
+        last_error: string | null;
+        payload_json: string;
+      }>(
+        "SELECT kind, last_error, payload_json FROM space_task_delivery_outbox WHERE task_id = ? ORDER BY rowid",
         taskId
       )
       .toArray()
-      .map((row) => ({
-        kind: row.kind,
-        state: row.last_error ? ("failed" as const) : ("pending" as const),
-        error: row.last_error,
-      }));
+      .map((row) => {
+        let delivery: SpaceTaskDelivery | null = null;
+        let error = row.last_error;
+        try {
+          delivery = this.parse(row.payload_json);
+        } catch {
+          // Unreadable intent cannot prove supersession; keep its failure visible.
+          error ??= UNREADABLE_DELIVERY_MESSAGE;
+        }
+        return {
+          delivery,
+          kind: row.kind,
+          state: error ? ("failed" as const) : ("pending" as const),
+          error,
+        };
+      });
   }
 
   recordWake(
@@ -225,6 +237,28 @@ export class SpaceTaskDeliveryRepository {
           targetProfileId
         )
         .toArray().length > 0
+    );
+  }
+
+  /** One source message may seed several Tasks. Only the Task owner's
+   * deterministic handoff Signal identifies one exact Task for this Wake. */
+  readHandoffTaskId(
+    sourceSignalId: string,
+    targetProfileId: string
+  ): string | null {
+    return (
+      this.sql
+        .exec<{ task_id: string }>(
+          `
+      SELECT wake.task_id FROM space_task_wake_refs AS wake
+      JOIN space_task_events AS event ON event.task_id = wake.task_id
+      WHERE wake.source_signal_id = ? AND wake.target_profile_id = ?
+        AND wake.source_signal_id = 'space-task-handoff:' || event.event_id
+      LIMIT 1`,
+          sourceSignalId,
+          targetProfileId
+        )
+        .toArray()[0]?.task_id ?? null
     );
   }
 

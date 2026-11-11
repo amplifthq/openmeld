@@ -260,6 +260,7 @@ export type SpaceApi = {
   setAccessMode: (
     input: SetSpaceAccessModeInput
   ) => Promise<SpaceAccessModeState>;
+  getMeta: (input: SpaceRequestInput) => Promise<SpaceMeta>;
   updateMeta: (input: UpdateSpaceMetaInput) => Promise<SpaceMeta>;
   leaveSpace: (input: SpaceRequestInput) => Promise<LeaveSpaceResponse>;
   getBootstrap: (
@@ -365,6 +366,7 @@ export type SpaceApi = {
       includeThreadContext?: true;
       signalId: string;
       executionContextVersion?: 1;
+      timingVersion?: 1;
       delegationVersion?: 1;
       delegationCursor?: string;
     }
