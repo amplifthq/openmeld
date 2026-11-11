@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-21T08:00:00Z",
+  "updatedAt": "2026-11-11T09:51:06Z",
   "agentControllers": {
     "antigravity": {
       "defaultModelId": "gemini-3.8-flash-high",
@@ -120,6 +120,20 @@
         "reasoningLevel": "medium"
       },
       "models": [
+        {
+          "id": "gpt-6.1-terra",
+          "displayName": "GPT-6.1 Terra",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "minCliVersion": "0.153.0"
+        },
         {
           "id": "gpt-6.1-sol",
           "displayName": "GPT-6.1 Sol",
@@ -402,6 +416,13 @@
     "cursor": {
       "defaultModelId": "default[]",
       "models": [
+        {
+          "id": "gemini-4-carbon[reasoning_effort=medium]",
+          "displayName": "Gemini 4 Carbon (Medium)",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
         {
           "id": "gemini-4-argon[reasoning_effort=medium]",
           "displayName": "Gemini 4 Argon (Medium)",

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "controller": "cursor",
-  "observedAt": "2026-10-19T12:46:18.818Z",
-  "fingerprint": "eab6e93723053ba7b7c532d51823e643bcc428019459e6e386853d63fe24c4f8",
+  "observedAt": "2026-10-21T12:44:39.252Z",
+  "fingerprint": "96f12e77b0d3e7dae8b7f43506ba503cf50234904c9f579565fcc7f4c6730216",
   "sources": [
     {
       "url": "https://cursor.com/docs/cli/reference/parameters.md",
@@ -1916,7 +1916,7 @@
             "reasoning_options": [
               {
                 "type": "effort",
-                "values": ["low", "medium", "high"]
+                "values": ["low", "medium", "high", "xhigh"]
               }
             ],
             "tool_call": true,
@@ -2060,6 +2060,7 @@
           },
           "grok-imagine-video-1.5-lite": {
             "id": "grok-imagine-video-1.5-lite",
+            "type": "video",
             "name": "Grok Imagine Video 1.5 Lite",
             "description": "Cost-efficient video model for text-to-video and image-to-video generation",
             "family": "grok",
@@ -2070,7 +2071,7 @@
             "release_date": "2026-10-01",
             "last_updated": "2026-10-01",
             "modalities": {
-              "input": ["text", "image", "pdf"],
+              "input": ["text", "image"],
               "output": ["video"]
             },
             "open_weights": false,
