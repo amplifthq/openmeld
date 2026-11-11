@@ -558,6 +558,19 @@ only. Older callers and receivers can continue using the same request and respon
 
 ## Space input gate timeouts
 
+Pending Profile lineage reads can be shared by callers in the same input-gate
+scope. A protected publication starts its own Auth read if another input owns
+the pending load. When the earlier read resumes, only the current load can
+publish its result into the in-memory and SQLite lineage caches.
+
+For a slow Space PostgreSQL transaction, `pendingStages` identifies the active
+driver phase and `postgresCompletedPhaseMs` sums completed phases within the
+gate. `postgres_checkout` is local client acquisition. `postgres_begin` waits
+for the database to acknowledge BEGIN. `postgres_callback` begins after that
+acknowledgement. Commit, rollback, fatal server close and client disposal have
+their own phases. `alarmStep` identifies the background job when an alarm owns
+the transaction. Use the gate span's native parent to identify the invocation.
+
 For a Space `blockConcurrencyWhile` timeout, filter Core logs by
 `event = space_input_gate` and the affected `durableObjectId` around the
 reset. Each admitted PostgreSQL-backed input gate has a `gateId` and an

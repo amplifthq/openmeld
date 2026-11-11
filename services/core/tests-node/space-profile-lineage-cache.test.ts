@@ -102,6 +102,24 @@ describe("Space Profile lineage cache", () => {
     expect(harness.listProfileLineage).toHaveBeenCalledTimes(1);
   });
 
+  it("does not restore a superseded lineage when an outside read finishes after publication", async () => {
+    vi.useFakeTimers({ now: NOW_MS });
+    let gateId: string | undefined;
+    const harness = createHarness(() => gateId);
+    const cache = harness.cache();
+    const outside = Promise.withResolvers<ReturnType<typeof lineageResult>>();
+    harness.listProfileLineage.mockReturnValueOnce(outside.promise);
+    const first = cache.resolve(OWNER);
+    gateId = "publication";
+    const current = { "human-1": null, "agent-1": null };
+    harness.listProfileLineage.mockResolvedValueOnce(lineageResult(current));
+    expect(await cache.resolve(OWNER)).toEqual(current);
+    outside.resolve(lineageResult({ "human-1": null, "agent-1": "human-1" }));
+    expect(await first).toBeUndefined();
+    expect(cache.peek(OWNER)).toEqual(current);
+    expect(await harness.cache().resolve(OWNER)).toEqual(current);
+  });
+
   it("serves an aging copy while one background read refreshes it", async () => {
     const harness = createHarness();
     vi.useFakeTimers({ now: NOW_MS });
@@ -244,7 +262,9 @@ describe("Space Profile lineage cache", () => {
   });
 });
 
-function createHarness() {
+function createHarness(
+  activeGateId: () => string | undefined = () => undefined
+) {
   const db = new DatabaseSync(":memory:");
   databases.push(db);
   const sql = {
@@ -273,6 +293,7 @@ function createHarness() {
   // Space object would.
   const cache = () =>
     new SpaceProfileLineageCache({
+      activeGateId,
       authRpc: () =>
         ({
           listProfileLineage,
