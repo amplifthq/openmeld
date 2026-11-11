@@ -158,6 +158,7 @@ export {
   computerConnectionProgressObservationSchema,
   computerConnectionProgressPhaseSchema,
 } from "./computer-connection-progress";
+export { computerControlLogFields } from "./computer-control-diagnostics";
 export {
   COMPUTER_POWER_CAPABILITY_HEADER,
   computerPowerRequestFrameSchema,

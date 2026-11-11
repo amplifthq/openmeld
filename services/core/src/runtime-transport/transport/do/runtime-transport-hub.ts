@@ -26,6 +26,7 @@ import {
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   COMPUTER_POWER_CAPABILITY_HEADER,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
+  computerControlLogFields,
   computerFileAccessDaemonFrameSchema,
   computerFileAccessPolicyResultSchema,
   computerPowerResultFrameSchema,
@@ -3724,6 +3725,29 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     this.handleParsedStreamFrame(webSocket, frame.data);
   }
+  private recordComputerControlResult(
+    webSocket: WebSocket,
+    frame: DaemonStreamFrame
+  ): void {
+    const fields = computerControlLogFields(frame);
+    if (fields) {
+      const waiter = this.currentDeviceOperationWaiters.get(
+        fields.controlRequestId
+      );
+      const daemonSessionId = this.state.sessionIdBySocket.get(webSocket);
+      console.info({
+        event: CORE_LOG_EVENTS.computerControlStage,
+        ...fields,
+        stage: "result_received",
+        daemonSessionId,
+        waiterPresent: !!waiter,
+        sessionMatches: waiter
+          ? waiter.daemonSessionId === daemonSessionId
+          : null,
+        socketMatches: waiter ? waiter.socket === webSocket : null,
+      });
+    }
+  }
   private handleParsedStreamFrame(
     webSocket: WebSocket,
     frame: DaemonStreamFrame
@@ -3948,6 +3972,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         return;
       }
       case "daemon.local_agent_control.result": {
+        this.recordComputerControlResult(webSocket, frame);
         this.handleLocalAgentControlResultFrame(webSocket, frame.payload);
         return;
       }
@@ -3986,6 +4011,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         return;
       }
       case "daemon.computer_power.request_result": {
+        this.recordComputerControlResult(webSocket, frame);
         const parsed = computerPowerResultFrameSchema.safeParse(frame);
         if (!parsed.success) {
           this.rejectInvalidCurrentDeviceOperationResultFrame({
@@ -22012,9 +22038,38 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     };
     timeoutMs: number;
   }): Promise<T> {
+    const fields = computerControlLogFields(input);
+    const started = performance.now();
+    const generation = input.session.connectionGeneration;
+    const socket = input.session.socket;
+    const record = (stage: string) => {
+      if (!fields) {
+        return;
+      }
+      const session = this.state.sessionsById.get(
+        input.session.daemonSessionId
+      );
+      console.info({
+        event: CORE_LOG_EVENTS.computerControlStage,
+        ...fields,
+        stage,
+        deviceId: input.session.deviceId,
+        daemonSessionId: input.session.daemonSessionId,
+        connectionGeneration: generation,
+        timeoutMs: input.timeoutMs,
+        elapsedMs: Math.round(performance.now() - started),
+        socketState: socket.readyState,
+        currentSocket: session?.socket === socket,
+        lastHeartbeatAgeMs:
+          session?.socket === socket
+            ? Date.now() - session.lastHeartbeatMs
+            : null,
+      });
+    };
     return await new Promise<T>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         this.currentDeviceOperationWaiters.delete(input.requestId);
+        record("deadline_expired");
         reject(
           new CurrentDeviceOperationError(
             "timeout",
@@ -22026,8 +22081,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         daemonSessionId: input.session.daemonSessionId,
         expectedResponseCode: input.expectedResponseCode,
         isExpectedPayload: input.isExpectedPayload,
-        reject,
-        resolve: (payload) => resolve(payload as T),
+        reject: (error) => {
+          record(
+            error instanceof CurrentDeviceOperationError &&
+              error.kind === "send_failed"
+              ? "socket_disconnected"
+              : "result_rejected"
+          );
+          reject(error);
+        },
+        resolve: (payload) => {
+          record("result_matched");
+          resolve(payload as T);
+        },
         socket: input.session.socket,
         timeoutId,
       });
@@ -22036,9 +22102,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           code: input.code,
           payload: input.payload,
         });
+        record("socket_send_returned");
       } catch (error) {
         clearTimeout(timeoutId);
         this.currentDeviceOperationWaiters.delete(input.requestId);
+        record("socket_send_failed");
         reject(
           new CurrentDeviceOperationError(
             "send_failed",

@@ -2128,6 +2128,15 @@ exclude it.
 
 ## Runtime Transport Session Disconnect Diagnostics
 
+For Computer power, installation management and catalog refresh, follow the
+Gateway HTTP request ID to its backend trace. The Hub event
+`core.runtime_transport.computer_control_stage` records the WebSocket
+`controlRequestId` inside that trace. Search the target Computer's Service log
+for `[openmeld.computer_control_stage]` and that ID. A socket send returning
+records a local write. Peer receipt, Host execution, and a matched Hub response
+each have their own stage. Missing stages are unknown when either side's logs
+are unavailable. The IDs and timings are diagnostic only.
+
 RuntimeCoordinator event writes preserve all existing valid event IDs. If the
 length-prefixed identity exceeds the shared 512-character bound, the writer uses
 a deterministic SHA-256 identity instead; the complete execution ID and

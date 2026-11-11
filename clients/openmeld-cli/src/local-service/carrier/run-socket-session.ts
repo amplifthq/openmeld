@@ -61,6 +61,7 @@ import {
 } from "../core/constants";
 import {
   emitRunLine,
+  logComputerControlStage,
   normalizeHeartbeatIntervalMs,
   normalizeText,
   nowIsoString,
@@ -1748,11 +1749,19 @@ export async function runDaemonSocketSession(input: {
   const handleLocalAgentControlRefreshCatalogFrame = async (
     payload: Record<string, unknown>
   ): Promise<void> => {
+    const frame = {
+      code: "daemon.local_agent_control.refresh_catalog",
+      payload,
+    };
+    const context = { connectionGeneration: activeConnectionGeneration };
+    const record = (stage: string) =>
+      logComputerControlStage(frame, stage, context);
     const parsed =
       runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema.safeParse(
         payload
       );
     if (!parsed.success) {
+      record("invalid_request");
       emitRunLine({
         presenter: input.presenter,
         code: "daemon.run.local_agent_control_frame_invalid",
@@ -1762,8 +1771,10 @@ export async function runDaemonSocketSession(input: {
     }
 
     const responsePayload = await applyLocalAgentControlRefreshCatalog(
-      parsed.data.payload.reason
+      parsed.data.payload.reason,
+      record
     );
+    record("result_send_started");
     sendDaemonFrame(input.socket, {
       code: "daemon.local_agent_control.result",
       payload: {
@@ -1771,6 +1782,7 @@ export async function runDaemonSocketSession(input: {
         payload: responsePayload,
       },
     });
+    record("result_send_returned");
   };
 
   const handleLocalAgentControlReadProfileWorkspaceFrame = async (
@@ -1923,12 +1935,19 @@ export async function runDaemonSocketSession(input: {
   };
 
   const applyLocalAgentControlRefreshCatalog = async (
-    reason: string
+    reason: string,
+    record: (stage: string) => void
   ): Promise<OpenMeldDaemonSyncRouteCatalogPayload> => {
     try {
+      record("catalog_refresh_started");
       const [result] = await Promise.all([
-        requestRouteCatalogSync(reason),
-        requestFreshRuntimeAgentControllerReportSync(),
+        requestRouteCatalogSync(reason).then((value) => {
+          record("route_catalog_sync_completed");
+          return value;
+        }),
+        requestFreshRuntimeAgentControllerReportSync().then(() => {
+          record("controller_report_sync_completed");
+        }),
       ]);
       const payload = projectRouteCatalogSyncPayload({
         knownProfileIds: input.routeCatalogState.profileIds,
@@ -1945,6 +1964,7 @@ export async function runDaemonSocketSession(input: {
       });
       return payload;
     } catch (error) {
+      record("catalog_refresh_failed");
       const errorMessage = toErrorMessage(error);
       emitRunLine({
         presenter: input.presenter,
@@ -2070,6 +2090,9 @@ export async function runDaemonSocketSession(input: {
       });
       return;
     }
+    logComputerControlStage(parsedFrame, "socket_received", {
+      connectionGeneration: activeConnectionGeneration,
+    });
     if (parsedFrame.code === "daemon.route_catalog.changed") {
       const payload =
         runtimeTransportRouteCatalogChangedFramePayloadSchema.safeParse(

@@ -4,6 +4,7 @@ export const CORE_LOG_EVENTS = {
     "runtime_transport_client_request_timeout",
   runtimeTransportReadAttemptFailed: "runtime_transport_read_attempt_failed",
   runtimeTransportOwnerReadStage: "runtime_transport_owner_read_stage",
+  computerControlStage: "core.runtime_transport.computer_control_stage",
   runtimeTransportGatePhase: "runtime_transport_gate_phase",
   spaceInputGate: "space_input_gate",
   spaceReadRecovery: "space_read_recovery",

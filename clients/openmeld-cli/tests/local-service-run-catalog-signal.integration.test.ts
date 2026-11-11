@@ -1,7 +1,15 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 
 const {
   loadDaemonRouteCatalogMock,
@@ -2511,6 +2519,20 @@ describe("local service run catalog signal", () => {
 
   it("waits for a fresh controller report before completing a local agent catalog refresh", async () => {
     vi.useFakeTimers();
+    const requestId = crypto.randomUUID();
+    const logs = vi.spyOn(console, "warn");
+    onTestFinished(() => logs.mockRestore());
+    const stages = () =>
+      logs.mock.calls.flatMap(([line]) => {
+        if (
+          typeof line !== "string" ||
+          !line.includes("[openmeld.computer_control_stage]")
+        ) {
+          return [];
+        }
+        const record = JSON.parse(line.slice(line.indexOf("{")));
+        return record.controlRequestId === requestId ? [record.stage] : [];
+      });
 
     let resolveBackgroundReport!: () => void;
     const backgroundReport = new Promise<{
@@ -2580,7 +2602,7 @@ describe("local service run catalog signal", () => {
       v: 1,
       code: "daemon.local_agent_control.refresh_catalog",
       payload: {
-        requestId: "refresh-1",
+        requestId,
         payload: {
           reason: "settings_manual_check",
         },
@@ -2589,10 +2611,15 @@ describe("local service run catalog signal", () => {
     await vi.advanceTimersByTimeAsync(1);
 
     expect(syncDaemonRouteCatalogStateMock).toHaveBeenCalledTimes(1);
+    expect(stages()).toEqual([
+      "socket_received",
+      "catalog_refresh_started",
+      "route_catalog_sync_completed",
+    ]);
     expect(socket.sentFrames).not.toContainEqual(
       expect.objectContaining({
         code: "daemon.local_agent_control.result",
-        payload: expect.objectContaining({ requestId: "refresh-1" }),
+        payload: expect.objectContaining({ requestId }),
       })
     );
 
@@ -2612,7 +2639,7 @@ describe("local service run catalog signal", () => {
           typeof frame.payload === "object" &&
           frame.payload !== null &&
           "requestId" in frame.payload &&
-          frame.payload.requestId === "refresh-1"
+          frame.payload.requestId === requestId
       )
     );
 
@@ -2625,7 +2652,7 @@ describe("local service run catalog signal", () => {
       expect.objectContaining({
         code: "daemon.local_agent_control.result",
         payload: {
-          requestId: "refresh-1",
+          requestId,
           payload: expect.objectContaining({
             accepted: true,
             profileIds: ["agt-1", "agt-2"],
@@ -2634,6 +2661,11 @@ describe("local service run catalog signal", () => {
         },
       })
     );
+    expect(stages().slice(-3)).toEqual([
+      "controller_report_sync_completed",
+      "result_send_started",
+      "result_send_returned",
+    ]);
 
     socket.close(1000, "shutdown");
     await sessionPromise;
