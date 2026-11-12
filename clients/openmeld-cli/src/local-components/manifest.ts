@@ -19,6 +19,7 @@ import {
   type LocalComponentsManifest,
   type LocalComponentsStatus,
   type LocalSetupAction,
+  openMeldToolsUpdateStepCode,
 } from "@openmeld/schemas";
 import type { InstalledLocalComponentsSnapshot } from "@openmeld/schemas/types";
 import { openMeldRootDir } from "../config/paths";
@@ -30,6 +31,7 @@ import {
   inspectDaemonServiceInventory,
 } from "../local-service/lifecycle/daemon-service-inventory";
 import { resolveOpenMeldToolsMaintenanceProjection } from "../local-service/maintenance/openmeld-tools-maintenance-policy";
+import { readUpdateStep } from "../local-service/maintenance/openmeld-tools-update-checkpoint";
 import { resolveOpenMeldToolsUpdateOperationProjection } from "../local-service/maintenance/openmeld-tools-update-operation";
 import { resolveDaemonServiceParticipationStatus } from "../local-service/status/service-participation-status";
 import { isBinaryDistribution } from "../runtime/distribution";
@@ -172,14 +174,23 @@ export async function resolveLocalComponentsStatus(
   const installationSource = await resolveLocalComponentsInstallationSource({
     expectedVersion: resolvedCli.packageVersion,
   });
-  const cli = updateProjection?.failureCode
-    ? {
-        ...resolvedCli,
-        reasonCodes: Array.from(
-          new Set([...resolvedCli.reasonCodes, updateProjection.failureCode])
-        ),
+  const reasonCodes = new Set(resolvedCli.reasonCodes);
+  if (updateProjection) {
+    if (updateProjection.failureCode) {
+      reasonCodes.add(updateProjection.failureCode);
+    }
+    if (updateProjection.operation.phase !== "updated") {
+      const step =
+        (await readUpdateStep(
+          updateProjection.operation,
+          updateProjection.checkpointOwner
+        )) ?? updateProjection.fallbackStep;
+      if (step) {
+        reasonCodes.add(openMeldToolsUpdateStepCode(step));
       }
-    : resolvedCli;
+    }
+  }
+  const cli = { ...resolvedCli, reasonCodes: [...reasonCodes] };
   const selectedSkill = await loadSelectedSkillAssets();
   const setupAction = resolveLocalComponentsSetupAction({
     cliStatus: cli.status,

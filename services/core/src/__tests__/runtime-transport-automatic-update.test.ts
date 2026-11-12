@@ -125,6 +125,8 @@ describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
       updatedAt: localComponents.generatedAt,
     };
     localComponents.cli.reasonCodes = [
+      "cli.update.step.private-unrecognized-text",
+      "cli.update.step.installing_cli",
       "unrecognized failure detail",
       "cli.update.install_failed",
     ];
@@ -143,6 +145,11 @@ describe("Runtime Transport release-triggered OpenMeld Tools update", () => {
           operationPhase: "needs_help",
           operationTargetVersion: "0.3.152",
           operationFailureCode: "cli.update.install_failed",
+          operationStep: "installing_cli",
+          operationUpdatedAt: localComponents.generatedAt,
+          reportedCliVersion: localComponents.cli.packageVersion,
+          installedServiceBundleVersion:
+            localComponents.service.installedBundleVersion,
           targetVersion: "0.3.153",
         })
       );

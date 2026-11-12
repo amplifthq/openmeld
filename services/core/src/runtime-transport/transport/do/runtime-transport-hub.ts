@@ -34,6 +34,7 @@ import {
   computerPowerTransportSchema,
   daemonStreamFrameSchema,
   findOpenMeldToolsUpdateFailureCode,
+  findOpenMeldToolsUpdateStep,
   LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   localAgentReasoningPreferencesSchema,
@@ -1571,6 +1572,39 @@ type AutomaticToolsUpdateUnavailableRetry = AutomaticToolsUpdateTarget & {
   attempts: number;
   retryAtMs: number;
 };
+type ReportedLocalComponents =
+  RuntimeTransportSessionState["capabilities"]["localComponents"];
+
+function observedUpdateStep(components: ReportedLocalComponents) {
+  return components?.updateOperation
+    ? findOpenMeldToolsUpdateStep(components.cli.reasonCodes)
+    : null;
+}
+
+function updateObservationChanged(
+  previous: ReportedLocalComponents,
+  current: ReportedLocalComponents
+): boolean {
+  return (
+    !!current &&
+    (!previous ||
+      previous.updateOperation?.operationId !==
+        current.updateOperation?.operationId ||
+      previous.updateOperation?.phase !== current.updateOperation?.phase ||
+      observedUpdateStep(previous) !== observedUpdateStep(current))
+  );
+}
+
+function reportedComponentVersion(version: string | null | undefined) {
+  return version &&
+    version.length <= 64 &&
+    isLocalComponentVersionAtLeast(version, version)
+    ? version
+    : null;
+}
+const UPDATE_OPERATION_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
 function automaticUpdateObservationFields(
   session: RuntimeTransportSessionState | null
 ) {
@@ -1580,6 +1614,22 @@ function automaticUpdateObservationFields(
     connectionGeneration: session?.connectionGeneration ?? null,
     componentStatusGeneratedAt: components?.generatedAt ?? null,
     operationPhase: operation?.phase ?? null,
+    operationStep: observedUpdateStep(components),
+    operationId:
+      operation && UPDATE_OPERATION_UUID.test(operation.operationId)
+        ? operation.operationId
+        : null,
+    operationRequestSource: operation?.requestSource ?? null,
+    operationRequestedAt: operation?.requestedAt ?? null,
+    operationUpdatedAt: operation?.updatedAt ?? null,
+    reportedCliVersion: reportedComponentVersion(
+      components?.cli.packageVersion
+    ),
+    installedServiceBundleVersion: reportedComponentVersion(
+      components?.service.installedBundleVersion
+    ),
+    installationDistribution:
+      components?.installationSource?.distribution ?? null,
     operationTargetVersion: operation?.targetVersion ?? null,
     operationFailureCode:
       operation?.phase === "restored" || operation?.phase === "needs_help"
@@ -4428,8 +4478,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const sessionBeforeHeartbeat = this.state.sessionsById.get(
       parsed.data.daemonSessionId
     );
-    const hadComponentStatus =
-      !!sessionBeforeHeartbeat?.capabilities.localComponents;
+    const previousComponents =
+      sessionBeforeHeartbeat?.capabilities.localComponents;
     const previousReadinessProfileIds = collectReadinessProfileIdsForSession(
       sessionBeforeHeartbeat
     );
@@ -4518,7 +4568,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
       if (sessionAfterHeartbeat) {
         this.queueReleaseTriggeredOpenMeldToolsUpdate({
-          componentStatusWasMissing: !hadComponentStatus,
+          changedUpdateObservation: updateObservationChanged(
+            previousComponents,
+            sessionAfterHeartbeat.capabilities.localComponents
+          ),
           connection: {
             daemonSessionId: parsed.data.daemonSessionId,
             deviceId: parsed.data.deviceId,
@@ -21162,7 +21215,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
   }
   private queueReleaseTriggeredOpenMeldToolsUpdate(input: {
-    componentStatusWasMissing?: boolean;
+    changedUpdateObservation?: boolean;
     connection: Pick<
       RuntimeTransportSessionState,
       "daemonSessionId" | "deviceId" | "lane" | "ownerUserId"
@@ -21351,6 +21404,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             );
           }
           console.info("[core.openmeld_tools.automatic_update_requested]", {
+            requestId,
             daemonSessionId: session.daemonSessionId,
             deviceId: session.deviceId,
             event: "core.openmeld_tools.automatic_update_requested",
@@ -21370,6 +21424,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
             this.automaticToolsUpdateTargetByComputer.delete(computerKey);
           }
           console.warn("[core.openmeld_tools.automatic_update_failed]", {
+            requestId,
             daemonSessionId: session.daemonSessionId,
             deviceId: session.deviceId,
             error: error instanceof Error ? error.message : String(error),
@@ -21384,7 +21439,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
   }
   private recordReleaseTriggeredOpenMeldToolsUpdateSkip(input: {
-    componentStatusWasMissing?: boolean;
+    changedUpdateObservation?: boolean;
     connection: Pick<
       RuntimeTransportSessionState,
       "daemonSessionId" | "deviceId" | "lane" | "ownerUserId"
@@ -21406,13 +21461,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     targetServiceVersion?: string;
     trigger: "heartbeat" | "register";
   }): void {
-    // Also capture the first decision with fresh evidence after an omission.
+    // A fresh snapshot or a new operation step is useful during an update;
+    // identical heartbeat decisions add no evidence.
     if (
-      (input.trigger !== "register" &&
-        !(
-          input.componentStatusWasMissing &&
-          input.session?.capabilities.localComponents
-        )) ||
+      (input.trigger !== "register" && !input.changedUpdateObservation) ||
       input.connection.lane !== "prod"
     ) {
       return;

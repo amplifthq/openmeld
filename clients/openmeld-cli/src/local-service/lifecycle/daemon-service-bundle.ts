@@ -66,6 +66,8 @@ import {
   classifyDiagnosticPath,
   collectLocalOperationFailure,
 } from "../../system/local-operation-diagnostics";
+import { recordUpdateStep } from "../maintenance/openmeld-tools-update-checkpoint";
+import { readOpenMeldToolsUpdateContextFromEnv } from "../maintenance/openmeld-tools-update-context";
 import { emitDaemonLifecycleEvent } from "./daemon-lifecycle-journal";
 import { resolveDaemonServiceArtifact } from "./daemon-service-artifact";
 import { readPendingDaemonServiceUpdate } from "./daemon-service-update-state";
@@ -609,6 +611,8 @@ async function prepareSelectedBinaryDaemonServiceBundle(input: {
     onDeltaFallback,
     release: input.release,
   });
+  const updateContext = readOpenMeldToolsUpdateContextFromEnv();
+  await recordUpdateStep(updateContext, "downloading_service_artifact");
   const bytes = await downloadCliBinaryUpdateArtifact({
     downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
     fetchImpl: fetch,
@@ -616,9 +620,11 @@ async function prepareSelectedBinaryDaemonServiceBundle(input: {
     plan,
     release: input.release,
   });
+  await recordUpdateStep(updateContext, "staging_service_artifact");
   await mkdir(bundleRootPath, { recursive: true });
   try {
     await writeFile(executablePath, bytes, { mode: 0o755 });
+    await recordUpdateStep(updateContext, "verifying_service_artifact");
     await verifyCliBinaryCodeSignature({
       allowUnsignedPreview: allowUnsignedWindowsInternalPreview(),
       artifactPath: executablePath,
@@ -631,6 +637,7 @@ async function prepareSelectedBinaryDaemonServiceBundle(input: {
         return { code: 0, stdout: result.stdout, stderr: result.stderr };
       },
     });
+    await recordUpdateStep(updateContext, "preparing_service_helper");
     await prepareCliBinaryProcessHelper({
       allowUnsignedPreview: allowUnsignedWindowsInternalPreview(),
       artifactPath: executablePath,
@@ -638,6 +645,7 @@ async function prepareSelectedBinaryDaemonServiceBundle(input: {
       downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
       fetchImpl: fetch,
     });
+    await recordUpdateStep(updateContext, "verifying_service_artifact");
     if (windows) {
       await verifyWindowsServiceSubsystem(executablePath);
     }

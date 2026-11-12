@@ -59,7 +59,9 @@ describe("local components status", () => {
     const openMeldHome = await mkdtemp(
       join(tmpdir(), "openmeld-local-components-")
     );
-    vi.doMock("../src/config/paths", () => ({
+    vi.stubEnv("OPENMELD_HOME", openMeldHome);
+    vi.doMock("../src/config/paths", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../src/config/paths")>()),
       openMeldRootDir: () => openMeldHome,
     }));
     vi.doMock("../src/runtime/distribution", () => ({
@@ -167,23 +169,31 @@ describe("local components status", () => {
       reasonCodes: [],
     });
 
+    const operation = {
+      operationId: "update-1",
+      phase: "needs_help" as const,
+      requestSource: "web" as const,
+      requestedAt: "2026-09-14T00:00:00.000Z",
+      targetVersion: "99.0.1",
+      updatedAt: "2026-09-14T00:01:00.000Z",
+      urgency: "available" as const,
+    };
+    const { recordUpdateStep } = await import(
+      "../src/local-service/maintenance/openmeld-tools-update-checkpoint"
+    );
+    await recordUpdateStep(operation, "downloading_cli");
     resolveOpenMeldToolsUpdateOperationProjectionMock.mockResolvedValueOnce({
       failureCode: "cli.update.download_stalled",
-      operation: {
-        operationId: "update-1",
-        phase: "needs_help",
-        requestSource: "web",
-        requestedAt: "2026-09-14T00:00:00.000Z",
-        targetVersion: "99.0.1",
-        updatedAt: "2026-09-14T00:01:00.000Z",
-        urgency: "available",
-      },
+      checkpointOwner: "tools",
+      fallbackStep: null,
+      operation,
     });
     const failed = await resolveLocalComponentsStatus({
       latestPackageVersion: "99.0.0",
       requiredCommandContractVersion: "new-cli-contract",
     });
     expect(failed.cli.reasonCodes).toContain("cli.update.download_stalled");
+    expect(failed.cli.reasonCodes).toContain("cli.update.step.downloading_cli");
     expect(failed.updateOperation).toMatchObject({
       operationId: "update-1",
       phase: "needs_help",
@@ -198,9 +208,7 @@ describe("local components status", () => {
     const sourceSkillsRoot = join(sourcePackageRoot, "skills");
     await mkdir(sourceSkillsRoot, { recursive: true });
 
-    vi.doMock("../src/config/paths", () => ({
-      openMeldRootDir: () => openMeldHome,
-    }));
+    vi.stubEnv("OPENMELD_HOME", openMeldHome);
     vi.doMock("../src/skills/bundled-assets", () => ({
       loadBundledSkillAssets: vi.fn(async () => []),
       hashBundledSkillAssets: vi.fn(() => null),
@@ -268,9 +276,7 @@ describe("local components status", () => {
       join(tmpdir(), "openmeld-local-components-")
     );
 
-    vi.doMock("../src/config/paths", () => ({
-      openMeldRootDir: () => openMeldHome,
-    }));
+    vi.stubEnv("OPENMELD_HOME", openMeldHome);
     vi.doMock("../src/skills/bundled-assets", () => ({
       loadBundledSkillAssets: vi.fn(async () => [
         {

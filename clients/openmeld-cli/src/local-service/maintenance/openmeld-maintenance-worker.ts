@@ -26,6 +26,7 @@ import {
 import { prepareDaemonServiceUpdateWorkerCarrier } from "../lifecycle/daemon-service-update-worker-manager";
 import { readOpenMeldToolsMaintenancePolicy } from "./openmeld-tools-maintenance-policy";
 import { readPendingOpenMeldToolsUpdateAttempt } from "./openmeld-tools-update-attempt-state";
+import { recordUpdateStep } from "./openmeld-tools-update-checkpoint";
 import { createOpenMeldToolsUpdateCoordinator } from "./openmeld-tools-update-coordinator";
 
 // The OS owns this process. It is also the sole executor of persisted download
@@ -66,6 +67,10 @@ async function runMaintenancePass(): Promise<boolean> {
     }
   }
   await assertDaemonMaintenanceInstallationOwnership();
+  await recordUpdateStep(
+    pendingJob ?? pendingAttempt?.operation ?? null,
+    "maintenance_preflight"
+  );
   await reconcileManagedCliLauncher();
   if ((await readOpenMeldToolsMaintenancePolicy()).automaticUpdatesEnabled) {
     try {

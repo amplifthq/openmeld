@@ -40,6 +40,7 @@ import {
 import { inspectDaemonServiceInventory } from "../local-service/lifecycle/daemon-service-inventory";
 import { scheduleDaemonServiceUpdate } from "../local-service/lifecycle/daemon-service-update-coordinator";
 import { resolveVersionChangeDirection } from "../local-service/lifecycle/version-change-direction";
+import { recordUpdateStep } from "../local-service/maintenance/openmeld-tools-update-checkpoint";
 import { readOpenMeldToolsUpdateContextFromEnv } from "../local-service/maintenance/openmeld-tools-update-context";
 import { createOpenMeldToolsUpdateCoordinator } from "../local-service/maintenance/openmeld-tools-update-coordinator";
 import {
@@ -217,6 +218,7 @@ async function runUpgradeWithRuntime(
   }
 
   const allowPrompt = canUseInteractivePrompts(runtime);
+  await recordUpdateStep(currentUpdate, "checking_release");
   const currentVersion = OPENMELD_VERSION;
   const { currentGlobalInstall, manualUpgradeRecovery } =
     await resolveUpgradeInstallContext();
@@ -341,6 +343,10 @@ async function alignServiceWithCurrentCli(input: {
   resolvedView: "human" | "agent";
 }): Promise<void> {
   try {
+    await recordUpdateStep(
+      readOpenMeldToolsUpdateContextFromEnv(),
+      "aligning_service"
+    );
     await runInternalUpgradeServiceAlignment({
       ...input,
       daemonVersion: await resolveCurrentDaemonExpectedVersion(),
@@ -521,6 +527,10 @@ async function installAndReconcileBinaryUpgrade(input: {
     );
   }
   const binaryRelease = input.upgradeStatus.binaryRelease;
+  await recordUpdateStep(
+    readOpenMeldToolsUpdateContextFromEnv(),
+    "planning_download"
+  );
   const updatePlan = await resolveCliBinaryUpdatePlan({
     baseBinaryPath: resolveBinaryUpgradeBasePath(),
     currentVersion: input.currentVersion,
@@ -885,7 +895,9 @@ async function installLatestCliBinary(input: {
   managedBinaryPath: string;
 }> {
   const tmpDir = await mkdtemp(join(tmpdir(), "openmeld-cli-upgrade-"));
+  const context = readOpenMeldToolsUpdateContextFromEnv();
   try {
+    await recordUpdateStep(context, "downloading_cli");
     const artifactBytes = await downloadCliBinaryUpdateArtifact({
       downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
       fetchImpl: fetch,
@@ -903,6 +915,7 @@ async function installLatestCliBinary(input: {
     );
     await writeFile(artifactPath, artifactBytes);
     await chmod(artifactPath, 0o755);
+    await recordUpdateStep(context, "verifying_cli");
     await verifyCliBinaryCodeSignature({
       allowUnsignedPreview: allowUnsignedWindowsInternalPreview(),
       artifactPath,
@@ -910,6 +923,7 @@ async function installLatestCliBinary(input: {
       release: input.release,
       runCommand,
     });
+    await recordUpdateStep(context, "preparing_process_helper");
     await prepareCliBinaryProcessHelper({
       allowUnsignedPreview: allowUnsignedWindowsInternalPreview(),
       artifactPath,
@@ -918,6 +932,7 @@ async function installLatestCliBinary(input: {
       fetchImpl: fetch,
     });
 
+    await recordUpdateStep(context, "installing_cli");
     const installResult = await runCommand(artifactPath, [
       "install-self",
       "--force",
@@ -1015,6 +1030,10 @@ async function installLatestPackage(input: {
         `${OPENMELD_PACKAGE_NAME}@latest`,
       ]
     : ["install", "-g", `${OPENMELD_PACKAGE_NAME}@latest`];
+  await recordUpdateStep(
+    readOpenMeldToolsUpdateContextFromEnv(),
+    "npm_install"
+  );
   const result = await runCommandSpec(input.npmCommandSpec, args);
 
   if (result.code !== 0) {
@@ -1130,6 +1149,10 @@ async function handoffUpgradeServiceAlignmentToLatestBinary(input: {
   command: string;
   argsPrefix: string[];
 }): Promise<void> {
+  await recordUpdateStep(
+    readOpenMeldToolsUpdateContextFromEnv(),
+    "aligning_service"
+  );
   const useInheritedOutput =
     input.resolvedView === "human" &&
     process.stdout.isTTY === true &&

@@ -34,6 +34,7 @@ import {
   readPendingDaemonServiceUpdate,
   resolveDaemonServiceUpdateOperation,
 } from "../src/local-service/lifecycle/daemon-service-update-state";
+import { readUpdateStep } from "../src/local-service/maintenance/openmeld-tools-update-checkpoint";
 
 const PREPARED_BUNDLE = {
   v: 2 as const,
@@ -163,6 +164,11 @@ describe("daemon service background update coordinator", () => {
   });
 
   it("yields a raced automatic update without consuming attempts or holding the lifecycle lock", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-update-checkpoint-"));
+    vi.stubEnv("OPENMELD_HOME", home);
+    onTestFinished(async () => {
+      await rm(home, { recursive: true, force: true });
+    });
     vi.useFakeTimers();
     onTestFinished(() => {
       vi.useRealTimers();
@@ -187,6 +193,8 @@ describe("daemon service background update coordinator", () => {
     const waiting = Promise.withResolvers<void>();
     const idle = Promise.withResolvers<void>();
     const phases: string[] = [];
+    const deferredJobSaved = Promise.withResolvers<void>();
+    const observedSteps: Array<string | null> = [];
     let calls = 0;
     const result = runPendingDaemonServiceUpdate({
       readPendingJob: async () => job,
@@ -194,6 +202,9 @@ describe("daemon service background update coordinator", () => {
       persistPendingJob: (next) => {
         job = next;
         phases.push(next.phase);
+        if (calls === 1 && next.phase === "waiting_for_work") {
+          deferredJobSaved.resolve();
+        }
         return Promise.resolve();
       },
       completePendingJob: (next) => {
@@ -223,9 +234,14 @@ describe("daemon service background update coordinator", () => {
           throw new DaemonServiceUpdateDeferredError();
         }
         await input.onPhase?.("wait_stopped");
+        observedSteps.push(
+          await readUpdateStep({ ...job, operationId: job.jobId }, "service")
+        );
         return { status: "aligned", errorMessage: null };
       },
     });
+    await deferredJobSaved.promise;
+    await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(1999);
     expect(calls).toBe(1);
     expect(locked).toBe(false);
@@ -246,6 +262,7 @@ describe("daemon service background update coordinator", () => {
       jobId: initial.jobId,
     });
     expect(phases).toContain("updating");
+    expect(observedSteps).toEqual(["service_wait_stopped"]);
   });
 
   it.each([

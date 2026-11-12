@@ -1,11 +1,11 @@
 {
-  "version": "0.3.293",
+  "version": "0.3.294",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Packages the Service component reporting fix for existing CLI and binary installations."
+    "reason": "Records which download, verification, installation or handoff step the maintenance CLI entered."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Publishes fresh local component observations after an outstanding heartbeat and explains omissions at registration. The existing registration and heartbeat contracts remain compatible."
+    "reason": "Reports operation-scoped update checkpoints in existing component observations so Core can diagnose a stalled Service replacement."
   }
 }

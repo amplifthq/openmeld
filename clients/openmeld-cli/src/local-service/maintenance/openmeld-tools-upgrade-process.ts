@@ -4,6 +4,7 @@ import { compareSemver } from "../../config/version-state";
 import { readManagedCliInstallation } from "../../local-components/managed-install";
 import { isBinaryDistribution } from "../../runtime/distribution";
 import { OPENMELD_VERSION } from "../../runtime/version";
+import { recordUpdateStep } from "./openmeld-tools-update-checkpoint";
 import {
   buildOpenMeldToolsUpdateContextEnv,
   type OpenMeldToolsUpdateContext,
@@ -47,6 +48,7 @@ export async function runOpenMeldToolsUpgradeProcess(
   context: OpenMeldToolsUpdateContext,
   dependencies: OpenMeldToolsUpgradeProcessDependencies = {}
 ): Promise<OpenMeldToolsUpgradeProcessResult> {
+  await recordUpdateStep(context, "worker_claimed");
   const binaryDistribution = isBinaryDistribution();
   const cli = await resolveMaintenanceCliInstallation();
   // A retained Service/maintenance carrier may be older than the installed CLI.
