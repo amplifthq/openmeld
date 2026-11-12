@@ -264,48 +264,38 @@ describe("openmeld upgrade in binary distribution", () => {
       const artifactBytes = Buffer.from("fake openmeld binary\n", "utf8");
       const manifest = buildBinaryManifest(artifactBytes);
       const fetchMock = mockBinaryFetch(manifest, artifactBytes);
-      vi.doMock("node:fs/promises", async () => {
-        const actual =
-          await vi.importActual<typeof import("node:fs/promises")>(
-            "node:fs/promises"
-          );
-        return {
-          ...actual,
-          mkdtemp: vi
-            .fn()
-            .mockRejectedValue(new Error("temporary directory unavailable")),
-        };
+      const invalidTemp = join(home, "not-a-temp-directory");
+      await writeFile(invalidTemp, "occupied");
+      for (const key of ["TMPDIR", "TEMP", "TMP"]) {
+        vi.stubEnv(key, invalidTemp);
+      }
+      const { runUpgrade } = await loadUpgradeModules();
+      let thrown: unknown;
+      await withCapturedStdio(async () => {
+        try {
+          await runUpgrade({ view: "agent", yes: true });
+        } catch (error) {
+          thrown = error;
+        }
       });
 
-      try {
-        const { runUpgrade } = await loadUpgradeModules();
-        let thrown: unknown;
-        await withCapturedStdio(async () => {
-          try {
-            await runUpgrade({ view: "agent", yes: true });
-          } catch (error) {
-            thrown = error;
-          }
-        });
-
-        expect(thrown).toEqual(
-          expect.objectContaining({
-            message: "temporary directory unavailable",
-          })
-        );
-        expect(resolveOpenMeldToolsUpdateFailure(thrown)).toBe(
-          "cli.update.install_failed"
-        );
-        expect(fetchMock).toHaveBeenCalledOnce();
-        expect(spawn).not.toHaveBeenCalled();
-      } finally {
-        vi.doUnmock("node:fs/promises");
-      }
+      expect(thrown).toEqual(
+        expect.objectContaining({
+          message: expect.stringContaining("not-a-temp-directory"),
+        })
+      );
+      expect(resolveOpenMeldToolsUpdateFailure(thrown)).toBe(
+        "cli.update.install_failed"
+      );
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(spawn).not.toHaveBeenCalled();
     });
   });
 
   it("stops before install-self when the downloaded binary sha256 does not match the manifest", async () => {
     await withTempHome(async (home) => {
+      // Keep the explicit lane distinct from the simulated user's production default.
+      process.env.HOME = join(home, "os-user");
       await seedVersionState(home);
       const installedBinaryPath = join(
         home,
@@ -329,6 +319,21 @@ describe("openmeld upgrade in binary distribution", () => {
       );
       const expectedBytes = Buffer.from("expected openmeld binary\n", "utf8");
       const downloadedBytes = Buffer.from("tampered openmeld binary\n", "utf8");
+      const operation = {
+        operationId: "update-with-bad-artifact",
+        requestedAt: "2026-09-01T00:00:00.000Z",
+        requestSource: "automatic" as const,
+        targetCliVersion: BINARY_VERSION,
+        targetServiceVersion: BINARY_VERSION,
+      };
+      const { buildOpenMeldToolsUpdateContextEnv } = await import(
+        "../src/local-service/maintenance/openmeld-tools-update-context"
+      );
+      for (const [key, value] of Object.entries(
+        buildOpenMeldToolsUpdateContextEnv(operation)
+      )) {
+        vi.stubEnv(key, value);
+      }
       const manifest = buildBinaryManifest(expectedBytes, {
         sizeBytes: downloadedBytes.byteLength,
       });
@@ -345,6 +350,29 @@ describe("openmeld upgrade in binary distribution", () => {
       });
 
       expect(spawn).not.toHaveBeenCalled();
+      const { readUpdateStep } = await import(
+        "../src/local-service/maintenance/openmeld-tools-update-checkpoint"
+      );
+      const active = {
+        ...operation,
+        phase: "updating" as const,
+        targetVersion: BINARY_VERSION,
+        updatedAt: operation.requestedAt,
+        urgency: "available" as const,
+      };
+      await expect(readUpdateStep(active, "tools")).resolves.toBe(
+        "downloading_cli"
+      );
+      await expect(
+        readUpdateStep({ ...active, operationId: "other-operation" }, "tools")
+      ).resolves.toBeNull();
+      await expect(
+        readUpdateStep(
+          { ...active, targetServiceVersion: "other-target" },
+          "tools"
+        )
+      ).resolves.toBeNull();
+      await expect(readUpdateStep(active, "service")).resolves.toBeNull();
       await expect(readFile(installedBinaryPath)).resolves.toEqual(
         installedBytes
       );

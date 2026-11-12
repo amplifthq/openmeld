@@ -3069,6 +3069,7 @@ export {
 } from "./http/worker-health";
 export {
   findOpenMeldToolsUpdateFailureCode,
+  findOpenMeldToolsUpdateStep,
   formatLocalComponentsSummaryDescription,
   formatLocalComponentsSummaryLabel,
   formatLocalSetupActionDescription,
@@ -3096,18 +3097,21 @@ export {
   localSkillsComponentProjectionSchema,
   localSkillsComponentUpdateProjectionSchema,
   OPEN_MELD_TOOLS_UPDATE_FAILURE_DETAIL_MAX_CHARS,
+  type OpenMeldToolsUpdateStep,
   openMeldToolsControlCapabilitySchema,
   openMeldToolsControlRequestSchema,
   openMeldToolsControlResultSchema,
   openMeldToolsMaintenanceMutationResultSchema,
   openMeldToolsMaintenanceProjectionSchema,
   openMeldToolsUpdateAttemptSchema,
+  openMeldToolsUpdateCheckpointSchema,
   openMeldToolsUpdateFailureCodeSchema,
   openMeldToolsUpdateOperationPhaseSchema,
   openMeldToolsUpdateOperationSchema,
   openMeldToolsUpdateProcessFailureFrameSchema,
   openMeldToolsUpdateRequestResultSchema,
   openMeldToolsUpdateRequestSourceSchema,
+  openMeldToolsUpdateStepCode,
   resolveOpenMeldToolsUpdateTargetVersions,
 } from "./local-components";
 export {

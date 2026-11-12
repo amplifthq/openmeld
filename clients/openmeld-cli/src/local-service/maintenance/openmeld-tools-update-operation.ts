@@ -1,3 +1,4 @@
+import type { OpenMeldToolsUpdateStep } from "@openmeld/schemas";
 import type {
   DaemonServiceUpdateJob,
   OpenMeldToolsUpdateAttempt,
@@ -19,6 +20,8 @@ const TERMINAL_VISIBILITY_MS = 24 * 60 * 60 * 1000;
 
 export type OpenMeldToolsUpdateOperationProjection = {
   failureCode: OpenMeldToolsUpdateFailureCode | null;
+  checkpointOwner: "service" | "tools";
+  fallbackStep: OpenMeldToolsUpdateStep | null;
   operation: OpenMeldToolsUpdateOperation;
 };
 
@@ -70,7 +73,11 @@ function projectToolsAttempt(
   const terminalFailure =
     attempt.operation.phase === "needs_help" ||
     attempt.operation.phase === "restored";
+  const workerStep =
+    attempt.attempts === 0 ? "awaiting_worker" : "worker_claimed";
   return {
+    checkpointOwner: "tools",
+    fallbackStep: attempt.operation.phase === "updating" ? workerStep : null,
     failureCode: terminalFailure
       ? (resolvePersistedOpenMeldToolsUpdateFailure(attempt.errorMessage) ??
         "cli.update.failed")
@@ -83,6 +90,11 @@ function projectServiceJob(
   job: DaemonServiceUpdateJob
 ): OpenMeldToolsUpdateOperationProjection {
   return {
+    checkpointOwner: "service",
+    fallbackStep:
+      job.phase === "waiting_for_work" || job.phase === "updating"
+        ? "service_job_pending"
+        : null,
     failureCode:
       job.phase === "needs_help" || job.phase === "restored"
         ? "cli.update.service_alignment_failed"

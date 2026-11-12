@@ -42,6 +42,76 @@ export const openMeldToolsUpdateRequestSourceSchema = z.enum([
 
 export const OPEN_MELD_TOOLS_UPDATE_FAILURE_DETAIL_MAX_CHARS = 2048 as const;
 
+// Observations travel in the existing component reasonCodes array. Older
+// Services and Core versions can read the same strict operation envelope.
+export const openMeldToolsUpdateStepSchema = z.enum([
+  "awaiting_worker",
+  "maintenance_preflight",
+  "worker_claimed",
+  "checking_release",
+  "planning_download",
+  "downloading_cli",
+  "verifying_cli",
+  "preparing_process_helper",
+  "installing_cli",
+  "npm_install",
+  "aligning_service",
+  "preparing_service_bundle",
+  "downloading_service_artifact",
+  "staging_service_artifact",
+  "verifying_service_artifact",
+  "preparing_service_helper",
+  "scheduling_service",
+  "service_job_pending",
+  "waiting_to_replace_service",
+  "service_inspect",
+  "service_backup",
+  "service_stop_or_drain",
+  "service_wait_stopped",
+  "service_unregister",
+  "service_wait_absent",
+  "service_prepare_bundle",
+  "service_install_bundle",
+  "service_write_contract",
+  "service_register_service",
+  "service_restore_runtime_data",
+  "service_start_if_desired",
+  "service_wait_running",
+  "service_verify_final_inventory",
+]);
+export type OpenMeldToolsUpdateStep = zod.infer<
+  typeof openMeldToolsUpdateStepSchema
+>;
+const updateStepPrefix = "cli.update.step.";
+export function openMeldToolsUpdateStepCode(
+  step: OpenMeldToolsUpdateStep
+): string {
+  return updateStepPrefix + step;
+}
+export function findOpenMeldToolsUpdateStep(
+  codes: readonly string[]
+): OpenMeldToolsUpdateStep | null {
+  for (const code of codes) {
+    if (code.startsWith(updateStepPrefix)) {
+      const parsed = openMeldToolsUpdateStepSchema.safeParse(
+        code.slice(updateStepPrefix.length)
+      );
+      if (parsed.success) {
+        return parsed.data;
+      }
+    }
+  }
+  return null;
+}
+
+export const openMeldToolsUpdateCheckpointSchema = z.strictObject({
+  operationId: nonEmptyStringSchema.max(128),
+  requestedAt: z.iso.datetime({ offset: true }),
+  targetCliVersion: nonEmptyStringSchema.max(64),
+  targetServiceVersion: nonEmptyStringSchema.max(64),
+  step: openMeldToolsUpdateStepSchema,
+});
+
 export const openMeldToolsUpdateFailureCodeSchema = z.enum([
   "cli.update.download_stalled",
   "cli.update.download_timed_out",

@@ -3867,6 +3867,25 @@ the failed targets and at least one is newer. Unknown versions, the same target,
 and active operations keep their existing guard. The Service's coordinator
 still checks the preference and serializes the actual request.
 
+For an update that stays in `updating`, the production Hub decision logs
+include `operationRequestedAt`, `operationUpdatedAt`, the reported CLI and
+installed Service bundle versions, and the running `serviceVersion`. A retained
+npm carrier can report its own CLI version. Treat these versions as observations.
+Updated workers also expose `operationStep`, the last entered checkpoint. The
+tools attempt covers worker pickup, CLI download, verification, installation
+and handoff. For npm, the single `npm_install` step covers the package manager's
+fetch and install. The Service job covers the safe-switch wait and individual
+lifecycle phases, including stopping, installing the bundle and verifying startup.
+
+Each owner atomically replaces one bounded local diagnostic record. The
+reporter matches its operation ID, request timestamp and both component targets
+to the selected job or attempt before projecting the step. It carries one
+allowlisted `cli.update.step.*` code in the existing CLI reason codes. Core logs
+the decoded step on registration and when an observed step changes on heartbeat.
+Older senders omit it. Short steps can finish between observations, and the
+next live Service can report a retained checkpoint after a disconnect. A
+checkpoint never acknowledges an update or authorizes a retry or replacement.
+
 An `unavailable` response clears the in-flight marker and records a
 hibernation-safe retry throttle in Durable Object storage: retry
 after 5 minutes, then 15 minutes, then 60 minutes, capped at 60 minutes while
