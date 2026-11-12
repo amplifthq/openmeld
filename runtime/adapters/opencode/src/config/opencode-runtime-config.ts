@@ -157,6 +157,13 @@ async function readInstallationFingerprint(
   launchContract: RuntimeAgentControllerLaunchContract
 ): Promise<string | null> {
   try {
+    // Prefix arguments may delegate to files outside the executable fingerprint.
+    if (
+      launchContract.kind === "executable" &&
+      (launchContract.argsPrefix?.length ?? 0) > 0
+    ) {
+      return null;
+    }
     const paths =
       launchContract.kind === "executable"
         ? [launchContract.commandPath]

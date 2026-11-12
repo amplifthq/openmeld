@@ -46,7 +46,7 @@ if (fs.existsSync(${JSON.stringify(failurePath)})) {
   await chmod(scriptPath, 0o755);
   const launchContract =
     kind === "executable"
-      ? { kind, commandPath: process.execPath, argsPrefix: [scriptPath] }
+      ? { kind, commandPath: scriptPath }
       : { kind, nodePath: process.execPath, scriptPath };
   return {
     root,
@@ -65,7 +65,13 @@ if (fs.existsSync(${JSON.stringify(failurePath)})) {
   };
 }
 
-for (const kind of ["executable", "node_script"]) {
+// The direct executable fixture uses a POSIX shebang. Delegated Node launch
+// contracts below exercise argsPrefix on every platform.
+const reusableKinds =
+  process.platform === "win32"
+    ? ["node_script"]
+    : ["executable", "node_script"];
+for (const kind of reusableKinds) {
   test(`${kind} installation discovery reuses and coalesces successful probes while explicit checks stay fresh`, async () => {
     const fixture = await createInstallation(kind);
     const results = await Promise.all(
@@ -87,6 +93,30 @@ for (const kind of ["executable", "node_script"]) {
       true
     );
     assert.equal(await fixture.starts(), 2);
+  });
+}
+
+for (const change of ["removed", "broken"]) {
+  test(`delegated executable checks stay fresh when their script is ${change}`, async () => {
+    const fixture = await createInstallation();
+    const input = {
+      ...fixture.input,
+      launchContract: {
+        kind: "executable",
+        commandPath: process.execPath,
+        argsPrefix: [fixture.scriptPath],
+      },
+    };
+    assert.equal((await verifyOpenCodeLaunchContract(input)).ok, true);
+    assert.equal((await verifyOpenCodeLaunchContract(input)).ok, true);
+    assert.equal(await fixture.starts(), 2);
+
+    if (change === "removed") {
+      await rm(fixture.scriptPath);
+    } else {
+      await writeFile(fixture.scriptPath, "process.exitCode = 1;");
+    }
+    assert.equal((await verifyOpenCodeLaunchContract(input)).ok, false);
   });
 }
 

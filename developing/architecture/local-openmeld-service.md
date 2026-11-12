@@ -718,6 +718,8 @@ cover resolved launch files, file identity and permissions, Node package metadat
 and installed official platform payloads. Failed checks and files that change
 during a probe are not retained. Explicit launch checks remain fresh by default;
 this installation cache does not cache authentication or controller readiness.
+Executable contracts with prefix arguments always run fresh checks because those
+arguments can delegate to files outside the executable fingerprint.
 
 Concurrent controller cleanup shares an unfinished macOS process-table read,
 even after the short snapshot age has elapsed. Once the read settles, its
