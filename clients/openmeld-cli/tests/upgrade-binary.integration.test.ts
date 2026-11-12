@@ -295,7 +295,7 @@ describe("openmeld upgrade in binary distribution", () => {
   it("stops before install-self when the downloaded binary sha256 does not match the manifest", async () => {
     await withTempHome(async (home) => {
       // Keep the explicit lane distinct from the simulated user's production default.
-      vi.stubEnv("HOME", join(home, "os-user"));
+      process.env.HOME = join(home, "os-user");
       await seedVersionState(home);
       const installedBinaryPath = join(
         home,
