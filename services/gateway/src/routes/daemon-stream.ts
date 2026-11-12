@@ -15,13 +15,53 @@ import {
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
+  SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  SERVICE_PREVIOUS_CONNECTION_ID_HEADER,
   SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
+  serviceConnectionDiagnosticIdSchema,
 } from "@openmeld/schemas";
 import type { Hono } from "hono";
+import { createMiddleware } from "hono/factory";
 import { logAuditEvent } from "../audit";
 import type { HonoBindings } from "../lib/bindings";
 
 const DAEMON_STREAM_UPSTREAM_CONNECT_TIMEOUT_MS = 15_000;
+
+// Runs before auth so a rejected handshake can be joined to a prior close.
+// Both IDs are client observations, never identity or authorization.
+export const observeDaemonStreamHandshake = createMiddleware<HonoBindings>(
+  async (c, next) => {
+    if (
+      c.req.method !== "GET" ||
+      c.req.header("Upgrade")?.toLowerCase() !== "websocket"
+    ) {
+      return next();
+    }
+    const id = serviceConnectionDiagnosticIdSchema.safeParse(
+      c.req.query(SERVICE_CONNECTION_ID_QUERY_PARAMETER)
+    );
+    if (!id.success) {
+      return next();
+    }
+    const previous = serviceConnectionDiagnosticIdSchema.safeParse(
+      c.req.header(SERVICE_PREVIOUS_CONNECTION_ID_HEADER)
+    );
+    const fields = {
+      event: "gateway.daemon_stream.handshake",
+      connectionDiagnosticId: id.data,
+      previousConnectionDiagnosticId: previous.data ?? null,
+      requestId: c.var.ingressOpenMeldContext.requestId,
+    };
+    console.info({ ...fields, stage: "received" });
+    try {
+      await next();
+    } catch (error) {
+      console.info({ ...fields, stage: "failed" });
+      throw error;
+    }
+    console.info({ ...fields, stage: "response", statusCode: c.res.status });
+  }
+);
 
 export function registerDaemonStreamRoute(app: Hono<HonoBindings>): void {
   app.get("/v1/daemon/stream", async (c) => {

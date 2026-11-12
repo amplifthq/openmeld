@@ -15,6 +15,7 @@ export {
 } from "./ai-usage";
 export {
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  SERVICE_PREVIOUS_CONNECTION_ID_HEADER,
   serviceConnectionDiagnosticIdSchema,
 } from "./daemon/service-connection-correlation";
 export {

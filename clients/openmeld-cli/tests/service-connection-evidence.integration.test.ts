@@ -152,15 +152,15 @@ describe("bounded Service connection evidence", () => {
       close(1006, "");
       const second = state === "replaced" ? open() : null;
       observer.acknowledged(new Date().toISOString(), false, first.id);
+      expect(observer.lastAcknowledgedConnectionId).toBe(first.id);
       resume.resolve();
       await new Promise<void>((done) => setImmediate(done));
       expect(send).not.toHaveBeenCalled();
 
-      observer.acknowledged(
-        new Date().toISOString(),
-        true,
-        (second ?? open()).id
-      );
+      const recovered = second ?? open();
+      observer.acknowledged(new Date().toISOString(), true, recovered.id);
+      observer.acknowledged(new Date().toISOString(), false, first.id);
+      expect(observer.lastAcknowledgedConnectionId).toBe(recovered.id);
       await vi.waitFor(async () => {
         expect((await journals())[0]?.journal.entries[0]?.uploadedAtMs).toEqual(
           expect.any(Number)
