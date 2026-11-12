@@ -1,11 +1,11 @@
 {
-  "version": "0.3.294",
+  "version": "0.3.295",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Records which download, verification, installation or handoff step the maintenance CLI entered."
+    "reason": "Includes the last acknowledged connection ID on subsequent Service stream handshakes for reconnect diagnostics."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Reports operation-scoped update checkpoints in existing component observations so Core can diagnose a stalled Service replacement."
+    "reason": "Lets operators correlate a closed Service socket with later handshake attempts even before registration succeeds."
   }
 }

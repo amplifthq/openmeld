@@ -4189,6 +4189,21 @@ credentials. Safe native network codes and observed phase are retained when
 available. Unknown runtime errors remain unknown. Retry scheduling delay does
 not prove OS sleep, a DNS problem, or a provider outage.
 
+For a Service process that has received a heartbeat acknowledgement, later
+handshakes carry its last acknowledged connection ID in the optional
+`x-openmeld-previous-connection-id` header. Failed attempts keep that same
+reference. A new process starts without one. Gateway observes daemon WebSocket
+requests with a valid current `connectionId` before authentication and records
+their HTTP result. Find `gateway.daemon_stream.handshake` events whose
+`previousConnectionDiagnosticId` equals the closed socket's
+`connectionDiagnosticId`, then follow the new attempt's
+`connectionDiagnosticId` through Core's `register_received`, `register_rejected`,
+`socket_connected` and `socket_closed` events. Core close observations include
+the age of the last heartbeat and whether the socket was current. Older
+Services can supply the current ID alone. These IDs are client-provided
+diagnostics and grant no authority. Attempts that never reach Gateway are
+observable only from the device.
+
 Reply reconsideration retains its existing exact-conversation behavior. Its
 existing dispatch journal additionally records the relevant signal IDs/count,
 typed reason, start and duration, without signal text or prompts. A finished

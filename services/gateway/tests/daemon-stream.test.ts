@@ -87,6 +87,8 @@ describe("gateway daemon stream", () => {
   });
 
   it("passes through upstream websocket upgrade without creating a Gateway relay socket", async () => {
+    const info = vi.spyOn(console, "info");
+    const connectionId = crypto.randomUUID();
     const RealWebSocketPair = (
       globalThis as typeof globalThis & {
         WebSocketPair: new () => TestWebSocketPair;
@@ -126,20 +128,32 @@ describe("gateway daemon stream", () => {
     } as unknown as CloudflareBindings;
 
     const response = await app.fetch(
-      new Request("http://local/v1/daemon/stream", {
-        headers: {
-          Upgrade: "websocket",
-          "x-openmeld-user-time-zone": "Asia/Taipei",
-          "x-openmeld-user-time-zone-source": "desktop",
-          "x-openmeld-caller-principal-id": "spoofed-user",
-          "x-openmeld-owner-user-id": "spoofed-user",
-        },
-      }),
+      new Request(
+        `http://local/v1/daemon/stream?connectionId=${connectionId}`,
+        {
+          headers: {
+            Upgrade: "websocket",
+            "x-openmeld-user-time-zone": "Asia/Taipei",
+            "x-openmeld-user-time-zone-source": "desktop",
+            "x-openmeld-caller-principal-id": "spoofed-user",
+            "x-openmeld-owner-user-id": "spoofed-user",
+          },
+        }
+      ),
       env,
       TEST_EXECUTION_CONTEXT
     );
 
     expect(response.status).toBe(101);
+    expect(info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "gateway.daemon_stream.handshake",
+        connectionDiagnosticId: connectionId,
+        previousConnectionDiagnosticId: null,
+        stage: "response",
+        statusCode: 101,
+      })
+    );
     expect(response.webSocket).toBe(upstreamClient);
     expect(upstreamAccept).not.toHaveBeenCalled();
     expect(upstreamAddEventListener).not.toHaveBeenCalled();
@@ -271,6 +285,53 @@ describe("gateway daemon stream", () => {
     expect(
       upstreamRequest.headers.get(OPENMELD_RUNTIME_CAPABILITIES_HEADER)
     ).toBeNull();
+  });
+
+  it.each([
+    true,
+    false,
+  ])("records a reconnect rejected before Core with a valid predecessor: %s", async (valid) => {
+    const info = vi.spyOn(console, "info");
+    const id = crypto.randomUUID();
+    const previous = valid ? crypto.randomUUID() : "invalid-header-value";
+    const upstream = vi.fn();
+    const response = await app.fetch(
+      new Request(`http://local/v1/daemon/stream?connectionId=${id}`, {
+        headers: {
+          Upgrade: "websocket",
+          "x-openmeld-previous-connection-id": previous,
+        },
+      }),
+      {
+        OPENMELD_CORE_WORKER: { fetch: upstream },
+        OPENMELD_AUTH_WORKER: createAuthWorkerMock({
+          resolveRequestAuth: vi.fn(async () => ({
+            ok: true,
+            claims: {
+              authenticated: false,
+              requestId: "req-unauth",
+              ownerIds: [],
+              authMethod: "none",
+            },
+          })),
+        }),
+      } as unknown as CloudflareBindings,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(401);
+    expect(upstream).not.toHaveBeenCalled();
+    const fields = {
+      event: "gateway.daemon_stream.handshake",
+      connectionDiagnosticId: id,
+      previousConnectionDiagnosticId: valid ? previous : null,
+      requestId: expect.any(String),
+    };
+    expect(
+      info.mock.calls.filter(([row]) => row?.event === fields.event)
+    ).toEqual([
+      [{ ...fields, stage: "received" }],
+      [{ ...fields, stage: "response", statusCode: 401 }],
+    ]);
   });
 
   it("returns upstream HTTP rejection response when daemon websocket upgrade is denied", async () => {

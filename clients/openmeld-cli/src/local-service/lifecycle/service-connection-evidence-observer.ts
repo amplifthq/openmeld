@@ -14,6 +14,7 @@ export function createServiceConnectionEvidenceObserver(
 ) {
   const recorder = createServiceConnectionEvidenceRecorder(input);
   let connectionId = randomUUID();
+  let lastAcknowledgedConnectionId: string | undefined;
   let phase: ServiceConnectionEvidenceEvent["phase"] = "credentials";
   let lastHeartbeatAckAtMs: number | undefined;
   let attemptStartedAtMs = Date.now();
@@ -41,6 +42,9 @@ export function createServiceConnectionEvidenceObserver(
   return {
     get connectionDiagnosticId() {
       return connectionId;
+    },
+    get lastAcknowledgedConnectionId() {
+      return lastAcknowledgedConnectionId;
     },
     beginAttempt() {
       recorder.setOnline(false);
@@ -94,6 +98,7 @@ export function createServiceConnectionEvidenceObserver(
         lastHeartbeatAckAtMs = timestamp;
       }
       phase = "online";
+      lastAcknowledgedConnectionId = acknowledgedId;
       if (transitioned) {
         record({
           kind: "registered",

@@ -69,6 +69,7 @@ async function fetchWithOpenMeldAuth(input: {
 async function openDaemonStream(
   ownerUserId: string,
   options?: {
+    connectionId?: string;
     computerFileAccess?: boolean;
     sessionHistory?: boolean;
     localFolderPicker?: boolean;
@@ -78,7 +79,9 @@ async function openDaemonStream(
 ): Promise<WebSocket> {
   touchedOwnerUserIds.add(ownerUserId);
   const response = await fetchWithOpenMeldAuth({
-    path: "/v1/daemon/stream",
+    path: options?.connectionId
+      ? `/v1/daemon/stream?connectionId=${options.connectionId}`
+      : "/v1/daemon/stream",
     ownerUserId,
     init: {
       headers: {
@@ -831,6 +834,61 @@ function buildSuccessTaskResultFrame(input: {
   };
 }
 describe("runtime transport lease reconciliation", () => {
+  it("correlates a rejected registration and its later acceptance on the same handshake", async () => {
+    const connectionId = crypto.randomUUID();
+    const ownerUserId = "owner-reconnect-diagnostics";
+    const socket = await openDaemonStream(ownerUserId, { connectionId });
+    const info = vi.spyOn(console, "info");
+    const warn = vi.spyOn(console, "warn");
+    const request = {
+      socket,
+      ownerUserId,
+      daemonSessionId: "session-reconnect-diagnostics",
+      deviceId: "device-reconnect-diagnostics",
+      profileIds: [],
+    };
+    try {
+      await registerSession({ ...request, ownerUserId: "different-owner" });
+      expect(info).toHaveBeenCalledWith(
+        "[core.runtime_transport.register_received]",
+        {
+          event: "core.runtime_transport.register_received",
+          connectionDiagnosticId: connectionId,
+        }
+      );
+      expect(warn).toHaveBeenCalledWith(
+        "[core.runtime_transport.register_rejected]",
+        {
+          event: "core.runtime_transport.register_rejected",
+          connectionDiagnosticId: connectionId,
+          reasonCode: "daemon.session.reject_conflict",
+        }
+      );
+      expect(info).not.toHaveBeenCalledWith(
+        "[core.runtime_transport.socket_connected]",
+        expect.anything()
+      );
+      await registerSession(request);
+      expect(info).toHaveBeenCalledWith(
+        "[core.runtime_transport.socket_connected]",
+        expect.objectContaining({
+          connectionDiagnosticId: connectionId,
+          deviceId: request.deviceId,
+          daemonSessionId: request.daemonSessionId,
+        })
+      );
+      info.mockClear();
+      await registerSession(request);
+      expect(info).not.toHaveBeenCalledWith(
+        "[core.runtime_transport.register_received]",
+        expect.anything()
+      );
+    } finally {
+      socket.close();
+      info.mockRestore();
+      warn.mockRestore();
+    }
+  });
   it("negotiates independent local capabilities without changing strict registration capabilities", async () => {
     const ownerUserId = "owner-computer-file-access-negotiation";
     const daemonSessionId = "daemon-session-computer-file-access-negotiation";
@@ -1073,6 +1131,7 @@ describe("runtime transport lease reconciliation", () => {
           requestId: string;
         }
       ).requestId;
+      const requestedAt = new Date().toISOString();
       socket.send(
         JSON.stringify({
           code: "daemon.openmeld_tools_control.result",
@@ -1081,8 +1140,20 @@ describe("runtime transport lease reconciliation", () => {
             result: {
               operation: "request_update",
               result: {
-                currentVersion: CURRENT_RELEASE_SERVICE_VERSION,
-                status: "current",
+                status: "started",
+                operation: {
+                  operationId: crypto.randomUUID(),
+                  phase: "updating",
+                  requestSource: "automatic",
+                  requestedAt,
+                  updatedAt: requestedAt,
+                  targetVersion: CURRENT_RELEASE_SERVICE_VERSION,
+                  targetCliVersion:
+                    PUBLISHED_LOCAL_COMPONENTS_MANIFEST.components.cli
+                      .packageVersion,
+                  targetServiceVersion: CURRENT_RELEASE_SERVICE_VERSION,
+                  urgency: "available",
+                },
               },
             },
           },
