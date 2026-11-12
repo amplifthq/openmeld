@@ -711,6 +711,14 @@ probes remain in discovery/Prepare; a slow version probe must not be turned into
 an invalid execution contract. This does not bypass permission capability
 attestation or the actual controller startup and execution errors.
 
+OpenCode installation discovery coalesces concurrent version checks and reuses
+successful checks for up to 15 minutes while the launch arguments, environment,
+working directory, and installation fingerprint remain unchanged. Fingerprints
+cover resolved launch files, file identity and permissions, Node package metadata,
+and installed official platform payloads. Failed checks and files that change
+during a probe are not retained. Explicit launch checks remain fresh by default;
+this installation cache does not cache authentication or controller readiness.
+
 Concurrent controller cleanup shares an unfinished macOS process-table read,
 even after the short snapshot age has elapsed. Once the read settles, its
 original capture time still determines freshness; the existing bounded cleanup
