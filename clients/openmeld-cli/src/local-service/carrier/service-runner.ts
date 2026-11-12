@@ -19,6 +19,7 @@ import {
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  SERVICE_PREVIOUS_CONNECTION_ID_HEADER,
   SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
 } from "@openmeld/schemas";
 import type {
@@ -1263,6 +1264,12 @@ const runAccountBoundDaemonServiceLoop = async (
         const ws = await connectWebSocket(wsUrl, {
           headers: {
             ...authContext.headers,
+            ...(connectionEvidence.lastAcknowledgedConnectionId
+              ? {
+                  [SERVICE_PREVIOUS_CONNECTION_ID_HEADER]:
+                    connectionEvidence.lastAcknowledgedConnectionId,
+                }
+              : {}),
             ...buildLocalServiceCapabilityHeaders({
               localFolderPickerAvailable: localFolderPicker.available,
             }),

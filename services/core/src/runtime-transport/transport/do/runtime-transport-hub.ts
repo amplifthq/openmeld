@@ -4241,9 +4241,28 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     payload: unknown,
     runStage: RuntimeTransportGateStageRunner
   ): Promise<void> {
+    const attachment = readRuntimeTransportSocketAttachment(webSocket);
+    const connectionDiagnosticId = attachment.connectionDiagnosticId ?? null;
+    const recordRejection = (reasonCode: string) => {
+      if (!connectionDiagnosticId) {
+        return;
+      }
+      console.warn("[core.runtime_transport.register_rejected]", {
+        event: "core.runtime_transport.register_rejected",
+        connectionDiagnosticId,
+        reasonCode,
+      });
+    };
+    if (connectionDiagnosticId && !attachment.daemonSessionId) {
+      console.info("[core.runtime_transport.register_received]", {
+        event: "core.runtime_transport.register_received",
+        connectionDiagnosticId,
+      });
+    }
     const parsed =
       runtimeTransportRegisterSessionRequestSchema.safeParse(payload);
     if (!parsed.success) {
+      recordRejection("schema.invalid");
       this.sendErrorFrame(webSocket, {
         code: "schema.invalid",
         message: "invalid register payload",
@@ -4252,12 +4271,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     const verifiedOwnerUserId = this.requireVerifiedOwnerUserId(webSocket);
     if (!verifiedOwnerUserId) {
+      recordRejection("session_owner_unverified");
       return;
     }
     const request = {
       ...parsed.data,
       capabilities: applyRuntimeTransportNegotiatedCapabilities({
-        attachment: readRuntimeTransportSocketAttachment(webSocket),
+        attachment,
         capabilities: parsed.data.capabilities,
       }),
     };
@@ -4367,6 +4387,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     const registeredSession =
       this.state.sessionsById.get(parsed.data.daemonSessionId) ?? null;
+    if (!response.ok) {
+      recordRejection("daemon.session.reject_conflict");
+    }
     if (response.ok) {
       this.queueReleaseTriggeredOpenMeldToolsUpdate({
         connection: {
@@ -4381,6 +4404,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         trigger: "register",
       });
       console.info("[core.runtime_transport.socket_connected]", {
+        connectionDiagnosticId,
         connectedAtMs: registeredSession?.connectedAtMs ?? Date.now(),
         connectionGeneration: response.connectionGeneration,
         daemonSessionId: parsed.data.daemonSessionId,
@@ -10996,6 +11020,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         readRuntimeTransportSocketAttachment(webSocket)
           .connectionDiagnosticId ?? null,
       abnormalClosure: input.closeCode !== 1000 && input.closeCode !== 1001,
+      heartbeatAgeMs:
+        session?.socket === webSocket
+          ? Math.max(0, observedAtMs - session.lastHeartbeatMs)
+          : null,
+      currentSocket: session ? session.socket === webSocket : null,
       closeCode: input.closeCode,
       closeReason,
       connectionGeneration: session?.connectionGeneration ?? null,
