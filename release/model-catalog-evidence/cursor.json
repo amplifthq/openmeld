@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
   "controller": "cursor",
-  "observedAt": "2026-10-21T12:44:39.252Z",
-  "fingerprint": "96f12e77b0d3e7dae8b7f43506ba503cf50234904c9f579565fcc7f4c6730216",
+  "observedAt": "2026-11-11T12:30:23.464Z",
+  "fingerprint": "35d79516a8fc5f2c69bc8edf8a19d53568020bf1a39233ad477b76ac92fd9f28",
   "sources": [
     {
       "url": "https://cursor.com/docs/cli/reference/parameters.md",
       "kind": "official-document",
-      "data": "# Parameters\n\n## Global options\n\nGlobal options can be used with any command:\n\n| Option                     | Description                                                                                                          |\n| -------------------------- | -------------------------------------------------------------------------------------------------------------------- |\n| `-v, --version`            | Output the version number                                                                                            |\n| `--api-key <key>`          | API key for authentication (can also use `CURSOR_API_KEY` env var)                                                   |\n| `-H, --header <header>`    | Add custom header to agent requests (format: `Name: Value`, can be used multiple times)                              |\n| `-p, --print`              | Print responses to console (for scripts or non-interactive use). Has access to all tools, including write and shell. |\n| `--output-format <format>` | Output format (only works with `--print`): `text`, `json`, or `stream-json` (default: `text`)                        |\n| `--stream-partial-output`  | Stream partial output as individual text deltas (only works with `--print` and `stream-json` format)                 |\n| `--resume [chatId]`        | Resume a chat session                                                                                                |\n| `--continue`               | Continue the previous session (alias for `--resume=-1`)                                                              |\n| `--model <model>`          | Model to use                                                                                                         |\n| `--mode <mode>`            | Set agent mode: `plan` or `ask` (agent is the default when no mode is specified)                                     |\n| `--plan`                   | Start in plan mode (shorthand for `--mode=plan`)                                                                     |\n| `--list-models`            | List all available models                                                                                            |\n| `-f, --force`              | Force allow commands unless explicitly denied                                                                        |\n| `--yolo`                   | Alias for `--force`                                                                                                  |\n| `--sandbox <mode>`         | Set sandbox mode: `enabled` or `disabled`                                                                            |\n| `--approve-mcps`           | Automatically approve all MCP servers                                                                                |\n| `--trust`                  | Trust the workspace without prompting (headless mode only)                                                           |\n| `--workspace <path>`       | Workspace directory to use                                                                                           |\n| `--plugin-dir <path>`      | Load a local plugin directory (can be specified multiple times)                                                      |\n| `-w, --worktree [name]`    | Run in a new Git worktree under `~/.cursor/worktrees/<reponame>/<name>`. If omitted, a name is generated.            |\n| `--worktree-base <branch>` | Branch or ref to base the new worktree on (default: current HEAD)                                                    |\n| `--skip-worktree-setup`    | Skip running worktree setup scripts from `.cursor/worktrees.json`                                                    |\n| `-h, --help`               | Display help for command                                                                                             |\n\n## Commands\n\n| Command                       | Description                                                       | Usage                               |\n| ----------------------------- | ----------------------------------------------------------------- | ----------------------------------- |\n| `agent [prompt...]`           | Start in agent mode (the default)                                 | `agent agent \"fix the tests\"`       |\n| `login`                       | Authenticate with Cursor                                          | `agent login`                       |\n| `logout`                      | Sign out and clear stored authentication                          | `agent logout`                      |\n| `status` \\| `whoami`          | View authentication status                                        | `agent status`                      |\n| `about`                       | Display version, system, and account info                         | `agent about`                       |\n| `models`                      | List available models for this account                            | `agent models`                      |\n| `mcp`                         | Manage MCP servers                                                | `agent mcp`                         |\n| `sandbox`                     | Configure sandbox mode or run one command in a sandbox (hidden)   | `agent sandbox enable`              |\n| `worker`                      | Start a private cloud worker that runs agents in your environment | `agent worker start`                |\n| `acp`                         | Start ACP server mode (advanced, hidden command)                  | `agent acp`                         |\n| `update`                      | Update Cursor Agent to the latest version                         | `agent update`                      |\n| `ls`                          | Resume a chat session                                             | `agent ls`                          |\n| `resume`                      | Resume the latest chat session                                    | `agent resume`                      |\n| `create-chat`                 | Create a new empty chat and return its ID                         | `agent create-chat`                 |\n| `generate-rule` \\| `rule`     | Generate a new Cursor rule with interactive prompts               | `agent generate-rule`               |\n| `install-shell-integration`   | Install shell integration to `~/.zshrc`                           | `agent install-shell-integration`   |\n| `uninstall-shell-integration` | Remove shell integration from `~/.zshrc`                          | `agent uninstall-shell-integration` |\n| `help [command]`              | Display help for command                                          | `agent help [command]`              |\n\n`agent acp` is intended for custom ACP clients and advanced integrations. It is\nhidden from default command help output.\n\nWhen no command is specified, Cursor Agent starts in interactive agent mode by\ndefault.\n\n## MCP\n\nManage MCP servers configured for Cursor Agent.\n\n| Subcommand                | Description                                                                              | Usage                               |\n| ------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------- |\n| `login <identifier>`      | Authenticate with an MCP server configured in `.cursor/mcp.json` or `~/.cursor/mcp.json` | `agent mcp login <identifier>`      |\n| `list`                    | List configured MCP servers and their status                                             | `agent mcp list`                    |\n| `list-tools <identifier>` | List available tools and their argument names for a specific MCP                         | `agent mcp list-tools <identifier>` |\n| `enable <identifier>`     | Add an MCP server to the local approved list                                             | `agent mcp enable <identifier>`     |\n| `disable <identifier>`    | Disable an MCP server so it won't load or prompt for approval                            | `agent mcp disable <identifier>`    |\n\nAll MCP commands support `-h, --help` for command-specific help.\n\n## Sandbox\n\nConfigure sandbox mode or run one command in a sandbox.\n\n| Subcommand            | Description                                          | Usage                   |\n| --------------------- | ---------------------------------------------------- | ----------------------- |\n| `enable`              | Enable sandbox mode for command execution            | `agent sandbox enable`  |\n| `disable`             | Disable sandbox mode and use allowlist mode          | `agent sandbox disable` |\n| `reset`               | Reset sandbox configuration to defaults              | `agent sandbox reset`   |\n| `run <cmd> [args...]` | Run a command in a sandbox with workspace read/write | `agent sandbox run ls`  |\n| `help [command]`      | Display help for command                             | `agent sandbox help`    |\n\n| Command       | Option                          | Description                                                        |\n| ------------- | ------------------------------- | ------------------------------------------------------------------ |\n| `sandbox run` | `--allow-paths <paths>`         | Comma-separated list of extra read/write paths                     |\n| `sandbox run` | `--readonly-paths <paths>`      | Comma-separated list of extra read-only paths                      |\n| `sandbox run` | `--blocked-patterns <patterns>` | Comma-separated list of gitignore-style patterns to block          |\n| `sandbox run` | `--sandbox`                     | Run with the workspace read/write sandbox policy (default: `true`) |\n| `sandbox run` | `--network`                     | Enable network access in the sandbox (default: `false`)            |\n| `sandbox run` | `--sb-debug`                    | Write sandbox debug logs to a temp folder and print the path       |\n\nAll sandbox commands support `-h, --help` for command-specific help.\n\n## Worker\n\nStart a private cloud worker that connects to Cursor and runs agents in your environment.\n\n| Subcommand       | Description                                                             | Usage                |\n| ---------------- | ----------------------------------------------------------------------- | -------------------- |\n| `start`          | Start the worker and connect to Cursor                                  | `agent worker start` |\n| `debug`          | Run private worker preflight diagnostics for auth, privacy, and routing | `agent worker debug` |\n| `help [command]` | Display help for command                                                | `agent worker help`  |\n\n| Command        | Option                             | Description                                                                                                                                                                                    |\n| -------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |\n| `worker`       | `--auth-token-file <path>`         | Path to a file containing the worker auth token                                                                                                                                                |\n| `worker`       | `--worker-dir <path>`              | Workspace root to expose to agents. Repeatable. The first value is the assignment identity.                                                                                                    |\n| `worker`       | `--management-addr <address>`      | Listen address for `/healthz`, `/readyz`, and `/metrics`                                                                                                                                       |\n| `worker`       | `--label <key=value>`              | Add a worker label. Can be used multiple times. Can't be used with `--labels-file`.                                                                                                            |\n| `worker`       | `--labels-file <path>`             | Path to a JSON or TOML labels file. Can also use `CURSOR_WORKER_LABELS_FILE`.                                                                                                                  |\n| `worker`       | `--idle-release-timeout <seconds>` | Seconds the worker may stay connected after becoming idle. Default `0` disables idle-based release.                                                                                            |\n| `worker`       | `--pool`                           | Register for pool assignment. One cloud agent claims the worker at a time.                                                                                                                     |\n| `worker`       | `--single-use`                     | Legacy alias for `--pool`                                                                                                                                                                      |\n| `worker`       | `--pool-name <name>`               | Pool label for pool workers. Requires `--pool` or `--single-use`. Defaults to `default`.                                                                                                       |\n| `worker`       | `--name <name>`                    | Custom display name. Defaults to the machine hostname.                                                                                                                                         |\n| `worker`       | `--data-dir <path>`                | Base directory for logs, artifacts, and recording data                                                                                                                                         |\n| `worker`       | `--debug`                          | Print worker debug diagnostics before starting bridge mode                                                                                                                                     |\n| `worker`       | `--computer-use`                   | Let agents drive this machine's desktop. On macOS, installs the Cursor Computer Use helper app if needed. See [Computer use](https://cursor.com/docs/cloud-agent/self-hosted/computer-use.md). |\n| `worker`       | `--display <display>`              | Linux only. Existing X11 display to require for `--computer-use`, for example `:0`.                                                                                                            |\n| `worker`       | `--share-desktop [mode]`           | Linux only. Let authorized viewers watch or control the agent desktop: `view` or `view_and_control`. Separate from computer use.                                                               |\n| `worker start` | `--verbose`                        | Enable verbose startup logs                                                                                                                                                                    |\n| `worker debug` | `--json`                           | Output the debug report as JSON                                                                                                                                                                |\n\n## Command-specific options\n\n| Command            | Option              | Description                                       |\n| ------------------ | ------------------- | ------------------------------------------------- |\n| `status`, `whoami` | `--format <format>` | Output format: `text` or `json` (default: `text`) |\n| `about`            | `--format <format>` | Output format: `text` or `json` (default: `text`) |\n\n## Arguments\n\nWhen starting in chat mode (default behavior), you can provide an initial prompt:\n\n**Arguments:**\n\n- `prompt` — Initial prompt for the agent\n\n## Getting help\n\nAll commands support the global `-h, --help` option to display command-specific help.\n\n\n---\n\n## Sitemap\n\n[Overview of all docs pages](/llms.txt)"
+      "data": "# Parameters\n\n## Global options\n\nGlobal options can be used with any command:\n\n| Option                     | Description                                                                                                          |\n| -------------------------- | -------------------------------------------------------------------------------------------------------------------- |\n| `-v, --version`            | Output the version number                                                                                            |\n| `--api-key <key>`          | API key for authentication (can also use `CURSOR_API_KEY` env var)                                                   |\n| `-H, --header <header>`    | Add custom header to agent requests (format: `Name: Value`, can be used multiple times)                              |\n| `-p, --print`              | Print responses to console (for scripts or non-interactive use). Has access to all tools, including write and shell. |\n| `--output-format <format>` | Output format (only works with `--print`): `text`, `json`, or `stream-json` (default: `text`)                        |\n| `--stream-partial-output`  | Stream partial output as individual text deltas (only works with `--print` and `stream-json` format)                 |\n| `--resume [chatId]`        | Resume a chat session                                                                                                |\n| `--continue`               | Continue the previous session (alias for `--resume=-1`)                                                              |\n| `--model <model>`          | Model to use                                                                                                         |\n| `--mode <mode>`            | Set agent mode: `plan` or `ask` (agent is the default when no mode is specified)                                     |\n| `--plan`                   | Start in plan mode (shorthand for `--mode=plan`)                                                                     |\n| `--list-models`            | List all available models                                                                                            |\n| `-f, --force`              | Force allow commands unless explicitly denied                                                                        |\n| `--yolo`                   | Alias for `--force`                                                                                                  |\n| `--sandbox <mode>`         | Set sandbox mode: `enabled` or `disabled`                                                                            |\n| `--approve-mcps`           | Automatically approve all MCP servers                                                                                |\n| `--trust`                  | Trust the workspace without prompting (headless mode only)                                                           |\n| `--workspace <path>`       | Workspace directory to use                                                                                           |\n| `--plugin-dir <path>`      | Load a local plugin directory (can be specified multiple times)                                                      |\n| `-w, --worktree [name]`    | Run in a new Git worktree under `~/.cursor/worktrees/<reponame>/<name>`. If omitted, a name is generated.            |\n| `--worktree-base <branch>` | Branch or ref to base the new worktree on (default: current HEAD)                                                    |\n| `--skip-worktree-setup`    | Skip running worktree setup scripts from `.cursor/worktrees.json`                                                    |\n| `-h, --help`               | Display help for command                                                                                             |\n\n## Commands\n\n| Command                       | Description                                                       | Usage                               |\n| ----------------------------- | ----------------------------------------------------------------- | ----------------------------------- |\n| `agent [prompt...]`           | Start in agent mode (the default)                                 | `agent agent \"fix the tests\"`       |\n| `login`                       | Authenticate with Cursor                                          | `agent login`                       |\n| `logout`                      | Sign out and clear stored authentication                          | `agent logout`                      |\n| `status` \\| `whoami`          | View authentication status                                        | `agent status`                      |\n| `about`                       | Display version, system, and account info                         | `agent about`                       |\n| `models`                      | List available models for this account                            | `agent models`                      |\n| `mcp`                         | Manage MCP servers                                                | `agent mcp`                         |\n| `sandbox`                     | Configure sandbox mode or run one command in a sandbox (hidden)   | `agent sandbox enable`              |\n| `worker`                      | Start a private cloud worker that runs agents in your environment | `agent worker start`                |\n| `acp`                         | Start ACP server mode (advanced, hidden command)                  | `agent acp`                         |\n| `update`                      | Update Cursor Agent to the latest version                         | `agent update`                      |\n| `ls`                          | Open previous chats and pick one to resume                        | `agent ls`                          |\n| `resume`                      | Resume the latest chat session                                    | `agent resume`                      |\n| `create-chat`                 | Create a new empty chat and return its ID                         | `agent create-chat`                 |\n| `generate-rule` \\| `rule`     | Generate a new Cursor rule with interactive prompts               | `agent generate-rule`               |\n| `install-shell-integration`   | Install shell integration to `~/.zshrc`                           | `agent install-shell-integration`   |\n| `uninstall-shell-integration` | Remove shell integration from `~/.zshrc`                          | `agent uninstall-shell-integration` |\n| `help [command]`              | Display help for command                                          | `agent help [command]`              |\n\n`agent acp` is intended for custom ACP clients and advanced integrations. It is\nhidden from default command help output.\n\nWhen no command is specified, Cursor Agent starts in interactive agent mode by\ndefault.\n\n## MCP\n\nManage MCP servers configured for Cursor Agent.\n\n| Subcommand                | Description                                                                              | Usage                               |\n| ------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------- |\n| `login <identifier>`      | Authenticate with an MCP server configured in `.cursor/mcp.json` or `~/.cursor/mcp.json` | `agent mcp login <identifier>`      |\n| `list`                    | List configured MCP servers and their status                                             | `agent mcp list`                    |\n| `list-tools <identifier>` | List available tools and their argument names for a specific MCP                         | `agent mcp list-tools <identifier>` |\n| `enable <identifier>`     | Add an MCP server to the local approved list                                             | `agent mcp enable <identifier>`     |\n| `disable <identifier>`    | Disable an MCP server so it won't load or prompt for approval                            | `agent mcp disable <identifier>`    |\n\nAll MCP commands support `-h, --help` for command-specific help.\n\n## Sandbox\n\nConfigure sandbox mode or run one command in a sandbox.\n\n| Subcommand            | Description                                          | Usage                   |\n| --------------------- | ---------------------------------------------------- | ----------------------- |\n| `enable`              | Enable sandbox mode for command execution            | `agent sandbox enable`  |\n| `disable`             | Disable sandbox mode and use allowlist mode          | `agent sandbox disable` |\n| `reset`               | Reset sandbox configuration to defaults              | `agent sandbox reset`   |\n| `run <cmd> [args...]` | Run a command in a sandbox with workspace read/write | `agent sandbox run ls`  |\n| `help [command]`      | Display help for command                             | `agent sandbox help`    |\n\n| Command       | Option                          | Description                                                        |\n| ------------- | ------------------------------- | ------------------------------------------------------------------ |\n| `sandbox run` | `--allow-paths <paths>`         | Comma-separated list of extra read/write paths                     |\n| `sandbox run` | `--readonly-paths <paths>`      | Comma-separated list of extra read-only paths                      |\n| `sandbox run` | `--blocked-patterns <patterns>` | Comma-separated list of gitignore-style patterns to block          |\n| `sandbox run` | `--sandbox`                     | Run with the workspace read/write sandbox policy (default: `true`) |\n| `sandbox run` | `--network`                     | Enable network access in the sandbox (default: `false`)            |\n| `sandbox run` | `--sb-debug`                    | Write sandbox debug logs to a temp folder and print the path       |\n\nAll sandbox commands support `-h, --help` for command-specific help.\n\n## Worker\n\nStart a private cloud worker that connects to Cursor and runs agents in your environment.\n\n| Subcommand       | Description                                                             | Usage                |\n| ---------------- | ----------------------------------------------------------------------- | -------------------- |\n| `start`          | Start the worker and connect to Cursor                                  | `agent worker start` |\n| `debug`          | Run private worker preflight diagnostics for auth, privacy, and routing | `agent worker debug` |\n| `help [command]` | Display help for command                                                | `agent worker help`  |\n\n| Command        | Option                             | Description                                                                                                                                                                                    |\n| -------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |\n| `worker`       | `--auth-token-file <path>`         | Path to a file containing the worker auth token                                                                                                                                                |\n| `worker`       | `--worker-dir <path>`              | Workspace root to expose to agents. Repeatable. The first value is the assignment identity.                                                                                                    |\n| `worker`       | `--management-addr <address>`      | Listen address for `/healthz`, `/readyz`, and `/metrics`                                                                                                                                       |\n| `worker`       | `--label <key=value>`              | Add a worker label. Can be used multiple times. Can't be used with `--labels-file`.                                                                                                            |\n| `worker`       | `--labels-file <path>`             | Path to a JSON or TOML labels file. Can also use `CURSOR_WORKER_LABELS_FILE`.                                                                                                                  |\n| `worker`       | `--idle-release-timeout <seconds>` | Seconds the worker may stay connected after becoming idle. Default `0` disables idle-based release.                                                                                            |\n| `worker`       | `--pool`                           | Register for pool assignment. One cloud agent claims the worker at a time.                                                                                                                     |\n| `worker`       | `--single-use`                     | Legacy alias for `--pool`                                                                                                                                                                      |\n| `worker`       | `--pool-name <name>`               | Pool label for pool workers. Requires `--pool` or `--single-use`. Defaults to `default`.                                                                                                       |\n| `worker`       | `--name <name>`                    | Custom display name. Defaults to the machine hostname.                                                                                                                                         |\n| `worker`       | `--data-dir <path>`                | Base directory for logs, artifacts, and recording data                                                                                                                                         |\n| `worker`       | `--debug`                          | Print worker debug diagnostics before starting bridge mode                                                                                                                                     |\n| `worker`       | `--computer-use`                   | Let agents drive this machine's desktop. On macOS, installs the Cursor Computer Use helper app if needed. See [Computer use](https://cursor.com/docs/cloud-agent/self-hosted/computer-use.md). |\n| `worker`       | `--display <display>`              | Linux only. Existing X11 display to require for `--computer-use`, for example `:0`.                                                                                                            |\n| `worker`       | `--share-desktop [mode]`           | Linux only. Let authorized viewers watch or control the agent desktop: `view` or `view_and_control`. Separate from computer use.                                                               |\n| `worker start` | `--verbose`                        | Enable verbose startup logs                                                                                                                                                                    |\n| `worker debug` | `--json`                           | Output the debug report as JSON                                                                                                                                                                |\n\n## Command-specific options\n\n| Command            | Option              | Description                                       |\n| ------------------ | ------------------- | ------------------------------------------------- |\n| `status`, `whoami` | `--format <format>` | Output format: `text` or `json` (default: `text`) |\n| `about`            | `--format <format>` | Output format: `text` or `json` (default: `text`) |\n\n## Arguments\n\nWhen starting in agent mode (default behavior), you can provide an initial prompt:\n\n**Arguments:**\n\n- `prompt` — Initial prompt for the agent\n\n## Getting help\n\nAll commands support the global `-h, --help` option to display command-specific help.\n\n\n---\n\n## Sitemap\n\n[Overview of all docs pages](/llms.txt)"
     },
     {
       "url": "https://models.dev/api.json",
@@ -1094,6 +1094,87 @@
               }
             },
             "canonical_model_id": "openai/gpt-6.1-sol"
+          },
+          "gpt-6.1-terra": {
+            "id": "gpt-6.1-terra",
+            "name": "GPT-6.1 Terra",
+            "description": "Fast, efficient model for visual reasoning, precise computer use, and clear, natural writing.",
+            "family": "gpt-terra",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["none", "low", "medium", "high", "xhigh", "max"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-06-01",
+            "release_date": "2026-10-26",
+            "last_updated": "2026-10-26",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 2,
+                    "output": 10,
+                    "cache_read": 0.1,
+                    "cache_write": 2.5
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "pro": {
+                  "provider": {
+                    "body": {
+                      "reasoning": {
+                        "mode": "pro"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 1,
+              "output": 5,
+              "cache_read": 0.05,
+              "cache_write": 1.25,
+              "tiers": [
+                {
+                  "input": 2,
+                  "output": 7.5,
+                  "cache_read": 0.1,
+                  "cache_write": 2.5,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 2,
+                "output": 7.5,
+                "cache_read": 0.1,
+                "cache_write": 2.5
+              }
+            },
+            "canonical_model_id": "openai/gpt-6.1-terra"
           }
         },
         "anthropic": {
@@ -1166,6 +1247,59 @@
               "cache_write": 12.5
             },
             "canonical_model_id": "anthropic/claude-fable-5-1"
+          },
+          "claude-fable-5-2": {
+            "id": "claude-fable-5-2",
+            "name": "Claude Fable 5.2",
+            "description": "Claude model for demanding reasoning and long-horizon agentic work",
+            "family": "claude-fable",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["low", "medium", "high", "xhigh", "max"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-06",
+            "release_date": "2026-11-09",
+            "last_updated": "2026-11-09",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1000000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 16,
+                    "output": 80,
+                    "cache_read": 0.4,
+                    "cache_write": 20
+                  },
+                  "provider": {
+                    "body": {
+                      "speed": "fast"
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 8,
+              "output": 40,
+              "cache_read": 0.2,
+              "cache_write": 10
+            },
+            "canonical_model_id": "anthropic/claude-fable-5-2"
           },
           "claude-haiku-4-5": {
             "id": "claude-haiku-4-5",
@@ -1563,6 +1697,7 @@
               "context": 200000,
               "output": 64000
             },
+            "status": "deprecated",
             "cost": {
               "input": 3,
               "output": 15,
@@ -1903,6 +2038,42 @@
               "input_audio": 2
             },
             "canonical_model_id": "google/gemini-4-argon"
+          },
+          "gemini-4-carbon": {
+            "id": "gemini-4-carbon",
+            "name": "Gemini 4 Carbon",
+            "description": "Google's most capable reasoning model for complex software engineering, deep math and science, high factual accuracy, and long-horizon autonomous agents",
+            "family": "gemini",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["low", "medium", "high"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "knowledge": "2026-03",
+            "release_date": "2026-11-10",
+            "last_updated": "2026-11-10",
+            "modalities": {
+              "input": ["text", "image", "video", "audio", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1048576,
+              "output": 32768
+            },
+            "cost": {
+              "input": 2,
+              "output": 10,
+              "cache_read": 0.1,
+              "input_audio": 2
+            },
+            "canonical_model_id": "google/gemini-4-carbon"
           }
         },
         "xai": {
