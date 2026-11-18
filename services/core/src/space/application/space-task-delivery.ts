@@ -70,6 +70,12 @@ export function enqueueSpaceTaskDeliveries(input: {
     enqueue("github_projection");
   }
   if (
+    JSON.stringify(task.pullRequest ?? null) !==
+    JSON.stringify(input.previous?.pullRequest ?? null)
+  ) {
+    enqueue("github_pr_projection");
+  }
+  if (
     task.projectIds.length > 0 ||
     (input.previous?.projectIds.length ?? 0) > 0
   ) {

@@ -49,6 +49,25 @@ export type ApplyGitHubIssueObservationResult = {
   task: SpaceTask | null;
 };
 
+export type ApplyGitHubPullRequestObservationInput = {
+  identity: {
+    number: number;
+    owner: string;
+    repo: string;
+  };
+  observeOperationId: string;
+  observedAt: string;
+  headSha: string;
+  spaceId: string;
+  taskId: string;
+};
+
+export type ApplyGitHubPullRequestObservationResult = {
+  updated: boolean;
+  skipReason: "not_found" | "not_linked" | "stale" | null;
+  task: SpaceTask | null;
+};
+
 export type CreateSpaceTaskContext = SpaceTaskMutationContext & {
   requestedBy: SpaceTaskActor;
 };
@@ -342,6 +361,72 @@ export class SpaceTaskService {
         skipReason: null,
         task: observedTask,
       };
+    });
+  }
+
+  applyGitHubPullRequestObservation(
+    input: Omit<ApplyGitHubPullRequestObservationInput, "spaceId">
+  ): ApplyGitHubPullRequestObservationResult {
+    return this.input.runTransaction(() => {
+      const current = this.input.repository.readTask(input.taskId);
+      if (!current) {
+        return { updated: false, skipReason: "not_found", task: null };
+      }
+      // Not linked or wrong identity -> ignore
+      const pr = current.pullRequest;
+      if (
+        !pr ||
+        pr.owner.toLowerCase() !== input.identity.owner.toLowerCase() ||
+        pr.repo.toLowerCase() !== input.identity.repo.toLowerCase() ||
+        pr.number !== input.identity.number
+      ) {
+        return { updated: false, skipReason: "not_linked", task: current };
+      }
+      // Stale observation?
+      if (pr.headSha === input.headSha) {
+        return { updated: false, skipReason: "stale", task: current };
+      }
+      const now = new Date().toISOString();
+      // If a previously accepted review exists, mark stale and return to review.
+      const needsReverification = current.review?.decision === "accepted";
+      const next: SpaceTask = {
+        ...current,
+        pullRequest: { ...pr, headSha: input.headSha },
+        phase: needsReverification ? "in_review" : current.phase,
+        needsHumanDecision: false,
+        updatedAt: now,
+        revision: current.revision + 1,
+        // Preserve result; clear review if we require re-verification
+        review: needsReverification ? null : current.review,
+      };
+      const event: SpaceTaskEvent = this.buildEvent({
+        task: next,
+        operationId: input.observeOperationId,
+        type: "brief_updated",
+        actor: { provider: "github" },
+        fromPhase: current.phase,
+        detail: needsReverification
+          ? `Pull request head changed; re-verification required for ${pr.owner}/${pr.repo}#${pr.number} (${input.headSha.slice(0, 7)}).`
+          : `Pull request head observed: ${pr.owner}/${pr.repo}#${pr.number} (${input.headSha.slice(0, 7)}).`,
+      });
+      this.input.repository.updateTask(next, current.revision);
+      this.input.repository.appendEvent(event);
+      this.input.repository.recordOperation({
+        operationId: input.observeOperationId,
+        requestJson: JSON.stringify({
+          body: {
+            headSha: input.headSha,
+            number: input.identity.number,
+            owner: input.identity.owner,
+            repo: input.identity.repo,
+          },
+          kind: "github_pr_observe",
+          taskId: input.taskId,
+        }),
+        receipt: { applied: true, task: next, event },
+      });
+      this.input.onMutation?.({ applied: true, task: next, event }, current);
+      return { updated: true, skipReason: null, task: next };
     });
   }
 

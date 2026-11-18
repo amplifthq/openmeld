@@ -64,11 +64,20 @@ export async function verifyGitHubAppWebhook(input: {
       status: "rejected",
     });
   }
-  const observation = readGitHubAppWebhookIssueObservation({
+  const issueObservation = readGitHubAppWebhookIssueObservation({
     event: request.data.headers.event,
     payload,
   });
-  if (!observation) {
+  const prObservation =
+    request.data.headers.event === "pull_request"
+      ? (
+          await import("@openmeld/schemas")
+        ).readGitHubAppWebhookPullRequestObservation({
+          event: request.data.headers.event,
+          payload,
+        })
+      : null;
+  if (!(issueObservation || prObservation)) {
     return response({ reasonCode: null, status: "ignored" });
   }
   const queue = input.env.OPENMELD_DAEMON_DISPATCH_QUEUE;
@@ -80,9 +89,10 @@ export async function verifyGitHubAppWebhook(input: {
   }
   const message = githubAppWebhookQueueMessageSchema.parse({
     deliveryId: request.data.headers.deliveryId,
-    event: "issues",
+    event: issueObservation ? "issues" : "pull_request",
     gatewayRequestId: request.data.gatewayRequestId,
-    issue: observation,
+    issue: issueObservation ?? null,
+    pullRequest: prObservation ?? null,
     kind: "github_app_webhook",
     receivedAtMs: request.data.receivedAtMs,
     v: 1,

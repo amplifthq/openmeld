@@ -13,6 +13,7 @@ import {
   completeGitHubAppWebhookDelivery,
 } from "../../infrastructure/postgresql/github-app-webhook-delivery-repo";
 import { listActiveSpaceTaskGitHubIssueLinks } from "../../infrastructure/postgresql/space-task-github-issue-link-repo";
+import { listActiveSpaceTaskGitHubPullRequestLinks } from "../../infrastructure/postgresql/space-task-github-pr-link-repo";
 
 const CLAIM_TTL_MS = 30_000;
 
@@ -82,15 +83,28 @@ export async function processGitHubAppWebhookQueueMessage(input: {
   env: CoreBindings;
   message: GitHubAppWebhookQueueMessage;
 }): Promise<void> {
+  // Split the logic to keep complexity contained.
+  if (input.message.event === "issues") {
+    await processIssueWebhook(input);
+    return;
+  }
+  await processPullRequestWebhook(input);
+}
+
+async function processIssueWebhook(input: {
+  env: CoreBindings;
+  message: GitHubAppWebhookQueueMessage;
+}): Promise<void> {
   const db = getPostgresDatabase(input.env);
   const nowMs = Date.now();
+  const action = input.message.issue.state === "closed" ? "closed" : "reopened";
   const claim = await claimGitHubAppWebhookDelivery({
-    action: input.message.issue.state === "closed" ? "closed" : "reopened",
+    action,
     claimExpiresAtMs: nowMs + CLAIM_TTL_MS,
     claimId: crypto.randomUUID(),
     db,
     deliveryId: input.message.deliveryId,
-    event: input.message.event,
+    event: "issues",
     gatewayRequestId: input.message.gatewayRequestId,
     issueState: input.message.issue.state,
     nowMs,
@@ -132,6 +146,87 @@ export async function processGitHubAppWebhookQueueMessage(input: {
         observedAt: input.message.issue.updatedAt,
         observedState: input.message.issue.state,
         observedStateReason: input.message.issue.stateReason,
+        spaceId: link.spaceId,
+        taskId: link.taskId,
+      });
+    }
+    await completeGitHubAppWebhookDelivery({
+      db,
+      deliveryId: input.message.deliveryId,
+      failureCode: null,
+      nowMs: Date.now(),
+      state: links.length === 0 ? "ignored" : "completed",
+    });
+  } catch (error) {
+    await completeGitHubAppWebhookDelivery({
+      db,
+      deliveryId: input.message.deliveryId,
+      failureCode: "github.webhook_processing_failed",
+      nowMs: Date.now(),
+      state: "failed",
+    });
+    throw error;
+  }
+}
+
+async function processPullRequestWebhook(input: {
+  env: CoreBindings;
+  message: GitHubAppWebhookQueueMessage;
+}): Promise<void> {
+  const db = getPostgresDatabase(input.env);
+  const nowMs = Date.now();
+  const claim = await claimGitHubAppWebhookDelivery({
+    action: "observed",
+    claimExpiresAtMs: nowMs + CLAIM_TTL_MS,
+    claimId: crypto.randomUUID(),
+    db,
+    deliveryId: input.message.deliveryId,
+    event: "pull_request",
+    gatewayRequestId: input.message.gatewayRequestId,
+    issueState: null,
+    nowMs,
+    number: input.message.pullRequest?.number ?? 0,
+    ownerLogin: input.message.pullRequest?.owner ?? "",
+    receivedAtMs: input.message.receivedAtMs,
+    repo: input.message.pullRequest?.repo ?? "",
+  });
+  if (claim === "duplicate") {
+    return;
+  }
+  try {
+    const links = await listActiveSpaceTaskGitHubPullRequestLinks({
+      db,
+      number: input.message.pullRequest?.number ?? 0,
+      owner: input.message.pullRequest?.owner ?? "",
+      repo: input.message.pullRequest?.repo ?? "",
+    });
+    for (const link of links) {
+      const stub = resolveSpaceStub(input.env.OPENMELD_SPACES, link.spaceId);
+      if (!(stub && input.message.pullRequest)) {
+        continue;
+      }
+      await stub.rpcApplyGitHubPullRequestObservation({
+        identity: {
+          number: input.message.pullRequest.number,
+          owner: input.message.pullRequest.owner,
+          repo: input.message.pullRequest.repo,
+        },
+        observeOperationId: spaceTaskGitHubIssueOperationId(
+          "observe-open",
+          {
+            number: input.message.pullRequest.number,
+            owner: input.message.pullRequest.owner,
+            repo: input.message.pullRequest.repo,
+            state: "open",
+            stateReason: null,
+            updatedAt: input.message.pullRequest.observedAt,
+            url: input.message.pullRequest.url,
+          },
+          link.taskId,
+          input.message.deliveryId
+        ),
+        observedAt: input.message.pullRequest.observedAt,
+        headSha: input.message.pullRequest.headSha,
         spaceId: link.spaceId,
         taskId: link.taskId,
       });

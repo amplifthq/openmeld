@@ -799,6 +799,7 @@ import {
   type SpaceDispatchLedgerStatus,
 } from "../../infrastructure/postgresql/space-dispatch-read-repo";
 import { projectSpaceTaskGitHubIssueLinks } from "../../infrastructure/postgresql/space-task-github-issue-link-repo";
+import { projectSpaceTaskGitHubPullRequestLink } from "../../infrastructure/postgresql/space-task-github-pr-link-repo";
 import { projectSpaceTaskProjectLinks } from "../../infrastructure/postgresql/space-task-project-link-repo";
 import { reconcileOrganizationAgentOwnership } from "../../infrastructure/sql/organization-agent-ownership";
 import { PluginConnectionContinuationRepository } from "../../infrastructure/sql/plugin-connection-continuation-repo";
@@ -9891,6 +9892,23 @@ export class Space extends DurableObject<CoreBindings> {
       }
     );
   }
+  async rpcApplyGitHubPullRequestObservation(
+    input: ApplyGitHubPullRequestObservationInput
+  ): Promise<ApplyGitHubPullRequestObservationResult> {
+    return await this.withPostgresRequest(
+      async () => {
+        this.applySpaceRef(input.spaceId);
+        await this.armSpaceTaskRecovery();
+        const result =
+          this.spaceTaskService.applyGitHubPullRequestObservation(input);
+        if (result.task && result.updated) {
+          await this.broadcastSpaceTasksChanged("space.task.observe_external_work_item");
+          await this.flushPendingSpaceTaskDeliveries();
+        }
+        return result;
+      }
+    );
+  }
   async rpcFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
     return await this.withPostgresRequest(
       async () => {
@@ -10145,6 +10163,10 @@ export class Space extends DurableObject<CoreBindings> {
     }
     if (delivery.kind === "github_projection") {
       await this.projectSpaceTaskGitHubIssueLinks(current);
+      return;
+    }
+    if (delivery.kind === "github_pr_projection") {
+      await this.projectSpaceTaskGitHubPullRequestLink(current);
       return;
     }
     if (delivery.kind === "project_projection") {
@@ -10671,6 +10693,34 @@ export class Space extends DurableObject<CoreBindings> {
       });
     } catch (error) {
       console.warn("[core.space.task_github_issue_link_projection_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+        spaceId: this.spaceId,
+        taskId: task.taskId,
+      });
+      throw error;
+    }
+  }
+  private async projectSpaceTaskGitHubPullRequestLink(
+    task: SpaceTask
+  ): Promise<void> {
+    const db = getPostgresDatabase(this.bindings);
+    const organizationId = this.readSpaceMetaRecord()?.organizationId?.trim();
+    if (!(db && organizationId)) {
+      throw new SpaceTaskDeliveryError(
+        "The Task's GitHub pull request link projection is unavailable. Check the Space database and Organization configuration.",
+        true
+      );
+    }
+    try {
+      await projectSpaceTaskGitHubPullRequestLink({
+        db,
+        nowMs: Date.now(),
+        organizationId,
+        spaceId: this.spaceId,
+        task,
+      });
+    } catch (error) {
+      console.warn("[core.space.task_github_pr_link_projection_failed]", {
         error: error instanceof Error ? error.message : String(error),
         spaceId: this.spaceId,
         taskId: task.taskId,
