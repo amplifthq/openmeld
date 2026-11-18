@@ -762,16 +762,19 @@ const readMacOsSupervisedProcessTable =
 export const listAgentControllerSupervisedProcessIds: ListAgentControllerSupervisedProcessIds =
   async (input) => {
     if (process.platform === "linux") {
-      const processTable = await readProcessTable(
-        ["-e", "-o", "pid=,ppid=,pgid="],
-        { maxBuffer: 4 * 1024 * 1024 }
+      const processTable =
+        input.processId === null
+          ? ""
+          : await readProcessTable(["-e", "-o", "pid=,ppid=,pgid="], {
+              maxBuffer: 4 * 1024 * 1024,
+            });
+      const markedProcessIds = await listLinuxSupervisedProcessIds(
+        input.supervisionId
       );
       processDiscoveryDiagnostics.recovered("supervision_marker");
       return resolveAgentControllerSupervisedProcessIds({
         ...input,
-        markedProcessIds: await listLinuxSupervisedProcessIds(
-          input.supervisionId
-        ),
+        markedProcessIds,
         processTable,
       });
     }

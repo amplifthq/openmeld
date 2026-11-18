@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import test from "node:test";
 
 import {
@@ -193,6 +195,32 @@ test("distinguishes descendants from reparented supervised processes", () => {
     [4300, 4301, 4400]
   );
 });
+
+test(
+  "Linux can find its own invocation marker without ps",
+  { skip: process.platform !== "linux" },
+  () => {
+    const child = spawnSync(process.execPath, ["--input-type=module", "-"], {
+      cwd: new URL("../", import.meta.url),
+      env: {
+        ...process.env,
+        PATH: "",
+        OPENMELD_PROCESS_SUPERVISION_ID: randomUUID(),
+      },
+      encoding: "utf8",
+      input: `
+      import assert from "node:assert/strict";
+      import { listAgentControllerSupervisedProcessIds } from "./dist/agent-controller-process.js";
+      const ids = await listAgentControllerSupervisedProcessIds({
+        processId: null, supervisionId: process.env.OPENMELD_PROCESS_SUPERVISION_ID,
+      });
+      assert.deepEqual(ids, [process.pid]);
+    `,
+      timeout: 10_000,
+    });
+    assert.equal(child.status, 0, child.stderr);
+  }
+);
 
 test("keeps reparented supervised processes after the leader exits", () => {
   const processIds = resolveAgentControllerSupervisedProcessIds({

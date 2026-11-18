@@ -1630,12 +1630,12 @@ where macOS Keychain access is unavailable; it stores credentials outside the
 Keychain and must never become a silent automatic fallback.
 
 On macOS, the default-store sign-in check uses the Service's noninteractive
-Keychain reader for Cursor's access and refresh tokens. The Service confirms
-local sign-in when both tokens stay readable and unchanged on a second read.
-Two items that remain missing on the second read indicate signed out. A partial
-pair, rotation during the check, or an inaccessible store leaves sign-in
-unknown. An explicit
-`CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN` takes precedence on macOS. The offline
+Keychain reader for Cursor's access and refresh tokens. The Keychain stores the
+items separately. The Service reports signed in when it reads the same complete
+pair twice, and signed out when both reads of each item return missing. A
+partial pair, a difference the reads detect, or an inaccessible store leaves
+sign-in unknown. An explicit `CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN` takes
+precedence on macOS. The offline
 check reports that the environment credential is configured and its validity
 is unknown. Only sign-in evidence enters the snapshot. Other platforms, and
 macOS file or memory stores without an environment credential, use the native
