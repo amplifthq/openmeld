@@ -10413,6 +10413,10 @@ export class Space extends DurableObject<CoreBindings> {
       receipt.task.phase === "in_review" &&
       receipt.task.reviewer
     ) {
+      const pr = receipt.task.pullRequest;
+      const prNote = pr
+        ? `\n\nPR: ${pr.owner}/${pr.repo}#${String(pr.number)} (${pr.headSha.slice(0, 7)})\n${pr.url}`
+        : "";
       await this.publishSpaceTaskDirectedNotice({
         actor,
         eventId: receipt.event.eventId,
@@ -10420,7 +10424,7 @@ export class Space extends DurableObject<CoreBindings> {
         deliveryId,
         task: receipt.task,
         target: receipt.task.reviewer,
-        text: `Task ready for review: ${receipt.task.title}\n\n${receipt.task.result?.summary ?? "A result was submitted."}${!actor && receipt.task.reviewer.profileKind === "agent" ? `\n\nWake ${receipt.task.reviewer.profileName} to start the review.` : ""}`,
+        text: `Task ready for review: ${receipt.task.title}\n\n${receipt.task.result?.summary ?? "A result was submitted."}${prNote}${!actor && receipt.task.reviewer.profileKind === "agent" ? `\n\nWake ${receipt.task.reviewer.profileName} to start the review.` : ""}`,
       });
       return;
     }
@@ -10431,6 +10435,10 @@ export class Space extends DurableObject<CoreBindings> {
       return;
     }
     if (receipt.task.phase === "in_progress" && receipt.task.assignee) {
+      const pr = receipt.task.pullRequest;
+      const prNote = pr
+        ? `\n\nPR: ${pr.owner}/${pr.repo}#${String(pr.number)} (${pr.headSha.slice(0, 7)})\n${pr.url}`
+        : "";
       await this.publishSpaceTaskDirectedNotice({
         actor,
         eventId: receipt.event.eventId,
@@ -10438,7 +10446,7 @@ export class Space extends DurableObject<CoreBindings> {
         deliveryId,
         task: receipt.task,
         target: receipt.task.assignee,
-        text: `${receipt.event.type === "rework_continued" ? "Correction authorized" : "Changes requested"} for Task: ${receipt.task.title}\n\n${receipt.task.review?.feedback ?? "Review the latest feedback."}`,
+        text: `${receipt.event.type === "rework_continued" ? "Correction authorized" : "Changes requested"} for Task: ${receipt.task.title}\n\n${receipt.task.review?.feedback ?? "Review the latest feedback."}${prNote}`,
       });
       return;
     }
