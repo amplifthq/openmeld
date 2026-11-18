@@ -24,6 +24,7 @@ import {
   createFinalCandidatePlan,
   executeCandidateChecks,
   FINAL_CANDIDATE_LABELS,
+  FINAL_CANDIDATE_STATUS_CONTEXT,
   formatCommand,
   resolveCandidateDependencyScope,
   resolveFinalCandidateLabel,
@@ -146,11 +147,12 @@ async function requestRemoteCandidate(options) {
   let triggerAttempted = false;
   await requestConfidenceLabel({
     requestedLabel,
-    readLabels: () =>
-      readRequestLabels(
+    readState: () =>
+      readRequestState(
         repository,
         pullRequestNumber,
         state.snapshot.expectedHeadSha,
+        state.pullRequest.html_url,
         triggerAttempted
       ),
     removeLabel: (label) =>
@@ -163,14 +165,23 @@ async function requestRemoteCandidate(options) {
       );
     },
     markPending: () => {
-      publishCommitStatus({
-        description: `Requested ${options.confidence} Final Candidate @ ${state.snapshot.expectedHeadSha.slice(0, 12)}; waiting for its result`,
+      const posted = publishCommitStatus({
+        description: requestStatusDescription(
+          options.confidence,
+          state.snapshot.expectedHeadSha
+        ),
         headSha: state.snapshot.expectedHeadSha,
         repository,
         state: "pending",
         targetUrl: state.pullRequest.html_url,
       });
       triggerAttempted = false;
+      if (!Number.isSafeInteger(posted.id) || posted.id <= 0) {
+        throw new Error(
+          "GitHub did not return the ID of the pending Final Candidate request."
+        );
+      }
+      return { id: posted.id, label: requestedLabel };
     },
   });
   process.stdout.write(
@@ -188,11 +199,58 @@ async function requestRemoteCandidate(options) {
   );
 }
 
-function readRequestLabels(repository, number, expectedHead, triggerAttempted) {
+function requestStatusDescription(confidence, head) {
+  return `Requested ${confidence} Final Candidate @ ${head.slice(0, 12)}; waiting for its result`;
+}
+
+function readLatestRequestMarker(repository, head, prUrl) {
+  for (let page = 1; ; page++) {
+    const statuses = runGhJson([
+      "api",
+      `repos/${repository}/commits/${head}/statuses?per_page=100&page=${page}`,
+    ]);
+    for (const status of statuses) {
+      if (
+        status.context !== FINAL_CANDIDATE_STATUS_CONTEXT ||
+        status.state !== "pending"
+      ) {
+        continue;
+      }
+      if (
+        status.description?.startsWith("Running ") &&
+        status.description.includes(`@ ${head.slice(0, 12)} on `)
+      ) {
+        return null;
+      }
+      const confidence = Object.keys(FINAL_CANDIDATE_LABELS).find(
+        (level) => status.description === requestStatusDescription(level, head)
+      );
+      if (confidence) {
+        if (status.target_url !== prUrl) {
+          return null;
+        }
+        return { id: status.id, label: FINAL_CANDIDATE_LABELS[confidence] };
+      }
+    }
+    if (statuses.length < 100) {
+      return null;
+    }
+  }
+}
+
+function readRequestState(
+  repository,
+  number,
+  expectedHead,
+  prUrl,
+  triggerAttempted
+) {
   for (let attempt = 0; ; attempt++) {
     let current;
+    let marker;
     try {
       current = readPullRequest(repository, number);
+      marker = readLatestRequestMarker(repository, expectedHead, prUrl);
     } catch (error) {
       if (attempt === 0) {
         continue;
@@ -210,7 +268,16 @@ function readRequestLabels(repository, number, expectedHead, triggerAttempted) {
         `Pull request head changed from ${expectedHead} to ${current.head.sha}. Retry the request for the new head.`
       );
     }
-    return current.labels;
+    if (
+      current.state !== "open" ||
+      current.draft ||
+      current.base.ref !== "main"
+    ) {
+      throw new Error(
+        `PR #${number} must remain open, ready for review and targeting main to request Final Candidate.`
+      );
+    }
+    return { labels: current.labels, marker };
   }
 }
 
@@ -218,6 +285,63 @@ function readRequestLabels(repository, number, expectedHead, triggerAttempted) {
 // re-arm retries, and use the add response to see competing writes. Replacing
 // the entire PR label set would overwrite unrelated triage changes.
 export async function requestConfidenceLabel(input) {
+  const own = await input.markPending();
+  let target = own;
+  let mutated = false;
+  const readLabels = async () => {
+    const { labels, marker } = await input.readState();
+    if (
+      !(marker && Number.isSafeInteger(marker.id)) ||
+      marker.id < target.id ||
+      (marker.id === target.id && marker.label !== target.label)
+    ) {
+      throw new Error(
+        "Cannot confirm ownership of the latest Final Candidate request. Check Final Candidate status."
+      );
+    }
+    if (marker.id !== target.id) {
+      throw new SupersededRequest(marker);
+    }
+    return labels;
+  };
+  const change = (operation) => (name) => {
+    mutated = true;
+    return operation(name);
+  };
+  for (;;) {
+    try {
+      await applyConfidenceLabel({
+        ...input,
+        requestedLabel: target.label,
+        readLabels,
+        addLabel: change(input.addLabel),
+        removeLabel: change(input.removeLabel),
+      });
+      break;
+    } catch (error) {
+      if (!(error instanceof SupersededRequest && mutated)) {
+        throw error;
+      }
+      // Our write could have crossed the winning marker. A fresh edge of the
+      // winning level restores run order even if its label is already present.
+      target = error.marker;
+    }
+  }
+  if (target.id !== own.id) {
+    throw new SupersededRequest(target);
+  }
+}
+
+class SupersededRequest extends Error {
+  constructor(marker) {
+    super(
+      `Concurrent Final Candidate request ${marker.id} superseded this request. Check Final Candidate status.`
+    );
+    this.marker = marker;
+  }
+}
+
+async function applyConfidenceLabel(input) {
   const requested = input.requestedLabel;
   const now = input.now ?? (() => performance.now());
   const sleep = input.sleep ?? delay;
@@ -253,7 +377,6 @@ export async function requestConfidenceLabel(input) {
     }
   };
   for (;;) {
-    await input.markPending();
     // GitHub timestamps have whole-second precision. Rearm from a label
     // snapshot taken after that second so even overlapping same-mode requests
     // have a trigger distinguishable from their pending marker.
@@ -274,23 +397,25 @@ export async function requestConfidenceLabel(input) {
         await input.readLabels();
       }
     }
-    const added = await input.addLabel(requested);
-    if (!has(added, competing)) {
-      break;
+    let added;
+    try {
+      added = await input.addLabel(requested);
+    } catch (error) {
+      // A lost POST response can still represent an effective label event.
+      // Check ownership so a stale write repairs the newer request.
+      await input.readLabels();
+      throw error;
     }
-    await input.readLabels();
-    const remaining = await remove(competing, requested);
-    if (has(remaining, requested) || has(remaining, competing)) {
-      break;
+    if (has(added, competing)) {
+      await input.readLabels();
+      await remove(competing, requested);
     }
-    // A competing cleanup removed our label before we removed its label.
-    // The caller whose removal left neither label restores the trigger.
-  }
-  const current = await input.readLabels();
-  if (has(current, competing) || !has(current, requested)) {
-    throw new Error(
-      `Concurrent Final Candidate request; could not confirm ${requested} as the sole request label. Check Final Candidate status.`
-    );
+    const current = await input.readLabels();
+    if (has(current, requested) && !has(current, competing)) {
+      return;
+    }
+    // The current marker still owns this request. A crossing mutation changed
+    // its labels; restore the winning edge and confirm again.
   }
 }
 

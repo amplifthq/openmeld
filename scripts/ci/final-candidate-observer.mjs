@@ -62,6 +62,11 @@ export function buildFinalCandidateObservation(
   if (exactStatus === "success") {
     return {
       ...common,
+      evidenceUrl:
+        sharedStatus.target_url === input.pullRequest.html_url ||
+        sourceTarget(sharedStatus, input.pullRequest)
+          ? sharedStatus.target_url
+          : null,
       ...(budgetMessage ? { detail: budgetMessage } : {}),
       reason: "exact-status-success",
       state: "success",
@@ -209,7 +214,9 @@ function resultForRequest(input, status, marker, confidence) {
     );
   }
   const source =
-    input.run?.id === target.id ? input.run : input.readStatusSource?.(target);
+    input.run?.id === target.id
+      ? input.run
+      : lookupHistoricalSource(input, target);
   return Boolean(
     source &&
       expectsResultPublication(source, pr.number, pr.head.sha) &&
@@ -217,6 +224,21 @@ function resultForRequest(input, status, marker, confidence) {
       Date.parse(source.created_at) > Date.parse(marker.created_at) &&
       matchesAttempt(status, target, source)
   );
+}
+
+const GH_HTTP_NOT_FOUND = /(?:^|\n)gh: [^\r\n]*\(HTTP 404\)$/u;
+function lookupHistoricalSource(input, target) {
+  try {
+    return input.readStatusSource?.(target);
+  } catch (error) {
+    if (
+      error?.status === 1 &&
+      GH_HTTP_NOT_FOUND.test(String(error.stderr).trimEnd())
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function resolveExactStatus(status, pullRequest) {
@@ -265,9 +287,15 @@ export function renderFinalCandidateObservation(observation) {
   ];
   if (observation.runId) {
     lines.push(
-      `Run: ${String(observation.runId)} (${observation.runStatus}/${observation.runConclusion ?? "none"})`,
-      `Evidence: ${observation.runUrl}`
+      `Run: ${String(observation.runId)} (${observation.runStatus}/${observation.runConclusion ?? "none"})`
     );
+  }
+  const evidenceUrl =
+    observation.state === "success"
+      ? observation.evidenceUrl
+      : observation.runUrl;
+  if (evidenceUrl) {
+    lines.push(`Evidence: ${evidenceUrl}`);
   }
   if (observation.detail) {
     lines.push(`GitHub fact: ${observation.detail}`);

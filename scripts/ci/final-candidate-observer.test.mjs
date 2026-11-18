@@ -590,6 +590,24 @@ test("binds terminal statuses to the newest explicit request, including overwrit
   );
   assert.equal(observe(full, [stale]).state, "waiting");
   assert.equal(observe(full, [receipt]).state, "success");
+  const earlierReceipt = observe(
+    { ...auto, html_url: terminal(auto, "standard").target_url },
+    [receipt]
+  );
+  const rendered = renderFinalCandidateObservation(earlierReceipt);
+  assert.ok(rendered.includes(`Run: ${auto.id} (completed/success)`));
+  assert.ok(rendered.includes(`Evidence: ${receipt.target_url}\n`));
+  const unbound = buildFinalCandidateObservation({
+    pullRequest: pr,
+    run: auto,
+    jobs: [],
+    annotationsByCheckRunId: new Map(),
+    commitStatuses: [
+      { ...owned, target_url: "https://example.invalid/other-evidence" },
+    ],
+  });
+  assert.ok(!renderFinalCandidateObservation(unbound).includes("Evidence:"));
+  assert.ok(!rendered.includes(`Evidence: ${earlierReceipt.runUrl}`));
   assert.equal(
     observe(full, [
       { ...receipt, description: `${owned.description}; request 500` },
@@ -607,6 +625,33 @@ test("binds terminal statuses to the newest explicit request, including overwrit
   assert.equal(
     observe(auto, [terminal(auto, "standard"), owned], () => full).state,
     "success"
+  );
+  const missing = {
+    ...owned,
+    target_url: owned.target_url.replace("/43/", "/41/"),
+  };
+  const removedSource = Object.assign(new Error("run missing"), {
+    status: 1,
+    stderr: "gh: Not Found (HTTP 404)\n",
+  });
+  const legacyLookup = (target) => {
+    if (target.id === 41) {
+      throw removedSource;
+    }
+    return full;
+  };
+  assert.equal(observe(auto, [missing, owned], legacyLookup).state, "success");
+  assert.equal(observe(auto, [missing], legacyLookup).state, "waiting");
+  const forbidden = Object.assign(new Error("read denied"), {
+    status: 1,
+    stderr: "gh: Forbidden (HTTP 403)\n",
+  });
+  assert.throws(
+    () =>
+      observe(auto, [missing], () => {
+        throw forbidden;
+      }),
+    forbidden
   );
   assert.equal(
     observe(

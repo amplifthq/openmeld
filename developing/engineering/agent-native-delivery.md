@@ -212,8 +212,9 @@ Automatic runs publish their status after the result workflow verifies the
 candidate. An explicit `request` marks the head pending before triggering the
 requested confidence level. GitHub timestamps have one-second precision, so
 the request waits one second after the pending write before rearming the
-label. Concurrent requests reconcile only the two FC labels and report a
-conflict if the requested label cannot be confirmed.
+label. Concurrent requests use the latest explicit request status ID to
+reconcile the two FC labels. A superseded caller reports the conflict and
+leaves the winning request's trigger in place.
 During a wait, failed-job annotations are reused within the same run attempt.
 
 Fork and same-repository candidates run on `pull_request` with read-only job

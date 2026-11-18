@@ -162,13 +162,19 @@ test(
       "legacy-fulfilled-full-request",
       "racing-request",
       "later-terminal",
+      "deleted-legacy-source",
+      "forbidden-legacy-source",
+      "transient-post-read",
+      "retry-masked-request",
+      "fulfilled-foreign-request",
+      "outstanding-foreign-request",
     ]) {
       const root = mkdtempSync(path.join(tmpdir(), "candidate-status-writer-"));
       try {
         const input = candidateRun();
         const latest = structuredClone(input.run);
         latest.created_at = "2026-10-15T00:01:00Z";
-        if (scenario === "old-run") {
+        if (["old-run", "retry-masked-request"].includes(scenario)) {
           latest.id += 1;
         }
         const run = structuredClone(input.run);
@@ -185,10 +191,9 @@ test(
             run,
             marker,
             scenario,
-            runs:
-              scenario === "old-run"
-                ? [run, latest]
-                : [latest, { ...run, id: run.id - 1 }],
+            runs: ["old-run", "retry-masked-request"].includes(scenario)
+              ? [run, latest]
+              : [latest, { ...run, id: run.id - 1 }],
           })
         );
         const bin = path.join(root, "bin");
@@ -203,27 +208,34 @@ const facts = JSON.parse(fs.readFileSync(process.env.FACTS));
 if (a.includes('--method')) { fs.appendFileSync(process.env.POSTS, JSON.stringify(a) + '\\n'); console.log('301'); process.exit(0); }
 const endpoint = a[1];
 if (a.some(s => s.endsWith('/statuses?per_page=100'))) {
-  const visible = ['newer-request','equal-second-request','different-confidence','matching-request','masked-full-request','fulfilled-full-request','legacy-fulfilled-full-request'].includes(facts.scenario);
   const wrote = fs.existsSync(process.env.POSTS);
-  const duringWrite = wrote && ['racing-request','later-terminal'].includes(facts.scenario);
+  const visible = ['newer-request','equal-second-request','different-confidence','matching-request','masked-full-request','fulfilled-full-request','legacy-fulfilled-full-request','deleted-legacy-source','forbidden-legacy-source','retry-masked-request','fulfilled-foreign-request','outstanding-foreign-request'].includes(facts.scenario);
+  const duringWrite = wrote && ['racing-request','later-terminal','transient-post-read'].includes(facts.scenario);
+  if (wrote && facts.scenario==='transient-post-read' && !fs.existsSync(process.env.POSTS+'.failed-read')) {
+    fs.writeFileSync(process.env.POSTS+'.failed-read','1'); process.exit(1);
+  }
   const rows = visible || duringWrite ? [facts.marker] : [];
-  if (facts.scenario === 'legacy-fulfilled-full-request') {
+  if (['legacy-fulfilled-full-request','deleted-legacy-source','forbidden-legacy-source'].includes(facts.scenario)) {
     rows.unshift({context: facts.marker.context, id:249, state:'success', created_at:'2026-10-15T00:05:00Z',
       target_url: 'https://github.com/'+facts.pr.base.repo.full_name+'/actions/runs/42',
       description:'Passed full @ '+facts.pr.head.sha.slice(0,12)+' on '+facts.main.sha.slice(0,12)});
   }
-  if (['masked-full-request','fulfilled-full-request'].includes(facts.scenario)) {
-    rows.unshift({context: facts.marker.context, id:250, state:'success',
-      target_url: 'https://github.com/'+facts.pr.base.repo.full_name+'/actions/runs/'+facts.run.id+'/attempts/1',
-      description: 'Passed '+(facts.scenario==='masked-full-request'?'standard':'full')+' @ '+facts.pr.head.sha.slice(0,12)+' on '+facts.main.sha.slice(0,12)+(facts.scenario==='fulfilled-full-request'?'; request 201':'')});
+  if (['deleted-legacy-source','forbidden-legacy-source'].includes(facts.scenario)) {
+    rows.unshift({...rows[0],id:250,target_url:'https://github.com/'+facts.pr.base.repo.full_name+'/actions/runs/43'});
   }
-  if (wrote) rows.unshift({context: facts.marker.context, id:301, state:'success'});
+  if (['masked-full-request','fulfilled-full-request','fulfilled-foreign-request'].includes(facts.scenario)) {
+    rows.unshift({context: facts.marker.context, id:250, state:'success',
+      target_url: 'https://github.com/'+facts.pr.base.repo.full_name+'/actions/runs/'+(facts.run.id-1)+'/attempts/1',
+      description: 'Passed '+(facts.scenario==='masked-full-request'?'standard':'full')+' @ '+facts.pr.head.sha.slice(0,12)+' on '+facts.main.sha.slice(0,12)+(facts.scenario==='masked-full-request'?'':'; request 201')});
+  }
+  if (wrote || facts.scenario==='retry-masked-request') rows.unshift({context:facts.marker.context, id:301, state:'success',description:'Verified',target_url:'https://github.com/'+facts.pr.base.repo.full_name+'/actions/runs/'+facts.run.id+'/attempts/'+facts.run.run_attempt});
   if (wrote && facts.scenario === 'later-terminal') rows.unshift({context: facts.marker.context, id:302, state:'success'});
   console.log(JSON.stringify([rows]));
 } else if (endpoint.includes('/pulls/')) console.log(JSON.stringify(facts.pr));
 else if (endpoint.endsWith('/commits/main')) console.log(facts.main.sha);
 else if (endpoint.includes('/actions/workflows/')) console.log(JSON.stringify({workflow_runs: facts.runs}));
-else if (endpoint.endsWith('/actions/runs/42')) console.log(JSON.stringify({...facts.run, id:42, run_attempt:2, run_started_at:'2026-10-15T00:02:00Z', display_title:facts.run.display_title.replace('[standard]','[full]')}));
+else if (endpoint.endsWith('/actions/runs/43')) { console.log('HTTP/2.0 '+(facts.scenario==='forbidden-legacy-source'?'403 Forbidden':'404 Not Found')+'\\r\\n\\r\\n{}'); process.exit(1); }
+else if (endpoint.endsWith('/actions/runs/42')) console.log('HTTP/2.0 200 OK\\r\\nContent-Type: application/json\\r\\n\\r\\n'+JSON.stringify({...facts.run, id:42, run_attempt:2, run_started_at:'2026-10-15T00:02:00Z', display_title:facts.run.display_title.replace('[standard]','[full]')}));
 else if (endpoint.includes('/actions/runs/')) console.log(JSON.stringify(facts.run));
 else process.exit(1);
 `
@@ -252,7 +264,11 @@ else process.exit(1);
               scenario === "failed-verifier" ? "failure" : "success",
           },
         });
-        assert.equal(result.status, 0, result.stderr);
+        assert.equal(
+          result.status,
+          scenario === "forbidden-legacy-source" ? 1 : 0,
+          result.stderr
+        );
         assert.deepEqual(
           recordedWriterPosts(posts),
           expectedWriterPosts(scenario, input),
@@ -275,6 +291,8 @@ function writerMarker(scenario, input, run) {
       "masked-full-request",
       "fulfilled-full-request",
       "legacy-fulfilled-full-request",
+      "deleted-legacy-source",
+      "forbidden-legacy-source",
     ].includes(scenario)
   ) {
     createdAt = "2026-10-14T23:59:59Z";
@@ -284,8 +302,8 @@ function writerMarker(scenario, input, run) {
     state: "pending",
     id: 201,
     created_at: createdAt,
-    description: `Requested ${["different-confidence", "masked-full-request", "fulfilled-full-request", "legacy-fulfilled-full-request"].includes(scenario) ? "full" : "standard"} Final Candidate @ ${input.pr.head.sha.slice(0, 12)}; waiting for its result`,
-    target_url: `https://github.com/${input.pr.base.repo.full_name}/pull/${input.pr.number}`,
+    description: `Requested ${["different-confidence", "masked-full-request", "fulfilled-full-request", "legacy-fulfilled-full-request", "deleted-legacy-source", "forbidden-legacy-source", "fulfilled-foreign-request", "outstanding-foreign-request"].includes(scenario) ? "full" : "standard"} Final Candidate @ ${input.pr.head.sha.slice(0, 12)}; waiting for its result`,
+    target_url: `https://github.com/${input.pr.base.repo.full_name}/pull/${scenario.endsWith("foreign-request") ? input.pr.number + 1 : input.pr.number}`,
   };
 }
 
@@ -298,6 +316,8 @@ function expectedWriterPosts(scenario, input) {
       "equal-second-request",
       "different-confidence",
       "masked-full-request",
+      "forbidden-legacy-source",
+      "outstanding-foreign-request",
     ].includes(scenario)
   ) {
     return [];
@@ -318,7 +338,14 @@ function expectedWriterPosts(scenario, input) {
       target_url: `${baseUrl}/actions/runs/${input.run.id}/attempts/${input.run.run_attempt}`,
     },
   ];
-  if (scenario === "racing-request") {
+  if (scenario === "retry-masked-request") {
+    posts.pop();
+  }
+  if (
+    ["racing-request", "transient-post-read", "retry-masked-request"].includes(
+      scenario
+    )
+  ) {
     posts.push({
       state: "pending",
       description: "Waiting for the current Final Candidate request",

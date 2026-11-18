@@ -140,7 +140,7 @@ export function publishCommitStatus(input) {
   if (input.targetUrl) {
     fields.push("-f", `target_url=${input.targetUrl}`);
   }
-  runGh(fields);
+  return runGhJson(fields);
 }
 
 export function updateSkippedCheckRunOutput(input) {

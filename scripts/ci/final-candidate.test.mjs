@@ -296,12 +296,30 @@ function requestClock() {
   };
 }
 
+function fixtureRequestMarkers() {
+  let latest;
+  return async (input) =>
+    requestConfidenceLabel({
+      ...input,
+      markPending: async () => {
+        await input.markPending();
+        latest = { id: (latest?.id ?? 0) + 1, label: input.requestedLabel };
+        return latest;
+      },
+      readState: async () => ({
+        labels: await input.readLabels(),
+        marker: latest,
+      }),
+    });
+}
+
 test("competing confidence requests leave one trigger and preserve independent label edits", async () => {
   const labels = new Set(["triage"]);
   const triggers = [];
   const snapshot = () => [...labels].map((name) => ({ name }));
+  const run = fixtureRequestMarkers();
   const request = (requestedLabel, markPending = () => undefined) =>
-    requestConfidenceLabel({
+    run({
       ...requestClock(),
       requestedLabel,
       markPending,
@@ -330,7 +348,7 @@ test("competing confidence requests leave one trigger and preserve independent l
     results[0].reason.message.includes("Concurrent Final Candidate request")
   );
   await request(full);
-  assert.deepEqual(triggers, [standard, full, full]);
+  assert.deepEqual(triggers, [full, full]);
   assert.deepEqual([...labels].sort(), [full, "reviewed"]);
 
   // The first standard run can finish while another standard request is
@@ -363,6 +381,12 @@ test("a hosted request pins label mutations to its admitted head and reports a f
     [{ driftAt: 2 }, 1, 0, "Pull request head changed"],
     [{ driftAt: 3 }, 1, 1, "Pull request head changed"],
     [{ driftAt: 3, rearm: true }, 1, 0, "Pull request head changed"],
+    ...["closed", "draft", "retargeted"].map((ineligible) => [
+      { ineligible },
+      1,
+      0,
+      "must remain open",
+    ]),
   ]) {
     const fixture = createCandidateFixture();
     try {
@@ -391,6 +415,53 @@ test("a hosted request pins label mutations to its admitted head and reports a f
   }
 });
 
+test("a delayed mutation repairs the last effective run for the newest immutable request", async () => {
+  for (const winner of ["final-candidate", "final-candidate-full"]) {
+    const labels = new Set();
+    const events = [];
+    const markers = [];
+    const snapshot = () => [...labels].map((name) => ({ name }));
+    const clock = requestClock();
+    const started = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    const request = (label, delayed) =>
+      requestConfidenceLabel({
+        ...clock,
+        requestedLabel: label,
+        markPending: () => {
+          const marker = { id: markers.length + 1, label, at: clock.now() };
+          markers.push(marker);
+          return marker;
+        },
+        readState: () => ({ labels: snapshot(), marker: markers.at(-1) }),
+        removeLabel: (name) => {
+          labels.delete(name);
+          return snapshot();
+        },
+        addLabel: async (name) => {
+          if (delayed) {
+            started.resolve();
+            await release.promise;
+          }
+          if (!labels.has(name)) {
+            events.push({ name, at: clock.now() });
+          }
+          labels.add(name);
+          return snapshot();
+        },
+      });
+    const older = request("final-candidate-full", true);
+    await started.promise;
+    await request(winner, false);
+    release.resolve();
+    await assert.rejects(older, (err) => err.message.includes("superseded"));
+    assert.equal(markers.length, 2);
+    assert.deepEqual([...labels], [winner]);
+    assert.equal(events.at(-1).name, winner);
+    assert.ok(events.at(-1).at >= markers.at(-1).at + 1000);
+  }
+});
+
 test("re-arms the trigger if overlapping cleanups have removed both request labels", async () => {
   const standard = "final-candidate";
   const full = "final-candidate-full";
@@ -399,7 +470,7 @@ test("re-arms the trigger if overlapping cleanups have removed both request labe
   const snapshot = () => [...labels].map((name) => ({ name }));
   const clock = requestClock();
   let pendingAt;
-  await requestConfidenceLabel({
+  await fixtureRequestMarkers()({
     ...clock,
     requestedLabel: full,
     markPending: () => {
@@ -446,7 +517,7 @@ test("reconciles a failed label deletion without removing a replacement attachme
         : new Error("connection lost before receipt");
     let additions = 0;
     let removals = 0;
-    const request = requestConfidenceLabel({
+    const request = fixtureRequestMarkers()({
       ...requestClock(),
       requestedLabel: "final-candidate-full",
       readLabels: snapshot,
@@ -944,12 +1015,25 @@ if (endpoint.includes("/actions/workflows/")) {
     run.created_at = "2026-10-15T00:00:00Z";
   }
   process.stdout.write(JSON.stringify([captured]));
+} else if (endpoint.includes("/commits/") && endpoint.includes("/statuses?")) {
+  const statusFile = process.env.TEST_GH_LOG + ".status";
+  process.stdout.write(existsSync(statusFile) ? "[" + readFileSync(statusFile, "utf8") + "]" : "[]");
+} else if (endpoint.includes("/statuses/")) {
+  const field = (name) => args.find(arg=>arg.startsWith(name+"="))?.slice(name.length+1);
+  const status = JSON.stringify({id: operationCounts[operation], state: field("state"), context: field("context"), description: field("description"), target_url: field("target_url")});
+  writeFileSync(process.env.TEST_GH_LOG + ".status", status);
+  process.stdout.write(status);
 } else if (endpoint.endsWith("/pulls/1")) {
   const captured = JSON.parse(readFileSync(process.env.TEST_GITHUB_PULL_REQUEST_FIXTURE, "utf8")).response;
   captured.base.sha = process.env.TEST_BASE_SHA;
   captured.head.ref = "codex/candidate";
   captured.head.sha = process.env.TEST_REQUEST_HEAD_DRIFT_AT && operationCounts[operation] >= Number(process.env.TEST_REQUEST_HEAD_DRIFT_AT)
     ? "1".repeat(40) : process.env.TEST_HEAD_SHA;
+  if (operationCounts[operation] >= 2) {
+    if (process.env.TEST_REQUEST_INELIGIBLE === "draft") captured.draft = true;
+    if (process.env.TEST_REQUEST_INELIGIBLE === "closed") captured.state = "closed";
+    if (process.env.TEST_REQUEST_INELIGIBLE === "retargeted") captured.base.ref = "other";
+  }
   captured.html_url = "https://github.com/amplifthq/openmeld/pull/1";
   captured.number = 1;
   captured.labels = issueLabels();
@@ -1128,6 +1212,7 @@ function runRequestFixture(fixture, options = {}) {
         TEST_GH_FAILURE_OPERATION_ATTEMPTS: (options.failedPullReads ?? [])
           .map((attempt) => `pull-request-read:${attempt}`)
           .join(","),
+        TEST_REQUEST_INELIGIBLE: options.ineligible ?? "",
         TEST_REQUEST_HEAD_DRIFT_AT: options.driftAt
           ? String(options.driftAt)
           : "",
