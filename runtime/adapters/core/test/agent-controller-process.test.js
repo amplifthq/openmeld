@@ -162,6 +162,8 @@ test("aggregates repeated discovery timeouts and records recovery", () => {
   assert.equal(writes[1].payload.occurrenceCount, 3);
   assert.deepEqual(writes[1].payload.affectedProcessIds, [4242, 4343, 4444]);
 
+  diagnostics.recovered("procfs_marker");
+  assert.equal(writes.length, 2);
   diagnostics.recovered("supervision_marker");
   assert.equal(writes.length, 3);
   assert.equal(writes[2].level, "info");
@@ -210,11 +212,21 @@ test(
       encoding: "utf8",
       input: `
       import assert from "node:assert/strict";
-      import { listAgentControllerSupervisedProcessIds } from "./dist/agent-controller-process.js";
+      import { listAgentControllerSupervisedProcessIds, terminateRemainingAgentControllerProcesses } from "./dist/agent-controller-process.js";
+      const recoveries = [];
+      console.info = (event, data) => recoveries.push(data.source);
+      const full = await terminateRemainingAgentControllerProcesses({
+        processId: process.pid, signalTarget: "process_group",
+        supervisionId: process.env.OPENMELD_PROCESS_SUPERVISION_ID,
+        killProcess: () => false, waitForDiscoveryRetry: async () => undefined,
+      });
+      assert.equal(full.ok, false);
+      assert.equal(full.error.code, "ENOENT");
       const ids = await listAgentControllerSupervisedProcessIds({
         processId: null, supervisionId: process.env.OPENMELD_PROCESS_SUPERVISION_ID,
       });
       assert.deepEqual(ids, [process.pid]);
+      assert.deepEqual(recoveries, []);
     `,
       timeout: 10_000,
     });

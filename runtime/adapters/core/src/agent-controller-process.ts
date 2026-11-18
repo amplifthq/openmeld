@@ -75,7 +75,7 @@ export type AgentControllerProcessDiscoveryFailure = {
   error: unknown;
   processId: number;
   signal: NodeJS.Signals;
-  source: "descendant_tree" | "supervision_marker";
+  source: "descendant_tree" | "supervision_marker" | "procfs_marker";
 };
 
 export type ReportAgentControllerProcessDiscoveryFailure = (
@@ -704,10 +704,11 @@ async function collectSupervisedProcessIds(input: {
   }
   const listSupervisedProcessIds =
     input.listSupervisedProcessIds ?? listAgentControllerSupervisedProcessIds;
+  const discoveryRoot = input.markerOnly === true ? null : input.processId;
   try {
     const supervisedProcessIds = await listSupervisedProcessIds({
       ...(input.fresh ? { fresh: true } : {}),
-      processId: input.markerOnly === true ? null : input.processId,
+      processId: discoveryRoot,
       supervisionId: input.supervisionId,
     });
     for (const descendantProcessId of supervisedProcessIds) {
@@ -720,7 +721,7 @@ async function collectSupervisedProcessIds(input: {
         error,
         processId: input.processId,
         signal: "SIGKILL",
-        source: "supervision_marker",
+        source: supervisedDiscoverySource(discoveryRoot),
       },
       reporter: input.reportDiscoveryFailure,
     });
@@ -759,6 +760,15 @@ const readMacOsSupervisedProcessTable =
       }),
   });
 
+function supervisedDiscoverySource(
+  processId: number | null
+): AgentControllerProcessDiscoveryFailure["source"] {
+  // A Linux marker-only scan reads /proc without testing the ps-based path.
+  return process.platform === "linux" && processId === null
+    ? "procfs_marker"
+    : "supervision_marker";
+}
+
 export const listAgentControllerSupervisedProcessIds: ListAgentControllerSupervisedProcessIds =
   async (input) => {
     if (process.platform === "linux") {
@@ -771,7 +781,9 @@ export const listAgentControllerSupervisedProcessIds: ListAgentControllerSupervi
       const markedProcessIds = await listLinuxSupervisedProcessIds(
         input.supervisionId
       );
-      processDiscoveryDiagnostics.recovered("supervision_marker");
+      processDiscoveryDiagnostics.recovered(
+        supervisedDiscoverySource(input.processId)
+      );
       return resolveAgentControllerSupervisedProcessIds({
         ...input,
         markedProcessIds,
