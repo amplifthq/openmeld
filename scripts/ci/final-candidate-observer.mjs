@@ -3,6 +3,10 @@
 import { execFileSync } from "node:child_process";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import {
+  expectsResultPublication,
+  resultPublicationFinished,
+} from "./final-candidate-run-context.mjs";
 
 const ACTIONS_BUDGET_PATTERN =
   /Actions budget is preventing further use|spending limit needs to be increased|recent account payments have failed/iu;
@@ -75,6 +79,9 @@ export function buildFinalCandidateObservation(input) {
     return { ...common, reason: "run-in-progress", state: "waiting" };
   }
   if (input.run.conclusion === "success") {
+    if (exactStatus === "pending") {
+      return { ...common, reason: "exact-status-pending", state: "waiting" };
+    }
     return {
       ...common,
       reason:
@@ -219,11 +226,13 @@ export async function runFinalCandidateObserver(input = {}) {
   const adapters = { ...defaultAdapters(), ...input.adapters };
   const repository = options.repository ?? adapters.resolveRepository();
   const startedAt = adapters.now();
+  const annotationCache = { attempt: null, byJob: new Map() };
   let previousFingerprint = null;
 
   while (true) {
     const observation = await readObservation({
       adapters,
+      annotationCache,
       pullRequestNumber: options.pullRequestNumber,
       repository,
     });
@@ -251,6 +260,9 @@ async function readObservation(input) {
     input.repository,
     input.pullRequestNumber
   );
+  if (pullRequest.number !== input.pullRequestNumber) {
+    throw new Error("GitHub returned a different pull request number.");
+  }
   if (!EXACT_SHA_PATTERN.test(String(pullRequest.head?.sha ?? ""))) {
     throw new Error("GitHub did not return an exact pull request head SHA.");
   }
@@ -259,32 +271,65 @@ async function readObservation(input) {
   }
   const run = await input.adapters.readLatestRun(
     input.repository,
-    pullRequest.head.sha
+    pullRequest.head.sha,
+    pullRequest.number
   );
   const jobs = run
     ? await input.adapters.readJobs(input.repository, run.id)
     : [];
   const annotationsByCheckRunId = new Map();
+  const attempt = run ? `${run.id}:${run.run_attempt}` : null;
   for (const job of jobs) {
     if (job.conclusion !== "failure") {
       continue;
     }
+    const cached =
+      attempt === input.annotationCache.attempt
+        ? input.annotationCache.byJob.get(job.id)
+        : undefined;
     annotationsByCheckRunId.set(
       job.id,
-      await input.adapters.readAnnotations(input.repository, job.id)
+      cached ?? (await input.adapters.readAnnotations(input.repository, job.id))
     );
   }
+  input.annotationCache.attempt = attempt;
+  input.annotationCache.byJob = annotationsByCheckRunId;
   const commitStatuses = await input.adapters.readCommitStatuses(
     input.repository,
     pullRequest.head.sha
   );
-  return buildFinalCandidateObservation({
+  const facts = {
     annotationsByCheckRunId,
     commitStatuses,
     jobs,
     pullRequest,
     run,
-  });
+  };
+  const observation = buildFinalCandidateObservation(facts);
+  if (
+    observation.reason === "exact-status-missing" &&
+    observation.exactStatus === "missing" &&
+    expectsResultPublication(run, pullRequest.number, pullRequest.head.sha)
+  ) {
+    if (
+      !(await input.adapters.resultPublicationFinished(input.repository, run))
+    ) {
+      return {
+        ...observation,
+        reason: "result-not-published",
+        state: "waiting",
+      };
+    }
+    // The publisher may have finished between our status read and its acknowledgement.
+    return buildFinalCandidateObservation({
+      ...facts,
+      commitStatuses: await input.adapters.readCommitStatuses(
+        input.repository,
+        pullRequest.head.sha
+      ),
+    });
+  }
+  return observation;
 }
 
 function defaultAdapters() {
@@ -307,21 +352,9 @@ function defaultAdapters() {
         "-f",
         "per_page=100",
       ]).jobs,
-    readLatestRun: (repository, headSha) => {
-      const runs = runGhJson([
-        "api",
-        `repos/${repository}/actions/workflows/${FINAL_CANDIDATE_WORKFLOW}/runs`,
-        "-X",
-        "GET",
-        "-f",
-        `head_sha=${headSha}`,
-        "-f",
-        "event=pull_request",
-        "-f",
-        "per_page=10",
-      ]).workflow_runs;
-      return runs.find((run) => run.head_sha === headSha) ?? null;
-    },
+    readLatestRun: readLatestCandidateRun,
+    resultPublicationFinished: (repository, source) =>
+      resultPublicationFinished(repository, source, runGhJson),
     readPullRequest: (repository, pullRequestNumber) =>
       runGhJson([
         "api",
@@ -332,6 +365,42 @@ function defaultAdapters() {
     sleep: (milliseconds) =>
       new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds)),
   };
+}
+
+export function readLatestCandidateRun(
+  repository,
+  headSha,
+  prNumber,
+  read = runGhJson
+) {
+  const prefix = `Final Candidate PR #${prNumber} @ ${headSha} [`;
+  for (let page = 1; ; page++) {
+    const { workflow_runs: runs, total_count: total } = read([
+      "api",
+      `repos/${repository}/actions/workflows/${FINAL_CANDIDATE_WORKFLOW}/runs?event=pull_request&head_sha=${headSha}&per_page=100&page=${page}`,
+    ]);
+    const match = runs.find((run) => {
+      if (
+        run.head_sha !== headSha ||
+        run.display_title?.startsWith("Ignored Final Candidate")
+      ) {
+        return false;
+      }
+      const linked = run.pull_requests?.some((pr) => pr.number === prNumber);
+      if (run.display_title?.startsWith("Final Candidate PR ")) {
+        // Older inline publishers named the confidence but did not name a base.
+        const ownTitle =
+          expectsResultPublication(run, prNumber, headSha) ||
+          run.display_title === `${prefix}standard]` ||
+          run.display_title === `${prefix}full]`;
+        return ownTitle && (!run.pull_requests?.length || linked);
+      }
+      return run.pull_requests?.length === 1 && linked;
+    });
+    if (match || runs.length < 100 || page * 100 >= total) {
+      return match ?? null;
+    }
+  }
 }
 
 function observationFingerprint(observation) {

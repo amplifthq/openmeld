@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { resultPublicationFinished } from "./final-candidate-run-context.mjs";
 import { runGh, runGhJson } from "./final-candidate-state.mjs";
 
 // A completed source run can still enqueue a separate workflow_run publisher.
@@ -31,7 +32,10 @@ export async function settleHostedCandidateRuns(input, dependencies = {}) {
           (a, b) =>
             Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id
         )[0];
-      if (!source || resultPublicationFinished(input, source, read)) {
+      if (
+        !source ||
+        resultPublicationFinished(input.repository, source, read)
+      ) {
         return;
       }
       if (now() >= resultDeadline) {
@@ -162,44 +166,4 @@ function readOwnedRuns(input, read) {
     );
   }
   return runs;
-}
-
-function resultPublicationFinished(input, source, read) {
-  if (!Number.isFinite(Date.parse(source.created_at))) {
-    throw new Error(
-      "Missing source run timestamp; no local status will be published."
-    );
-  }
-  const created = encodeURIComponent(`>=${source.created_at}`);
-  const pages = read([
-    "api",
-    "--paginate",
-    "--slurp",
-    `repos/${input.repository}/actions/workflows/final-candidate-result.yml/runs?event=workflow_run&created=${created}&per_page=100`,
-  ]);
-  if (
-    !Array.isArray(pages) ||
-    pages.length === 0 ||
-    pages.some(
-      (page) =>
-        !Number.isInteger(page.total_count) ||
-        page.total_count >= 1000 ||
-        !Array.isArray(page.workflow_runs)
-    ) ||
-    pages.flatMap((page) => page.workflow_runs).length !== pages[0].total_count
-  ) {
-    throw new Error(
-      "Cannot establish complete Final Candidate result state; no local status will be published."
-    );
-  }
-  const prefix = `Final Candidate Result ${source.id}:${source.run_attempt} `;
-  const results = pages
-    .flatMap((page) => page.workflow_runs)
-    .filter((run) => run.display_title?.startsWith(prefix));
-  // An empty list is not acknowledgement: GitHub may deliver the event later.
-  // A failed/cancelled verifier is settled too; local checks still run afresh.
-  return (
-    results.some((run) => run.display_title === `${prefix}completed`) &&
-    results.every((run) => run.status === "completed")
-  );
 }

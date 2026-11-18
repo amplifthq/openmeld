@@ -7,7 +7,9 @@ import { fileURLToPath } from "node:url";
 import {
   buildFinalCandidateObservation,
   observationExitCode,
+  readLatestCandidateRun,
   renderFinalCandidateObservation,
+  runFinalCandidateObserver,
 } from "./final-candidate-observer.mjs";
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
@@ -34,6 +36,99 @@ const LOCAL_FALLBACK_PATTERN = /trusted local fallback/u;
 const CANDIDATE_FAILURE_PATTERN = /candidate validation failed/iu;
 const EXACT_SUCCESS_PATTERN = /Exact status: success/u;
 const AVAILABLE_FALLBACK_PATTERN = /Available fallback/u;
+
+test("selects this PR's run even when a newer PR shares its head and GitHub omits links", async () => {
+  const { head } = PULL_REQUEST;
+  const title = (number) =>
+    `Final Candidate PR #${number} @ ${head.sha} [standard] on ${PULL_REQUEST.base.sha}`;
+  const own = {
+    ...BUDGET_FIXTURE.run,
+    display_title: title(PULL_REQUEST.number),
+    pull_requests: [],
+  };
+  const foreign = {
+    ...own,
+    id: own.id + 1,
+    display_title: title(100),
+    pull_requests: [{ number: 100 }],
+  };
+  const find = (runs) =>
+    readLatestCandidateRun("owner/repo", head.sha, PULL_REQUEST.number, () => ({
+      total_count: runs.length,
+      workflow_runs: runs,
+    }));
+  assert.equal(find([foreign, own]), own);
+  const code = await runFinalCandidateObserver({
+    argv: [
+      "status",
+      "--pr",
+      String(PULL_REQUEST.number),
+      "--repo",
+      "owner/repo",
+    ],
+    write: () => undefined,
+    adapters: {
+      readPullRequest: () => PULL_REQUEST,
+      readLatestRun: (repo, sha, number) => {
+        assert.equal(number, PULL_REQUEST.number);
+        return readLatestCandidateRun(repo, sha, number, () => ({
+          total_count: 1,
+          workflow_runs: [foreign],
+        }));
+      },
+      readJobs: () => assert.fail("must not inspect the other PR's jobs"),
+      readCommitStatuses: () => [
+        {
+          context: "OpenMeld Final Candidate",
+          state: "success",
+          description: `Passed standard @ ${head.sha.slice(0, 12)} on ${PULL_REQUEST.base.sha.slice(0, 12)}`,
+        },
+      ],
+    },
+  });
+  assert.equal(code, 0);
+  assert.equal(find([{ ...foreign, pull_requests: [] }]), null);
+  assert.equal(find([{ ...foreign, display_title: own.display_title }]), null);
+  assert.equal(
+    find([{ ...own, display_title: `${own.display_title} invalid` }]),
+    null
+  );
+  assert.equal(
+    find([{ ...own, display_title: `Ignored ${own.display_title}` }]),
+    null
+  );
+  assert.equal(
+    find([
+      { ...own, display_title: "OpenMeld Final Candidate", pull_requests: [] },
+    ]),
+    null
+  );
+  assert.equal(
+    find([
+      {
+        ...own,
+        display_title: "OpenMeld Final Candidate",
+        pull_requests: [{ number: 100 }, { number: PULL_REQUEST.number }],
+      },
+    ]),
+    null
+  );
+  const pages = [new Array(100).fill(foreign), [own]];
+  assert.equal(
+    readLatestCandidateRun(
+      "owner/repo",
+      head.sha,
+      PULL_REQUEST.number,
+      ([, endpoint]) => {
+        const page = Number(
+          new URL(endpoint, "https://api.github.com/").searchParams.get("page")
+        );
+        return { total_count: 101, workflow_runs: pages[page - 1] };
+      }
+    ),
+    own
+  );
+});
 
 test("classifies a captured GitHub Actions budget refusal without blaming candidate code", () => {
   const observation = buildFinalCandidateObservation({
@@ -219,4 +314,112 @@ test("keeps a completed run without exact status visibly failed", () => {
   assert.equal(observation.state, "failure");
   assert.equal(observation.reason, "exact-status-missing");
   assert.equal(observationExitCode(observation), 1);
+});
+
+test("waits through a successful source run until its pending status is published", async () => {
+  let reads = 0;
+  const output = [];
+  const exitCode = await runFinalCandidateObserver({
+    argv: ["wait", "--pr", String(PULL_REQUEST.number), "--repo", "owner/repo"],
+    write: (message) => output.push(message),
+    adapters: {
+      readPullRequest: () => PULL_REQUEST,
+      readLatestRun: () => ({
+        ...BUDGET_FIXTURE.run,
+        status: "completed",
+        conclusion: "success",
+      }),
+      readJobs: () => [],
+      readCommitStatuses: () => {
+        const pending = ++reads === 1;
+        const head = PULL_REQUEST.head.sha.slice(0, 12);
+        return [
+          {
+            context: "OpenMeld Final Candidate",
+            state: pending ? "pending" : "success",
+            description: pending
+              ? `Requested standard Final Candidate @ ${head}; waiting for its result`
+              : `Passed standard @ ${head} on ${PULL_REQUEST.base.sha.slice(0, 12)}`,
+          },
+        ];
+      },
+      sleep: () => undefined,
+    },
+  });
+  assert.equal(exitCode, 0);
+  assert.equal(reads, 2);
+  assert.ok(output[0].includes("Hosted lane: waiting"));
+});
+
+test("reuses failed job annotations within one run attempt and reads a rerun afresh", async () => {
+  let polls = 0;
+  let reads = 0;
+  const exitCode = await runFinalCandidateObserver({
+    argv: [
+      "wait",
+      "--pr",
+      String(PULL_REQUEST.number),
+      "--repo",
+      "owner/repo",
+      "--timeout-seconds",
+      "5",
+    ],
+    write: () => undefined,
+    adapters: {
+      now: () => polls * 1000,
+      readPullRequest: () => PULL_REQUEST,
+      readLatestRun: () => ({
+        ...BUDGET_FIXTURE.run,
+        status: "in_progress",
+        run_attempt: ++polls < 4 ? 1 : 2,
+      }),
+      readJobs: () => [BUDGET_FIXTURE.jobs[0]],
+      readAnnotations: () => {
+        reads++;
+        return polls < 4
+          ? []
+          : BUDGET_FIXTURE.annotationsByCheckRunId[BUDGET_FIXTURE.jobs[0].id];
+      },
+      readCommitStatuses: () => [],
+      sleep: () => undefined,
+    },
+  });
+  assert.equal(exitCode, 3);
+  assert.equal(polls, 4);
+  assert.equal(reads, 2);
+});
+
+test("tells delayed automatic publication apart from a finished publisher with no status", async () => {
+  const run = {
+    ...BUDGET_FIXTURE.run,
+    conclusion: "success",
+    status: "completed",
+    display_title: `Final Candidate PR #${PULL_REQUEST.number} @ ${PULL_REQUEST.head.sha} [standard] on ${PULL_REQUEST.base.sha}`,
+  };
+  for (const finished of [false, true]) {
+    const output = [];
+    const code = await runFinalCandidateObserver({
+      argv: [
+        "status",
+        "--pr",
+        String(PULL_REQUEST.number),
+        "--repo",
+        "owner/repo",
+      ],
+      write: (message) => output.push(message),
+      adapters: {
+        readPullRequest: () => PULL_REQUEST,
+        readLatestRun: () => run,
+        readJobs: () => [],
+        readCommitStatuses: () => [],
+        resultPublicationFinished: () => finished,
+      },
+    });
+    assert.equal(code, finished ? 1 : 2);
+    assert.ok(
+      output[0].includes(
+        finished ? "Hosted lane: failure" : "Hosted lane: waiting"
+      )
+    );
+  }
 });

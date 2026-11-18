@@ -79,6 +79,49 @@ export function resolveRunContext({
   };
 }
 
+export function expectsResultPublication(run, prNumber, headSha) {
+  const title = RUN_TITLE.exec(run?.display_title ?? "");
+  return Boolean(
+    title && Number(title[1]) === prNumber && title[2] === headSha
+  );
+}
+
+export function resultPublicationFinished(repository, source, read) {
+  if (!Number.isFinite(Date.parse(source.created_at))) {
+    throw new Error("Missing Final Candidate source run timestamp.");
+  }
+  const created = encodeURIComponent(`>=${source.created_at}`);
+  const pages = read([
+    "api",
+    "--paginate",
+    "--slurp",
+    `repos/${repository}/actions/workflows/final-candidate-result.yml/runs?event=workflow_run&created=${created}&per_page=100`,
+  ]);
+  if (
+    !Array.isArray(pages) ||
+    pages.length === 0 ||
+    pages.some(
+      (page) =>
+        !Number.isInteger(page.total_count) ||
+        page.total_count >= 1000 ||
+        !Array.isArray(page.workflow_runs)
+    ) ||
+    pages.flatMap((page) => page.workflow_runs).length !== pages[0].total_count
+  ) {
+    throw new Error("Cannot establish complete Final Candidate result state.");
+  }
+  const prefix = `Final Candidate Result ${source.id}:${source.run_attempt} `;
+  const results = pages
+    .flatMap((page) => page.workflow_runs)
+    .filter((run) => run.display_title?.startsWith(prefix));
+  // An empty list is not acknowledgement: GitHub may deliver the event later.
+  // A failed/cancelled verifier is settled too; local checks still run afresh.
+  return (
+    results.some((run) => run.display_title === `${prefix}completed`) &&
+    results.every((run) => run.status === "completed")
+  );
+}
+
 function api(endpoint) {
   return JSON.parse(
     execFileSync("gh", ["api", endpoint], { encoding: "utf8" })

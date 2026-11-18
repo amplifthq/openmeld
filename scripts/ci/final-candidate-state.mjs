@@ -17,7 +17,10 @@ const gitBinary = process.platform === "win32" ? "git.exe" : "git";
 
 export function resolveCandidateState(input) {
   const cwd = input.cwd ?? process.cwd();
-  fetchCurrentMain(cwd, input.repository);
+  const requireCurrentBase = input.requireCurrentBase ?? true;
+  if (requireCurrentBase) {
+    fetchCurrentMain(cwd, input.repository);
+  }
   const pullRequest = readPullRequest(
     input.repository,
     input.pullRequestNumber
@@ -53,7 +56,9 @@ export function resolveCandidateState(input) {
     snapshot: {
       actualHeadSha,
       baseIsAncestorOfHead: ancestry.status === 0,
-      currentMainSha: resolveCommit("refs/remotes/origin/main", cwd),
+      currentMainSha: requireCurrentBase
+        ? resolveCommit("refs/remotes/origin/main", cwd)
+        : null,
       dirtyPaths: input.sourceRef ? [] : resolveDirtyPaths(cwd),
       expectedBaseSha,
       expectedHeadSha,
@@ -356,7 +361,7 @@ function trustedLocalGitEnvironment() {
   return createTrustedGitEnvironment(process.env);
 }
 
-function readPullRequest(repository, pullRequestNumber) {
+export function readPullRequest(repository, pullRequestNumber) {
   const response = runGhJson([
     "api",
     `repos/${repository}/pulls/${pullRequestNumber}`,

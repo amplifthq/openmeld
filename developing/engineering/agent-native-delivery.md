@@ -207,8 +207,12 @@ git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- status -
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- wait --pr <number>
 ```
 
-Use `wait` instead of polling `gh pr checks`. Automatic runs publish no
-pending status; an explicit `request` marks the head pending until it reports.
+Use `wait` to follow the PR and head named by the source workflow.
+Automatic runs publish their status after the result workflow verifies the
+candidate. An explicit `request` marks the head pending before triggering the
+requested confidence level. Concurrent requests reconcile only the two FC
+labels and report a conflict if the requested label cannot be confirmed.
+During a wait, failed-job annotations are reused within the same run attempt.
 
 Fork and same-repository candidates run on `pull_request` with read-only job
 permissions and no production environment or secrets; the run title names the
@@ -218,8 +222,10 @@ verifier binds the exact source run, attempt, PR, head, tree, and base through
 GitHub, requires that base to be part of current `main`, then recomputes the
 control disposition and validation plan before accepting evidence. It reads
 candidate source as immutable Git objects, treats artifacts as data, and never
-runs candidate scripts. A separate status writer rechecks the live head and the
-latest run without checking out code or downloading artifacts. A finished
+runs candidate scripts. Output-only verification reuses the pinned Git objects
+and the main ancestry already checked for the run. A separate status writer
+rechecks the live head and the latest run without checking out code or
+downloading artifacts. A finished
 result stays bound to its exact head, base, and tree: `main` advancing later
 does not turn it red, because merge queue or strict up-to-date protection owns
 freshness at merge time. Changes to either workflow require the protected
@@ -357,9 +363,11 @@ check there without rescanning. Branch protection requires
 merge queue (method `merge`, build concurrency 1, one to five pull requests per
 group, only non-failing pull requests, 60-minute status check timeout) with
 "Require branches to be up to date" off; until then strict up-to-date owns
-freshness. Never turn both off. Current-main control validates a group whose FC
-control matches `main`. A group with control drift runs under its own control
-only if it is built on the `main` tip, its second parent is the queued pull
+freshness. Never turn both off. The merge-group decision runs from a protected
+`main` checkout. The group base must match that checkout and the current target
+tip before either trust mode is selected. Current-main control validates a
+group whose FC control matches `main`. A group with control drift runs under
+its own control only if its second parent is the queued pull
 request's live head with a successful FC status naming it (the bootstrap
 above), and each drifted control equals that head's and was changed by it.
 

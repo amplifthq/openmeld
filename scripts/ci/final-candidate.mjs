@@ -35,6 +35,7 @@ import {
   isCommitAncestor,
   publishCommitStatus,
   publishPullRequestComment,
+  readPullRequest,
   resolveBranchName,
   resolveCandidateState,
   resolveChangedPaths,
@@ -43,7 +44,6 @@ import {
   resolveMergeGroupState,
   resolveObject,
   resolveRepository,
-  runGh,
   runGhJson,
 } from "./final-candidate-state.mjs";
 
@@ -67,7 +67,7 @@ async function run() {
     return;
   }
   if (command === "request") {
-    requestRemoteCandidate(options);
+    await requestRemoteCandidate(options);
     return;
   }
   if (command === "run") {
@@ -110,7 +110,7 @@ function runPlan(options, command) {
   }
 }
 
-function requestRemoteCandidate(options) {
+async function requestRemoteCandidate(options) {
   const pullRequestNumber = requirePullRequestNumber(options.pr);
   const repository = resolveRepository(options.repository);
   const candidateRoot = path.resolve(options.candidateRoot ?? process.cwd());
@@ -141,42 +141,44 @@ function requestRemoteCandidate(options) {
   printPlan(plan, []);
 
   const requestedLabel = resolveFinalCandidateLabel(options.confidence);
-  const labels = new Set(state.pullRequest.labels.map((label) => label.name));
-  for (const label of Object.values(FINAL_CANDIDATE_LABELS)) {
-    if (!labels.has(label)) {
-      continue;
-    }
-    runGh([
-      "api",
-      "--method",
-      "DELETE",
-      `repos/${repository}/issues/${pullRequestNumber}/labels/${label}`,
-    ]);
-    process.stdout.write(
-      `Reset label ${label} so this explicit request creates one unambiguous ${options.confidence} run.\n`
-    );
-  }
-  // The result workflow publishes only on completion, so an earlier exact
-  // success would stay green while the requested run executes. Mark the head
-  // pending now; the trusted publisher overwrites it with the new result.
-  publishCommitStatus({
-    description: `Requested ${options.confidence} Final Candidate @ ${state.snapshot.expectedHeadSha.slice(0, 12)}; waiting for its result`,
-    headSha: state.snapshot.expectedHeadSha,
-    repository,
-    state: "pending",
-    targetUrl: state.pullRequest.html_url,
+  const endpoint = `repos/${repository}/issues/${pullRequestNumber}`;
+  const readLabels = () =>
+    readPullRequest(repository, pullRequestNumber).labels;
+  await requestConfidenceLabel({
+    requestedLabel,
+    initialLabels: state.pullRequest.labels,
+    readLabels,
+    removeLabel: (label) => {
+      try {
+        return runGhJson([
+          "api",
+          "--method",
+          "DELETE",
+          `${endpoint}/labels/${label}`,
+        ]);
+      } catch (error) {
+        // A competing request can already have removed this label.
+        const current = readLabels();
+        if (current.some((entry) => entry.name === label)) {
+          throw error;
+        }
+        return current;
+      }
+    },
+    addLabel: (label) =>
+      runGhJson(
+        ["api", "--method", "POST", `${endpoint}/labels`, "--input", "-"],
+        { labels: [label] }
+      ),
+    markPending: () =>
+      publishCommitStatus({
+        description: `Requested ${options.confidence} Final Candidate @ ${state.snapshot.expectedHeadSha.slice(0, 12)}; waiting for its result`,
+        headSha: state.snapshot.expectedHeadSha,
+        repository,
+        state: "pending",
+        targetUrl: state.pullRequest.html_url,
+      }),
   });
-  runGhJson(
-    [
-      "api",
-      "--method",
-      "POST",
-      `repos/${repository}/issues/${pullRequestNumber}/labels`,
-      "--input",
-      "-",
-    ],
-    { labels: [requestedLabel] }
-  );
   process.stdout.write(
     [
       "Remote Final Candidate requested.",
@@ -190,6 +192,42 @@ function requestRemoteCandidate(options) {
       "",
     ].join("\n")
   );
+}
+
+// Each label addition triggers a workflow. Remove existing request labels to
+// re-arm retries, and use the add response to see competing writes. Replacing
+// the entire PR label set would overwrite unrelated triage changes.
+export async function requestConfidenceLabel(input) {
+  const requested = input.requestedLabel;
+  const competing =
+    requested === FINAL_CANDIDATE_LABELS.full
+      ? FINAL_CANDIDATE_LABELS.standard
+      : FINAL_CANDIDATE_LABELS.full;
+  const has = (labels, name) => labels.some((label) => label.name === name);
+  for (const name of [requested, competing]) {
+    if (has(input.initialLabels, name)) {
+      await input.removeLabel(name);
+    }
+  }
+  for (;;) {
+    await input.markPending();
+    const added = await input.addLabel(requested);
+    if (!has(added, competing)) {
+      break;
+    }
+    const remaining = await input.removeLabel(competing);
+    if (has(remaining, requested) || has(remaining, competing)) {
+      break;
+    }
+    // A competing cleanup removed our label before we removed its label.
+    // The caller whose removal left neither label restores the trigger.
+  }
+  const current = await input.readLabels();
+  if (has(current, competing) || !has(current, requested)) {
+    throw new Error(
+      `Concurrent Final Candidate request; could not confirm ${requested} as the sole request label. Check Final Candidate status.`
+    );
+  }
 }
 
 async function runCandidate(options) {

@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { requestConfidenceLabel } from "./final-candidate.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const FINAL_CANDIDATE_SCRIPT = path.join(SCRIPT_DIR, "final-candidate.mjs");
@@ -280,6 +281,151 @@ test("a hosted request prints the authoritative remote plan from current main", 
       PENDING_STATUS_PATTERN
     );
     assert.match(result.stdout, REQUEST_PENDING_PATTERN);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("competing confidence requests leave one trigger and preserve independent label edits", async () => {
+  const labels = new Set(["triage"]);
+  const triggers = [];
+  const snapshot = () => [...labels].map((name) => ({ name }));
+  const request = (requestedLabel) =>
+    requestConfidenceLabel({
+      initialLabels: snapshot(),
+      requestedLabel,
+      markPending: () => undefined,
+      addLabel: (name) => {
+        labels.add("reviewed");
+        labels.delete("triage");
+        if (!labels.has(name)) {
+          triggers.push(name);
+        }
+        labels.add(name);
+        return snapshot();
+      },
+      removeLabel: (name) => {
+        labels.delete(name);
+        return snapshot();
+      },
+      readLabels: snapshot,
+    });
+  const standard = "final-candidate";
+  const full = "final-candidate-full";
+  const results = await Promise.allSettled([request(standard), request(full)]);
+  assert.deepEqual([...labels].sort(), [full, "reviewed"]);
+  assert.equal(results[1].status, "fulfilled");
+  assert.equal(results[0].status, "rejected");
+  assert.ok(
+    results[0].reason.message.includes("Concurrent Final Candidate request")
+  );
+  await request(full);
+  assert.deepEqual(triggers, [standard, full, full]);
+  assert.deepEqual([...labels].sort(), [full, "reviewed"]);
+});
+
+test("re-arms the trigger if overlapping cleanups have removed both request labels", async () => {
+  const standard = "final-candidate";
+  const full = "final-candidate-full";
+  const labels = new Set();
+  let triggers = 0;
+  const snapshot = () => [...labels].map((name) => ({ name }));
+  await requestConfidenceLabel({
+    initialLabels: [],
+    requestedLabel: full,
+    markPending: () => undefined,
+    addLabel: (name) => {
+      if (++triggers === 1) {
+        labels.add(standard);
+      }
+      labels.add(name);
+      return snapshot();
+    },
+    removeLabel: (name) => {
+      // The standard request removed full after our add and before our cleanup.
+      labels.delete(full);
+      labels.delete(name);
+      return snapshot();
+    },
+    readLabels: snapshot,
+  });
+  assert.equal(triggers, 2);
+  assert.deepEqual([...labels], [full]);
+});
+
+test("output-only publication verifies local Git objects when the main remote is unavailable", () => {
+  const fixture = createCandidateFixture();
+  try {
+    // A control-changing candidate is a valid verification result that withholds green.
+    const output = path.join(fixture.root, "publisher-output");
+    const tree = fixture.git(
+      fixture.repositoryPath,
+      "rev-parse",
+      "HEAD^{tree}"
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(SCRIPT_DIR, "final-candidate-publisher.mjs"),
+        "--output-only",
+        "true",
+        "--repository",
+        "amplifthq/openmeld",
+        "--pr",
+        "1",
+        "--branch",
+        "codex/candidate",
+        "--head",
+        fixture.headSha,
+        "--base",
+        fixture.baseSha,
+        "--tree",
+        tree,
+        "--candidate-root",
+        fixture.repositoryPath,
+        "--confidence",
+        "standard",
+        "--hosted-disposition",
+        "protected-local-validation-required",
+        "--job-result",
+        "skipped",
+        "--evidence",
+        fixture.evidencePath,
+        "--target-url",
+        "https://github.com/amplifthq/openmeld/actions/runs/1",
+      ],
+      {
+        cwd: fixture.repositoryPath,
+        encoding: "utf8",
+        env: {
+          ...fixture.gitEnvironment,
+          PATH: `${fixture.binPath}${path.delimiter}${process.env.PATH}`,
+          OPENMELD_TRUSTED_GIT_LOCAL_REMOTE_URL: path.join(
+            fixture.root,
+            "missing-remote.git"
+          ),
+          GITHUB_OUTPUT: output,
+          TEST_BASE_SHA: fixture.baseSha,
+          TEST_HEAD_SHA: fixture.headSha,
+          TEST_GITHUB_PULL_REQUEST_FIXTURE: GITHUB_PULL_REQUEST_FIXTURE,
+          TEST_GH_LOG: fixture.ghLogPath,
+          TEST_GH_OPERATION_COUNTS: fixture.ghOperationCountsPath,
+        },
+      }
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const published = readFileSync(output, "utf8");
+    assert.ok(published.includes("state=failure"));
+    assert.ok(published.includes("protected local validation required"));
+    const request = runRequestFixture({
+      ...fixture,
+      remotePath: path.join(fixture.root, "missing-remote.git"),
+    });
+    assert.notEqual(
+      request.status,
+      0,
+      "a new request still requires live main"
+    );
   } finally {
     fixture.cleanup();
   }
@@ -600,7 +746,7 @@ function createCandidateFixture() {
   writeExecutable(
     path.join(binPath, "gh"),
     `#!/usr/bin/env node
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 appendFileSync(process.env.TEST_GH_LOG, args.join(" ") + "\\n");
 const endpoint = args.find((arg) => arg.startsWith("repos/")) ?? "";
@@ -614,6 +760,8 @@ const operation = endpoint.includes("/actions/workflows/")
       ? "final-status"
       : "read";
 const input = args.includes("--input") ? readFileSync(0, "utf8") : "";
+const labelsFile = process.env.TEST_GH_LOG + ".labels";
+const issueLabels = () => existsSync(labelsFile) ? JSON.parse(readFileSync(labelsFile, "utf8")) : [];
 if (input) {
   appendFileSync(process.env.TEST_GH_LOG, input + "\\n");
 }
@@ -656,7 +804,18 @@ if (endpoint.includes("/actions/workflows/")) {
   captured.head.sha = process.env.TEST_HEAD_SHA;
   captured.html_url = "https://github.com/amplifthq/openmeld/pull/1";
   captured.number = 1;
+  captured.labels = issueLabels();
   process.stdout.write(JSON.stringify(captured));
+} else if (endpoint.endsWith("/issues/1/labels") || endpoint.includes("/issues/1/labels/")) {
+  const names = new Set(issueLabels().map(label => label.name));
+  if (args.includes("POST")) {
+    for (const name of JSON.parse(input).labels) names.add(name);
+  } else if (args.includes("DELETE")) {
+    names.delete(endpoint.split("/").at(-1));
+  }
+  const response = JSON.stringify([...names].map(name=>({name})));
+  writeFileSync(labelsFile, response);
+  process.stdout.write(response);
 } else if (endpoint.endsWith("/comments")) {
   process.stdout.write(JSON.stringify({ html_url: "https://github.com/amplifthq/openmeld/pull/1#issuecomment-1" }));
 } else {

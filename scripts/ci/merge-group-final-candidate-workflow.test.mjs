@@ -28,7 +28,7 @@ const RUN_BLOCK_PATTERN = /\n\s+run: \|[\s\S]*?(?=\n\s+- name:|\n\S|$)/gu;
 const STATUS_WRITE_PATTERN = /statuses: write/u;
 const ANY_WRITE_PATTERN = /:\s*write\b/u;
 const CURRENT_MAIN_CHECKOUT_PATTERN =
-  /path: current-main-control\n\s+persist-credentials: false\n\s+ref: \$\{\{ env\.CANDIDATE_BASE_SHA \}\}/u;
+  /path: current-main-control\n\s+persist-credentials: false\n\s+ref: refs\/heads\/main/u;
 const DECISION_PATTERN =
   /node current-main-control\/scripts\/ci\/final-candidate-merge-group-control\.mjs/u;
 const DECIDED_CONTROL_PATTERN =
