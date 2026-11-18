@@ -1,5 +1,5 @@
 {
-  "version": "0.3.296",
+  "version": "0.3.297",
   "cli": {
     "updatePolicy": "available",
     "reason": "Checks the selected Cursor CLI on macOS without opening Keychain authorization dialogs."
