@@ -478,7 +478,7 @@ export function signalAgentControllerProcessTree(input: {
   return sent;
 }
 
-export function terminateRemainingAgentControllerProcesses(input: {
+export async function terminateRemainingAgentControllerProcesses(input: {
   /** True once the root was reaped; its PID, and so its group ID, may be reused. */
   isRootExited?: () => boolean;
   killProcess?: typeof process.kill;
@@ -491,7 +491,60 @@ export function terminateRemainingAgentControllerProcesses(input: {
   trackedDescendantProcessIds?: Set<number>;
   waitForDiscoveryRetry?: WaitForAgentControllerProcessDiscoveryRetry;
 }): Promise<AgentControllerProcessCleanupResult> {
-  return runRemainingAgentControllerProcessCleanup(input);
+  const stoppingLiveGroup =
+    input.signalTarget === "process_group" &&
+    input.processId !== null &&
+    input.isRootExited?.() === false;
+  const initial = await runRemainingAgentControllerProcessCleanup(input);
+  if (!(initial.ok && stoppingLiveGroup)) {
+    return initial;
+  }
+
+  // The root could fork a detached helper after the first scan and before
+  // SIGKILL. Verify using its invocation marker, never a potentially reused PID.
+  const marked = {
+    ...input,
+    fresh: true,
+    markerOnly: true,
+    trackedDescendantProcessIds: new Set<number>(),
+  };
+  let signalSent = initial.signalSent;
+  const wait =
+    input.waitForDiscoveryRetry ?? waitForAgentControllerProcessDiscoveryRetry;
+  for (
+    let attempt = 0;
+    attempt < PROCESS_SUPERVISION_DISCOVERY_MAX_ATTEMPTS;
+    attempt += 1
+  ) {
+    await wait();
+    const survivors = await collectSupervisedProcessIds(marked);
+    if (survivors.error !== null) {
+      return { ok: false, error: survivors.error, signalSent };
+    }
+    if (survivors.currentProcessIds.length === 0) {
+      return { ok: true, signalSent };
+    }
+    try {
+      signalSent =
+        signalCurrentSupervisedProcesses({
+          killProcess: input.killProcess,
+          processIds: survivors.currentProcessIds,
+        }) || signalSent;
+    } catch (error) {
+      reportAgentControllerProcessCleanupFailure({
+        failure: { error, processId: input.processId, signal: "SIGKILL" },
+        reporter: input.reportCleanupFailure,
+      });
+      return { ok: false, error, signalSent };
+    }
+  }
+  return {
+    ok: false,
+    signalSent,
+    error: new Error(
+      "Could not confirm that all supervised controller processes stopped."
+    ),
+  };
 }
 
 async function runRemainingAgentControllerProcessCleanup(input: {
@@ -614,6 +667,7 @@ function signalCurrentSupervisedProcesses(input: {
 }
 
 async function collectSupervisedProcessIds(input: {
+  fresh?: boolean;
   listSupervisedProcessIds?: ListAgentControllerSupervisedProcessIds;
   // The root PID may now name another process: find only marked processes
   // instead of walking that PID's current children.
@@ -631,6 +685,7 @@ async function collectSupervisedProcessIds(input: {
     input.listSupervisedProcessIds ?? listAgentControllerSupervisedProcessIds;
   try {
     const supervisedProcessIds = await listSupervisedProcessIds({
+      ...(input.fresh ? { fresh: true } : {}),
       processId: input.markerOnly === true ? null : input.processId,
       supervisionId: input.supervisionId,
     });

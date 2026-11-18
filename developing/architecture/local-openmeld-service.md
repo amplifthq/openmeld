@@ -1630,19 +1630,25 @@ where macOS Keychain access is unavailable; it stores credentials outside the
 Keychain and must never become a silent automatic fallback.
 
 On macOS, the default-store sign-in check uses the Service's noninteractive
-Keychain reader for Cursor's access and refresh tokens. Two readable tokens
-confirm local sign-in. Two missing items indicate signed out. A partial pair or
-an inaccessible store leaves sign-in unknown. Only sign-in evidence enters the
-snapshot. Explicit file or memory stores and other platforms use
-`cursor-agent status --format json`.
+Keychain reader for Cursor's access and refresh tokens. The Service confirms
+local sign-in when both tokens stay readable and unchanged on a second read.
+Two missing items indicate signed out. A partial pair, rotation during the
+check, or an inaccessible store leaves sign-in unknown. An explicit
+`CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN` takes precedence on macOS. The offline
+check reports that the environment credential is configured and its validity
+is unknown. Only sign-in evidence enters the snapshot. Other platforms, and
+macOS file or memory stores without an environment credential, use the native
+`cursor-agent status --format json` command.
 
 Cursor's `--version` command can initialize credentials before parsing its
 arguments. Install and inventory version checks request the memory store. On
 macOS, those probe processes run offline with Keychain files and Mach services
 blocked, including for older builds that ignore the store setting. If macOS
 cannot start the isolated probe, the check is incomplete. The Service reaps
-owned probe descendants on exit and timeout. Login and ACP task execution use
-the selected installation and its normal credential store.
+owned probe descendants on exit and timeout. When stopping a live POSIX process
+group, the supervisor scans again for detached helpers after sending the signal
+and retains cleanup ownership until it can confirm the result. Login and ACP
+task execution use the selected installation and its normal credential store.
 
 ACI must distinguish a completed negative result from a check that did not
 complete. A completed check may prove that a controller needs repair or is not

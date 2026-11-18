@@ -393,6 +393,55 @@ test("retries supervised discovery when the leader exits during an inspection fa
   ]);
 });
 
+for (const inspectionFails of [false, true]) {
+  test(`checks for late detached helpers after killing a live group (inspection fails: ${inspectionFails})`, async () => {
+    let groupAlive = true;
+    let helperAlive = false;
+    const inspectionError = new Error(
+      "post-kill process inspection unavailable"
+    );
+    const result = await terminateRemainingAgentControllerProcesses({
+      processId: 4242,
+      supervisionId: "supervision-4242",
+      signalTarget: "process_group",
+      isRootExited: () => !groupAlive,
+      listSupervisedProcessIds: ({ fresh, processId }) => {
+        if (groupAlive) {
+          return Promise.resolve([]);
+        }
+        assert.equal(fresh, true);
+        assert.equal(processId, null);
+        if (!helperAlive && inspectionFails) {
+          return Promise.reject(inspectionError);
+        }
+        return Promise.resolve(helperAlive ? [4343] : []);
+      },
+      killProcess(pid, signal) {
+        assert.equal(signal, "SIGKILL");
+        if (pid === -4242) {
+          // The helper detached after the first scan and before its group was killed.
+          helperAlive = true;
+          groupAlive = false;
+        } else {
+          assert.equal(pid, 4343);
+          helperAlive = false;
+        }
+        return true;
+      },
+      waitForDiscoveryRetry: async () => undefined,
+      reportDiscoveryFailure: ({ error }) =>
+        assert.equal(error, inspectionError),
+    });
+    assert.equal(helperAlive, false);
+    assert.deepEqual(
+      result,
+      inspectionFails
+        ? { ok: false, signalSent: true, error: inspectionError }
+        : { ok: true, signalSent: true }
+    );
+  });
+}
+
 test("retries with a fresh scan when the exited leader had no visible descendants", async () => {
   const killCalls = [];
   let discoveryAttempts = 0;

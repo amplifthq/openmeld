@@ -52,12 +52,6 @@ export async function runCursorCliProbe(input: {
     const { child } = controllerProcess;
     let stdout = "";
     let stderr = "";
-    child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
-      stdout = (stdout + chunk).slice(0, OUTPUT_LIMIT);
-    });
-    child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
-      stderr = (stderr + chunk).slice(0, OUTPUT_LIMIT);
-    });
     let cleanup: ReturnType<
       typeof controllerProcess.terminateRemainingDescendants
     >;
@@ -69,6 +63,15 @@ export async function runCursorCliProbe(input: {
     child.once("exit", cleanUp);
     let timer: NodeJS.Timeout | undefined;
     const outcome = await new Promise<CursorProbeResult>((resolve) => {
+      // Node can return a child without stdio and deliver EMFILE/ENFILE on
+      // the next tick. Subscribe before touching any optional pipe.
+      child.once("error", (error) => resolve(incomplete(error.message)));
+      child.stdout?.setEncoding("utf8").on("data", (chunk: string) => {
+        stdout = (stdout + chunk).slice(0, OUTPUT_LIMIT);
+      });
+      child.stderr?.setEncoding("utf8").on("data", (chunk: string) => {
+        stderr = (stderr + chunk).slice(0, OUTPUT_LIMIT);
+      });
       timer = setTimeout(
         () =>
           resolve(
@@ -78,7 +81,6 @@ export async function runCursorCliProbe(input: {
           ),
         input.timeoutMs
       );
-      child.once("error", (error) => resolve(incomplete(error.message)));
       child.once("close", (code) => {
         if (macOS && stderr.startsWith("sandbox-exec:")) {
           resolve(
@@ -99,9 +101,12 @@ export async function runCursorCliProbe(input: {
           });
         }
       });
-      child.stdin.end();
+      child.stdin?.end();
     });
     clearTimeout(timer);
+    if (controllerProcess.processId === null) {
+      return outcome;
+    }
     const cleaned = await cleanUp();
     if (cleaned.ok) {
       return outcome;

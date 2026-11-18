@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   chmod,
   mkdir,
@@ -14,10 +15,52 @@ import test from "node:test";
 import {
   refreshCursorPersistedLaunchContract,
   runCursorCliProbe,
+  verifyCursorLaunchContract,
 } from "../dist/index.js";
 
 const CONFIGURED_CURSOR_NOT_LAUNCHABLE_PATTERN =
   /configured Cursor CLI command is not launchable/i;
+
+test(
+  "a probe that cannot allocate stdio reports an incomplete check and leaves the caller running",
+  {
+    skip: process.platform === "win32",
+  },
+  () => {
+    const adapter = new URL("../dist/index.js", import.meta.url).href;
+    const script = `
+    import assert from "node:assert/strict";
+    import { openSync, closeSync } from "node:fs";
+    import { runCursorCliProbe } from ${JSON.stringify(adapter)};
+    const fds = [];
+    try {
+      while (true) fds.push(openSync("/dev/null", "r"));
+    } catch (error) {
+      assert.equal(error.code, "EMFILE");
+    }
+    const probe = runCursorCliProbe({ command: "version", cwd: process.cwd(),
+      launchContract: { kind: "executable", commandPath: process.execPath }, timeoutMs: 2000 });
+    for (const fd of fds) closeSync(fd);
+    const result = await probe;
+    assert.equal(result.failureKind, "incomplete_check");
+    assert.match(result.errorMessage, /EMFILE/);
+  `;
+    const child = spawnSync(
+      "/bin/sh",
+      [
+        "-c",
+        'ulimit -n 64 && exec "$@"',
+        "sh",
+        process.execPath,
+        "--input-type=module",
+        "-e",
+        script,
+      ],
+      { encoding: "utf8", timeout: 10_000 }
+    );
+    assert.equal(child.status, 0, child.stderr);
+  }
+);
 
 test(
   "macOS protects Keychain files even for Cursor builds that ignore the store setting",
@@ -116,6 +159,10 @@ test("refreshCursorPersistedLaunchContract follows the stable managed Cursor ent
       nodePath: "/usr/bin/env",
       scriptPath: stableCommandPath,
     });
+    const verification = await verifyCursorLaunchContract({
+      launchContract: refreshed,
+    });
+    assert.equal(verification.ok, true, verification.errorMessage);
   } finally {
     restoreOptionalEnv("HOME", originalHome);
     restoreOptionalEnv("PATH", originalPath);

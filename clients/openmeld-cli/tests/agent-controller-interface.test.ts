@@ -37,6 +37,7 @@ import { OPENCODE_OPENROUTER_PROVIDER_LIST_RESPONSE } from "./fixtures/opencode-
 
 const STARTUP_TIMEOUT_EVIDENCE_RE =
   /pid=\d+, elapsedMs=\d+, stdoutBytes=0, stderrBytes=[1-9]\d*, load1m=/u;
+const LINUX_ZOMBIE_STATE_RE = /^State:\s+Z\b/mu;
 const nativeFetch = globalThis.fetch;
 
 const { createOpencodeClientMock, readKeychainMock, warnDaemonEventMock } =
@@ -155,22 +156,46 @@ describe("agent controller interface inventory", () => {
       refresh: "refresh-secret",
       status: "authenticated",
     },
+    ...["cursor-access-token", "cursor-refresh-token"].map((rotating) => ({
+      name: `rotating ${rotating}`,
+      failure: null,
+      access: "access-secret",
+      refresh: "refresh-secret",
+      status: "unknown",
+      rotating,
+    })),
+    ...(["CURSOR_API_KEY", "CURSOR_AUTH_TOKEN"] as const).map((credential) => ({
+      name: `overridden by ${credential}`,
+      failure: null,
+      access: null,
+      refresh: null,
+      status: "unknown",
+      credential,
+    })),
   ])(
     "checks Cursor without interactive credential access when the Keychain is $name",
     { skip: process.platform !== "darwin" },
-    async ({ failure, access, refresh, status }) => {
+    async (fixture) => {
+      const { failure, access, refresh, status } = fixture;
       const home = await mkdtemp(
         join(tmpdir(), "openmeld-aci-cursor-passive-")
       );
       try {
         vi.stubEnv("AGENT_CLI_CREDENTIAL_STORE", "");
+        if ("credential" in fixture) {
+          vi.stubEnv(fixture.credential, "explicit-secret");
+        }
         vi.stubGlobal(
           "fetch",
           vi.fn(() => Response.json({ version: "2026.10.19-6bbf2c4" }))
         );
+        let revision = 0;
         readKeychainMock.mockImplementation(({ service }) => {
           if (failure) {
             return Promise.reject(failure);
+          }
+          if ("rotating" in fixture && fixture.rotating === service) {
+            return Promise.resolve(`rotating-secret-${++revision}`);
           }
           return Promise.resolve(
             service === "cursor-access-token" ? access : refresh
@@ -219,6 +244,11 @@ describe("agent controller interface inventory", () => {
           );
           expect(JSON.stringify(snapshot)).not.toContain("access-secret");
           expect(JSON.stringify(snapshot)).not.toContain("refresh-secret");
+          expect(JSON.stringify(snapshot)).not.toContain("rotating-secret");
+          expect(JSON.stringify(snapshot)).not.toContain("explicit-secret");
+        }
+        if ("credential" in fixture) {
+          expect(readKeychainMock).not.toHaveBeenCalled();
         }
         await expect(stat(interactivePath)).rejects.toMatchObject({
           code: "ENOENT",
@@ -238,6 +268,7 @@ describe("agent controller interface inventory", () => {
       );
       const pidPath = join(home, "descendant.pid");
       let descendantPid: number | undefined;
+      let helperStopped = false;
       try {
         const descendantPath = join(home, "descendant.cjs");
         await writeFile(
@@ -275,23 +306,33 @@ describe("agent controller interface inventory", () => {
           mode === "exit" ? "succeeded" : "failed"
         );
         await expect
-          .poll(() => {
+          .poll(async () => {
             try {
+              if (process.platform === "linux") {
+                // An unreaped orphan still has a PID but cannot run or hold pipes.
+                const status = await readFile(
+                  `/proc/${observedPid}/status`,
+                  "utf8"
+                );
+                return !LINUX_ZOMBIE_STATE_RE.test(status);
+              }
               process.kill(observedPid, 0);
               return true;
             } catch (error) {
-              if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+              const code = (error as NodeJS.ErrnoException).code;
+              if (code === "ESRCH" || code === "ENOENT") {
                 return false;
               }
               throw error;
             }
           })
           .toBe(false);
+        helperStopped = true;
       } finally {
         const pid =
           descendantPid ??
           Number(await readFile(pidPath, "utf8").catch(() => "0"));
-        if (pid > 0) {
+        if (!helperStopped && pid > 0) {
           try {
             process.kill(pid, "SIGKILL");
           } catch {

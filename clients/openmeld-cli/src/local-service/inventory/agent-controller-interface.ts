@@ -926,7 +926,8 @@ async function resolveCursorInterfaceSnapshot(
     message = requireControllerSignInInterfaceDescription("cursor");
     status = "unavailable";
   } else if (auth.status === "unknown") {
-    message = "OpenMeld could not read Cursor CLI authentication status.";
+    message =
+      auth.label ?? "OpenMeld could not read Cursor CLI authentication status.";
     status = "warning";
   }
   return {
@@ -1713,35 +1714,21 @@ async function probeCursorAuthentication(
   input: InventoryProbeInput
 ): Promise<AgentControllerInterfaceAuthSnapshot> {
   const store = process.env.AGENT_CLI_CREDENTIAL_STORE;
+  if (
+    process.platform === "darwin" &&
+    (process.env.CURSOR_API_KEY?.trim() ||
+      process.env.CURSOR_AUTH_TOKEN?.trim())
+  ) {
+    // Offline status reports the saved login. It cannot validate a credential
+    // the Service supplies to Cursor when it starts a task.
+    return {
+      label:
+        "A Cursor environment credential is configured. OpenMeld cannot verify it offline.",
+      status: "unknown",
+    };
+  }
   if (process.platform === "darwin" && store !== "file" && store !== "memory") {
-    // Cursor's native status checks both tokens. Only count credentials the
-    // Service can actually read with Keychain interaction disabled.
-    try {
-      const hasAccess = Boolean(
-        await readMacOsNativeKeychainToken({
-          service: "cursor-access-token",
-          account: "cursor-user",
-        })
-      );
-      const hasRefresh = Boolean(
-        await readMacOsNativeKeychainToken({
-          service: "cursor-refresh-token",
-          account: "cursor-user",
-        })
-      );
-      if (hasAccess && hasRefresh) {
-        return {
-          status: "authenticated",
-          label: "Signed in",
-          type: "cursor_login",
-        };
-      }
-      return {
-        status: hasAccess || hasRefresh ? "unknown" : "unauthenticated",
-      };
-    } catch {
-      return { status: "unknown" };
-    }
+    return await probeCursorKeychainAuthentication();
   }
   const probe = await runCursorCliProbe({
     command: "status",
@@ -1766,6 +1753,33 @@ async function probeCursorAuthentication(
     };
   }
   return { status: "unknown" };
+}
+
+async function probeCursorKeychainAuthentication(): Promise<AgentControllerInterfaceAuthSnapshot> {
+  const readToken = (service: "cursor-access-token" | "cursor-refresh-token") =>
+    readMacOsNativeKeychainToken({ service, account: "cursor-user" });
+  try {
+    const access = await readToken("cursor-access-token");
+    const refresh = await readToken("cursor-refresh-token");
+    if (!(access && refresh)) {
+      return { status: access || refresh ? "unknown" : "unauthenticated" };
+    }
+    // Cursor stores these as independent items. Discard mixed evidence when
+    // either credential changes or disappears during the noninteractive read.
+    if (
+      access !== (await readToken("cursor-access-token")) ||
+      refresh !== (await readToken("cursor-refresh-token"))
+    ) {
+      return { status: "unknown" };
+    }
+    return {
+      status: "authenticated",
+      label: "Signed in",
+      type: "cursor_login",
+    };
+  } catch {
+    return { status: "unknown" };
+  }
 }
 
 function resolveOpenClawAuthProbe(probe: CommandProbeResult): {
