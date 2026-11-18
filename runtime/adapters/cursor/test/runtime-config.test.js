@@ -11,10 +11,55 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { refreshCursorPersistedLaunchContract } from "../dist/index.js";
+import {
+  refreshCursorPersistedLaunchContract,
+  runCursorCliProbe,
+} from "../dist/index.js";
 
 const CONFIGURED_CURSOR_NOT_LAUNCHABLE_PATTERN =
   /configured Cursor CLI command is not launchable/i;
+
+test(
+  "macOS protects Keychain files even for Cursor builds that ignore the store setting",
+  {
+    skip: process.platform !== "darwin",
+  },
+  async () => {
+    const home = await mkdtemp(join(tmpdir(), "cursor-legacy-probe-"));
+    try {
+      const keychains = join(home, "Library", "Keychains");
+      await mkdir(keychains, { recursive: true });
+      const canary = join(keychains, "fixture");
+      await writeFile(canary, "fixture");
+      const script = join(home, "cursor-agent");
+      await writeFile(
+        script,
+        [
+          "#!/bin/sh",
+          'if cat "$1" >/dev/null 2>&1; then echo interactive; exit 1; fi',
+          'if [ "$2" = "--version" ]; then echo fixture-version; else echo fixture-status; fi',
+        ].join("\n"),
+        { mode: 0o700 }
+      );
+      const launchContract = {
+        kind: "executable",
+        commandPath: script,
+        argsPrefix: [canary],
+      };
+      for (const command of ["version", "status"]) {
+        const result = await runCursorCliProbe({
+          command,
+          cwd: home,
+          launchContract,
+          timeoutMs: 5000,
+        });
+        assert.deepEqual(result, { ok: true, stdout: `fixture-${command}\n` });
+      }
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  }
+);
 
 test("refreshCursorPersistedLaunchContract follows the stable managed Cursor entrypoint", async () => {
   const fixtureDir = await mkdtemp(join(tmpdir(), "cursor-managed-update-"));
@@ -46,7 +91,7 @@ test("refreshCursorPersistedLaunchContract follows the stable managed Cursor ent
     ),
     writeFile(
       newScriptPath,
-      "#!/usr/bin/env bash\necho 2026.08.04-new\n",
+      '#!/usr/bin/env bash\nif [ "$AGENT_CLI_CREDENTIAL_STORE" != "memory" ]; then exit 1; fi\necho 2026.08.04-new\n',
       "utf8"
     ),
   ]);

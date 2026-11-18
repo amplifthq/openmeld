@@ -17,6 +17,7 @@ import {
   materializeCliLaunchCommand,
   type RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
+import { runCursorCliProbe } from "@openmeld/adapter-cursor";
 import {
   GrokBuildAcpTransportError,
   probeGrokBuildAcpInterface,
@@ -50,6 +51,7 @@ import {
   resolveControllerVersionChannel,
 } from "../../agents/controller-version-channel";
 import type { AgentTargetState } from "../../agents/registry";
+import { readMacOsNativeKeychainToken } from "../../config/macos-native-keychain";
 import { warnDaemonEvent } from "../core/logger";
 import {
   buildAgentControllerInterfaceKeeperKey,
@@ -890,20 +892,15 @@ async function resolveClaudeCodeInterfaceSnapshot(
 async function resolveCursorInterfaceSnapshot(
   input: InventoryProbeInput
 ): Promise<AgentControllerInterfaceProbeOutcome> {
-  const [versionProbe, authProbe] = await Promise.all([
-    runLaunchContractCommand({
-      workingDirectory: input.workingDirectory,
-      args: ["--version"],
+  const [versionProbe, auth] = await Promise.all([
+    runCursorCliProbe({
+      command: "version",
+      cwd: input.workingDirectory,
       launchContract: input.launchContract,
+      timeoutMs: PROBE_TIMEOUT_MS,
     }),
-    runLaunchContractCommand({
-      workingDirectory: input.workingDirectory,
-      allowNonZeroExit: true,
-      args: ["status", "--format", "json"],
-      launchContract: input.launchContract,
-    }),
+    probeCursorAuthentication(input),
   ]);
-  const auth = resolveCursorAuthSnapshot(authProbe);
   const version = versionProbe.ok ? parseCliVersion(versionProbe.stdout) : null;
   const usageLimits =
     auth.status === "authenticated"
@@ -922,7 +919,10 @@ async function resolveCursorInterfaceSnapshot(
         );
   let message = input.baseSnapshot.message;
   let status = input.baseSnapshot.status;
-  if (auth.status === "unauthenticated") {
+  if (!versionProbe.ok) {
+    message = versionProbe.errorMessage;
+    status = "warning";
+  } else if (auth.status === "unauthenticated") {
     message = requireControllerSignInInterfaceDescription("cursor");
     status = "unavailable";
   } else if (auth.status === "unknown") {
@@ -930,7 +930,7 @@ async function resolveCursorInterfaceSnapshot(
     status = "warning";
   }
   return {
-    probeCompleted: authProbe.ok && auth.status !== "unknown",
+    probeCompleted: versionProbe.ok && auth.status !== "unknown",
     snapshot: {
       ...input.baseSnapshot,
       auth,
@@ -1709,9 +1709,46 @@ function resolveClaudeAuthSnapshot(
   };
 }
 
-function resolveCursorAuthSnapshot(
-  probe: CommandProbeResult
-): AgentControllerInterfaceAuthSnapshot {
+async function probeCursorAuthentication(
+  input: InventoryProbeInput
+): Promise<AgentControllerInterfaceAuthSnapshot> {
+  const store = process.env.AGENT_CLI_CREDENTIAL_STORE;
+  if (process.platform === "darwin" && store !== "file" && store !== "memory") {
+    // Cursor's native status checks both tokens. Only count credentials the
+    // Service can actually read with Keychain interaction disabled.
+    try {
+      const hasAccess = Boolean(
+        await readMacOsNativeKeychainToken({
+          service: "cursor-access-token",
+          account: "cursor-user",
+        })
+      );
+      const hasRefresh = Boolean(
+        await readMacOsNativeKeychainToken({
+          service: "cursor-refresh-token",
+          account: "cursor-user",
+        })
+      );
+      if (hasAccess && hasRefresh) {
+        return {
+          status: "authenticated",
+          label: "Signed in",
+          type: "cursor_login",
+        };
+      }
+      return {
+        status: hasAccess || hasRefresh ? "unknown" : "unauthenticated",
+      };
+    } catch {
+      return { status: "unknown" };
+    }
+  }
+  const probe = await runCursorCliProbe({
+    command: "status",
+    cwd: input.workingDirectory,
+    launchContract: input.launchContract,
+    timeoutMs: PROBE_TIMEOUT_MS,
+  });
   if (!probe.ok) {
     return { status: "unknown" };
   }
