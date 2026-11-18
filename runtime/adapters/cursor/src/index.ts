@@ -74,6 +74,7 @@ type ActiveCursorAcpTurn = Pick<
 const CURSOR_CONVERSATION_BRIDGE_SPEC =
   resolveBuiltinAdapterConversationBridgeSpec("cursor");
 
+export { runCursorCliProbe } from "./config/cursor-cli-probe.js";
 export {
   refreshCursorPersistedLaunchContract,
   resolveCursorTimeoutMs,

@@ -1514,7 +1514,7 @@ Cursor dispatch uses only the official Agent Client Protocol exposed by
 `cursor-agent acp`; OpenMeld does not maintain a second Cursor print-mode
 adapter. ACI detects the `cursor-agent` executable itself, never the generic
 `agent` command or the presence of Cursor IDE state. It reports the CLI build,
-`cursor-agent status --format json` authentication evidence, ACP as the native
+Cursor CLI sign-in evidence, ACP as the native
 interface, model selection, permission-mode selection, native event streaming,
 cancellation, interruption, permission requests, structured questions, and
 plan review. OpenMeld maps blocking ACP requests into the shared Agent
@@ -1628,6 +1628,31 @@ that the Service process can actually use. `AGENT_CLI_CREDENTIAL_STORE=file`
 may be offered only as an explicit diagnostic escape hatch for environments
 where macOS Keychain access is unavailable; it stores credentials outside the
 Keychain and must never become a silent automatic fallback.
+
+On macOS, the default-store sign-in check uses the Service's noninteractive
+Keychain reader for Cursor's access and refresh tokens. The Keychain stores the
+items separately. The Service reports signed in when it reads the same complete
+pair twice, and signed out when both reads of each item return missing. A
+partial pair, a difference the reads detect, or an inaccessible store leaves
+sign-in unknown. An explicit `CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN` takes
+precedence on macOS. The offline
+check reports that the environment credential is configured and its validity
+is unknown. Only sign-in evidence enters the snapshot. Other platforms, and
+macOS file or memory stores without an environment credential, use the native
+`cursor-agent status --format json` command. The Keychain pair supplies no
+stable account identifier for reusing older quota observations.
+
+Cursor's `--version` command can initialize credentials before parsing its
+arguments. Install and inventory version checks request the memory store. On
+macOS, those probe processes run offline with Keychain files and Mach services
+blocked, including for older builds that ignore the store setting. If macOS
+cannot start the isolated probe or the CLI returns no recognizable version,
+inventory records an incomplete check. The Service reaps owned probe descendants
+on exit and timeout. After stopping a POSIX process group, the supervisor scans
+for detached helpers even if the group leader has exited. Cleanup retries use
+fresh invocation markers until a scan confirms that the helpers have stopped.
+Login and ACP task execution use the selected installation and its normal
+credential store.
 
 ACI must distinguish a completed negative result from a check that did not
 complete. A completed check may prove that a controller needs repair or is not

@@ -1,11 +1,11 @@
 {
-  "version": "0.3.296",
+  "version": "0.3.297",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Lets Service repair collect local diagnostics while cloud status is unavailable."
+    "reason": "Checks the selected Cursor CLI on macOS without opening Keychain authorization dialogs."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Preserves local cleanup and failure evidence during Service maintenance without waiting for cloud status."
+    "reason": "Keeps background Cursor sign-in and installation checks noninteractive and cleans up their child processes."
   }
 }
