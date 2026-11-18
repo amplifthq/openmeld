@@ -507,3 +507,123 @@ test("settles publication against the same PR head, source and attempt", async (
   const invalid = new Error("GitHub returned invalid result state");
   await assert.rejects(observe({ first: [], finished: invalid }), invalid);
 });
+
+test("binds terminal statuses to the newest explicit request, including overwritten pending statuses", () => {
+  const pr = PULL_REQUEST;
+  const head = pr.head.sha.slice(0, 12);
+  const base = pr.base.sha.slice(0, 12);
+  const requested = {
+    context: "OpenMeld Final Candidate",
+    id: 501,
+    state: "pending",
+    description: `Requested full Final Candidate @ ${head}; waiting for its result`,
+    created_at: "2026-11-18T11:00:01Z",
+    target_url: pr.html_url,
+  };
+  const run = (id, confidence, created_at) => ({
+    id,
+    run_attempt: 1,
+    status: "completed",
+    conclusion: "success",
+    created_at,
+    display_title: `Final Candidate PR #${pr.number} @ ${pr.head.sha} [${confidence}] on ${pr.base.sha}`,
+  });
+  const old = run(42, "standard", "2026-11-18T11:00:00Z");
+  const full = run(43, "full", "2026-11-18T11:00:02Z");
+  const auto = run(44, "standard", "2026-11-18T12:00:00Z");
+  const terminal = (source, confidence) => ({
+    ...requested,
+    state: "success",
+    created_at: source.created_at,
+    target_url: `https://github.com/amplifthq/openmeld/actions/runs/${source.id}/attempts/1`,
+    description: `Passed ${confidence} @ ${head} on ${base}`,
+  });
+  const stale = terminal(old, "standard");
+  const owned = terminal(full, "full");
+  const receipt = {
+    ...owned,
+    description: `${owned.description}; request 501`,
+  };
+  const observe = (source, statuses, lookup) =>
+    buildFinalCandidateObservation({
+      pullRequest: pr,
+      run: source,
+      jobs: [],
+      annotationsByCheckRunId: new Map(),
+      commitStatuses: [...statuses, requested],
+      readStatusSource: lookup,
+    });
+  assert.equal(observe(null, [stale]).state, "waiting");
+  assert.equal(observe(old, [stale]).state, "waiting");
+  const previousFailure = {
+    pullRequest: pr,
+    run: { ...old, conclusion: "failure" },
+    jobs: BUDGET_FIXTURE.jobs,
+    annotationsByCheckRunId: new Map(
+      Object.entries(BUDGET_FIXTURE.annotationsByCheckRunId).map(
+        ([id, annotations]) => [Number(id), annotations]
+      )
+    ),
+  };
+  const beforeTrigger = buildFinalCandidateObservation({
+    ...previousFailure,
+    commitStatuses: [requested],
+  });
+  assert.equal(beforeTrigger.state, "waiting");
+  assert.equal(beforeTrigger.runId, null);
+  assert.doesNotMatch(
+    renderFinalCandidateObservation(beforeTrigger),
+    HOSTED_BUDGET_PATTERN
+  );
+  assert.equal(
+    buildFinalCandidateObservation({ ...previousFailure, commitStatuses: [] })
+      .state,
+    "hosted-unavailable"
+  );
+  assert.equal(
+    buildFinalCandidateObservation({
+      ...previousFailure,
+      jobs: [],
+      commitStatuses: [],
+    }).state,
+    "failure"
+  );
+  assert.equal(observe(full, [stale]).state, "waiting");
+  assert.equal(observe(full, [receipt]).state, "success");
+  assert.equal(
+    observe(full, [
+      { ...receipt, description: `${owned.description}; request 500` },
+    ]).state,
+    "waiting"
+  );
+  assert.equal(
+    observe({ ...full, run_attempt: 2 }, [receipt]).state,
+    "waiting"
+  );
+  assert.equal(
+    observe(auto, [terminal(auto, "standard"), receipt]).state,
+    "success"
+  );
+  assert.equal(
+    observe(auto, [terminal(auto, "standard"), owned], () => full).state,
+    "success"
+  );
+  assert.equal(
+    observe(
+      full,
+      [{ ...owned, target_url: owned.target_url.replace("/43/", "/42/") }],
+      () => old
+    ).state,
+    "waiting"
+  );
+  const localPending = {
+    ...requested,
+    description: `Running tooling @ ${head} on ${base}`,
+  };
+  const localPassed = {
+    ...localPending,
+    state: "success",
+    description: `Passed tooling @ ${head} on ${base}`,
+  };
+  assert.equal(observe(full, [localPassed, localPending]).state, "success");
+});

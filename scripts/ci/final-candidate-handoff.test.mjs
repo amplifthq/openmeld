@@ -112,6 +112,7 @@ test("an old source rerun searches from the current attempt's start", async () =
     run_started_at: "2026-11-11T04:20:34Z",
   };
   let resultReads = 0;
+  let waits = 0;
   await settleHostedCandidateRuns(input, {
     read: (args) => {
       const endpoint = args.at(-1);
@@ -130,7 +131,7 @@ test("an old source rerun searches from the current attempt's start", async () =
         ),
       ]);
     },
-    wait: ignore,
+    wait: () => assert.equal(++waits, 1),
     report: ignore,
   });
   assert.equal(resultReads, 2);
@@ -190,21 +191,30 @@ test("missing or incomplete result API evidence fails closed", async () => {
       true,
     ],
   ]) {
-    await assert.rejects(
-      settleHostedCandidateRuns(input, {
-        read: (args) =>
-          args.at(-1).includes("final-candidate-result.yml")
-            ? results
-            : page([splitSource]),
-        cancel: ignore,
-        report: ignore,
-      }),
-      (error) => {
-        assert.match(error.message, RESULT_INCOMPLETE);
-        assert.equal(error instanceof ResultListingChangedError, changed);
-        return true;
-      }
-    );
+    let waits = 0;
+    const handoff = settleHostedCandidateRuns(input, {
+      read: (args) => {
+        if (!args.at(-1).includes("final-candidate-result.yml")) {
+          return page([splitSource]);
+        }
+        return waits > 0
+          ? page([resultRun(splitSource, "completed")])
+          : results;
+      },
+      cancel: ignore,
+      report: ignore,
+      wait: () => assert.equal(++waits, 1),
+    });
+    if (changed) {
+      await handoff;
+      assert.equal(waits, 1);
+      continue;
+    }
+    await assert.rejects(handoff, (error) => {
+      assert.match(error.message, RESULT_INCOMPLETE);
+      assert.equal(error instanceof ResultListingChangedError, changed);
+      return true;
+    });
   }
 });
 

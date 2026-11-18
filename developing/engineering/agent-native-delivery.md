@@ -210,8 +210,10 @@ git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- wait --p
 Use `wait` to follow the PR and head named by the source workflow.
 Automatic runs publish their status after the result workflow verifies the
 candidate. An explicit `request` marks the head pending before triggering the
-requested confidence level. Concurrent requests reconcile only the two FC
-labels and report a conflict if the requested label cannot be confirmed.
+requested confidence level. GitHub timestamps have one-second precision, so
+the request waits one second after the pending write before rearming the
+label. Concurrent requests reconcile only the two FC labels and report a
+conflict if the requested label cannot be confirmed.
 During a wait, failed-job annotations are reused within the same run attempt.
 
 Fork and same-repository candidates run on `pull_request` with read-only job
@@ -225,8 +227,11 @@ candidate source as immutable Git objects, treats artifacts as data, and never
 runs candidate scripts. Output-only verification reuses the pinned Git objects
 and the main ancestry already checked for the run. A separate status writer
 rechecks the live head and the latest run without checking out code or
-downloading artifacts. A finished
-result stays bound to its exact head, base, and tree: `main` advancing later
+downloading artifacts. For an explicit request it matches the pending status,
+confidence and source run, and records the request status ID and run attempt
+in the published result. The observer checks status history so that an older
+run cannot satisfy a newer request. A finished result stays bound to its exact
+head, base, and tree: `main` advancing later
 does not turn it red, because merge queue or strict up-to-date protection owns
 freshness at merge time. Changes to either workflow require the protected
 local bootstrap. Workflow approval for first-time contributors remains a GitHub

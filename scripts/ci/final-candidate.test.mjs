@@ -286,12 +286,23 @@ test("a hosted request prints the authoritative remote plan from current main", 
   }
 });
 
+function requestClock() {
+  let time = 0;
+  return {
+    now: () => time,
+    sleep: (ms) => {
+      time += ms;
+    },
+  };
+}
+
 test("competing confidence requests leave one trigger and preserve independent label edits", async () => {
   const labels = new Set(["triage"]);
   const triggers = [];
   const snapshot = () => [...labels].map((name) => ({ name }));
   const request = (requestedLabel, markPending = () => undefined) =>
     requestConfidenceLabel({
+      ...requestClock(),
       requestedLabel,
       markPending,
       addLabel: (name) => {
@@ -334,16 +345,68 @@ test("competing confidence requests leave one trigger and preserve independent l
   assert.deepEqual([...labels].sort(), [standard, "reviewed"]);
 });
 
+test("a hosted request pins label mutations to its admitted head and reports a failed post-pending read", () => {
+  for (const [options, status, expectedTriggers, message] of [
+    [{ failedPullReads: [2] }, 0, 1, ""],
+    [
+      { failedPullReads: [2, 3] },
+      1,
+      0,
+      "No request-label trigger was attempted",
+    ],
+    [
+      { failedPullReads: [3, 4] },
+      1,
+      1,
+      "A request-label trigger was attempted",
+    ],
+    [{ driftAt: 2 }, 1, 0, "Pull request head changed"],
+    [{ driftAt: 3 }, 1, 1, "Pull request head changed"],
+    [{ driftAt: 3, rearm: true }, 1, 0, "Pull request head changed"],
+  ]) {
+    const fixture = createCandidateFixture();
+    try {
+      if (options.rearm) {
+        writeFileSync(
+          `${fixture.ghLogPath}.labels`,
+          JSON.stringify([{ name: "final-candidate" }])
+        );
+      }
+      const result = runRequestFixture(fixture, options);
+      assert.equal(result.status, status, result.stderr);
+      const log = readFileSync(fixture.ghLogPath, "utf8");
+      assert.match(log, PENDING_STATUS_PATTERN);
+      const triggers = log
+        .split("\n")
+        .filter((line) =>
+          line.includes("POST repos/amplifthq/openmeld/issues/1/labels")
+        );
+      assert.equal(triggers.length, expectedTriggers);
+      if (message) {
+        assert.ok(result.stderr.includes(message), result.stderr);
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  }
+});
+
 test("re-arms the trigger if overlapping cleanups have removed both request labels", async () => {
   const standard = "final-candidate";
   const full = "final-candidate-full";
   const labels = new Set();
   let triggers = 0;
   const snapshot = () => [...labels].map((name) => ({ name }));
+  const clock = requestClock();
+  let pendingAt;
   await requestConfidenceLabel({
+    ...clock,
     requestedLabel: full,
-    markPending: () => undefined,
+    markPending: () => {
+      pendingAt = clock.now();
+    },
     addLabel: (name) => {
+      assert.ok(clock.now() >= pendingAt + 1000);
       if (++triggers === 1) {
         labels.add(standard);
       }
@@ -362,14 +425,29 @@ test("re-arms the trigger if overlapping cleanups have removed both request labe
   assert.deepEqual([...labels], [full]);
 });
 
-test("reconciles an uncertain competing-label deletion without triggering a second run", async () => {
-  for (const failure of ["transient", "lost-response", "persistent"]) {
+test("reconciles a failed label deletion without removing a replacement attachment", async () => {
+  for (const failure of [
+    "transient",
+    "lost-response",
+    "persistent",
+    "replaced",
+  ]) {
     const labels = new Set(["reviewed"]);
+    if (failure === "replaced") {
+      labels.add("final-candidate");
+    }
     const snapshot = () => [...labels].map((name) => ({ name }));
-    const error = new Error("label deletion failed");
+    const error =
+      failure === "transient" || failure === "persistent"
+        ? Object.assign(new Error("spawnSync gh EAGAIN"), {
+            code: "EAGAIN",
+            syscall: "spawnSync gh",
+          })
+        : new Error("connection lost before receipt");
     let additions = 0;
     let removals = 0;
     const request = requestConfidenceLabel({
+      ...requestClock(),
       requestedLabel: "final-candidate-full",
       readLabels: snapshot,
       markPending: () => undefined,
@@ -381,8 +459,12 @@ test("reconciles an uncertain competing-label deletion without triggering a seco
       },
       removeLabel: (name) => {
         removals++;
-        if (failure === "lost-response") {
+        if (failure === "lost-response" || failure === "replaced") {
           labels.delete(name);
+          // Another request attached the same name after our deletion applied.
+          if (failure === "replaced") {
+            labels.add(name);
+          }
         }
         if (removals === 1 || failure === "persistent") {
           throw error;
@@ -393,6 +475,12 @@ test("reconciles an uncertain competing-label deletion without triggering a seco
     });
     if (failure === "persistent") {
       await assert.rejects(request, error);
+    } else if (failure === "replaced") {
+      await assert.rejects(
+        request,
+        (failureError) => failureError.cause === error
+      );
+      assert.deepEqual([...labels].sort(), ["final-candidate", "reviewed"]);
     } else {
       await request;
       assert.deepEqual([...labels].sort(), [
@@ -400,8 +488,11 @@ test("reconciles an uncertain competing-label deletion without triggering a seco
         "reviewed",
       ]);
     }
-    assert.equal(additions, 1);
-    assert.equal(removals, failure === "lost-response" ? 1 : 2);
+    assert.equal(additions, failure === "replaced" ? 0 : 1);
+    assert.equal(
+      removals,
+      failure === "lost-response" || failure === "replaced" ? 1 : 2
+    );
   }
 });
 
@@ -806,6 +897,8 @@ appendFileSync(process.env.TEST_GH_LOG, args.join(" ") + "\\n");
 const endpoint = args.find((arg) => arg.startsWith("repos/")) ?? "";
 const operation = endpoint.includes("/actions/workflows/")
   ? "hosted-read"
+  : endpoint.endsWith("/pulls/1")
+  ? "pull-request-read"
   : endpoint.endsWith("/comments")
   ? "pull-request-comment"
   : endpoint.includes("/statuses/") && args.includes("state=pending")
@@ -855,7 +948,8 @@ if (endpoint.includes("/actions/workflows/")) {
   const captured = JSON.parse(readFileSync(process.env.TEST_GITHUB_PULL_REQUEST_FIXTURE, "utf8")).response;
   captured.base.sha = process.env.TEST_BASE_SHA;
   captured.head.ref = "codex/candidate";
-  captured.head.sha = process.env.TEST_HEAD_SHA;
+  captured.head.sha = process.env.TEST_REQUEST_HEAD_DRIFT_AT && operationCounts[operation] >= Number(process.env.TEST_REQUEST_HEAD_DRIFT_AT)
+    ? "1".repeat(40) : process.env.TEST_HEAD_SHA;
   captured.html_url = "https://github.com/amplifthq/openmeld/pull/1";
   captured.number = 1;
   captured.labels = issueLabels();
@@ -1007,7 +1101,7 @@ function runCandidateFixture(fixture, options = {}) {
   );
 }
 
-function runRequestFixture(fixture) {
+function runRequestFixture(fixture, options = {}) {
   return spawnSync(
     process.execPath,
     [
@@ -1031,7 +1125,12 @@ function runRequestFixture(fixture) {
         PATH: `${fixture.binPath}${path.delimiter}${process.env.PATH}`,
         OPENMELD_TRUSTED_GIT_LOCAL_REMOTE_URL: fixture.remotePath,
         TEST_BASE_SHA: fixture.baseSha,
-        TEST_GH_FAILURE_OPERATION_ATTEMPTS: "",
+        TEST_GH_FAILURE_OPERATION_ATTEMPTS: (options.failedPullReads ?? [])
+          .map((attempt) => `pull-request-read:${attempt}`)
+          .join(","),
+        TEST_REQUEST_HEAD_DRIFT_AT: options.driftAt
+          ? String(options.driftAt)
+          : "",
         TEST_GH_FAILURE_OPERATIONS: "",
         TEST_GH_LOG: fixture.ghLogPath,
         TEST_GH_OPERATION_COUNTS: fixture.ghOperationCountsPath,

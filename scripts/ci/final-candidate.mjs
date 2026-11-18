@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { FINAL_CANDIDATE_EVIDENCE_VERSION } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
 import { settleHostedCandidateRuns } from "./final-candidate-handoff.mjs";
@@ -142,26 +143,35 @@ async function requestRemoteCandidate(options) {
 
   const requestedLabel = resolveFinalCandidateLabel(options.confidence);
   const endpoint = `repos/${repository}/issues/${pullRequestNumber}`;
-  const readLabels = () =>
-    readPullRequest(repository, pullRequestNumber).labels;
+  let triggerAttempted = false;
   await requestConfidenceLabel({
     requestedLabel,
-    readLabels,
+    readLabels: () =>
+      readRequestLabels(
+        repository,
+        pullRequestNumber,
+        state.snapshot.expectedHeadSha,
+        triggerAttempted
+      ),
     removeLabel: (label) =>
       runGhJson(["api", "--method", "DELETE", `${endpoint}/labels/${label}`]),
-    addLabel: (label) =>
-      runGhJson(
+    addLabel: (label) => {
+      triggerAttempted = true;
+      return runGhJson(
         ["api", "--method", "POST", `${endpoint}/labels`, "--input", "-"],
         { labels: [label] }
-      ),
-    markPending: () =>
+      );
+    },
+    markPending: () => {
       publishCommitStatus({
         description: `Requested ${options.confidence} Final Candidate @ ${state.snapshot.expectedHeadSha.slice(0, 12)}; waiting for its result`,
         headSha: state.snapshot.expectedHeadSha,
         repository,
         state: "pending",
         targetUrl: state.pullRequest.html_url,
-      }),
+      });
+      triggerAttempted = false;
+    },
   });
   process.stdout.write(
     [
@@ -178,11 +188,39 @@ async function requestRemoteCandidate(options) {
   );
 }
 
+function readRequestLabels(repository, number, expectedHead, triggerAttempted) {
+  for (let attempt = 0; ; attempt++) {
+    let current;
+    try {
+      current = readPullRequest(repository, number);
+    } catch (error) {
+      if (attempt === 0) {
+        continue;
+      }
+      const trigger = triggerAttempted
+        ? "A request-label trigger was attempted. Check Final Candidate status before retrying."
+        : "No request-label trigger was attempted for this pending status. Retry the request.";
+      throw new Error(
+        `Could not read PR #${number} after writing pending for ${expectedHead}. ${trigger} ${error.message}`,
+        { cause: error }
+      );
+    }
+    if (current.head.sha !== expectedHead) {
+      throw new Error(
+        `Pull request head changed from ${expectedHead} to ${current.head.sha}. Retry the request for the new head.`
+      );
+    }
+    return current.labels;
+  }
+}
+
 // Each label addition triggers a workflow. Remove existing request labels to
 // re-arm retries, and use the add response to see competing writes. Replacing
 // the entire PR label set would overwrite unrelated triage changes.
 export async function requestConfidenceLabel(input) {
   const requested = input.requestedLabel;
+  const now = input.now ?? (() => performance.now());
+  const sleep = input.sleep ?? delay;
   const competing =
     requested === FINAL_CANDIDATE_LABELS.full
       ? FINAL_CANDIDATE_LABELS.standard
@@ -200,7 +238,14 @@ export async function requestConfidenceLabel(input) {
         ) {
           return current;
         }
-        // Retry a still-needed DELETE once, without issuing another label event.
+        // A name can be detached and reattached while a response is lost.
+        // EAGAIN from spawning gh proves the DELETE was never sent.
+        if (error.syscall !== "spawnSync gh" || error.code !== "EAGAIN") {
+          throw new Error(
+            `Could not confirm removal of ${name}. Its current attachment may belong to another request. Check Final Candidate status before retrying. ${error.message}`,
+            { cause: error }
+          );
+        }
         if (attempt === 1) {
           throw error;
         }
@@ -209,17 +254,31 @@ export async function requestConfidenceLabel(input) {
   };
   for (;;) {
     await input.markPending();
-    // Even a same-confidence retry needs a label edge after its pending write.
+    // GitHub timestamps have whole-second precision. Rearm from a label
+    // snapshot taken after that second so even overlapping same-mode requests
+    // have a trigger distinguishable from their pending marker.
+    const earliestTrigger = now() + 1000;
+    for (
+      let remaining = 1000;
+      remaining > 0;
+      remaining = earliestTrigger - now()
+    ) {
+      await sleep(Math.ceil(remaining));
+    }
     const existing = await input.readLabels();
     for (const name of [requested, competing]) {
       if (has(existing, name)) {
         await remove(name);
+        // Label writes have no head precondition. Recheck after a mutation
+        // before the next DELETE or the trigger POST.
+        await input.readLabels();
       }
     }
     const added = await input.addLabel(requested);
     if (!has(added, competing)) {
       break;
     }
+    await input.readLabels();
     const remaining = await remove(competing, requested);
     if (has(remaining, requested) || has(remaining, competing)) {
       break;

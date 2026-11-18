@@ -1,5 +1,8 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { resultPublicationFinished } from "./final-candidate-run-context.mjs";
+import {
+  ResultListingChangedError,
+  resultPublicationFinished,
+} from "./final-candidate-run-context.mjs";
 import { runGh, runGhJson } from "./final-candidate-state.mjs";
 
 // A completed source run can still enqueue a separate workflow_run publisher.
@@ -32,10 +35,7 @@ export async function settleHostedCandidateRuns(input, dependencies = {}) {
           (a, b) =>
             Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id
         )[0];
-      if (
-        !source ||
-        resultPublicationFinished(input.repository, source, read)
-      ) {
+      if (!source || canFinishHandoff(input.repository, source, read)) {
         return;
       }
       if (now() >= resultDeadline) {
@@ -61,6 +61,17 @@ export async function settleHostedCandidateRuns(input, dependencies = {}) {
     }
     cancelActiveRuns(input, active, { cancelled, report, cancel, read });
     await wait();
+  }
+}
+
+function canFinishHandoff(repository, source, read) {
+  try {
+    return resultPublicationFinished(repository, source, read);
+  } catch (error) {
+    if (error instanceof ResultListingChangedError) {
+      return false;
+    }
+    throw error;
   }
 }
 

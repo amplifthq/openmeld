@@ -153,6 +153,15 @@ test(
       "old-attempt",
       "failed-verifier",
       "missing-evidence",
+      "newer-request",
+      "equal-second-request",
+      "different-confidence",
+      "matching-request",
+      "masked-full-request",
+      "fulfilled-full-request",
+      "legacy-fulfilled-full-request",
+      "racing-request",
+      "later-terminal",
     ]) {
       const root = mkdtempSync(path.join(tmpdir(), "candidate-status-writer-"));
       try {
@@ -164,6 +173,7 @@ test(
         }
         const run = structuredClone(input.run);
         run.created_at = "2026-10-15T00:00:00Z";
+        const marker = writerMarker(scenario, input, run);
         if (scenario === "old-attempt") {
           run.run_attempt += 1;
         }
@@ -173,6 +183,8 @@ test(
             ...input,
             latest,
             run,
+            marker,
+            scenario,
             runs:
               scenario === "old-run"
                 ? [run, latest]
@@ -188,11 +200,30 @@ test(
 const fs = require('node:fs');
 const a = process.argv.slice(2);
 const facts = JSON.parse(fs.readFileSync(process.env.FACTS));
-if (a.includes('--method')) { fs.appendFileSync(process.env.POSTS, JSON.stringify(a)); process.exit(0); }
+if (a.includes('--method')) { fs.appendFileSync(process.env.POSTS, JSON.stringify(a) + '\\n'); console.log('301'); process.exit(0); }
 const endpoint = a[1];
-if (endpoint.includes('/pulls/')) console.log(JSON.stringify(facts.pr));
+if (a.some(s => s.endsWith('/statuses?per_page=100'))) {
+  const visible = ['newer-request','equal-second-request','different-confidence','matching-request','masked-full-request','fulfilled-full-request','legacy-fulfilled-full-request'].includes(facts.scenario);
+  const wrote = fs.existsSync(process.env.POSTS);
+  const duringWrite = wrote && ['racing-request','later-terminal'].includes(facts.scenario);
+  const rows = visible || duringWrite ? [facts.marker] : [];
+  if (facts.scenario === 'legacy-fulfilled-full-request') {
+    rows.unshift({context: facts.marker.context, id:249, state:'success', created_at:'2026-10-15T00:05:00Z',
+      target_url: 'https://github.com/'+facts.pr.base.repo.full_name+'/actions/runs/42',
+      description:'Passed full @ '+facts.pr.head.sha.slice(0,12)+' on '+facts.main.sha.slice(0,12)});
+  }
+  if (['masked-full-request','fulfilled-full-request'].includes(facts.scenario)) {
+    rows.unshift({context: facts.marker.context, id:250, state:'success',
+      target_url: 'https://github.com/'+facts.pr.base.repo.full_name+'/actions/runs/'+facts.run.id+'/attempts/1',
+      description: 'Passed '+(facts.scenario==='masked-full-request'?'standard':'full')+' @ '+facts.pr.head.sha.slice(0,12)+' on '+facts.main.sha.slice(0,12)+(facts.scenario==='fulfilled-full-request'?'; request 201':'')});
+  }
+  if (wrote) rows.unshift({context: facts.marker.context, id:301, state:'success'});
+  if (wrote && facts.scenario === 'later-terminal') rows.unshift({context: facts.marker.context, id:302, state:'success'});
+  console.log(JSON.stringify([rows]));
+} else if (endpoint.includes('/pulls/')) console.log(JSON.stringify(facts.pr));
 else if (endpoint.endsWith('/commits/main')) console.log(facts.main.sha);
 else if (endpoint.includes('/actions/workflows/')) console.log(JSON.stringify({workflow_runs: facts.runs}));
+else if (endpoint.endsWith('/actions/runs/42')) console.log(JSON.stringify({...facts.run, id:42, run_attempt:2, run_started_at:'2026-10-15T00:02:00Z', display_title:facts.run.display_title.replace('[standard]','[full]')}));
 else if (endpoint.includes('/actions/runs/')) console.log(JSON.stringify(facts.run));
 else process.exit(1);
 `
@@ -210,28 +241,106 @@ else process.exit(1);
             CANDIDATE_REPOSITORY: input.pr.base.repo.full_name,
             CANDIDATE_HEAD_SHA: input.pr.head.sha,
             CANDIDATE_PR_NUMBER: String(input.pr.number),
+            CANDIDATE_CONFIDENCE: "standard",
             CANDIDATE_RUN_ID: String(input.run.id),
             CANDIDATE_RUN_ATTEMPT: String(input.run.run_attempt),
             CANDIDATE_SERVER_URL: "https://github.com",
-            VERIFIED_DESCRIPTION: "Verified",
+            VERIFIED_DESCRIPTION:
+              scenario === "matching-request" ? "X".repeat(140) : "Verified",
             VERIFIED_STATE: scenario === "missing-evidence" ? "" : "success",
             VERIFIER_RESULT:
               scenario === "failed-verifier" ? "failure" : "success",
           },
         });
         assert.equal(result.status, 0, result.stderr);
-        if (scenario.startsWith("old-")) {
-          assert.equal(existsSync(posts), false);
-        } else {
-          assert.ok(
-            JSON.parse(readFileSync(posts, "utf8")).includes(
-              `state=${scenario === "success" ? "success" : "failure"}`
-            )
-          );
-        }
+        assert.deepEqual(
+          recordedWriterPosts(posts),
+          expectedWriterPosts(scenario, input),
+          scenario
+        );
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
     }
   }
 );
+function writerMarker(scenario, input, run) {
+  let createdAt = "2026-10-15T00:00:01Z";
+  if (scenario === "equal-second-request") {
+    createdAt = run.created_at;
+  } else if (
+    [
+      "different-confidence",
+      "matching-request",
+      "masked-full-request",
+      "fulfilled-full-request",
+      "legacy-fulfilled-full-request",
+    ].includes(scenario)
+  ) {
+    createdAt = "2026-10-14T23:59:59Z";
+  }
+  return {
+    context: "OpenMeld Final Candidate",
+    state: "pending",
+    id: 201,
+    created_at: createdAt,
+    description: `Requested ${["different-confidence", "masked-full-request", "fulfilled-full-request", "legacy-fulfilled-full-request"].includes(scenario) ? "full" : "standard"} Final Candidate @ ${input.pr.head.sha.slice(0, 12)}; waiting for its result`,
+    target_url: `https://github.com/${input.pr.base.repo.full_name}/pull/${input.pr.number}`,
+  };
+}
+
+function expectedWriterPosts(scenario, input) {
+  if (
+    [
+      "old-run",
+      "old-attempt",
+      "newer-request",
+      "equal-second-request",
+      "different-confidence",
+      "masked-full-request",
+    ].includes(scenario)
+  ) {
+    return [];
+  }
+  const failure = ["failed-verifier", "missing-evidence"].includes(scenario);
+  let description = failure
+    ? "Final Candidate result validation failed"
+    : "Verified";
+  if (scenario === "matching-request") {
+    const suffix = "; request 201";
+    description = "X".repeat(140 - suffix.length) + suffix;
+  }
+  const baseUrl = `https://github.com/${input.pr.base.repo.full_name}`;
+  const posts = [
+    {
+      state: failure ? "failure" : "success",
+      description,
+      target_url: `${baseUrl}/actions/runs/${input.run.id}/attempts/${input.run.run_attempt}`,
+    },
+  ];
+  if (scenario === "racing-request") {
+    posts.push({
+      state: "pending",
+      description: "Waiting for the current Final Candidate request",
+      target_url: `${baseUrl}/pull/${input.pr.number}`,
+    });
+  }
+  return posts;
+}
+function recordedWriterPosts(path) {
+  if (!existsSync(path)) {
+    return [];
+  }
+  return readFileSync(path, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => {
+      const args = JSON.parse(line);
+      return Object.fromEntries(
+        ["state", "description", "target_url"].map((key) => {
+          const field = args.find((arg) => arg.startsWith(`${key}=`));
+          return [key, field?.slice(key.length + 1)];
+        })
+      );
+    });
+}
