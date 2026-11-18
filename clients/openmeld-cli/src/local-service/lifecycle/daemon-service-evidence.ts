@@ -127,19 +127,18 @@ export async function captureDaemonServiceEvidence(
 
   const [statusSnapshotResult, ownedProcessesResult, systemDiagnosticsResult] =
     await Promise.all([
-      resolveDaemonStatusSnapshot({
-        profile: input.profile,
-        runtime: input.runtime,
-        view: input.view,
-      })
-        .then((snapshot) => ({
-          snapshot,
-          errorMessage: null,
-        }))
-        .catch((error) => ({
-          snapshot: null,
-          errorMessage: toErrorMessage(error),
-        })),
+      phase === "snapshot"
+        ? resolveDaemonStatusSnapshot({
+            profile: input.profile,
+            runtime: input.runtime,
+            view: input.view,
+          })
+            .then((snapshot) => ({ snapshot, errorMessage: null }))
+            .catch((error) => ({
+              snapshot: null,
+              errorMessage: toErrorMessage(error),
+            }))
+        : { snapshot: null, errorMessage: null },
       captureOwnedProcessesArtifact(phaseRootPath),
       captureSystemServiceDiagnosticsArtifact(phaseRootPath),
     ]);
@@ -215,15 +214,13 @@ export async function captureDaemonServiceEvidence(
   };
 }
 
-export async function captureDaemonServiceEvidenceBestEffort(
-  input: {
-    evidencePath?: string;
-    phase?: DaemonServiceEvidencePhase;
-    profile?: string;
-    runtime?: RuntimeContext;
-    view?: string;
-  } = {}
-): Promise<string | null> {
+export async function captureDaemonServiceEvidenceBestEffort(input: {
+  evidencePath?: string;
+  phase: DaemonServiceEvidencePhase;
+  profile?: string;
+  runtime?: RuntimeContext;
+  view?: string;
+}): Promise<string | null> {
   return await captureDaemonServiceEvidence(input)
     .then((result) => result.evidencePath)
     .catch(() => null);
