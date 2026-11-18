@@ -1,12 +1,9 @@
-import { describe, it, expect } from "vitest";
-import type {
-  SpaceTask,
-  SpaceTaskActor,
-} from "@openmeld/schemas/types";
+import type { SpaceTask, SpaceTaskActor } from "@openmeld/schemas/types";
+import { describe, expect, it } from "vitest";
 import {
-  SpaceTaskWorkflowError,
   mutateSpaceTask,
   type SpaceTaskMutationContext,
+  SpaceTaskWorkflowError,
 } from "../src/space/application/space-task-workflow";
 
 function buildActor(id: string, kind: "human" | "agent"): SpaceTaskActor {
@@ -14,7 +11,7 @@ function buildActor(id: string, kind: "human" | "agent"): SpaceTaskActor {
     profileId: id,
     profileKind: kind,
     profileName: kind === "human" ? "Human" : "Agent",
-    ownerUserId: kind === "human" ? "user-" + id : null,
+    ownerUserId: kind === "human" ? `user-${id}` : null,
   };
 }
 
@@ -23,9 +20,11 @@ function buildContext(actor: SpaceTaskActor): SpaceTaskMutationContext {
     actor,
     isSpaceOwner: true,
     resolveMember: (profileId) =>
-      [actor, buildActor("assignee", "agent"), buildActor("reviewer", "agent")].find(
-        (m) => m.profileId === profileId
-      ) ?? null,
+      [
+        actor,
+        buildActor("assignee", "agent"),
+        buildActor("reviewer", "agent"),
+      ].find((m) => m.profileId === profileId) ?? null,
   };
 }
 
@@ -125,4 +124,3 @@ describe("commit-bound review on linked pull request", () => {
     expect(reviewed.task.review?.pullRequestHeadSha).toBe("abcdef1234567890");
   });
 });
-
