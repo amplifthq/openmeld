@@ -5,6 +5,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import {
   expectsResultPublication,
+  ResultListingChangedError,
   resultPublicationFinished,
 } from "./final-candidate-run-context.mjs";
 
@@ -275,7 +276,7 @@ async function readObservation(input) {
     pullRequest.number
   );
   const jobs = run
-    ? await input.adapters.readJobs(input.repository, run.id)
+    ? await input.adapters.readJobs(input.repository, run.id, run.run_attempt)
     : [];
   const annotationsByCheckRunId = new Map();
   const attempt = run ? `${run.id}:${run.run_attempt}` : null;
@@ -305,31 +306,101 @@ async function readObservation(input) {
     pullRequest,
     run,
   };
+  return await observeResultPublication(input, facts);
+}
+
+function isPendingRequestForRun(statuses, pr, run) {
+  const status = statuses.find(
+    (entry) => entry.context === FINAL_CANDIDATE_CONTEXT
+  );
+  // A new request can be pending before its source run is visible. GitHub
+  // timestamps have second precision, so equality cannot establish ordering.
+  if (
+    status?.state !== "pending" ||
+    status.target_url !== pr.html_url ||
+    !(Date.parse(status.created_at) < Date.parse(run.created_at))
+  ) {
+    return false;
+  }
+  return ["standard", "full"].some(
+    (confidence) =>
+      run.display_title.includes(` [${confidence}] on `) &&
+      status.description ===
+        `Requested ${confidence} Final Candidate @ ${pr.head.sha.slice(0, 12)}; waiting for its result`
+  );
+}
+
+async function observeResultPublication(input, facts) {
+  const { pullRequest, run } = facts;
   const observation = buildFinalCandidateObservation(facts);
   if (
-    observation.reason === "exact-status-missing" &&
-    observation.exactStatus === "missing" &&
-    expectsResultPublication(run, pullRequest.number, pullRequest.head.sha)
+    !(
+      expectsResultPublication(run, pullRequest.number, pullRequest.head.sha) &&
+      ((observation.reason === "exact-status-missing" &&
+        observation.exactStatus === "missing") ||
+        (observation.reason === "exact-status-pending" &&
+          isPendingRequestForRun(facts.commitStatuses, pullRequest, run)))
+    )
   ) {
-    if (
-      !(await input.adapters.resultPublicationFinished(input.repository, run))
-    ) {
-      return {
-        ...observation,
-        reason: "result-not-published",
-        state: "waiting",
-      };
-    }
-    // The publisher may have finished between our status read and its acknowledgement.
-    return buildFinalCandidateObservation({
-      ...facts,
-      commitStatuses: await input.adapters.readCommitStatuses(
-        input.repository,
-        pullRequest.head.sha
-      ),
-    });
+    return observation;
   }
-  return observation;
+  let finished;
+  try {
+    finished = await input.adapters.resultPublicationFinished(
+      input.repository,
+      run
+    );
+  } catch (error) {
+    if (!(error instanceof ResultListingChangedError)) {
+      throw error;
+    }
+    finished = false;
+  }
+  if (!finished) {
+    return { ...observation, reason: "result-not-published", state: "waiting" };
+  }
+  // Status and workflow evidence are separate reads. A push or rerun during
+  // publication belongs to the next observation.
+  const statuses = await input.adapters.readCommitStatuses(
+    input.repository,
+    pullRequest.head.sha
+  );
+  const latest = await input.adapters.readLatestRun(
+    input.repository,
+    pullRequest.head.sha,
+    pullRequest.number
+  );
+  const live = await input.adapters.readPullRequest(
+    input.repository,
+    pullRequest.number
+  );
+  if (
+    live.number !== pullRequest.number ||
+    live.head?.sha !== pullRequest.head.sha ||
+    latest?.id !== run.id ||
+    latest.run_attempt !== run.run_attempt ||
+    latest.status !== run.status ||
+    latest.conclusion !== run.conclusion
+  ) {
+    return { ...observation, reason: "source-changed", state: "waiting" };
+  }
+  const final = buildFinalCandidateObservation({
+    ...facts,
+    commitStatuses: statuses,
+  });
+  if (
+    final.reason === "exact-status-pending" &&
+    isPendingRequestForRun(statuses, pullRequest, run)
+  ) {
+    return {
+      ...final,
+      reason: "result-status-unpublished",
+      state: "failure",
+      detail:
+        "The result workflow finished while its requested status was still pending.",
+    };
+  }
+  return final;
 }
 
 function defaultAdapters() {
@@ -343,10 +414,10 @@ function defaultAdapters() {
     readCommitStatuses: (repository, headSha) =>
       runGhJson(["api", `repos/${repository}/commits/${headSha}/status`])
         .statuses,
-    readJobs: (repository, runId) =>
+    readJobs: (repository, runId, attempt) =>
       runGhJson([
         "api",
-        `repos/${repository}/actions/runs/${String(runId)}/jobs`,
+        `repos/${repository}/actions/runs/${String(runId)}/attempts/${String(attempt)}/jobs`,
         "-X",
         "GET",
         "-f",

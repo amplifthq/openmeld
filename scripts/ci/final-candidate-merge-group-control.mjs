@@ -37,12 +37,22 @@ export function resolveMergeGroupControl(input) {
       `Merge-group Final Candidate requires a queue into main, found ${queue.baseRef}.`
     );
   }
-  const targetTipSha = input.github.readBranchSha(queue.baseRef);
+  assertMainTip(input);
+  const decision = inspectMergeGroupControl(input, repoRoot, queue);
+  assertMainTip(input);
+  return decision;
+}
+
+function assertMainTip(input) {
+  const targetTipSha = input.github.readBranchSha("main");
   if (targetTipSha !== input.baseSha) {
     throw new Error(
       `Merge group base ${input.baseSha} is not the main tip ${String(targetTipSha)}. Requeue against current main.`
     );
   }
+}
+
+function inspectMergeGroupControl(input, repoRoot, queue) {
   const groupDrift = inspectTrustedCandidateEntrypoints({
     candidateRef: input.headSha,
     candidateRoot: repoRoot,

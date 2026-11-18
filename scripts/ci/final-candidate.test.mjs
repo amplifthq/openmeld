@@ -362,6 +362,49 @@ test("re-arms the trigger if overlapping cleanups have removed both request labe
   assert.deepEqual([...labels], [full]);
 });
 
+test("reconciles an uncertain competing-label deletion without triggering a second run", async () => {
+  for (const failure of ["transient", "lost-response", "persistent"]) {
+    const labels = new Set(["reviewed"]);
+    const snapshot = () => [...labels].map((name) => ({ name }));
+    const error = new Error("label deletion failed");
+    let additions = 0;
+    let removals = 0;
+    const request = requestConfidenceLabel({
+      requestedLabel: "final-candidate-full",
+      readLabels: snapshot,
+      markPending: () => undefined,
+      addLabel: (name) => {
+        additions++;
+        labels.add("final-candidate");
+        labels.add(name);
+        return snapshot();
+      },
+      removeLabel: (name) => {
+        removals++;
+        if (failure === "lost-response") {
+          labels.delete(name);
+        }
+        if (removals === 1 || failure === "persistent") {
+          throw error;
+        }
+        labels.delete(name);
+        return snapshot();
+      },
+    });
+    if (failure === "persistent") {
+      await assert.rejects(request, error);
+    } else {
+      await request;
+      assert.deepEqual([...labels].sort(), [
+        "final-candidate-full",
+        "reviewed",
+      ]);
+    }
+    assert.equal(additions, 1);
+    assert.equal(removals, failure === "lost-response" ? 1 : 2);
+  }
+});
+
 test("output-only publication verifies local Git objects when the main remote is unavailable", () => {
   const fixture = createCandidateFixture();
   try {
@@ -430,10 +473,12 @@ test("output-only publication verifies local Git objects when the main remote is
       ...fixture,
       remotePath: path.join(fixture.root, "missing-remote.git"),
     });
-    assert.notEqual(
-      request.status,
-      0,
-      "a new request still requires live main"
+    assert.ifError(request.error);
+    assert.equal(request.status, 1);
+    assert.ok(
+      request.stderr.includes(
+        "Trusted Git could not refresh current main from the explicit local remote."
+      )
     );
   } finally {
     fixture.cleanup();

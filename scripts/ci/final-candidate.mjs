@@ -147,23 +147,8 @@ async function requestRemoteCandidate(options) {
   await requestConfidenceLabel({
     requestedLabel,
     readLabels,
-    removeLabel: (label) => {
-      try {
-        return runGhJson([
-          "api",
-          "--method",
-          "DELETE",
-          `${endpoint}/labels/${label}`,
-        ]);
-      } catch (error) {
-        // A competing request can already have removed this label.
-        const current = readLabels();
-        if (current.some((entry) => entry.name === label)) {
-          throw error;
-        }
-        return current;
-      }
-    },
+    removeLabel: (label) =>
+      runGhJson(["api", "--method", "DELETE", `${endpoint}/labels/${label}`]),
     addLabel: (label) =>
       runGhJson(
         ["api", "--method", "POST", `${endpoint}/labels`, "--input", "-"],
@@ -203,20 +188,39 @@ export async function requestConfidenceLabel(input) {
       ? FINAL_CANDIDATE_LABELS.standard
       : FINAL_CANDIDATE_LABELS.full;
   const has = (labels, name) => labels.some((label) => label.name === name);
+  const remove = async (name, requiredLabel) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await input.removeLabel(name);
+      } catch (error) {
+        const current = await input.readLabels();
+        if (
+          !has(current, name) ||
+          (requiredLabel && !has(current, requiredLabel))
+        ) {
+          return current;
+        }
+        // Retry a still-needed DELETE once, without issuing another label event.
+        if (attempt === 1) {
+          throw error;
+        }
+      }
+    }
+  };
   for (;;) {
     await input.markPending();
     // Even a same-confidence retry needs a label edge after its pending write.
     const existing = await input.readLabels();
     for (const name of [requested, competing]) {
       if (has(existing, name)) {
-        await input.removeLabel(name);
+        await remove(name);
       }
     }
     const added = await input.addLabel(requested);
     if (!has(added, competing)) {
       break;
     }
-    const remaining = await input.removeLabel(competing);
+    const remaining = await remove(competing, requested);
     if (has(remaining, requested) || has(remaining, competing)) {
       break;
     }

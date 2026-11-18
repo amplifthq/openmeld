@@ -150,6 +150,12 @@ test("runs a merge group without control drift under current-main control", () =
       () => resolveMergeGroupControl(input),
       NOT_TARGET_TIP_PATTERN
     );
+    const tips = [group.baseSha, group.headSha];
+    input.github.readBranchSha = () => tips.shift();
+    assert.throws(
+      () => resolveMergeGroupControl(input),
+      NOT_TARGET_TIP_PATTERN
+    );
   } finally {
     rmSync(repo.root, { force: true, recursive: true });
   }

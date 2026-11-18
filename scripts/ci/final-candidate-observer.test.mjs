@@ -11,6 +11,7 @@ import {
   renderFinalCandidateObservation,
   runFinalCandidateObserver,
 } from "./final-candidate-observer.mjs";
+import { ResultListingChangedError } from "./final-candidate-run-context.mjs";
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const BUDGET_FIXTURE = JSON.parse(
@@ -373,7 +374,11 @@ test("reuses failed job annotations within one run attempt and reads a rerun afr
         status: "in_progress",
         run_attempt: ++polls < 4 ? 1 : 2,
       }),
-      readJobs: () => [BUDGET_FIXTURE.jobs[0]],
+      readJobs: (_repository, id, attempt) => {
+        assert.equal(id, BUDGET_FIXTURE.run.id);
+        assert.equal(attempt, polls < 4 ? 1 : 2);
+        return [BUDGET_FIXTURE.jobs[0]];
+      },
       readAnnotations: () => {
         reads++;
         return polls < 4
@@ -389,15 +394,38 @@ test("reuses failed job annotations within one run attempt and reads a rerun afr
   assert.equal(reads, 2);
 });
 
-test("tells delayed automatic publication apart from a finished publisher with no status", async () => {
+test("settles publication against the same PR head, source and attempt", async () => {
   const run = {
     ...BUDGET_FIXTURE.run,
     conclusion: "success",
     status: "completed",
+    run_attempt: 1,
+    created_at: "2026-11-18T10:00:01Z",
     display_title: `Final Candidate PR #${PULL_REQUEST.number} @ ${PULL_REQUEST.head.sha} [standard] on ${PULL_REQUEST.base.sha}`,
   };
-  for (const finished of [false, true]) {
+  const pending = {
+    context: "OpenMeld Final Candidate",
+    state: "pending",
+    description: `Requested standard Final Candidate @ ${PULL_REQUEST.head.sha.slice(0, 12)}; waiting for its result`,
+    target_url: PULL_REQUEST.html_url,
+    created_at: "2026-11-18T10:00:00Z",
+  };
+  const success = {
+    ...pending,
+    state: "success",
+    description: `Passed standard @ ${PULL_REQUEST.head.sha.slice(0, 12)} on ${PULL_REQUEST.base.sha.slice(0, 12)}`,
+  };
+  const observe = async ({
+    first,
+    second = first,
+    finished = true,
+    latest = run,
+    live = PULL_REQUEST,
+  }) => {
     const output = [];
+    let statusReads = 0;
+    let prReads = 0;
+    let runReads = 0;
     const code = await runFinalCandidateObserver({
       argv: [
         "status",
@@ -408,18 +436,74 @@ test("tells delayed automatic publication apart from a finished publisher with n
       ],
       write: (message) => output.push(message),
       adapters: {
-        readPullRequest: () => PULL_REQUEST,
-        readLatestRun: () => run,
+        readPullRequest: () => (++prReads === 1 ? PULL_REQUEST : live),
+        readLatestRun: () => (++runReads === 1 ? run : latest),
         readJobs: () => [],
-        readCommitStatuses: () => [],
-        resultPublicationFinished: () => finished,
+        readCommitStatuses: () => (++statusReads === 1 ? first : second),
+        resultPublicationFinished: () => {
+          if (finished instanceof Error) {
+            throw finished;
+          }
+          return finished;
+        },
       },
     });
-    assert.equal(code, finished ? 1 : 2);
-    assert.ok(
-      output[0].includes(
-        finished ? "Hosted lane: failure" : "Hosted lane: waiting"
-      )
-    );
+    return { code, statusReads, output: output.join("") };
+  };
+  assert.equal((await observe({ first: [], finished: false })).code, 2);
+  assert.equal((await observe({ first: [] })).code, 1);
+  const published = await observe({ first: [], second: [success] });
+  assert.equal(published.code, 0);
+  assert.equal(published.statusReads, 2);
+  assert.equal((await observe({ first: [pending] })).code, 1);
+  for (const status of [
+    { ...pending, created_at: run.created_at },
+    { ...pending, created_at: "2026-11-18T10:05:00Z" },
+    {
+      ...pending,
+      target_url: "https://github.com/amplifthq/openmeld/pull/123",
+    },
+    { ...pending, description: "Local validation in progress" },
+  ]) {
+    assert.equal((await observe({ first: [status] })).code, 2);
   }
+  assert.equal(
+    (
+      await observe({
+        first: [],
+        second: [{ ...pending, created_at: run.created_at }],
+      })
+    ).code,
+    2
+  );
+  assert.equal(
+    (
+      await observe({
+        first: [],
+        latest: { ...run, run_attempt: 2, status: "in_progress" },
+      })
+    ).code,
+    2
+  );
+  assert.equal(
+    (await observe({ first: [], latest: { ...run, id: run.id + 1 } })).code,
+    2
+  );
+  assert.equal(
+    (
+      await observe({
+        first: [],
+        second: [success],
+        live: { ...PULL_REQUEST, head: { sha: "a".repeat(40) } },
+      })
+    ).code,
+    2
+  );
+  assert.equal(
+    (await observe({ first: [], finished: new ResultListingChangedError() }))
+      .code,
+    2
+  );
+  const invalid = new Error("GitHub returned invalid result state");
+  await assert.rejects(observe({ first: [], finished: invalid }), invalid);
 });
