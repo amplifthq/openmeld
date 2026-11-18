@@ -3622,10 +3622,10 @@ Setup and repair exist to restore local infrastructure for the current intended
 account, device, and lane.
 
 Before cleanup and after a failure, Service repair captures local logs, state,
-process information, and OS service diagnostics. Both phases leave the optional
-observed status snapshot null so a stalled cloud status request cannot block
-local recovery. An explicit `openmeld service snapshot` includes the full status
-observation or its error.
+and process information. On macOS it also attempts to capture launchd
+diagnostics. Both phases leave the optional observed status snapshot null so a
+stalled cloud status request cannot block local recovery. An explicit
+`openmeld service snapshot` includes the full status observation or its error.
 
 An already-running repair may report healthy only after an authenticated local
 control response, a fresh Host control round trip, and the Core-owned current

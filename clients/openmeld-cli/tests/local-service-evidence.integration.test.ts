@@ -112,10 +112,10 @@ describe("local service evidence", () => {
     vi.useRealTimers();
   });
 
-  it("records cleanup and failure evidence even when cloud status never resolves", async () => {
+  it("records cleanup and failure evidence without querying cloud status", async () => {
     await withTempHome(async () => {
-      resolveDaemonStatusSnapshotMock.mockImplementation(
-        () => new Promise(() => undefined)
+      resolveDaemonStatusSnapshotMock.mockRejectedValue(
+        new Error("Cloud status is unavailable")
       );
       const runtimeRootPath = daemonRuntimeRootPath();
       const runtimeLogsPath = join(runtimeRootPath, "logs");
