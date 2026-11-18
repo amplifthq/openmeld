@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 
 import {
@@ -27,11 +27,10 @@ test(
     skip: process.platform === "win32",
   },
   () => {
-    const adapter = new URL("../dist/index.js", import.meta.url).href;
     const script = `
     import assert from "node:assert/strict";
     import { openSync, closeSync } from "node:fs";
-    import { runCursorCliProbe } from ${JSON.stringify(adapter)};
+    import { runCursorCliProbe } from "./dist/index.js";
     const fds = [];
     try {
       while (true) fds.push(openSync("/dev/null", "r"));
@@ -47,16 +46,14 @@ test(
   `;
     const child = spawnSync(
       "/bin/sh",
-      [
-        "-c",
-        'ulimit -n 64 && exec "$@"',
-        "sh",
-        process.execPath,
-        "--input-type=module",
-        "-e",
-        script,
-      ],
-      { encoding: "utf8", timeout: 10_000 }
+      ["-c", "ulimit -n 64 && exec node --input-type=module -"],
+      {
+        cwd: new URL("../", import.meta.url),
+        encoding: "utf8",
+        env: { ...process.env, PATH: dirname(process.execPath) },
+        input: script,
+        timeout: 10_000,
+      }
     );
     assert.equal(child.status, 0, child.stderr);
   }
