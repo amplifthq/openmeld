@@ -146,7 +146,6 @@ async function requestRemoteCandidate(options) {
     readPullRequest(repository, pullRequestNumber).labels;
   await requestConfidenceLabel({
     requestedLabel,
-    initialLabels: state.pullRequest.labels,
     readLabels,
     removeLabel: (label) => {
       try {
@@ -204,13 +203,15 @@ export async function requestConfidenceLabel(input) {
       ? FINAL_CANDIDATE_LABELS.standard
       : FINAL_CANDIDATE_LABELS.full;
   const has = (labels, name) => labels.some((label) => label.name === name);
-  for (const name of [requested, competing]) {
-    if (has(input.initialLabels, name)) {
-      await input.removeLabel(name);
-    }
-  }
   for (;;) {
     await input.markPending();
+    // Even a same-confidence retry needs a label edge after its pending write.
+    const existing = await input.readLabels();
+    for (const name of [requested, competing]) {
+      if (has(existing, name)) {
+        await input.removeLabel(name);
+      }
+    }
     const added = await input.addLabel(requested);
     if (!has(added, competing)) {
       break;

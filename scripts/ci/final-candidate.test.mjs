@@ -290,11 +290,10 @@ test("competing confidence requests leave one trigger and preserve independent l
   const labels = new Set(["triage"]);
   const triggers = [];
   const snapshot = () => [...labels].map((name) => ({ name }));
-  const request = (requestedLabel) =>
+  const request = (requestedLabel, markPending = () => undefined) =>
     requestConfidenceLabel({
-      initialLabels: snapshot(),
       requestedLabel,
-      markPending: () => undefined,
+      markPending,
       addLabel: (name) => {
         labels.add("reviewed");
         labels.delete("triage");
@@ -322,6 +321,17 @@ test("competing confidence requests leave one trigger and preserve independent l
   await request(full);
   assert.deepEqual(triggers, [standard, full, full]);
   assert.deepEqual([...labels].sort(), [full, "reviewed"]);
+
+  // The first standard run can finish while another standard request is
+  // delayed writing pending. The later write must have a new run to settle it.
+  const delayedPending = Promise.withResolvers();
+  const lateRequest = request(standard, () => delayedPending.promise);
+  await request(standard);
+  const previousTriggers = triggers.length;
+  delayedPending.resolve();
+  await lateRequest;
+  assert.deepEqual(triggers.slice(previousTriggers), [standard]);
+  assert.deepEqual([...labels].sort(), [standard, "reviewed"]);
 });
 
 test("re-arms the trigger if overlapping cleanups have removed both request labels", async () => {
@@ -331,7 +341,6 @@ test("re-arms the trigger if overlapping cleanups have removed both request labe
   let triggers = 0;
   const snapshot = () => [...labels].map((name) => ({ name }));
   await requestConfidenceLabel({
-    initialLabels: [],
     requestedLabel: full,
     markPending: () => undefined,
     addLabel: (name) => {
