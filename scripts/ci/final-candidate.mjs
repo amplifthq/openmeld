@@ -341,6 +341,14 @@ class SupersededRequest extends Error {
   }
 }
 
+function ghDidNotStart(error) {
+  return error.syscall === "spawnSync gh" && error.code === "EAGAIN";
+}
+
+// Each new attachment can start a paid workflow. Allow the original trigger
+// and two repairs for this immutable marker before reporting contention.
+const MAX_LABEL_RECONCILIATION_PASSES = 3;
+
 async function applyConfidenceLabel(input) {
   const requested = input.requestedLabel;
   const now = input.now ?? (() => performance.now());
@@ -364,7 +372,7 @@ async function applyConfidenceLabel(input) {
         }
         // A name can be detached and reattached while a response is lost.
         // EAGAIN from spawning gh proves the DELETE was never sent.
-        if (error.syscall !== "spawnSync gh" || error.code !== "EAGAIN") {
+        if (!ghDidNotStart(error)) {
           throw new Error(
             `Could not confirm removal of ${name}. Its current attachment may belong to another request. Check Final Candidate status before retrying. ${error.message}`,
             { cause: error }
@@ -376,7 +384,22 @@ async function applyConfidenceLabel(input) {
       }
     }
   };
-  for (;;) {
+  const add = async () => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await input.addLabel(requested);
+      } catch (error) {
+        // A lost response may have triggered a run for a superseded marker.
+        // Recheck before retrying only a POST that never left this process.
+        await input.readLabels();
+        if (attempt === 1 || !ghDidNotStart(error)) {
+          throw error;
+        }
+      }
+    }
+  };
+  let missingWinner = false;
+  for (let pass = 0; pass < MAX_LABEL_RECONCILIATION_PASSES; pass++) {
     // GitHub timestamps have whole-second precision. Rearm from a label
     // snapshot taken after that second so even overlapping same-mode requests
     // have a trigger distinguishable from their pending marker.
@@ -389,6 +412,15 @@ async function applyConfidenceLabel(input) {
       await sleep(Math.ceil(remaining));
     }
     const existing = await input.readLabels();
+    if (
+      missingWinner &&
+      has(existing, requested) &&
+      !has(existing, competing)
+    ) {
+      // The previous confirmation saw this label absent under this same
+      // marker. Another helper has since triggered the winning level.
+      return;
+    }
     for (const name of [requested, competing]) {
       if (has(existing, name)) {
         await remove(name);
@@ -397,15 +429,7 @@ async function applyConfidenceLabel(input) {
         await input.readLabels();
       }
     }
-    let added;
-    try {
-      added = await input.addLabel(requested);
-    } catch (error) {
-      // A lost POST response can still represent an effective label event.
-      // Check ownership so a stale write repairs the newer request.
-      await input.readLabels();
-      throw error;
-    }
+    const added = await add();
     if (has(added, competing)) {
       await input.readLabels();
       await remove(competing, requested);
@@ -414,9 +438,13 @@ async function applyConfidenceLabel(input) {
     if (has(current, requested) && !has(current, competing)) {
       return;
     }
+    missingWinner = !has(current, requested);
     // The current marker still owns this request. A crossing mutation changed
     // its labels; restore the winning edge and confirm again.
   }
+  throw new Error(
+    `Final Candidate request for ${requested} did not settle after ${MAX_LABEL_RECONCILIATION_PASSES} trigger rounds. Check Final Candidate status before retrying.`
+  );
 }
 
 async function runCandidate(options) {

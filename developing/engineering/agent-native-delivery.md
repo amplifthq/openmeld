@@ -231,7 +231,12 @@ rechecks the live head and the latest run without checking out code or
 downloading artifacts. For an explicit request it matches the pending status,
 confidence and source run, and records the request status ID and run attempt
 in the published result. The observer checks status history so that an older
-run cannot satisfy a newer request. A finished result stays bound to its exact
+run cannot satisfy a newer request. The verified result for an explicit
+request is recorded under `OpenMeld Final Candidate PR #<number>` for that
+PR, including when another PR shares its commit. Branch protection reads the shared
+`OpenMeld Final Candidate` context. If the PR's verified result and the
+shared gate differ, `status` and `wait` show both. Their exit code describes
+the observed PR. A finished result stays bound to its exact
 head, base, and tree: `main` advancing later
 does not turn it red, because merge queue or strict up-to-date protection owns
 freshness at merge time. Changes to either workflow require the protected

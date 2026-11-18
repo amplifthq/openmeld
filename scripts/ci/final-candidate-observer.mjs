@@ -16,6 +16,7 @@ const FINAL_CANDIDATE_CONTEXT = "OpenMeld Final Candidate";
 const FINAL_CANDIDATE_WORKFLOW = "final-candidate.yml";
 const DEFAULT_INTERVAL_SECONDS = 30;
 const DEFAULT_TIMEOUT_SECONDS = 75 * 60;
+const SHARED_GATE_REPAIR = /; repair [1-9]\d*$/u;
 
 export function buildFinalCandidateObservation(
   input,
@@ -44,6 +45,10 @@ export function buildFinalCandidateObservation(
     baseSha: input.pullRequest.base.sha,
     candidateChecksStarted,
     exactStatus,
+    sharedGateStatus:
+      input.commitStatuses.find(
+        (status) => status.context === FINAL_CANDIDATE_CONTEXT
+      )?.state ?? "missing",
     headSha: input.pullRequest.head.sha,
     hostedAvailability: budgetMessage ? "unavailable" : "available",
     pullRequestNumber: input.pullRequest.number,
@@ -54,26 +59,13 @@ export function buildFinalCandidateObservation(
     runUrl: run?.html_url ?? null,
   };
 
-  // A newer run for this head (an explicit request) leaves the earlier exact
-  // status in place until its own result reports; wait for that run.
-  if (exactStatus === "success" && run && run.status !== "completed") {
-    return { ...common, reason: "run-in-progress", state: "waiting" };
-  }
   if (exactStatus === "success") {
-    return {
-      ...common,
-      evidenceUrl:
-        sharedStatus.target_url === input.pullRequest.html_url ||
-        sourceTarget(sharedStatus, input.pullRequest)
-          ? sharedStatus.target_url
-          : null,
-      ...(budgetMessage ? { detail: budgetMessage } : {}),
-      reason: "exact-status-success",
-      state: "success",
-    };
-  }
-  if (!run) {
-    return { ...common, reason: "run-not-created", state: "waiting" };
+    return successfulStatusObservation(
+      common,
+      input.pullRequest,
+      sharedStatus,
+      budgetMessage
+    );
   }
   if (budgetMessage) {
     return {
@@ -83,10 +75,40 @@ export function buildFinalCandidateObservation(
       state: "hosted-unavailable",
     };
   }
-  if (run.status !== "completed") {
+  if (run && run.status !== "completed") {
     return { ...common, reason: "run-in-progress", state: "waiting" };
   }
+  if (
+    sharedStatus?.context === receiptContext(input.pullRequest) &&
+    ["failure", "error"].includes(exactStatus)
+  ) {
+    return {
+      ...common,
+      state: "failure",
+      reason: "request-result-failed",
+      evidenceUrl: sharedStatus.target_url,
+    };
+  }
+  if (!run) {
+    return { ...common, reason: "run-not-created", state: "waiting" };
+  }
   return completedRunObservation(common);
+}
+
+function successfulStatusObservation(common, pr, status, budgetMessage) {
+  if (common.runStatus && common.runStatus !== "completed") {
+    return { ...common, reason: "run-in-progress", state: "waiting" };
+  }
+  return {
+    ...common,
+    evidenceUrl:
+      status.target_url === pr.html_url || sourceTarget(status, pr)
+        ? status.target_url
+        : null,
+    ...(budgetMessage ? { detail: budgetMessage } : {}),
+    reason: "exact-status-success",
+    state: "success",
+  };
 }
 
 function completedRunObservation(common) {
@@ -150,6 +172,9 @@ function matchesAttempt(status, target, run) {
 // publisher can race a new request, so keep the request from the ordered ledger
 // until a terminal status can be attributed to it.
 function isRequestOrTakeover(status, pr) {
+  if (SHARED_GATE_REPAIR.test(status.description)) {
+    return false;
+  }
   return (
     requestConfidence(status, pr) ||
     (status.state === "pending" &&
@@ -159,16 +184,64 @@ function isRequestOrTakeover(status, pr) {
   );
 }
 
+function receiptContext(pr) {
+  return `${FINAL_CANDIDATE_CONTEXT} PR #${pr.number}`;
+}
+
+function automaticCommitStatus(input, shared) {
+  const pr = input.pullRequest;
+  const prPrefix = `${pr.html_url.slice(0, pr.html_url.lastIndexOf("/pull/"))}/pull/`;
+  // A PR-targeted pending or local takeover on this SHA may belong to a
+  // different PR. Source-run URLs identify hosted results independently.
+  const status = shared.find((candidate) => {
+    if (candidate.target_url?.startsWith(prPrefix)) {
+      return candidate.target_url === pr.html_url;
+    }
+    const target = sourceTarget(candidate, pr);
+    if (!target || target.id === input.run?.id) {
+      return true;
+    }
+    const source = lookupHistoricalSource(input, target);
+    return (
+      expectsResultPublication(source, pr.number, pr.head.sha) ||
+      (source?.pull_requests?.length === 1 &&
+        source.pull_requests[0].number === pr.number &&
+        source.head_sha === pr.head.sha)
+    );
+  });
+  const run = input.run;
+  if (
+    status &&
+    expectsResultPublication(run, pr.number, pr.head.sha) &&
+    sourceTarget(status, pr)?.id === run.id &&
+    !matchesAttempt(status, sourceTarget(status, pr), run)
+  ) {
+    return (
+      shared.find((candidate) =>
+        matchesAttempt(candidate, sourceTarget(candidate, pr), run)
+      ) ?? null
+    );
+  }
+  return status ?? null;
+}
+
 function observedCommitStatus(input) {
   const pr = input.pullRequest;
+  const scoped = receiptContext(pr);
   const statuses = input.commitStatuses.filter(
+    (status) =>
+      (status.context === FINAL_CANDIDATE_CONTEXT ||
+        status.context === scoped) &&
+      !SHARED_GATE_REPAIR.test(status.description)
+  );
+  const shared = statuses.filter(
     (status) => status.context === FINAL_CANDIDATE_CONTEXT
   );
-  const latest = statuses[0];
-  const marker = statuses.find((status) => isRequestOrTakeover(status, pr));
+  const latest = shared[0];
+  const marker = shared.find((status) => isRequestOrTakeover(status, pr));
   const confidence = requestConfidence(marker, pr);
-  if (!confidence || latest === marker) {
-    return latest;
+  if (!confidence) {
+    return automaticCommitStatus(input, shared);
   }
   const terminal = statuses
     .slice(0, statuses.indexOf(marker))
@@ -177,7 +250,7 @@ function observedCommitStatus(input) {
     return marker;
   }
   const target = sourceTarget(terminal, pr);
-  const current = sourceTarget(latest, pr);
+  const current = latest && sourceTarget(latest, pr);
   if (matchesAttempt(latest, current, input.run) && current.id > target.id) {
     return latest;
   }
@@ -212,6 +285,9 @@ function resultForRequest(input, status, marker, confidence) {
       Number.isSafeInteger(marker.id) &&
       status.description.endsWith(`; request ${marker.id}`)
     );
+  }
+  if (status.context === receiptContext(pr)) {
+    return false;
   }
   const source =
     input.run?.id === target.id
@@ -284,6 +360,7 @@ export function renderFinalCandidateObservation(observation) {
     `Hosted lane: ${hostedLane}`,
     `Candidate checks started: ${observation.candidateChecksStarted ? "yes" : "no"}`,
     `Exact status: ${observation.exactStatus}`,
+    `Shared commit status: ${observation.sharedGateStatus}`,
   ];
   if (observation.runId) {
     lines.push(
@@ -291,7 +368,8 @@ export function renderFinalCandidateObservation(observation) {
     );
   }
   const evidenceUrl =
-    observation.state === "success"
+    observation.state === "success" ||
+    observation.reason === "request-result-failed"
       ? observation.evidenceUrl
       : observation.runUrl;
   if (evidenceUrl) {
@@ -528,11 +606,12 @@ async function observeResultPublication(input, facts) {
   ) {
     return { ...observation, reason: "source-changed", state: "waiting" };
   }
-  const finalStatus = observedCommitStatus({
+  const finalFacts = {
     ...facts,
     commitStatuses: statuses,
-  });
-  const final = buildFinalCandidateObservation(facts, finalStatus);
+  };
+  const finalStatus = observedCommitStatus(finalFacts);
+  const final = buildFinalCandidateObservation(finalFacts, finalStatus);
   if (
     final.reason === "exact-status-pending" &&
     isPendingRequestForRun(finalStatus, pullRequest, run)
@@ -593,7 +672,7 @@ function readCommitStatusHistory(repository, headSha, pr) {
       "api",
       `repos/${repository}/commits/${headSha}/statuses?per_page=100&page=${page}`,
       "--jq",
-      '{count:length,statuses:[.[] | select(.context == "OpenMeld Final Candidate") | {state,context,description,target_url,created_at,id}]}',
+      `{count:length,statuses:[.[] | select(.context == "${FINAL_CANDIDATE_CONTEXT}" or .context == "${receiptContext(pr)}") | {state,context,description,target_url,created_at,id}]}`,
     ]);
     history.push(...result.statuses);
     if (
@@ -651,6 +730,7 @@ function observationFingerprint(observation) {
     observation.runStatus,
     observation.runConclusion,
     observation.exactStatus,
+    observation.sharedGateStatus,
   ].join(":");
 }
 

@@ -424,6 +424,8 @@ test("a delayed mutation repairs the last effective run for the newest immutable
     const clock = requestClock();
     const started = Promise.withResolvers();
     const release = Promise.withResolvers();
+    const writes = [];
+    let delayedPosts = 0;
     const request = (label, delayed) =>
       requestConfidenceLabel({
         ...clock,
@@ -435,13 +437,23 @@ test("a delayed mutation repairs the last effective run for the newest immutable
         },
         readState: () => ({ labels: snapshot(), marker: markers.at(-1) }),
         removeLabel: (name) => {
+          writes.push(`remove ${name}`);
           labels.delete(name);
           return snapshot();
         },
         addLabel: async (name) => {
+          writes.push(`add ${name}`);
           if (delayed) {
             started.resolve();
             await release.promise;
+            // The stale caller has removed the labels to repair the winner.
+            // Its first replacement POST never leaves the local process.
+            if (++delayedPosts === 2) {
+              throw Object.assign(new Error("spawnSync gh EAGAIN"), {
+                code: "EAGAIN",
+                syscall: "spawnSync gh",
+              });
+            }
           }
           if (!labels.has(name)) {
             events.push({ name, at: clock.now() });
@@ -459,6 +471,55 @@ test("a delayed mutation repairs the last effective run for the newest immutable
     assert.deepEqual([...labels], [winner]);
     assert.equal(events.at(-1).name, winner);
     assert.ok(events.at(-1).at >= markers.at(-1).at + 1000);
+    assert.deepEqual(writes.slice(-2), [`add ${winner}`, `add ${winner}`]);
+  }
+});
+
+test("stops issuing more runs if helpers repeatedly undo the same marker's winning label", async () => {
+  for (const otherHelperSettles of [false, true]) {
+    const labels = new Set(["reviewed"]);
+    const snapshot = () => [...labels].map((name) => ({ name }));
+    const clock = requestClock();
+    let triggers = 0;
+    const request = fixtureRequestMarkers()({
+      ...clock,
+      sleep: (ms) => {
+        clock.sleep(ms);
+        if (triggers === 1 && otherHelperSettles) {
+          labels.add("final-candidate-full");
+        }
+      },
+      requestedLabel: "final-candidate-full",
+      markPending: () => undefined,
+      readLabels: snapshot,
+      removeLabel: (name) => {
+        labels.delete(name);
+        return snapshot();
+      },
+      addLabel: (name) => {
+        assert.ok(++triggers <= 4, "unbounded label triggers");
+        labels.add(name);
+        const receipt = snapshot();
+        // A second helper for this same marker removes the attachment before
+        // the first helper reads back its label.
+        labels.delete(name);
+        return receipt;
+      },
+    });
+    if (otherHelperSettles) {
+      await request;
+      assert.equal(triggers, 1);
+      assert.deepEqual([...labels].sort(), [
+        "final-candidate-full",
+        "reviewed",
+      ]);
+    } else {
+      await assert.rejects(request, (err) =>
+        err.message.includes("did not settle")
+      );
+      assert.equal(triggers, 3);
+      assert.deepEqual([...labels], ["reviewed"]);
+    }
   }
 });
 

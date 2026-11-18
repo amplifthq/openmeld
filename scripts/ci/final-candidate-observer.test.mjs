@@ -419,7 +419,8 @@ test("settles publication against the same PR head, source and attempt", async (
     first,
     second = first,
     finished = true,
-    latest = run,
+    source = run,
+    latest = source,
     live = PULL_REQUEST,
   }) => {
     const output = [];
@@ -437,7 +438,7 @@ test("settles publication against the same PR head, source and attempt", async (
       write: (message) => output.push(message),
       adapters: {
         readPullRequest: () => (++prReads === 1 ? PULL_REQUEST : live),
-        readLatestRun: () => (++runReads === 1 ? run : latest),
+        readLatestRun: () => (++runReads === 1 ? source : latest),
         readJobs: () => [],
         readCommitStatuses: () => (++statusReads === 1 ? first : second),
         resultPublicationFinished: () => {
@@ -455,14 +456,37 @@ test("settles publication against the same PR head, source and attempt", async (
   const published = await observe({ first: [], second: [success] });
   assert.equal(published.code, 0);
   assert.equal(published.statusReads, 2);
+  const rerun = { ...run, run_attempt: 2 };
+  const firstAttempt = {
+    ...success,
+    target_url: `https://github.com/amplifthq/openmeld/actions/runs/${run.id}/attempts/1`,
+  };
+  const secondAttempt = {
+    ...success,
+    target_url: `https://github.com/amplifthq/openmeld/actions/runs/${run.id}/attempts/2`,
+  };
+  for (const state of ["success", "failure"]) {
+    const previous = [{ ...firstAttempt, state }];
+    assert.equal(
+      (await observe({ source: rerun, first: previous, finished: false })).code,
+      2
+    );
+    assert.equal((await observe({ source: rerun, first: previous })).code, 1);
+    assert.equal(
+      (
+        await observe({
+          source: rerun,
+          first: previous,
+          second: [secondAttempt, ...previous],
+        })
+      ).code,
+      0
+    );
+  }
   assert.equal((await observe({ first: [pending] })).code, 1);
   for (const status of [
     { ...pending, created_at: run.created_at },
     { ...pending, created_at: "2026-11-18T10:05:00Z" },
-    {
-      ...pending,
-      target_url: "https://github.com/amplifthq/openmeld/pull/123",
-    },
     { ...pending, description: "Local validation in progress" },
   ]) {
     assert.equal((await observe({ first: [status] })).code, 2);
@@ -544,6 +568,84 @@ test("binds terminal statuses to the newest explicit request, including overwrit
     ...owned,
     description: `${owned.description}; request 501`,
   };
+  const foreignPR = {
+    ...pr,
+    number: 430,
+    html_url: "https://github.com/amplifthq/openmeld/pull/430",
+  };
+  const foreignMarker = {
+    ...requested,
+    id: 502,
+    target_url: foreignPR.html_url,
+  };
+  const scoped = {
+    ...receipt,
+    context: `OpenMeld Final Candidate PR #${pr.number}`,
+  };
+  const crossFacts = {
+    pullRequest: pr,
+    run: full,
+    jobs: [],
+    annotationsByCheckRunId: new Map(),
+    commitStatuses: [scoped, foreignMarker, requested],
+  };
+  const ownResult = buildFinalCandidateObservation(crossFacts);
+  assert.equal(ownResult.state, "success");
+  const repairedLocalGate = {
+    ...requested,
+    description: `Running tooling @ ${head} on ${base}; repair 503`,
+  };
+  const repaired = buildFinalCandidateObservation({
+    ...crossFacts,
+    commitStatuses: [repairedLocalGate, scoped, foreignMarker, requested],
+  });
+  assert.equal(repaired.state, "success");
+  assert.equal(repaired.sharedGateStatus, "pending");
+  assert.ok(
+    renderFinalCandidateObservation(ownResult).includes(
+      "Shared commit status: pending"
+    )
+  );
+  assert.equal(
+    buildFinalCandidateObservation({
+      ...crossFacts,
+      pullRequest: foreignPR,
+      run: null,
+    }).state,
+    "waiting"
+  );
+  assert.equal(
+    buildFinalCandidateObservation({
+      ...crossFacts,
+      commitStatuses: [
+        { ...scoped, state: "failure" },
+        foreignMarker,
+        requested,
+      ],
+    }).state,
+    "failure"
+  );
+  assert.equal(
+    buildFinalCandidateObservation({
+      ...crossFacts,
+      commitStatuses: [
+        {
+          ...scoped,
+          context: `OpenMeld Final Candidate PR #${foreignPR.number}`,
+        },
+        foreignMarker,
+        requested,
+      ],
+    }).state,
+    "waiting"
+  );
+  const autoUnderForeignRequest = buildFinalCandidateObservation({
+    ...crossFacts,
+    run: auto,
+    commitStatuses: [foreignMarker, terminal(auto, "standard")],
+  });
+  assert.equal(autoUnderForeignRequest.state, "success");
+  assert.equal(autoUnderForeignRequest.sharedGateStatus, "pending");
   const observe = (source, statuses, lookup) =>
     buildFinalCandidateObservation({
       pullRequest: pr,
