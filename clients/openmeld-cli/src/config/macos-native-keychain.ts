@@ -161,21 +161,6 @@ export async function runMacOsNativeKeychainRequestInChild(
       );
     }, timeoutMs);
 
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: unknown) => {
-      stdout += String(chunk);
-      if (Buffer.byteLength(stdout, "utf8") > HELPER_OUTPUT_MAX_BYTES) {
-        child.kill("SIGKILL");
-        rejectOnce(new Error("macOS Keychain helper output was too large"));
-      }
-    });
-    child.stderr.on("data", (chunk: unknown) => {
-      stderr += String(chunk);
-      if (Buffer.byteLength(stderr, "utf8") > HELPER_OUTPUT_MAX_BYTES) {
-        stderr = stderr.slice(-HELPER_OUTPUT_MAX_BYTES);
-      }
-    });
     child.once("error", (error) => {
       rejectOnce(
         new Error(
@@ -183,7 +168,23 @@ export async function runMacOsNativeKeychainRequestInChild(
         )
       );
     });
-    child.stdin.once("error", (error) => {
+    // A failed spawn can have no stdio while its error is still queued.
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: unknown) => {
+      stdout += String(chunk);
+      if (Buffer.byteLength(stdout, "utf8") > HELPER_OUTPUT_MAX_BYTES) {
+        child.kill("SIGKILL");
+        rejectOnce(new Error("macOS Keychain helper output was too large"));
+      }
+    });
+    child.stderr?.on("data", (chunk: unknown) => {
+      stderr += String(chunk);
+      if (Buffer.byteLength(stderr, "utf8") > HELPER_OUTPUT_MAX_BYTES) {
+        stderr = stderr.slice(-HELPER_OUTPUT_MAX_BYTES);
+      }
+    });
+    child.stdin?.once("error", (error) => {
       rejectOnce(
         new Error(
           `macOS Keychain helper input failed: ${toErrorMessage(error)}`
@@ -210,7 +211,7 @@ export async function runMacOsNativeKeychainRequestInChild(
       }
     });
 
-    child.stdin.end(JSON.stringify(request), "utf8");
+    child.stdin?.end(JSON.stringify(request), "utf8");
   });
 }
 

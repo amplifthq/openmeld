@@ -259,6 +259,44 @@ describe("agent controller interface inventory", () => {
     }
   );
 
+  it.each([
+    {
+      name: "a login starts between two missing-item reads",
+      bin: process.execPath,
+      first: [null, null],
+      later: "starting-login",
+      auth: "unknown",
+      message: "OpenMeld could not read Cursor CLI authentication status.",
+    },
+    {
+      name: "the version command succeeds without output",
+      bin: "/usr/bin/true",
+      first: [],
+      later: "stable-login",
+      auth: "authenticated",
+      message: "Cursor CLI did not report a recognizable version.",
+    },
+  ])(
+    "keeps a Cursor check incomplete when $name",
+    { skip: process.platform !== "darwin" },
+    async (fixture) => {
+      vi.stubEnv("AGENT_CLI_CREDENTIAL_STORE", "");
+      readKeychainMock.mockResolvedValue(fixture.later);
+      for (const value of fixture.first) {
+        readKeychainMock.mockResolvedValueOnce(value);
+      }
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:cursor",
+        state: createBuiltinAgentTargetState("cursor", "Cursor", fixture.bin),
+      });
+      expect(snapshot).toMatchObject({
+        auth: { status: fixture.auth },
+        check: { status: "failed", lastSucceededAt: null },
+        message: fixture.message,
+      });
+    }
+  );
+
   it.each(["exit", "timeout"])(
     "cleans up detached Cursor helpers after parent %s",
     { skip: process.platform === "win32" },

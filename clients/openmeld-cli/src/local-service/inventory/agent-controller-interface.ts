@@ -901,7 +901,9 @@ async function resolveCursorInterfaceSnapshot(
     }),
     probeCursorAuthentication(input),
   ]);
-  const version = versionProbe.ok ? parseCliVersion(versionProbe.stdout) : null;
+  const version = versionProbe.ok
+    ? (versionProbe.stdout.match(CLI_SEMVER_RE)?.[1] ?? null)
+    : null;
   const usageLimits =
     auth.status === "authenticated"
       ? await probeCursorUsageLimits({
@@ -919,8 +921,10 @@ async function resolveCursorInterfaceSnapshot(
         );
   let message = input.baseSnapshot.message;
   let status = input.baseSnapshot.status;
-  if (!versionProbe.ok) {
-    message = versionProbe.errorMessage;
+  if (!version) {
+    message = versionProbe.ok
+      ? "Cursor CLI did not report a recognizable version."
+      : versionProbe.errorMessage;
     status = "warning";
   } else if (auth.status === "unauthenticated") {
     message = requireControllerSignInInterfaceDescription("cursor");
@@ -931,7 +935,7 @@ async function resolveCursorInterfaceSnapshot(
     status = "warning";
   }
   return {
-    probeCompleted: versionProbe.ok && auth.status !== "unknown",
+    probeCompleted: version !== null && auth.status !== "unknown",
     snapshot: {
       ...input.baseSnapshot,
       auth,
@@ -1761,8 +1765,8 @@ async function probeCursorKeychainAuthentication(): Promise<AgentControllerInter
   try {
     const access = await readToken("cursor-access-token");
     const refresh = await readToken("cursor-refresh-token");
-    if (!(access && refresh)) {
-      return { status: access || refresh ? "unknown" : "unauthenticated" };
+    if (Boolean(access) !== Boolean(refresh)) {
+      return { status: "unknown" };
     }
     // Cursor stores these as independent items. Discard mixed evidence when
     // either credential changes or disappears during the noninteractive read.
@@ -1772,11 +1776,9 @@ async function probeCursorKeychainAuthentication(): Promise<AgentControllerInter
     ) {
       return { status: "unknown" };
     }
-    return {
-      status: "authenticated",
-      label: "Signed in",
-      type: "cursor_login",
-    };
+    return access
+      ? { status: "authenticated", label: "Signed in", type: "cursor_login" }
+      : { status: "unauthenticated" };
   } catch {
     return { status: "unknown" };
   }

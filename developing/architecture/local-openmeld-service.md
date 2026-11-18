@@ -1632,23 +1632,27 @@ Keychain and must never become a silent automatic fallback.
 On macOS, the default-store sign-in check uses the Service's noninteractive
 Keychain reader for Cursor's access and refresh tokens. The Service confirms
 local sign-in when both tokens stay readable and unchanged on a second read.
-Two missing items indicate signed out. A partial pair, rotation during the
-check, or an inaccessible store leaves sign-in unknown. An explicit
+Two items that remain missing on the second read indicate signed out. A partial
+pair, rotation during the check, or an inaccessible store leaves sign-in
+unknown. An explicit
 `CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN` takes precedence on macOS. The offline
 check reports that the environment credential is configured and its validity
 is unknown. Only sign-in evidence enters the snapshot. Other platforms, and
 macOS file or memory stores without an environment credential, use the native
-`cursor-agent status --format json` command.
+`cursor-agent status --format json` command. The Keychain pair supplies no
+stable account identifier for reusing older quota observations.
 
 Cursor's `--version` command can initialize credentials before parsing its
 arguments. Install and inventory version checks request the memory store. On
 macOS, those probe processes run offline with Keychain files and Mach services
 blocked, including for older builds that ignore the store setting. If macOS
-cannot start the isolated probe, the check is incomplete. The Service reaps
-owned probe descendants on exit and timeout. When stopping a live POSIX process
-group, the supervisor scans again for detached helpers after sending the signal
-and retains cleanup ownership until it can confirm the result. Login and ACP
-task execution use the selected installation and its normal credential store.
+cannot start the isolated probe or the CLI returns no recognizable version,
+inventory records an incomplete check. The Service reaps owned probe descendants
+on exit and timeout. After stopping a POSIX process group, the supervisor scans
+for detached helpers even if the group leader has exited. Cleanup retries use
+fresh invocation markers until a scan confirms that the helpers have stopped.
+Login and ACP task execution use the selected installation and its normal
+credential store.
 
 ACI must distinguish a completed negative result from a check that did not
 complete. A completed check may prove that a controller needs repair or is not

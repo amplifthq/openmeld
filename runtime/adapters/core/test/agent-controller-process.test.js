@@ -360,7 +360,10 @@ test("retries supervised discovery when the leader exits during an inspection fa
       }
       return true;
     },
-    listSupervisedProcessIds: () => {
+    listSupervisedProcessIds: ({ fresh }) => {
+      if (fresh) {
+        return Promise.resolve([]);
+      }
       discoveryAttempts += 1;
       if (discoveryAttempts === 1) {
         return Promise.reject(timeoutError);
@@ -400,25 +403,37 @@ for (const inspectionFails of [false, true]) {
     const inspectionError = new Error(
       "post-kill process inspection unavailable"
     );
-    const result = await terminateRemainingAgentControllerProcesses({
+    const state = { groupSweepCompleted: false };
+    let failInspection = inspectionFails;
+    const options = {
       processId: 4242,
       supervisionId: "supervision-4242",
       signalTarget: "process_group",
-      isRootExited: () => !groupAlive,
+      isRootExited: () => !(inspectionFails && groupAlive),
       listSupervisedProcessIds: ({ fresh, processId }) => {
         if (groupAlive) {
           return Promise.resolve([]);
         }
         assert.equal(fresh, true);
         assert.equal(processId, null);
-        if (!helperAlive && inspectionFails) {
+        if (!helperAlive && failInspection) {
           return Promise.reject(inspectionError);
         }
         return Promise.resolve(helperAlive ? [4343] : []);
       },
       killProcess(pid, signal) {
+        if (pid === 4242 && signal === 0) {
+          throw Object.assign(new Error("leader already exited"), {
+            code: "ESRCH",
+          });
+        }
         assert.equal(signal, "SIGKILL");
         if (pid === -4242) {
+          assert.equal(
+            groupAlive,
+            true,
+            "do not reuse a previously stopped group"
+          );
           // The helper detached after the first scan and before its group was killed.
           helperAlive = true;
           groupAlive = false;
@@ -431,7 +446,11 @@ for (const inspectionFails of [false, true]) {
       waitForDiscoveryRetry: async () => undefined,
       reportDiscoveryFailure: ({ error }) =>
         assert.equal(error, inspectionError),
-    });
+    };
+    const result = await terminateRemainingAgentControllerProcesses(
+      options,
+      state
+    );
     assert.equal(helperAlive, false);
     assert.deepEqual(
       result,
@@ -439,6 +458,16 @@ for (const inspectionFails of [false, true]) {
         ? { ok: false, signalSent: true, error: inspectionError }
         : { ok: true, signalSent: true }
     );
+    if (inspectionFails) {
+      failInspection = false;
+      helperAlive = true;
+      const retried = await terminateRemainingAgentControllerProcesses(
+        options,
+        state
+      );
+      assert.deepEqual(retried, { ok: true, signalSent: true });
+      assert.equal(helperAlive, false);
+    }
   });
 }
 
@@ -456,7 +485,7 @@ test("retries with a fresh scan when the exited leader had no visible descendant
     },
     listSupervisedProcessIds: () => {
       discoveryAttempts += 1;
-      return Promise.resolve(discoveryAttempts === 1 ? [] : [4343]);
+      return Promise.resolve(discoveryAttempts === 2 ? [4343] : []);
     },
     processId: 4242,
     waitForDiscoveryRetry: async () => undefined,
@@ -464,10 +493,9 @@ test("retries with a fresh scan when the exited leader had no visible descendant
     supervisionId: "supervision-4242",
   });
 
-  assert.equal(discoveryAttempts, 2);
+  assert.equal(discoveryAttempts, 3);
   assert.deepEqual(result, { ok: true, signalSent: true });
   assert.deepEqual(killCalls, [
-    { processId: -4242, signal: "SIGKILL" },
     { processId: -4242, signal: "SIGKILL" },
     { processId: 4343, signal: "SIGKILL" },
   ]);
@@ -492,9 +520,11 @@ test("waits for the supervised discovery retry before completing cleanup", async
     signalTarget: "process_group",
     supervisionId: "supervision-4242",
     waitForDiscoveryRetry: () =>
-      new Promise((resolve) => {
-        releaseRetry = resolve;
-      }),
+      discoveryAttempts !== 1
+        ? Promise.resolve()
+        : new Promise((resolve) => {
+            releaseRetry = resolve;
+          }),
   }).then((result) => {
     settled = true;
     return result;
@@ -506,7 +536,7 @@ test("waits for the supervised discovery retry before completing cleanup", async
 
   releaseRetry();
   assert.deepEqual(await cleanup, { ok: true, signalSent: true });
-  assert.equal(discoveryAttempts, 2);
+  assert.equal(discoveryAttempts, 3);
 });
 
 test("does not signal an exited root's process group once its PID is reused", async () => {
@@ -522,7 +552,7 @@ test("does not signal an exited root's process group once its PID is reused", as
     },
     listSupervisedProcessIds: (request) => {
       discoveryRequests.push(request);
-      return Promise.resolve([5151]);
+      return Promise.resolve(request.fresh ? [] : [5151]);
     },
     processId: 4242,
     signalTarget: "process_group",
@@ -534,6 +564,7 @@ test("does not signal an exited root's process group once its PID is reused", as
   // Discovery must not walk the reused PID's children: marker-only scan.
   assert.deepEqual(discoveryRequests, [
     { processId: null, supervisionId: "supervision-4242" },
+    { processId: null, supervisionId: "supervision-4242", fresh: true },
   ]);
   assert.deepEqual(killCalls, [
     { processId: 4242, signal: 0 },

@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
@@ -46,11 +46,14 @@ test(
   `;
     const child = spawnSync(
       "/bin/sh",
-      ["-c", "ulimit -n 64 && exec node --input-type=module -"],
+      [
+        "-c",
+        'ulimit -n 64 && exec "$OPENMELD_TEST_NODE" --input-type=module -',
+      ],
       {
         cwd: new URL("../", import.meta.url),
         encoding: "utf8",
-        env: { ...process.env, PATH: dirname(process.execPath) },
+        env: { ...process.env, OPENMELD_TEST_NODE: process.execPath },
         input: script,
         timeout: 10_000,
       }
