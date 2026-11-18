@@ -376,14 +376,20 @@ function resolveRiskTags(context) {
   ];
 }
 
-function assertExactCandidateFacts(snapshot, candidateKind) {
+function assertExactCandidateFacts(
+  snapshot,
+  candidateKind,
+  requireCurrentBase
+) {
   const exactFacts = [
     ["expected head", snapshot.expectedHeadSha],
     ["actual head", snapshot.actualHeadSha],
     ["expected base", snapshot.expectedBaseSha],
-    ["current main", snapshot.currentMainSha],
     ["tree", snapshot.treeSha],
   ];
+  if (requireCurrentBase || snapshot.currentMainSha != null) {
+    exactFacts.push(["current main", snapshot.currentMainSha]);
+  }
   if (candidateKind === "pull-request") {
     exactFacts.push(["pull request base", snapshot.pullRequestBaseSha]);
   }
@@ -426,7 +432,7 @@ function assertPullRequestSnapshot(snapshot, requireCurrentBase) {
 export function assertCandidateSnapshot(snapshot, options = {}) {
   const candidateKind = options.candidateKind ?? "pull-request";
   const requireCurrentBase = options.requireCurrentBase ?? true;
-  assertExactCandidateFacts(snapshot, candidateKind);
+  assertExactCandidateFacts(snapshot, candidateKind, requireCurrentBase);
   if (snapshot.actualHeadSha !== snapshot.expectedHeadSha) {
     throw new Error(
       `Candidate head drifted: expected ${snapshot.expectedHeadSha}, found ${snapshot.actualHeadSha}.`
