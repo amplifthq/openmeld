@@ -70,6 +70,12 @@ export function enqueueSpaceTaskDeliveries(input: {
     enqueue("github_projection");
   }
   if (
+    JSON.stringify(task.pullRequest ?? null) !==
+    JSON.stringify(input.previous?.pullRequest ?? null)
+  ) {
+    enqueue("github_pr_projection");
+  }
+  if (
     task.projectIds.length > 0 ||
     (input.previous?.projectIds.length ?? 0) > 0
   ) {
@@ -79,6 +85,9 @@ export function enqueueSpaceTaskDeliveries(input: {
     ((event.type === "created" || event.type === "assigned") &&
       input.wakeAssignee) ||
     (event.type === "result_submitted" && task.phase === "in_review") ||
+    (event.type === "pull_request_head_changed" &&
+      task.phase === "in_review" &&
+      task.reviewer !== null) ||
     event.type === "changes_requested" ||
     event.type === "rework_continued"
   ) {
@@ -128,6 +137,13 @@ export function isSpaceTaskDeliveryCurrent(
       JSON.stringify(task.completionConditions)
   ) {
     return false;
+  }
+  if (event.type === "pull_request_head_changed") {
+    return (
+      current.phase === "in_review" &&
+      current.reviewer?.profileId === task.reviewer?.profileId &&
+      current.pullRequest?.headSha === task.pullRequest?.headSha
+    );
   }
   if (event.type === "result_submitted") {
     return (

@@ -21,6 +21,7 @@ import {
   spaceMessageFileReferenceSchema,
   spaceTaskIdSchema,
   spaceTaskMutationReceiptSchema,
+  spaceTaskPullRequestSchema,
   spaceThreadEvidenceRequestSchema,
 } from "@openmeld/schemas";
 import { z } from "zod/v4";
@@ -651,11 +652,12 @@ export function createDispatchSpaceTools(
     {
       title: "Submit a result for a Space Task",
       description:
-        "Submit the concrete result and verification for an in-progress Task. A Task with a reviewer moves to In review; otherwise the stated completion boundary moves it to Done. The Space delivers the review handoff to the reviewer.",
+        "Submit the concrete result and verification for an in-progress Task. A Task with a reviewer moves to In review; otherwise the stated completion boundary moves it to Done. The Space delivers the review handoff to the reviewer. When the result is a GitHub pull request, pass pullRequest with the full 40-character head commit SHA you pushed; review is then bound to that commit and a later push sends the Task back for review.",
       inputSchema: {
         taskId: spaceTaskIdSchema,
         expectedRevision: z.number().int().min(1),
         summary: z.string().trim().min(1).max(8000),
+        pullRequest: spaceTaskPullRequestSchema.optional(),
       },
       outputSchema: spaceTaskMutationReceiptSchema,
       annotations: {
@@ -665,12 +667,17 @@ export function createDispatchSpaceTools(
         openWorldHint: false,
       },
     },
-    async ({ expectedRevision, summary, taskId }) =>
+    async ({ expectedRevision, pullRequest, summary, taskId }) =>
       executeTaskAction(() =>
         mutateDispatchSpaceTask(
           {
             taskId,
-            body: { action: "submit_result", expectedRevision, summary },
+            body: {
+              action: "submit_result",
+              expectedRevision,
+              summary,
+              ...(pullRequest ? { pullRequest } : {}),
+            },
           },
           env
         )
@@ -682,13 +689,15 @@ export function createDispatchSpaceTools(
     {
       title: "Review a Space Task result",
       description:
-        "Accept the exact result you read or request specific changes as this Task's reviewer. Pass that result's resultRevision as expectedResultRevision and the Task's revision as expectedRevision. A conflict requires reading the current Task and deciding again. Change requests require feedback. The Space delivers review and rework handoffs. Agent-to-Agent rework stops for a human decision after two automatic rounds.",
+        "Accept the exact result you read or request specific changes as this Task's reviewer. Pass that result's resultRevision as expectedResultRevision and the Task's revision as expectedRevision. A conflict requires reading the current Task and deciding again. Change requests require feedback. The Space delivers review and rework handoffs. Agent-to-Agent rework stops for a human decision after two automatic rounds. If the Task has a pullRequest, pass the head commit SHA you actually verified as expectedPullRequestHeadSha; it must equal the Task's current pullRequest.headSha.",
       inputSchema: {
         taskId: spaceTaskIdSchema,
         expectedRevision: z.number().int().min(1),
         expectedResultRevision: z.number().int().min(1),
         decision: z.enum(["accepted", "changes_requested"]),
         feedback: z.string().trim().min(1).max(8000).nullable().optional(),
+        expectedPullRequestHeadSha:
+          spaceTaskPullRequestSchema.shape.headSha.optional(),
       },
       outputSchema: spaceTaskMutationReceiptSchema,
       annotations: {
@@ -700,6 +709,7 @@ export function createDispatchSpaceTools(
     },
     async ({
       decision,
+      expectedPullRequestHeadSha,
       expectedRevision,
       expectedResultRevision,
       feedback,
@@ -715,6 +725,9 @@ export function createDispatchSpaceTools(
               expectedResultRevision,
               decision,
               ...(feedback === undefined ? {} : { feedback }),
+              ...(expectedPullRequestHeadSha
+                ? { expectedPullRequestHeadSha }
+                : {}),
             },
           },
           env
