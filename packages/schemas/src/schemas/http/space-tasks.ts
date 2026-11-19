@@ -74,13 +74,20 @@ export const spaceTaskRequesterRepresentationSchema = z.strictObject({
  * Linked Pull Request metadata for commit-bound review/verification.
  * Minimal fields carried for task routing and staleness checks.
  */
+// Full lowercase SHA only: GitHub webhooks deliver full SHAs and Core compares
+// them with strict equality, so an abbreviated SHA would never match.
+const spaceTaskPullRequestHeadShaSchema = z
+  .string()
+  .trim()
+  .regex(/^[0-9a-f]{40}$/);
+
 export const spaceTaskPullRequestSchema = z.strictObject({
   number: z.number().int().positive(),
   owner: z.string().trim().min(1).max(100),
   repo: z.string().trim().min(1).max(100),
   url: z.url().max(2048),
   headRef: z.string().trim().min(1).max(200).optional(),
-  headSha: z.string().trim().min(7).max(64),
+  headSha: spaceTaskPullRequestHeadShaSchema,
 });
 
 export const spaceTaskResultSchema = z.strictObject({
@@ -117,6 +124,7 @@ export const spaceTaskEventTypeSchema = z.enum([
   "external_work_item_detached",
   "external_work_item_observed",
   "projects_set",
+  "pull_request_head_changed",
 ]);
 
 export const spaceTaskExternalWorkItemProviderSchema = z.enum([
@@ -384,7 +392,7 @@ export const mutateSpaceTaskBodySchema = z.discriminatedUnion("action", [
     feedback: spaceTaskReviewSchema.shape.feedback.optional(),
     // When a pull request is linked, reviewers should supply the expected
     // head commit SHA. Core enforces a match against the recorded headSha.
-    expectedPullRequestHeadSha: z.string().trim().min(7).max(64).optional(),
+    expectedPullRequestHeadSha: spaceTaskPullRequestHeadShaSchema.optional(),
   }),
   z.strictObject({
     ...taskMutationBase,
@@ -443,6 +451,7 @@ export const spaceTaskResponseSchema = z.strictObject({
           "completion",
           "stop",
           "github_projection",
+          "github_pr_projection",
           "project_projection",
         ]),
         state: z.enum(["pending", "failed"]),

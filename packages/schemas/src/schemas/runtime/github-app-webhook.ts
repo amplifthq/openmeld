@@ -28,26 +28,29 @@ const githubAppWebhookPullRequestObservationSchema = z.strictObject({
   url: z.url().max(2048),
 });
 
-export const githubAppWebhookQueueMessageSchema = z.strictObject({
+const githubAppWebhookQueueMessageBaseShape = {
   deliveryId: z.string().trim().min(1).max(128),
-  event: z.union([z.literal("issues"), z.literal("pull_request")]),
   gatewayRequestId: z.string().uuid(),
-  issue: z
-    .union([githubAppWebhookIssueObservationSchema, z.null()])
-    .transform(
-      (v) =>
-        v ??
-        (null as unknown as z.infer<
-          typeof githubAppWebhookIssueObservationSchema
-        >)
-    ),
-  pullRequest: z
-    .union([githubAppWebhookPullRequestObservationSchema, z.null()])
-    .optional(),
   kind: z.literal("github_app_webhook"),
   receivedAtMs: z.number().int().nonnegative(),
   v: z.literal(1),
-});
+};
+
+export const githubAppWebhookQueueMessageSchema = z.discriminatedUnion(
+  "event",
+  [
+    z.strictObject({
+      ...githubAppWebhookQueueMessageBaseShape,
+      event: z.literal("issues"),
+      issue: githubAppWebhookIssueObservationSchema,
+    }),
+    z.strictObject({
+      ...githubAppWebhookQueueMessageBaseShape,
+      event: z.literal("pull_request"),
+      pullRequest: githubAppWebhookPullRequestObservationSchema,
+    }),
+  ]
+);
 
 export const githubAppWebhookVerificationInputSchema = z.strictObject({
   gatewayRequestId: z.string().uuid(),

@@ -71,7 +71,7 @@ describe("commit-bound review on linked pull request", () => {
           number: 42,
           url: "https://github.com/acme/web/pull/42",
           headRef: "feature/xyz",
-          headSha: "abcdef1234567890",
+          headSha: "abcdef1234567890abcdef1234567890abcdef12",
         },
       },
       context: buildContext(assignee),
@@ -102,7 +102,8 @@ describe("commit-bound review on linked pull request", () => {
           expectedRevision: submit.task.revision,
           expectedResultRevision: submit.task.result?.resultRevision ?? 0,
           decision: "accepted",
-          expectedPullRequestHeadSha: "deadbeef",
+          expectedPullRequestHeadSha:
+            "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
         },
         context: buildContext(reviewer),
       })
@@ -116,11 +117,13 @@ describe("commit-bound review on linked pull request", () => {
         expectedRevision: submit.task.revision,
         expectedResultRevision: submit.task.result?.resultRevision ?? 0,
         decision: "accepted",
-        expectedPullRequestHeadSha: "abcdef1234567890",
+        expectedPullRequestHeadSha: "abcdef1234567890abcdef1234567890abcdef12",
       },
       context: buildContext(reviewer),
     });
     expect(reviewed.task.phase).toBe("done");
-    expect(reviewed.task.review?.pullRequestHeadSha).toBe("abcdef1234567890");
+    expect(reviewed.task.review?.pullRequestHeadSha).toBe(
+      "abcdef1234567890abcdef1234567890abcdef12"
+    );
   });
 });

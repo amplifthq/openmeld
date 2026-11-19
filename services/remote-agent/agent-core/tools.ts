@@ -2008,6 +2008,7 @@ const manageSpaceTasksToolInputSchema = strictObject({
   number: optional(pipe(number(), integer(), minValue(1))),
   owner: optional(pipe(string(), trim(), minLength(1), maxLength(100))),
   projectIds: optional(pipe(array(nonEmptyStringSchema), maxLength(12))),
+  pullRequestHeadSha: optional(nonEmptyStringSchema),
   linearIssueId: optional(nonEmptyStringSchema),
   linearIdentifier: optional(nonEmptyStringSchema),
   linearTeamId: optional(nonEmptyStringSchema),
@@ -2033,6 +2034,29 @@ const manageSpaceTasksToolInputSchema = strictObject({
 type ManageSpaceTasksToolInput = InferOutput<
   typeof manageSpaceTasksToolInputSchema
 >;
+
+function spaceTaskPullRequestFromTool(input: ManageSpaceTasksToolInput) {
+  if (input.pullRequestHeadSha === undefined) {
+    return {};
+  }
+  return {
+    pullRequest: {
+      headSha: input.pullRequestHeadSha,
+      number: input.number,
+      owner: input.owner,
+      repo: input.repo,
+      url: input.url,
+    },
+  };
+}
+
+function spaceTaskExpectedPullRequestHeadFromTool(
+  input: ManageSpaceTasksToolInput
+) {
+  return input.pullRequestHeadSha === undefined
+    ? {}
+    : { expectedPullRequestHeadSha: input.pullRequestHeadSha };
+}
 
 function buildSpaceTaskMutationFromTool(
   input: ManageSpaceTasksToolInput,
@@ -2099,6 +2123,7 @@ function buildSpaceTaskMutationFromTool(
         ...base,
         action: input.action,
         summary: input.summary,
+        ...spaceTaskPullRequestFromTool(input),
       });
     case "review":
       return mutateSpaceTaskBodySchema.parse({
@@ -2107,6 +2132,7 @@ function buildSpaceTaskMutationFromTool(
         expectedResultRevision: input.expectedResultRevision,
         decision: input.decision,
         ...(input.feedback === undefined ? {} : { feedback: input.feedback }),
+        ...spaceTaskExpectedPullRequestHeadFromTool(input),
       });
     case "cancel":
     case "reopen":
@@ -4404,7 +4430,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       name: "openmeld_manage_space_tasks",
       description:
         "Manage durable delivery commitments in the current Space or private chat. Use Tasks for discrete deliverables that need ownership, progress, review, or later closure; not questions, acknowledgements, exploratory discussion, or tiny same-turn actions. First list Tasks and reuse the one linked to the request or issue. action=get with an exact taskId reads its current revision, result, review, and pending or failed handoffs. action=create records work without starting execution and leaves assignee empty unless explicitly selected. For new work that should start now, action=create_and_delegate requires a stable operationId, title, self-contained brief and completion conditions, Agent assigneeProfileId, and explicit reviewerProfileId (null only when no review was requested). Creation and the initial Wake intent commit atomically. Reuse operationId only with the identical request. " +
-        "For an existing Task, action=delegate requires taskId, latest expectedRevision, assigneeProfileId and explicit reviewerProfileId. Add a requested reviewer to the Space first; missing membership is a blocker. Delegation assigns and queues the handoff atomically. The Task remains To do until the assignee explicitly starts it; a queued handoff is not running execution. Do not also call a generic Wake. Update the brief when the deliverable changes. Only the assignee starts and submits verified results. Review names the exact expectedResultRevision read. Conflicts require a fresh read and decision. Space delivers review and rework handoffs; needsHumanDecision stops automatic work after two Agent rework rounds. " +
+        "For an existing Task, action=delegate requires taskId, latest expectedRevision, assigneeProfileId and explicit reviewerProfileId. Add a requested reviewer to the Space first; missing membership is a blocker. Delegation assigns and queues the handoff atomically. The Task remains To do until the assignee explicitly starts it; a queued handoff is not running execution. Do not also call a generic Wake. Update the brief when the deliverable changes. Only the assignee starts and submits verified results. When the result is a GitHub pull request, submit_result also passes owner, repo, number, url and pullRequestHeadSha (the full 40-character head commit SHA); a later push returns the Task to review. Review names the exact expectedResultRevision read, and for a Task with a pullRequest also passes the full head SHA actually verified as pullRequestHeadSha. Conflicts require a fresh read and decision. Space delivers review and rework handoffs; needsHumanDecision stops automatic work after two Agent rework rounds. " +
         "Use projectIds only after an explicit Project decision; Project order does not choose external destinations. Confirm GitHub association from spaceTask.created, or attach an existing issue. Linear attachment requires its verified issue UUID, identifier, team UUID and URL; Linear links are not monitored. External issue closure updates observation only and never completes or cancels the Task. A Task result may require closing a still-open GitHub issue through github_update_issue. Task phase is independent of Agent execution truth.",
       input: manageSpaceTasksToolInputSchema,
       execute: async (payload) =>

@@ -8,6 +8,10 @@ import {
   listActiveSpaceTaskGitHubIssueLinks,
   projectSpaceTaskGitHubIssueLinks,
 } from "../src/space/infrastructure/postgresql/space-task-github-issue-link-repo";
+import {
+  listActiveSpaceTaskGitHubPullRequestLinks,
+  projectSpaceTaskGitHubPullRequestLink,
+} from "../src/space/infrastructure/postgresql/space-task-github-pr-link-repo";
 import { processGitHubAppWebhookQueueMessage } from "../src/space/transport/queue/github-app-webhook-queue-consumer";
 import {
   createPostgresHarness,
@@ -373,6 +377,114 @@ describe("GitHub App webhook queue consumer", () => {
           values: ["delivery-unlinked"],
         })
       ).toMatchObject({ state: "ignored" });
+    } finally {
+      await harness.close();
+    }
+  });
+});
+
+describe("GitHub pull request webhook", () => {
+  const pullRequest = {
+    headSha: "b".repeat(40),
+    number: 42,
+    owner: "AmpliftHQ",
+    repo: "OpenMeld",
+    url: "https://github.com/amplifthq/openmeld/pull/42",
+  };
+  const linkedTask = {
+    ...task,
+    externalWorkItems: [],
+    pullRequest: { ...pullRequest, headSha: "a".repeat(40) },
+  };
+
+  it("projects the link and routes a head update to the linked Task", async () => {
+    const harness = await createLinkHarness();
+    const rpcApplyGitHubPullRequestObservation = vi.fn(async () => ({
+      skipReason: null,
+      task: linkedTask,
+      updated: true,
+    }));
+    const env = {
+      OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+      OPENMELD_SPACES: {
+        get: () => ({ rpcApplyGitHubPullRequestObservation }),
+        idFromString: (spaceId: string) => spaceId,
+      },
+    } as never;
+    const message = {
+      deliveryId: "delivery-pr-sync",
+      event: "pull_request" as const,
+      gatewayRequestId: "11111111-1111-4111-8111-111111111111",
+      kind: "github_app_webhook" as const,
+      pullRequest: {
+        headSha: pullRequest.headSha,
+        number: 42,
+        observedAt: "2026-11-19T01:00:00.000Z",
+        owner: "amplifthq",
+        repo: "openmeld",
+        url: pullRequest.url,
+      },
+      receivedAtMs: 20,
+      v: 1 as const,
+    };
+    try {
+      await projectSpaceTaskGitHubPullRequestLink({
+        db: harness.db,
+        nowMs: 10,
+        organizationId: "org-1",
+        spaceId: SPACE_ID,
+        task: linkedTask,
+      });
+      await expect(
+        listActiveSpaceTaskGitHubPullRequestLinks({
+          db: harness.db,
+          number: 42,
+          owner: "amplifthq",
+          repo: "openmeld",
+        })
+      ).resolves.toEqual([
+        expect.objectContaining({ spaceId: SPACE_ID, taskId: TASK_ID }),
+      ]);
+
+      await processGitHubAppWebhookQueueMessage({ env, message });
+      expect(rpcApplyGitHubPullRequestObservation).toHaveBeenCalledTimes(1);
+      expect(rpcApplyGitHubPullRequestObservation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          headSha: pullRequest.headSha,
+          spaceId: SPACE_ID,
+          taskId: TASK_ID,
+        })
+      );
+      expect(
+        await harness.queryFirst({
+          text: 'SELECT state, event, action FROM "openmeld"."github_app_webhook_deliveries" WHERE delivery_id = $1',
+          values: ["delivery-pr-sync"],
+        })
+      ).toMatchObject({
+        action: "observed",
+        event: "pull_request",
+        state: "completed",
+      });
+
+      rpcApplyGitHubPullRequestObservation.mockClear();
+      await processGitHubAppWebhookQueueMessage({ env, message });
+      expect(rpcApplyGitHubPullRequestObservation).not.toHaveBeenCalled();
+
+      await projectSpaceTaskGitHubPullRequestLink({
+        db: harness.db,
+        nowMs: 30,
+        organizationId: "org-1",
+        spaceId: SPACE_ID,
+        task: { ...linkedTask, pullRequest: null },
+      });
+      await expect(
+        listActiveSpaceTaskGitHubPullRequestLinks({
+          db: harness.db,
+          number: 42,
+          owner: "amplifthq",
+          repo: "openmeld",
+        })
+      ).resolves.toEqual([]);
     } finally {
       await harness.close();
     }

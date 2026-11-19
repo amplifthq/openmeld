@@ -83,17 +83,17 @@ export async function processGitHubAppWebhookQueueMessage(input: {
   env: CoreBindings;
   message: GitHubAppWebhookQueueMessage;
 }): Promise<void> {
-  // Split the logic to keep complexity contained.
-  if (input.message.event === "issues") {
-    await processIssueWebhook(input);
+  const { message } = input;
+  if (message.event === "issues") {
+    await processIssueWebhook({ env: input.env, message });
     return;
   }
-  await processPullRequestWebhook(input);
+  await processPullRequestWebhook({ env: input.env, message });
 }
 
 async function processIssueWebhook(input: {
   env: CoreBindings;
-  message: GitHubAppWebhookQueueMessage;
+  message: Extract<GitHubAppWebhookQueueMessage, { event: "issues" }>;
 }): Promise<void> {
   const db = getPostgresDatabase(input.env);
   const nowMs = Date.now();
@@ -171,10 +171,11 @@ async function processIssueWebhook(input: {
 
 async function processPullRequestWebhook(input: {
   env: CoreBindings;
-  message: GitHubAppWebhookQueueMessage;
+  message: Extract<GitHubAppWebhookQueueMessage, { event: "pull_request" }>;
 }): Promise<void> {
   const db = getPostgresDatabase(input.env);
   const nowMs = Date.now();
+  const pullRequest = input.message.pullRequest;
   const claim = await claimGitHubAppWebhookDelivery({
     action: "observed",
     claimExpiresAtMs: nowMs + CLAIM_TTL_MS,
@@ -185,10 +186,10 @@ async function processPullRequestWebhook(input: {
     gatewayRequestId: input.message.gatewayRequestId,
     issueState: null,
     nowMs,
-    number: input.message.pullRequest?.number ?? 0,
-    ownerLogin: input.message.pullRequest?.owner ?? "",
+    number: pullRequest.number,
+    ownerLogin: pullRequest.owner,
     receivedAtMs: input.message.receivedAtMs,
-    repo: input.message.pullRequest?.repo ?? "",
+    repo: pullRequest.repo,
   });
   if (claim === "duplicate") {
     return;
@@ -196,37 +197,24 @@ async function processPullRequestWebhook(input: {
   try {
     const links = await listActiveSpaceTaskGitHubPullRequestLinks({
       db,
-      number: input.message.pullRequest?.number ?? 0,
-      owner: input.message.pullRequest?.owner ?? "",
-      repo: input.message.pullRequest?.repo ?? "",
+      number: pullRequest.number,
+      owner: pullRequest.owner,
+      repo: pullRequest.repo,
     });
     for (const link of links) {
       const stub = resolveSpaceStub(input.env.OPENMELD_SPACES, link.spaceId);
-      if (!(stub && input.message.pullRequest)) {
+      if (!stub) {
         continue;
       }
       await stub.rpcApplyGitHubPullRequestObservation({
         identity: {
-          number: input.message.pullRequest.number,
-          owner: input.message.pullRequest.owner,
-          repo: input.message.pullRequest.repo,
+          number: pullRequest.number,
+          owner: pullRequest.owner,
+          repo: pullRequest.repo,
         },
-        observeOperationId: spaceTaskGitHubIssueOperationId(
-          "observe-open",
-          {
-            number: input.message.pullRequest.number,
-            owner: input.message.pullRequest.owner,
-            repo: input.message.pullRequest.repo,
-            state: "open",
-            stateReason: null,
-            updatedAt: input.message.pullRequest.observedAt,
-            url: input.message.pullRequest.url,
-          },
-          link.taskId,
-          input.message.deliveryId
-        ),
-        observedAt: input.message.pullRequest.observedAt,
-        headSha: input.message.pullRequest.headSha,
+        observeOperationId: `github-pr-observe:${pullRequest.owner.toLowerCase()}:${pullRequest.repo.toLowerCase()}:${pullRequest.number}:${link.taskId}:${input.message.deliveryId}`,
+        observedAt: pullRequest.observedAt,
+        headSha: pullRequest.headSha,
         spaceId: link.spaceId,
         taskId: link.taskId,
       });

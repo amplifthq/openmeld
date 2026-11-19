@@ -822,8 +822,26 @@ function TaskReviewControl(input: TaskControlInput) {
 		return null;
 	}
 	const override = input.task.reviewer?.profileId !== input.selfProfileId;
+	const pullRequest = input.task.pullRequest ?? null;
+	const pullRequestHead = pullRequest
+		? { expectedPullRequestHeadSha: pullRequest.headSha }
+		: {};
 	return (
 		<div className="mt-4 space-y-2">
+			{pullRequest ? (
+				<p className="text-muted-foreground text-xs">
+					Reviewing{" "}
+					<a
+						className="underline"
+						href={pullRequest.url}
+						rel="noreferrer"
+						target="_blank"
+					>
+						{pullRequest.owner}/{pullRequest.repo}#{pullRequest.number}
+					</a>{" "}
+					at commit <code>{pullRequest.headSha.slice(0, 7)}</code>
+				</p>
+			) : null}
 			<label
 				className="font-medium text-xs"
 				htmlFor={`${input.task.taskId}-review`}
@@ -851,6 +869,7 @@ function TaskReviewControl(input: TaskControlInput) {
 							decision: "accepted",
 							expectedResultRevision: result.resultRevision,
 							feedback: feedback.trim() || null,
+							...pullRequestHead,
 						})
 					}
 					size="sm"
@@ -865,6 +884,7 @@ function TaskReviewControl(input: TaskControlInput) {
 							decision: "changes_requested",
 							expectedResultRevision: result.resultRevision,
 							feedback: feedback.trim(),
+							...pullRequestHead,
 						})
 					}
 					size="sm"
@@ -990,6 +1010,7 @@ function formatTaskEvent(type: SpaceTaskEvent["type"]): string {
 		external_work_item_attached: "Issue linked",
 		external_work_item_detached: "Issue unlinked",
 		external_work_item_observed: "GitHub issue status checked",
+		pull_request_head_changed: "Pull request updated",
 	};
 	return labels[type];
 }

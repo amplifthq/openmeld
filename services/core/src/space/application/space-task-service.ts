@@ -402,7 +402,7 @@ export class SpaceTaskService {
       const event: SpaceTaskEvent = this.buildEvent({
         task: next,
         operationId: input.observeOperationId,
-        type: "brief_updated",
+        type: "pull_request_head_changed",
         actor: { provider: "github" },
         fromPhase: current.phase,
         detail: needsReverification

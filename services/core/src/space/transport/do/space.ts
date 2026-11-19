@@ -725,6 +725,8 @@ import {
 import {
   type ApplyGitHubIssueObservationInput,
   type ApplyGitHubIssueObservationResult,
+  type ApplyGitHubPullRequestObservationInput,
+  type ApplyGitHubPullRequestObservationResult,
   type CreateSpaceTaskContext,
   SpaceTaskService,
 } from "../../application/space-task-service";
@@ -2791,6 +2793,14 @@ export function resolveNextLiveInvalidationVersion(input: {
   );
   return Math.max(input.nowMs, lastVersion + 1);
 }
+function formatSpaceTaskPullRequestNote(
+  pr: SpaceTask["pullRequest"]
+): string {
+  return pr
+    ? `\n\nPR: ${pr.owner}/${pr.repo}#${String(pr.number)}\nHead commit: ${pr.headSha}\n${pr.url}`
+    : "";
+}
+
 export class Space extends DurableObject<CoreBindings> {
   private spaceTaskDeliveryFlush: Promise<void> | null = null;
   private readonly bindings: CoreBindings;
@@ -10435,10 +10445,7 @@ export class Space extends DurableObject<CoreBindings> {
       receipt.task.phase === "in_review" &&
       receipt.task.reviewer
     ) {
-      const pr = receipt.task.pullRequest;
-      const prNote = pr
-        ? `\n\nPR: ${pr.owner}/${pr.repo}#${String(pr.number)} (${pr.headSha.slice(0, 7)})\n${pr.url}`
-        : "";
+      const prNote = formatSpaceTaskPullRequestNote(receipt.task.pullRequest);
       await this.publishSpaceTaskDirectedNotice({
         actor,
         eventId: receipt.event.eventId,
@@ -10451,16 +10458,30 @@ export class Space extends DurableObject<CoreBindings> {
       return;
     }
     if (
+      receipt.event.type === "pull_request_head_changed" &&
+      receipt.task.phase === "in_review" &&
+      receipt.task.reviewer
+    ) {
+      const prNote = formatSpaceTaskPullRequestNote(receipt.task.pullRequest);
+      await this.publishSpaceTaskDirectedNotice({
+        actor,
+        eventId: receipt.event.eventId,
+        sourceDispatchChainContext,
+        deliveryId,
+        task: receipt.task,
+        target: receipt.task.reviewer,
+        text: `Pull request updated; review the new head commit: ${receipt.task.title}${prNote}${!actor && receipt.task.reviewer.profileKind === "agent" ? `\n\nWake ${receipt.task.reviewer.profileName} to start the review.` : ""}`,
+      });
+      return;
+    }
+    if (
       receipt.event.type !== "changes_requested" &&
       receipt.event.type !== "rework_continued"
     ) {
       return;
     }
     if (receipt.task.phase === "in_progress" && receipt.task.assignee) {
-      const pr = receipt.task.pullRequest;
-      const prNote = pr
-        ? `\n\nPR: ${pr.owner}/${pr.repo}#${String(pr.number)} (${pr.headSha.slice(0, 7)})\n${pr.url}`
-        : "";
+      const prNote = formatSpaceTaskPullRequestNote(receipt.task.pullRequest);
       await this.publishSpaceTaskDirectedNotice({
         actor,
         eventId: receipt.event.eventId,
