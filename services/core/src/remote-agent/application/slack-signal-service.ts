@@ -225,6 +225,12 @@ export async function processRemoteAgentSlackEvent(
   env: CoreBindings,
   input: unknown,
   context: {
+    /**
+     * False for a routed batch of unaddressed channel messages. Nobody
+     * addressed the Center Agent there, so a request that cannot start is
+     * not answered in Slack.
+     */
+    addressed?: boolean;
     finalAttempt?: boolean;
     gatewayRequestId?: string;
     nowMs?: number;
@@ -289,6 +295,7 @@ export async function processRemoteAgentSlackEvent(
   }
   try {
     const outcome = await processRemoteAgentSlackAppMention({
+      addressed: context.addressed ?? true,
       env,
       event,
       eventId,
@@ -1143,6 +1150,7 @@ function resolveSlackEventProcessingFailureCode(error: unknown): string {
     : REMOTE_AGENT_SLACK_EVENT_PROCESSING_FAILURE_CODE;
 }
 async function processRemoteAgentSlackAppMention(input: {
+  addressed: boolean;
   env: CoreBindings;
   event: RemoteAgentSlackConversationEvent;
   eventId?: string | null;
@@ -1152,7 +1160,7 @@ async function processRemoteAgentSlackAppMention(input: {
   slackTeamId: string;
   threadTs: string;
 }): Promise<{
-  status: "processed" | "replied";
+  status: "ignored" | "processed" | "replied";
 }> {
   const {
     env,
@@ -1192,16 +1200,26 @@ async function processRemoteAgentSlackAppMention(input: {
     db: stateDb,
     slackTeamId,
   });
-  if (!workspaceBinding) {
+  const replyThatRequestCannotStart = async (
+    text: string
+  ): Promise<{ status: "ignored" | "replied" }> => {
+    if (!input.addressed) {
+      return { status: "ignored" };
+    }
     await postSlackConversationReply({
       botToken,
       channelId: event.channel,
       replyBroadcast,
       replyPlacement,
-      text: REMOTE_AGENT_SLACK_WORKSPACE_NOT_CONNECTED_TEXT,
+      text,
       threadTs,
     });
     return { status: "replied" };
+  };
+  if (!workspaceBinding) {
+    return await replyThatRequestCannotStart(
+      REMOTE_AGENT_SLACK_WORKSPACE_NOT_CONNECTED_TEXT
+    );
   }
   let centerAgent: SlackCenterAgentTarget | null;
   try {
@@ -1220,26 +1238,14 @@ async function processRemoteAgentSlackAppMention(input: {
       organizationId: workspaceBinding.organizationId,
       slackTeamId,
     });
-    await postSlackConversationReply({
-      botToken,
-      channelId: event.channel,
-      replyBroadcast,
-      replyPlacement,
-      text: CENTER_AGENT_CHANNEL_MODEL_UNAVAILABLE_TEXT,
-      threadTs,
-    });
-    return { status: "replied" };
+    return await replyThatRequestCannotStart(
+      CENTER_AGENT_CHANNEL_MODEL_UNAVAILABLE_TEXT
+    );
   }
   if (!centerAgent) {
-    await postSlackConversationReply({
-      botToken,
-      channelId: event.channel,
-      replyBroadcast,
-      replyPlacement,
-      text: CENTER_AGENT_CHANNEL_UNAVAILABLE_TEXT,
-      threadTs,
-    });
-    return { status: "replied" };
+    return await replyThatRequestCannotStart(
+      CENTER_AGENT_CHANNEL_UNAVAILABLE_TEXT
+    );
   }
   const dispatchId = buildSlackDispatchId({
     channelId: event.channel,

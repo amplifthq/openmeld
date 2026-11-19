@@ -1,0 +1,524 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
+import {
+  classifyUnaddressedChannelBatchResponseSchema,
+  MESSAGE_CHANNEL_EVENT_TEXT_MAX_CHARS,
+  UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES,
+  UNADDRESSED_CHANNEL_BATCH_MESSAGE_TEXT_MAX_CHARS,
+  unaddressedChannelBatchQueueMessageSchema,
+} from "@openmeld/schemas";
+import type {
+  ClassifyUnaddressedChannelBatchInput,
+  NormalizedMessageChannelEvent,
+  UnaddressedChannelBatchQueueMessage,
+  UnaddressedChannelBatchRoute,
+} from "@openmeld/schemas/types";
+import type { CoreBindings } from "../../lib/bindings";
+import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
+import { readRemoteAgentLarkPlatformContextCursor } from "../infrastructure/postgresql/lark-platform-context-cursor-repo";
+import {
+  claimDueUnaddressedChannelBatch,
+  type recordUnaddressedChannelMessage,
+  releaseUnaddressedChannelBatch,
+  settleUnaddressedChannelBatch,
+  type UnaddressedChannelBatchClaim,
+  type UnaddressedChannelMessageRecord,
+} from "../infrastructure/postgresql/message-channel-unaddressed-message-repo";
+
+/** A burst is routed once no new message has arrived for this long. */
+export const UNADDRESSED_CHANNEL_QUIET_WINDOW_MS = 8000;
+/** A steady stream is still routed after its oldest message waits this long. */
+export const UNADDRESSED_CHANNEL_MAX_WAIT_MS = 30_000;
+const UNADDRESSED_CHANNEL_BATCH_CLAIM_LEASE_MS = 120_000;
+export const UNADDRESSED_CHANNEL_BATCH_MAX_QUEUE_ATTEMPTS = 4;
+
+type LarkPlatformProvider = "feishu" | "lark";
+type MessageEvent = Extract<NormalizedMessageChannelEvent, { kind: "message" }>;
+type UnaddressedChannelBatchQueue = {
+  send(
+    message: UnaddressedChannelBatchQueueMessage,
+    options?: { delaySeconds?: number }
+  ): Promise<unknown>;
+};
+
+export type UnaddressedChannelObservationResult =
+  | {
+      status: "observed";
+    }
+  | {
+      reasonCode: string;
+      status: "ignored";
+    };
+
+export type UnaddressedChannelBatchSubmission =
+  | {
+      deliveryId: string | null;
+      status: "submitted";
+    }
+  | {
+      reasonCode: string;
+      status: "not_submitted";
+    };
+
+export type UnaddressedChannelBatchFlushResult =
+  | {
+      status: "empty" | "rescheduled" | "superseded";
+    }
+  | {
+      batchId: string;
+      route: UnaddressedChannelBatchRoute | "unrouted";
+      status: "archived";
+    }
+  | {
+      batchId: string;
+      deliveryId: string | null;
+      route: "follow_up" | "new_request";
+      status: "routed";
+    };
+
+export type UnaddressedChannelIntakeDependencies = {
+  claimBatch(
+    input: Parameters<typeof claimDueUnaddressedChannelBatch>[0]
+  ): Promise<UnaddressedChannelBatchClaim>;
+  classifyBatch(
+    input: ClassifyUnaddressedChannelBatchInput
+  ): Promise<UnaddressedChannelBatchRoute>;
+  hasPriorAgentTurn(input: {
+    db: PostgresDatabase;
+    trigger: UnaddressedChannelMessageRecord;
+  }): Promise<boolean>;
+  releaseBatch(
+    input: Parameters<typeof releaseUnaddressedChannelBatch>[0]
+  ): Promise<number>;
+  settleBatch(
+    input: Parameters<typeof settleUnaddressedChannelBatch>[0]
+  ): Promise<number>;
+  /**
+   * Starts one Center Agent turn through the provider's ordinary addressed
+   * path, so sender authority, quota, and failure handling stay the same.
+   */
+  submitRequest(
+    input: UnaddressedChannelBatchRequest
+  ): Promise<UnaddressedChannelBatchSubmission>;
+};
+
+/**
+ * The one input for the turn. The sender of the last message is the
+ * requester, so `text` holds only that person's words; other people's
+ * messages in the burst stay reference material in the conversation.
+ */
+export type UnaddressedChannelBatchRequest = {
+  db: PostgresDatabase;
+  /** Stable across retries so the provider path deduplicates the request. */
+  requestEventId: string;
+  text: string;
+  /** Provider downloads are addressed by the owning message, so only the
+   * trigger message's own files can be attached to the turn. */
+  trigger: UnaddressedChannelMessageRecord;
+};
+
+export type UnaddressedChannelObservationDependencies = {
+  recordMessage(
+    input: Parameters<typeof recordUnaddressedChannelMessage>[0]
+  ): Promise<{ inserted: boolean }>;
+};
+
+export class UnaddressedChannelIntakeRetryableError extends Error {
+  readonly reasonCode: string;
+  constructor(reasonCode: string, options: { cause?: unknown } = {}) {
+    super(reasonCode);
+    this.name = "UnaddressedChannelIntakeRetryableError";
+    this.reasonCode = reasonCode;
+    if (options.cause !== undefined) {
+      this.cause = options.cause;
+    }
+  }
+}
+
+export function isUnaddressedChannelIntakeEnabled(
+  env: Pick<CoreBindings, "OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED">
+): boolean {
+  return env.OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED === "true";
+}
+
+/**
+ * Replies in one thread form one batch. Top-level messages have no shared
+ * root, so one person's consecutive top-level messages form the batch.
+ */
+export function buildUnaddressedChannelBatchKey(input: {
+  messageId: string;
+  rootMessageId: string;
+  senderId: string;
+}): string {
+  return input.rootMessageId === input.messageId
+    ? `sender:${input.senderId}`
+    : `thread:${input.rootMessageId}`;
+}
+
+export function createUnaddressedChannelIntakeDependencies(input: {
+  env: CoreBindings;
+  submitRequest: UnaddressedChannelIntakeDependencies["submitRequest"];
+}): UnaddressedChannelIntakeDependencies {
+  return {
+    claimBatch: claimDueUnaddressedChannelBatch,
+    async classifyBatch(request) {
+      const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
+      if (!worker?.classifyUnaddressedChannelBatch) {
+        throw new UnaddressedChannelIntakeRetryableError(
+          "message_channel.unaddressed_classifier_unavailable"
+        );
+      }
+      const response = classifyUnaddressedChannelBatchResponseSchema.safeParse(
+        await worker.classifyUnaddressedChannelBatch(request)
+      );
+      if (!response.success) {
+        throw new UnaddressedChannelIntakeRetryableError(
+          "message_channel.unaddressed_classifier_response_invalid"
+        );
+      }
+      return response.data.route;
+    },
+    async hasPriorAgentTurn({ db, trigger }) {
+      // Slack keeps no per-thread record that Core can read here, so a Slack
+      // batch is always routed as a new request in its own thread.
+      if (
+        trigger.provider === "slack" ||
+        trigger.connectionGeneration === null
+      ) {
+        return false;
+      }
+      const cursor = await readRemoteAgentLarkPlatformContextCursor({
+        chatId: trigger.conversationKey,
+        connectionGeneration: trigger.connectionGeneration,
+        connectionId: trigger.connectionId,
+        db,
+        organizationId: trigger.organizationId,
+        rootMessageId: trigger.rootMessageId,
+      });
+      return cursor !== null;
+    },
+    releaseBatch: releaseUnaddressedChannelBatch,
+    settleBatch: settleUnaddressedChannelBatch,
+    submitRequest: input.submitRequest,
+  };
+}
+
+/**
+ * Archives one unaddressed Lark-platform group message and schedules the
+ * flush that routes its batch. Nothing is published to the chat here.
+ */
+export async function observeUnaddressedLarkPlatformMessage(
+  input: {
+    connectionGeneration: number | undefined;
+    connectionId: string;
+    db: PostgresDatabase;
+    event: MessageEvent;
+    nowMs: number;
+    provider: LarkPlatformProvider;
+    queue: UnaddressedChannelBatchQueue | undefined;
+  },
+  dependencies: UnaddressedChannelObservationDependencies & {
+    readConnection(input: {
+      connectionId: string;
+      db: PostgresDatabase;
+    }): Promise<RemoteAgentLarkPlatformChannelConnectionRecord | null>;
+  }
+): Promise<UnaddressedChannelObservationResult> {
+  const locator = input.event.locator;
+  if (locator.provider !== input.provider) {
+    return {
+      reasonCode: "message_channel.unaddressed_locator_mismatch",
+      status: "ignored",
+    };
+  }
+  const connection = await dependencies.readConnection({
+    connectionId: input.connectionId,
+    db: input.db,
+  });
+  if (
+    !connection ||
+    connection.provider !== input.provider ||
+    connection.status !== "connected"
+  ) {
+    return {
+      reasonCode: "message_channel.unaddressed_connection_unavailable",
+      status: "ignored",
+    };
+  }
+  if (
+    input.connectionGeneration !== undefined &&
+    input.connectionGeneration !== connection.connectionGeneration
+  ) {
+    return {
+      reasonCode: "message_channel.connection_generation_changed",
+      status: "ignored",
+    };
+  }
+  return await recordAndScheduleUnaddressedChannelMessage(
+    {
+      db: input.db,
+      message: {
+        connectionGeneration: connection.connectionGeneration,
+        connectionId: connection.connectionId,
+        conversationKey: locator.chatId,
+        messageId: input.event.messageId,
+        organizationId: connection.organizationId,
+        provider: input.provider,
+        resources: input.event.resources,
+        rootMessageId: locator.rootMessageId,
+        senderId: input.event.senderId,
+        senderTenantKey: input.event.senderTenantKey ?? null,
+        sentAtMs: input.event.sentAtMs,
+        text: input.event.text,
+        threadId: locator.threadId,
+      },
+      nowMs: input.nowMs,
+      queue: input.queue,
+    },
+    dependencies
+  );
+}
+
+/**
+ * Archives one unaddressed message and schedules the flush that routes its
+ * batch. Nothing is published to the chat here.
+ */
+export async function recordAndScheduleUnaddressedChannelMessage(
+  input: {
+    db: PostgresDatabase;
+    message: Omit<
+      Parameters<typeof recordUnaddressedChannelMessage>[0],
+      "batchKey" | "db" | "observedAtMs" | "source"
+    >;
+    nowMs: number;
+    queue: UnaddressedChannelBatchQueue | undefined;
+  },
+  dependencies: UnaddressedChannelObservationDependencies
+): Promise<UnaddressedChannelObservationResult> {
+  if (!input.queue) {
+    throw new UnaddressedChannelIntakeRetryableError(
+      "message_channel.unaddressed_batch_queue_unavailable"
+    );
+  }
+  const batchKey = buildUnaddressedChannelBatchKey({
+    messageId: input.message.messageId,
+    rootMessageId: input.message.rootMessageId,
+    senderId: input.message.senderId,
+  });
+  await dependencies.recordMessage({
+    ...input.message,
+    batchKey,
+    db: input.db,
+    observedAtMs: input.nowMs,
+    source: "push",
+  });
+  // A redelivered event schedules again on purpose: its first flush may have
+  // been lost with the failed attempt, and an extra flush finds nothing to do.
+  await input.queue.send(
+    unaddressedChannelBatchQueueMessageSchema.parse({
+      batchKey,
+      connectionId: input.message.connectionId,
+      conversationKey: input.message.conversationKey,
+      kind: "remote_agent_message_channel_unaddressed_batch",
+      provider: input.message.provider,
+      scheduledByObservedAtMs: input.nowMs,
+      v: 1,
+    }),
+    { delaySeconds: Math.ceil(UNADDRESSED_CHANNEL_QUIET_WINDOW_MS / 1000) }
+  );
+  return { status: "observed" };
+}
+
+/**
+ * Routes one quiet batch: chatter stays archived and starts nothing, while a
+ * request or a follow-up becomes one Center Agent turn for the person who
+ * sent the last message.
+ */
+export async function flushUnaddressedChannelBatch(
+  input: {
+    db: PostgresDatabase;
+    message: UnaddressedChannelBatchQueueMessage;
+    nowMs: number;
+    queue: UnaddressedChannelBatchQueue | undefined;
+    queueAttempts: number;
+  },
+  dependencies: UnaddressedChannelIntakeDependencies
+): Promise<UnaddressedChannelBatchFlushResult> {
+  const { message } = input;
+  const batchId = crypto.randomUUID();
+  const claim = await dependencies.claimBatch({
+    batchId,
+    batchKey: message.batchKey,
+    claimExpiresAtMs: input.nowMs + UNADDRESSED_CHANNEL_BATCH_CLAIM_LEASE_MS,
+    connectionId: message.connectionId,
+    conversationKey: message.conversationKey,
+    db: input.db,
+    maxWaitMs: UNADDRESSED_CHANNEL_MAX_WAIT_MS,
+    nowMs: input.nowMs,
+    provider: message.provider,
+    quietWindowMs: UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+  });
+  if (claim.status === "empty") {
+    return { status: "empty" };
+  }
+  if (claim.status === "not_due") {
+    if (claim.newestObservedAtMs > message.scheduledByObservedAtMs) {
+      return { status: "superseded" };
+    }
+    if (!input.queue) {
+      throw new UnaddressedChannelIntakeRetryableError(
+        "message_channel.unaddressed_batch_queue_unavailable"
+      );
+    }
+    await input.queue.send(message, {
+      delaySeconds: Math.max(
+        1,
+        Math.ceil((claim.dueAtMs - input.nowMs) / 1000)
+      ),
+    });
+    return { status: "rescheduled" };
+  }
+  try {
+    return await routeClaimedUnaddressedChannelBatch({
+      batchId,
+      db: input.db,
+      dependencies,
+      messages: claim.messages,
+      provider: message.provider,
+    });
+  } catch (error) {
+    if (input.queueAttempts >= UNADDRESSED_CHANNEL_BATCH_MAX_QUEUE_ATTEMPTS) {
+      // Routing could not be decided. The messages stay archived and start
+      // nothing, because nobody asked the Center Agent to act.
+      await dependencies.settleBatch({
+        batchId,
+        db: input.db,
+        nativeDeliveryId: null,
+        nowMs: Date.now(),
+        route: "unrouted",
+        state: "archived",
+      });
+      console.error("[core.message_channel.unaddressed_batch_unrouted]", {
+        batchId,
+        connectionId: message.connectionId,
+        error: error instanceof Error ? error.message : String(error),
+        provider: message.provider,
+        queueAttempts: input.queueAttempts,
+      });
+      return { batchId, route: "unrouted", status: "archived" };
+    }
+    await dependencies.releaseBatch({
+      batchId,
+      db: input.db,
+      nowMs: Date.now(),
+    });
+    throw error;
+  }
+}
+
+async function routeClaimedUnaddressedChannelBatch(input: {
+  batchId: string;
+  db: PostgresDatabase;
+  dependencies: UnaddressedChannelIntakeDependencies;
+  messages: readonly UnaddressedChannelMessageRecord[];
+  provider: UnaddressedChannelBatchQueueMessage["provider"];
+}): Promise<UnaddressedChannelBatchFlushResult> {
+  const { batchId, db, dependencies } = input;
+  const trigger = input.messages.at(-1);
+  if (!trigger) {
+    throw new Error("A claimed unaddressed batch has no messages");
+  }
+  const hasPriorAgentTurn = await dependencies.hasPriorAgentTurn({
+    db,
+    trigger,
+  });
+  const classified = await dependencies.classifyBatch({
+    batchId,
+    messages: input.messages
+      .slice(-UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES)
+      .map((message) => ({
+        attachmentCount: Math.min(
+          message.resources.length + message.slackFiles.length,
+          10
+        ),
+        messageId: message.messageId,
+        senderId: message.senderId,
+        text: message.text.slice(
+          0,
+          UNADDRESSED_CHANNEL_BATCH_MESSAGE_TEXT_MAX_CHARS
+        ),
+      })),
+    organizationId: trigger.organizationId,
+    provider: input.provider,
+    thread: {
+      hasPriorAgentTurn,
+      isThreadReply: trigger.rootMessageId !== trigger.messageId,
+    },
+  });
+  if (classified === "chatter") {
+    await dependencies.settleBatch({
+      batchId,
+      db,
+      nativeDeliveryId: null,
+      nowMs: Date.now(),
+      route: "chatter",
+      state: "archived",
+    });
+    return { batchId, route: "chatter", status: "archived" };
+  }
+  // A follow-up needs earlier Center Agent work in the same thread. Without
+  // it the batch is still a request, so it is routed as a new one.
+  const route =
+    classified === "follow_up" && !hasPriorAgentTurn
+      ? "new_request"
+      : classified;
+  const submission = await dependencies.submitRequest({
+    db,
+    requestEventId: `unaddressed-batch:${trigger.messageId}`,
+    text: buildUnaddressedChannelRequestText(input.messages, trigger),
+    trigger,
+  });
+  if (submission.status === "not_submitted") {
+    await dependencies.settleBatch({
+      batchId,
+      db,
+      nativeDeliveryId: null,
+      nowMs: Date.now(),
+      route,
+      state: "archived",
+    });
+    console.warn("[core.message_channel.unaddressed_batch_not_submitted]", {
+      batchId,
+      connectionId: trigger.connectionId,
+      provider: input.provider,
+      reasonCode: submission.reasonCode,
+      route,
+    });
+    return { batchId, route, status: "archived" };
+  }
+  await dependencies.settleBatch({
+    batchId,
+    db,
+    nativeDeliveryId: submission.deliveryId,
+    nowMs: Date.now(),
+    route,
+    state: "routed",
+  });
+  return {
+    batchId,
+    deliveryId: submission.deliveryId,
+    route,
+    status: "routed",
+  };
+}
+
+function buildUnaddressedChannelRequestText(
+  messages: readonly UnaddressedChannelMessageRecord[],
+  trigger: UnaddressedChannelMessageRecord
+): string {
+  return messages
+    .filter((message) => message.senderId === trigger.senderId)
+    .map((message) => message.text)
+    .join("\n")
+    .slice(-MESSAGE_CHANNEL_EVENT_TEXT_MAX_CHARS)
+    .trim();
+}

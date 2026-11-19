@@ -114,6 +114,67 @@ describe("Remote Agent Slack event queue consumer", () => {
     expect(message.retry).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { attempts: 1, expected: "retried" },
+    { attempts: 4, expected: "dropped" },
+  ])("keeps an ordinary channel message out of the mention path when it cannot be archived on attempt $attempts ($expected)", async ({
+    attempts,
+    expected,
+  }) => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const message = createQueueMessage({ attempts });
+    const body = message.value.body as {
+      payload: { event: Record<string, unknown> };
+    };
+    // The env has no database, so the archive write fails.
+    await handleRemoteAgentSlackEventQueueMessage({
+      env: {
+        OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: "true",
+      } as never,
+      message: {
+        ...message.value,
+        body: {
+          ...body,
+          payload: {
+            ...body.payload,
+            event: {
+              channel: "C123",
+              channel_type: "channel",
+              event_ts: "1710000000.000100",
+              text: "the export job is failing again",
+              ts: "1710000000.000100",
+              type: "message",
+              user: "U123",
+            },
+          },
+        },
+      },
+      queueName: "openmeld-daemon-dispatch",
+    });
+
+    expect(processRemoteAgentSlackEvent).not.toHaveBeenCalled();
+    expect(message.retry.mock.calls).toEqual(
+      expected === "retried" ? [[{ delaySeconds: 5 }]] : []
+    );
+    expect(message.ack).toHaveBeenCalledTimes(expected === "dropped" ? 1 : 0);
+  });
+
+  it("still sends an app mention to the mention path when unaddressed intake is on", async () => {
+    processRemoteAgentSlackEvent.mockResolvedValue({ status: "processed" });
+    const message = createQueueMessage({ attempts: 1 });
+
+    await handleRemoteAgentSlackEventQueueMessage({
+      env: {
+        OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: "true",
+      } as never,
+      message: message.value,
+      queueName: "openmeld-daemon-dispatch",
+    });
+
+    expect(processRemoteAgentSlackEvent).toHaveBeenCalledOnce();
+    expect(message.ack).toHaveBeenCalledOnce();
+  });
+
   it("retries an ambiguous worker submission without acknowledging it", async () => {
     processRemoteAgentSlackEvent.mockRejectedValue(
       new RemoteAgentSlackSubmissionOutcomeUnknownError("RPC disconnected")
