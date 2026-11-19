@@ -609,6 +609,11 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
   ordinary Center Agent turn, including Task and Space creation requests. A
   worker-owned classifier or auxiliary completion model must not replace it for
   a supposedly simple mutation.
+- Unaddressed channel intake uses one fixed auxiliary model,
+  `openai/gpt-6-luna`, metered under the `channel_intake` usage purpose. It
+  returns one admission label for a batch of group messages and nothing else.
+  It runs before a turn exists, so it does not replace the primary model inside
+  any turn. See `remote-agent-runtime.md` (Unaddressed group messages).
 - `hostedRuntimePolicy.automaticModelFallback` is structurally fixed to
   `false`. A primary-model failure is a turn failure, never authority to choose
   another primary model. This model-identity rule does not disable OpenRouter's
