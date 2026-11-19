@@ -30,6 +30,12 @@ export type {
   GenerateCenterAgentSessionTitleResponse,
 } from "../schemas/runtime/center-agent-session-title";
 export type { MessageChannelCardHistory } from "../schemas/runtime/message-channel-card-history";
+export type {
+  ClassifyUnaddressedChannelBatchInput,
+  ClassifyUnaddressedChannelBatchResponse,
+  UnaddressedChannelBatchQueueMessage,
+  UnaddressedChannelBatchRoute,
+} from "../schemas/runtime/unaddressed-channel-batch";
 export type { PreHeadFailurePublicationIdentity } from "../schemas/space-mesh/signal-system-notice";
 export type {
   UserRequestTimeContext,

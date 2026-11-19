@@ -1,5 +1,9 @@
 import * as z from "zod/v4";
-import { messageChannelProviderSchema } from "./message-channel";
+import {
+  MESSAGE_CHANNEL_MAX_RESOURCES,
+  messageChannelProviderSchema,
+  messageChannelResourceTypeSchema,
+} from "./message-channel";
 
 export const CHANNEL_CONTEXT_MAX_MESSAGES = 20;
 export const CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS = 4000;
@@ -12,11 +16,25 @@ export const channelContextAuthorSchema = z.strictObject({
   displayName: nonEmptyStringSchema.max(256).optional(),
 });
 
+/**
+ * Says that a historical message carried a file, and what kind. The file's
+ * content is not part of Channel context.
+ */
+export const channelContextAttachmentSchema = z.strictObject({
+  type: messageChannelResourceTypeSchema,
+  fileName: nonEmptyStringSchema.max(512).nullable(),
+});
+
 export const channelContextMessageSchema = z.strictObject({
   id: nonEmptyStringSchema.max(256),
   author: channelContextAuthorSchema,
   sentAtMs: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   text: nonEmptyStringSchema.max(CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS),
+  attachments: z
+    .array(channelContextAttachmentSchema)
+    .min(1)
+    .max(MESSAGE_CHANNEL_MAX_RESOURCES)
+    .optional(),
 });
 
 export const channelContextSyncSchema = z.strictObject({

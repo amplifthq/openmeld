@@ -118,6 +118,7 @@ import {
   openMeldRemoteAgentLarkPlatformRegistrationAttempts,
   openMeldRemoteAgentMessageChannelEventIngress,
   openMeldRemoteAgentMessageChannelIdentityLinkTokens,
+  openMeldRemoteAgentMessageChannelUnaddressedMessages,
   organizationMessageChannelSetupRequests,
 } from "./message-channel.schema.ts";
 import { organizationOpportunities } from "./opportunity.schema.ts";
@@ -1905,6 +1906,7 @@ export const coreSchema = {
   openMeldRemoteAgentLarkPlatformRegistrationAttempts,
   openMeldRemoteAgentMessageChannelEventIngress,
   openMeldRemoteAgentMessageChannelIdentityLinkTokens,
+  openMeldRemoteAgentMessageChannelUnaddressedMessages,
   openMeldRemoteAgentSlackEventIngress,
   openMeldRemoteAgentSlackThreadContextCursors,
   openMeldRemoteAgentSlackWorkspaceBindings,
