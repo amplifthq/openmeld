@@ -1839,6 +1839,13 @@ describe("remote agent submission", () => {
               sentAtMs: 1_710_000_001_200,
               text: "Include the repository links.",
             },
+            {
+              id: "1710000002.000300",
+              author: { kind: "human", id: "U_ASHLEY" },
+              sentAtMs: 1_710_000_002_300,
+              text: "[file: trace.log]",
+              attachments: [{ type: "file", fileName: "trace.log" }],
+            },
           ],
         },
         sender: {
@@ -1876,6 +1883,9 @@ describe("remote agent submission", () => {
       '"text":"Daily builder report: three repositories need review."'
     );
     expect(prompt).toContain('"displayName":"Ashley"');
+    expect(prompt).toContain(
+      '"attachments":[{"type":"file","fileName":"trace.log"}]'
+    );
     expect(prompt).not.toContain("slack:T123:C123");
     expect(prompt).not.toContain("U_ASHLEY");
     expect(prompt).toContain("[Current verified request]");

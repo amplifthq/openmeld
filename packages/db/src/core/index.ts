@@ -158,6 +158,7 @@ export {
   openMeldRemoteAgentLarkPlatformRegistrationAttempts,
   openMeldRemoteAgentMessageChannelEventIngress,
   openMeldRemoteAgentMessageChannelIdentityLinkTokens,
+  openMeldRemoteAgentMessageChannelUnaddressedMessages,
   organizationMessageChannelSetupRequests,
 } from "./message-channel.schema.ts";
 export { organizationOpportunities } from "./opportunity.schema.ts";

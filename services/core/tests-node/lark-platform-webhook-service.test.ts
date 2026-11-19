@@ -464,6 +464,67 @@ describe("Lark-platform Webhook verification", () => {
       await harness.close();
     }
   });
+  it.each([
+    {
+      expected: {
+        envelope: { event: { kind: "message", mention: "group_message" } },
+        status: "enqueue",
+      },
+      senderType: "user",
+    },
+    {
+      expected: {
+        reasonCode: "message_channel.webhook_message_sender_not_user",
+        status: "ignored",
+      },
+      senderType: "app",
+    },
+  ])("treats an unmentioned group message from a $senderType sender as $expected.status", async ({
+    expected,
+    senderType,
+  }) => {
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
+    await seedConnection(harness, {
+      encryptKey: null,
+      provider: "feishu",
+      verificationToken: VERIFICATION_TOKEN,
+    });
+    try {
+      const fixture = structuredClone(
+        MESSAGE_FIXTURE
+      ) as typeof MESSAGE_FIXTURE & {
+        header: Record<string, unknown>;
+        event: {
+          message: Record<string, unknown>;
+          sender: Record<string, unknown>;
+        };
+      };
+      fixture.header.app_id = "cli_feishu_test";
+      fixture.header.tenant_key = "tenant_feishu_test";
+      fixture.event.sender.sender_type = senderType;
+      fixture.event.message.content = JSON.stringify({
+        text: "Ship the launch plan.",
+      });
+      fixture.event.message.mentions = [];
+      const result = await verifyLarkPlatformWebhook({
+        db: harness.db,
+        env: buildEnv({ feishuEnabled: true, larkEnabled: true }),
+        input: {
+          connectionId: "connection_feishu_test",
+          gatewayRequestId: "unmentioned_group_message",
+          headers: { nonce: null, signature: null, timestamp: null },
+          provider: "feishu",
+          rawBody: JSON.stringify(fixture),
+          receivedAtMs: 1_710_000_000_100,
+          surface: "events",
+        },
+      });
+      expect(result).toMatchObject(expected);
+    } finally {
+      await harness.close();
+    }
+  });
   it("normalizes an official image message into a bounded provider resource reference", async () => {
     const harness = await createPostgresHarness();
     await applyConnectionMigration(harness);

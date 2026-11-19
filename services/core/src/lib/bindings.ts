@@ -34,6 +34,7 @@ import type {
   RemoteAgentWorkerSubmitTurnResponse,
   SummarizeAgentActivityDigestRpcInput,
   SummarizeAgentActivityDigestRpcResponse,
+  UnaddressedChannelBatchQueueMessage,
 } from "@openmeld/schemas/types";
 import type { AccountInvalidationHub } from "../account-invalidation/account-invalidation-hub";
 import type { OrganizationFileRoot } from "../files/organization-file-root";
@@ -168,6 +169,11 @@ export type RemoteAgentWorkerBindingRpc = {
   ): Promise<
     import("@openmeld/schemas/types").GenerateCenterAgentSessionTitleResponse
   >;
+  classifyUnaddressedChannelBatch?(
+    input: import("@openmeld/schemas/types").ClassifyUnaddressedChannelBatchInput
+  ): Promise<
+    import("@openmeld/schemas/types").ClassifyUnaddressedChannelBatchResponse
+  >;
   pluginRuntime?(
     input: import("@openmeld/schemas/types").PluginRuntimeRequest
   ): Promise<import("@openmeld/schemas/types").PluginRuntimeResponse>;
@@ -268,6 +274,7 @@ export type CoreBindings = {
   OPENMELD_LARK_CHANNEL_ENABLED?: string;
   OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS?: string;
   OPENMELD_FEISHU_CHANNEL_ENABLED?: string;
+  OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED?: string;
   OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS?: string;
   OPENMELD_GATEWAY_URL?: string;
   LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY?: string;
@@ -286,7 +293,9 @@ export type CoreBindings = {
     | GitHubAppWebhookQueueMessage
     | OpenMeldDaemonDispatchQueueMessage
   >;
-  OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE?: Queue<MessageChannelIngressEnvelope>;
+  OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE?: Queue<
+    MessageChannelIngressEnvelope | UnaddressedChannelBatchQueueMessage
+  >;
   OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE?: string;
   OPENMELD_WORKER_ENVIRONMENT?: string;
   CORS_ORIGINS?: string;

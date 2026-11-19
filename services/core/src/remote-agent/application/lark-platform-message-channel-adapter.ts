@@ -388,6 +388,7 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         conversationId: contextInput.conversationId,
         currentEvent: { ...contextInput.event, locator },
         fetchImpl: input.fetchImpl,
+        history: contextInput.history,
         provider: input.provider,
       });
     },

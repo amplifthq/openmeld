@@ -143,6 +143,13 @@ export default {
       })
     );
   },
+  async classifyUnaddressedChannelBatch(input: unknown) {
+    return await runDurableAuxiliaryInference({
+      namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,
+      operation: "classifyUnaddressedChannelBatch",
+      request: input,
+    });
+  },
   async generateCenterAgentSessionTitle(input: unknown) {
     return await runDurableAuxiliaryInference({
       namespace: env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace,

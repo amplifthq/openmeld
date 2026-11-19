@@ -232,6 +232,19 @@ function normalizeMessageEvent(input: {
   } else if (botMentionKeys.length > 0) {
     mention = "group_mention";
   } else {
+    // Only a person's ordinary group message is unaddressed input. The app's
+    // own posts and other apps' posts must never become input, or the Center
+    // Agent could end up answering itself.
+    const senderType = readString(sender, "sender_type");
+    if (
+      (senderType !== null && senderType !== "user") ||
+      senderId === input.connection.botOpenId
+    ) {
+      return {
+        reasonCode: "message_channel.webhook_message_sender_not_user",
+        status: "ignored",
+      };
+    }
     mention = "group_message";
   }
   const rootMessageId = readString(message, "root_id") ?? messageId;

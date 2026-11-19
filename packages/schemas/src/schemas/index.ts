@@ -125,6 +125,15 @@ export {
   generateCenterAgentSessionTitleResponseSchema,
 } from "./runtime/center-agent-session-title";
 export { messageChannelCardHistorySchema } from "./runtime/message-channel-card-history";
+export {
+  classifyUnaddressedChannelBatchInputSchema,
+  classifyUnaddressedChannelBatchResponseSchema,
+  UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES,
+  UNADDRESSED_CHANNEL_BATCH_MESSAGE_TEXT_MAX_CHARS,
+  UNADDRESSED_CHANNEL_BATCH_ROUTES,
+  unaddressedChannelBatchQueueMessageSchema,
+  unaddressedChannelBatchRouteSchema,
+} from "./runtime/unaddressed-channel-batch";
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
@@ -3547,8 +3556,10 @@ export {
   remoteAgentRuntimeEvidenceOutcomeReasonCodeSchema,
   remoteAgentRuntimeEvidenceReasonCodeSchema,
   remoteAgentSlackAppMentionEventSchema,
+  remoteAgentSlackChannelMessageEventSchema,
   remoteAgentSlackDirectMessageEventSchema,
   remoteAgentSlackEventCallbackPayloadSchema,
+  remoteAgentSlackEventFileSchema,
   remoteAgentSlackEventQueueMessageSchema,
   remoteAgentSlackEventsApiPayloadSchema,
   remoteAgentSlackSearchAuthorizationSchema,

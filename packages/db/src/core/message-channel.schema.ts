@@ -590,6 +590,110 @@ export const openMeldRemoteAgentMessageChannelEventIngress = applicationTable(
   ]
 );
 
+/**
+ * Archive of group messages that neither mention the bot nor arrive in a
+ * direct message. Rows wait in `pending` until their burst goes quiet, are
+ * claimed as one batch for routing, and end as `archived` (no turn started)
+ * or `routed` (a Center Agent turn was submitted).
+ */
+export const openMeldRemoteAgentMessageChannelUnaddressedMessages =
+  applicationTable(
+    "openMeldRemoteAgent_message_channel_unaddressed_messages",
+    {
+      organizationId: text("organization_id")
+        .notNull()
+        .references(() => organizations.id, { onDelete: "cascade" }),
+      provider: text("provider", {
+        enum: ["slack", "lark", "feishu"],
+      }).notNull(),
+      connectionId: text("connection_id").notNull(),
+      connectionGeneration: bigint("connection_generation", {
+        mode: "number",
+      }),
+      conversationKey: text("conversation_key").notNull(),
+      messageId: text("message_id").notNull(),
+      rootMessageId: text("root_message_id").notNull(),
+      threadId: text("thread_id"),
+      senderId: text("sender_id").notNull(),
+      senderTenantKey: text("sender_tenant_key"),
+      messageText: text("message_text").notNull(),
+      // File references in the owning provider's own shape: resource
+      // descriptors for Lark and Feishu, event files for Slack.
+      providerFilesJson: text("provider_files_json").default("[]").notNull(),
+      sentAtMs: bigint("sent_at_ms", { mode: "number" }).notNull(),
+      observedAtMs: bigint("observed_at_ms", { mode: "number" }).notNull(),
+      source: text("source", { enum: ["push", "backfill"] }).notNull(),
+      batchKey: text("batch_key").notNull(),
+      state: text("state", {
+        enum: ["pending", "routing", "archived", "routed"],
+      }).notNull(),
+      batchId: text("batch_id"),
+      claimExpiresAtMs: bigint("claim_expires_at_ms", { mode: "number" }),
+      route: text("route", {
+        enum: ["follow_up", "new_request", "chatter", "unrouted"],
+      }),
+      nativeDeliveryId: text("native_delivery_id"),
+      updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
+    },
+    (table) => [
+      primaryKey({
+        columns: [table.provider, table.connectionId, table.messageId],
+        name: "openMeldRemoteAgent_message_channel_unaddressed_messages_pk",
+      }),
+      index("idx_openMeldRemoteAgent_message_channel_unaddressed_batch").on(
+        table.provider,
+        table.connectionId,
+        table.conversationKey,
+        table.batchKey,
+        table.state
+      ),
+      index("idx_openMeldRemoteAgent_message_channel_unaddressed_recent").on(
+        table.provider,
+        table.connectionId,
+        table.conversationKey,
+        desc(table.sentAtMs)
+      ),
+      check(
+        "openMeldRemoteAgent_message_channel_unaddressed_provider_check",
+        sql`"provider" in ('slack', 'lark', 'feishu')`
+      ),
+      check(
+        "openMeldRemoteAgent_message_channel_unaddressed_source_check",
+        sql`"source" in ('push', 'backfill')`
+      ),
+      check(
+        "openMeldRemoteAgent_message_channel_unaddressed_state_check",
+        sql`"state" in ('pending', 'routing', 'archived', 'routed')`
+      ),
+      check(
+        "openMeldRemoteAgent_message_channel_unaddressed_route_check",
+        sql`"route" is null
+          or "route" in ('follow_up', 'new_request', 'chatter', 'unrouted')`
+      ),
+      check(
+        "openMeldRemoteAgent_message_channel_unaddressed_claim_check",
+        sql`"state" <> 'routing'
+          or ("batch_id" is not null and "claim_expires_at_ms" is not null)`
+      ),
+      check(
+        "openMeldRemoteAgent_message_channel_unaddressed_identity_check",
+        sql`length(trim("organization_id")) > 0
+          and length(trim("connection_id")) > 0
+          and length(trim("conversation_key")) > 0
+          and length(trim("message_id")) > 0
+          and length(trim("root_message_id")) > 0
+          and length(trim("sender_id")) > 0
+          and length(trim("batch_key")) > 0`
+      ),
+      check(
+        "openMeldRemoteAgent_message_channel_unaddressed_times_check",
+        sql`"sent_at_ms" >= 0
+          and "observed_at_ms" >= 0
+          and "updated_at_ms" >= "observed_at_ms"`
+      ),
+    ]
+  );
+
 /** Retired per-group preference from migration 0055. Retained for rollback; current readers do not consult it. */
 export const feishuGroupHistorySettings = applicationTable(
   "feishu_group_history_settings",

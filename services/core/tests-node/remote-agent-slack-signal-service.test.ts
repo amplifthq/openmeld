@@ -2292,6 +2292,22 @@ describe("Remote Agent Slack signal service", () => {
           thread_ts: "1710000000.000100",
         },
       ]);
+
+      // Nobody addressed the Center Agent in a routed batch of ordinary
+      // channel messages, so the same failure posts nothing.
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createAppMentionPayload({
+            eventId: "unaddressed-batch:1710000001.000200",
+            text: "the export job is failing again",
+            ts: "1710000001.000200",
+          }),
+          { addressed: false }
+        )
+      ).resolves.toEqual({ status: "ignored" });
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(readSlackPostBodies(fetchMock)).toHaveLength(1);
     } finally {
       await harness.close();
     }

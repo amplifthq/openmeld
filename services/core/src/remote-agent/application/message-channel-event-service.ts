@@ -10,13 +10,18 @@ import type {
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
 import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
-import { upsertRemoteAgentLarkPlatformContextCursor } from "../infrastructure/postgresql/lark-platform-context-cursor-repo";
+import { readRemoteAgentLarkPlatformChannelConnection } from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
+import {
+  readRemoteAgentLarkPlatformContextCursor,
+  upsertRemoteAgentLarkPlatformContextCursor,
+} from "../infrastructure/postgresql/lark-platform-context-cursor-repo";
 import {
   claimRemoteAgentMessageChannelEventIngress,
   completeRemoteAgentMessageChannelEventIngress,
   failRemoteAgentMessageChannelEventIngress,
   releaseRemoteAgentMessageChannelEventIngressForRetry,
 } from "../infrastructure/postgresql/message-channel-event-ingress-repo";
+import { recordUnaddressedChannelMessage } from "../infrastructure/postgresql/message-channel-unaddressed-message-repo";
 import {
   claimRemoteAgentMessageChannelAdmissionFailurePublication,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
@@ -25,7 +30,10 @@ import {
   CENTER_AGENT_CHANNEL_MODEL_UNAVAILABLE_TEXT,
   CENTER_AGENT_CHANNEL_UNAVAILABLE_TEXT,
 } from "./center-agent-channel-failure-copy";
-import type { MessageChannelProviderRegistry } from "./message-channel-adapters";
+import type {
+  MessageChannelContextHistoryOptions,
+  MessageChannelProviderRegistry,
+} from "./message-channel-adapters";
 import { publishRemoteAgentMessageChannelAdmissionFailure } from "./message-channel-admission-watchdog-publication";
 import { processMessageChannelCardControl } from "./message-channel-card-control-service";
 import {
@@ -42,6 +50,11 @@ import {
   type MessageChannelTurnTargetResolution,
   resolveMessageChannelTurnTarget,
 } from "./message-channel-turn-resolution";
+import {
+  isUnaddressedChannelIntakeEnabled,
+  observeUnaddressedLarkPlatformMessage,
+  type UnaddressedChannelObservationResult,
+} from "./message-channel-unaddressed-intake-service";
 import { buildPluginChannelSourceProof } from "./plugin-channel-source-proof";
 import { buildMessageChannelProviderPublicationUuid } from "./provider-publication-uuid";
 
@@ -63,6 +76,24 @@ type AdmittedMessageChannelEvent = Extract<
     kind: "card_action" | "message";
   }
 >;
+type MessageChannelMessageEvent = Extract<
+  MessageChannelIngressEnvelope["event"],
+  {
+    kind: "message";
+  }
+>;
+/** The ingress facts an admitted event needs, whatever produced it. */
+export type AdmittedMessageChannelEventSource = {
+  /**
+   * False for a routed batch of unaddressed group messages. Nobody addressed
+   * the Center Agent there, so a request that cannot start is not answered.
+   */
+  addressed: boolean;
+  connectionGeneration?: number;
+  connectionId: string;
+  provider: "feishu" | "lark";
+  providerEventId: string;
+};
 export type RemoteAgentMessageChannelEventProcessingResult =
   | {
       deliveryId: string;
@@ -74,6 +105,10 @@ export type RemoteAgentMessageChannelEventProcessingResult =
     }
   | {
       status: "duplicate";
+    }
+  | {
+      // Archived as an unaddressed group message; no turn was started.
+      status: "observed";
     }
   | {
       reasonCode: string;
@@ -128,6 +163,15 @@ export type RemoteAgentMessageChannelEventServiceDependencies = {
   failIngress(
     input: Parameters<typeof failRemoteAgentMessageChannelEventIngress>[0]
   ): Promise<boolean>;
+  observeUnaddressedMessage(input: {
+    connectionGeneration: number | undefined;
+    connectionId: string;
+    db: PostgresDatabase;
+    env: CoreBindings;
+    event: MessageChannelMessageEvent;
+    nowMs: number;
+    provider: "feishu" | "lark";
+  }): Promise<UnaddressedChannelObservationResult>;
   prepareInputAttachments(input: {
     adapter: ReturnType<MessageChannelProviderRegistry["require"]>;
     bucket?: Pick<R2Bucket, "delete" | "put">;
@@ -164,6 +208,12 @@ export type RemoteAgentMessageChannelEventServiceDependencies = {
   submitNativeDelivery(
     input: Parameters<typeof submitRemoteAgentMessageChannelNativeDelivery>[0]
   ): Promise<RemoteAgentMessageChannelNativeDeliveryResult>;
+  readContextCursor(
+    input: Parameters<typeof readRemoteAgentLarkPlatformContextCursor>[0]
+  ): Promise<{
+    syncedThroughAtMs: number;
+    syncedThroughMessageId: string;
+  } | null>;
   upsertContextCursor(
     input: Parameters<typeof upsertRemoteAgentLarkPlatformContextCursor>[0]
   ): Promise<unknown>;
@@ -196,6 +246,19 @@ const DEFAULT_DEPENDENCIES: RemoteAgentMessageChannelEventServiceDependencies =
     },
     completeIngress: completeRemoteAgentMessageChannelEventIngress,
     failIngress: failRemoteAgentMessageChannelEventIngress,
+    async observeUnaddressedMessage({ env, ...observation }) {
+      return await observeUnaddressedLarkPlatformMessage(
+        {
+          ...observation,
+          queue: env.OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE,
+        },
+        {
+          readConnection: readRemoteAgentLarkPlatformChannelConnection,
+          recordMessage: recordUnaddressedChannelMessage,
+        }
+      );
+    },
+    readContextCursor: readRemoteAgentLarkPlatformContextCursor,
     releaseIngress: releaseRemoteAgentMessageChannelEventIngressForRetry,
     prepareInputAttachments: prepareMessageChannelInputAttachments,
     resolveTurnTarget: resolveMessageChannelTurnTarget,
@@ -368,14 +431,19 @@ function toMessageChannelEventRetryableError(
       );
 }
 async function resolveAdmittedMessageChannelTarget(
-  input: Parameters<typeof processClaimedMessageChannelEvent>[0],
+  input: Omit<
+    Parameters<typeof submitAdmittedMessageChannelEvent>[0],
+    "dependencies"
+  > & {
+    dependencies: RemoteAgentMessageChannelEventServiceDependencies;
+  },
   event: AdmittedMessageChannelEvent
 ) {
   return await input.dependencies.resolveTurnTarget({
     authWorker: input.env.OPENMELD_AUTH_WORKER,
-    connectionId: input.envelope.connectionId,
+    connectionId: input.source.connectionId,
     identityDb: input.identityDb,
-    provider: input.envelope.provider,
+    provider: input.source.provider,
     providerUserDisplayName:
       event.kind === "message" ? event.senderDisplayName : null,
     providerUserId: event.senderId,
@@ -412,20 +480,65 @@ async function processClaimedMessageChannelEvent(input: {
   registry: MessageChannelProviderRegistry;
 }): Promise<RemoteAgentMessageChannelEventProcessingResult> {
   const event = input.envelope.event;
-  const admission = resolveEventAdmission(event);
+  const admission = resolveEventAdmission(event, {
+    unaddressedIntakeEnabled: isUnaddressedChannelIntakeEnabled(input.env),
+  });
   if (admission.status === "ignored") {
     return admission;
   }
+  if (admission.status === "unaddressed") {
+    return await input.dependencies.observeUnaddressedMessage({
+      connectionGeneration: input.envelope.connectionGeneration,
+      connectionId: input.envelope.connectionId,
+      db: input.db,
+      env: input.env,
+      event: admission.event,
+      nowMs: Date.now(),
+      provider: input.envelope.provider,
+    });
+  }
+  return await submitAdmittedMessageChannelEvent({
+    db: input.db,
+    dependencies: input.dependencies,
+    env: input.env,
+    event: admission.event,
+    identityDb: input.identityDb,
+    registry: input.registry,
+    source: {
+      addressed: true,
+      connectionGeneration: input.envelope.connectionGeneration,
+      connectionId: input.envelope.connectionId,
+      provider: input.envelope.provider,
+      providerEventId: input.envelope.providerEventId,
+    },
+  });
+}
+/**
+ * Runs one admitted event through target resolution and Native Delivery.
+ * Addressed events and routed unaddressed batches share this path, so both
+ * get the same sender authority, quota, and failure handling.
+ */
+export async function submitAdmittedMessageChannelEvent(input: {
+  db: PostgresDatabase;
+  dependencies?: RemoteAgentMessageChannelEventServiceDependencies;
+  env: CoreBindings;
+  event: AdmittedMessageChannelEvent;
+  identityDb: PostgresDatabase;
+  registry: MessageChannelProviderRegistry;
+  source: AdmittedMessageChannelEventSource;
+}): Promise<RemoteAgentMessageChannelEventProcessingResult> {
+  const dependencies = input.dependencies ?? DEFAULT_DEPENDENCIES;
   const targetResolution = await resolveAdmittedMessageChannelTarget(
-    input,
-    admission.event
+    { ...input, dependencies },
+    input.event
   );
   if (targetResolution.status === "rejected") {
     if ("connection" in targetResolution) {
       await publishTargetResolutionFailure({
+        addressed: input.source.addressed,
         connection: targetResolution.connection,
-        event: admission.event,
-        providerEventId: input.envelope.providerEventId,
+        event: input.event,
+        providerEventId: input.source.providerEventId,
         reasonCode: targetResolution.reasonCode,
         registry: input.registry,
       });
@@ -437,8 +550,8 @@ async function processClaimedMessageChannelEvent(input: {
   }
   const { centerAgent, connection, participant } = targetResolution.target;
   if (
-    input.envelope.connectionGeneration !== undefined &&
-    input.envelope.connectionGeneration !== connection.connectionGeneration
+    input.source.connectionGeneration !== undefined &&
+    input.source.connectionGeneration !== connection.connectionGeneration
   ) {
     return {
       status: "rejected",
@@ -448,7 +561,7 @@ async function processClaimedMessageChannelEvent(input: {
   const control = await resolveAdmittedCardControl({
     db: input.db,
     env: input.env,
-    event: admission.event,
+    event: input.event,
     organizationId: connection.organizationId,
     participant,
     nowMs: Date.now(),
@@ -465,7 +578,7 @@ async function processClaimedMessageChannelEvent(input: {
   }
   const locator = admittedEvent.locator;
   const conversationId = buildMessageChannelConversationId(locator);
-  const adapter = input.registry.require(input.envelope.provider);
+  const adapter = input.registry.require(input.source.provider);
   const channelContext = buildPendingChannelContext({
     messageId:
       admittedEvent.kind === "message"
@@ -490,7 +603,7 @@ async function processClaimedMessageChannelEvent(input: {
     providerUserId: admittedEvent.senderId,
     webAppUrl: input.env.WEB_APP_URL,
   });
-  const delivery = await input.dependencies.submitNativeDelivery({
+  const delivery = await dependencies.submitNativeDelivery({
     db: input.db,
     env: input.env,
     nowMs: Date.now(),
@@ -504,6 +617,13 @@ async function processClaimedMessageChannelEvent(input: {
               connection,
               conversationId,
               event: admittedEvent,
+              history: await resolveChannelContextHistory({
+                connection,
+                db: input.db,
+                dependencies,
+                env: input.env,
+                event: admittedEvent,
+              }),
             })
           : channelContext;
       const contextFinishedAt = Date.now();
@@ -511,13 +631,13 @@ async function processClaimedMessageChannelEvent(input: {
         adapter,
         connection,
         conversationId,
-        dependencies: input.dependencies,
+        dependencies,
         env: input.env,
         event: admittedEvent,
       });
       console.info("[core.message_channel.input_prepared]", {
         connectionId: connection.connectionId,
-        providerEventId: input.envelope.providerEventId,
+        providerEventId: input.source.providerEventId,
         contextMs: contextFinishedAt - startedAt,
         attachmentsMs: Date.now() - contextFinishedAt,
       });
@@ -555,7 +675,7 @@ async function processClaimedMessageChannelEvent(input: {
   });
   if (delivery.status === "submitted") {
     if (admittedEvent.kind === "message") {
-      await input.dependencies.upsertContextCursor({
+      await dependencies.upsertContextCursor({
         chatId: locator.chatId,
         connectionGeneration: connection.connectionGeneration,
         connectionId: connection.connectionId,
@@ -570,7 +690,7 @@ async function processClaimedMessageChannelEvent(input: {
     }
     return { deliveryId: delivery.deliveryId, status: "submitted" };
   }
-  const settlement = await input.dependencies.settleAdmissionFailure({
+  const settlement = await dependencies.settleAdmissionFailure({
     db: input.db,
     delivery,
     nowMs: Date.now(),
@@ -587,6 +707,7 @@ async function processClaimedMessageChannelEvent(input: {
   };
 }
 async function publishTargetResolutionFailure(input: {
+  addressed: boolean;
   connection: RemoteAgentLarkPlatformChannelConnectionRecord;
   event: AdmittedMessageChannelEvent;
   providerEventId: string;
@@ -595,6 +716,10 @@ async function publishTargetResolutionFailure(input: {
     | "message_channel.center_agent_unavailable";
   registry: MessageChannelProviderRegistry;
 }): Promise<void> {
+  if (!input.addressed) {
+    // Nobody asked the Center Agent anything, so there is no one to tell.
+    return;
+  }
   const adapter = input.registry.require(input.connection.provider);
   const providerPublicationIdempotencyKey =
     await buildMessageChannelProviderPublicationUuid({
@@ -660,10 +785,17 @@ async function prepareAdmittedEventInput(input: {
     ? { attachments: prepared.attachments }
     : {};
 }
-function resolveEventAdmission(event: MessageChannelIngressEnvelope["event"]):
+function resolveEventAdmission(
+  event: MessageChannelIngressEnvelope["event"],
+  policy: { unaddressedIntakeEnabled: boolean }
+):
   | {
       event: AdmittedMessageChannelEvent;
       status: "admitted";
+    }
+  | {
+      event: MessageChannelMessageEvent;
+      status: "unaddressed";
     }
   | {
       reasonCode: string;
@@ -671,15 +803,18 @@ function resolveEventAdmission(event: MessageChannelIngressEnvelope["event"]):
     } {
   if (event.kind === "message") {
     if (
-      event.mention !== "direct_message" &&
-      event.mention !== "group_mention"
+      event.mention === "direct_message" ||
+      event.mention === "group_mention"
     ) {
-      return {
-        reasonCode: "message_channel.group_message_not_addressed",
-        status: "ignored",
-      };
+      return { event, status: "admitted" };
     }
-    return { event, status: "admitted" };
+    if (event.mention === "group_message" && policy.unaddressedIntakeEnabled) {
+      return { event, status: "unaddressed" };
+    }
+    return {
+      reasonCode: "message_channel.group_message_not_addressed",
+      status: "ignored",
+    };
   }
   if (
     event.kind === "card_action" &&
@@ -707,6 +842,44 @@ function buildPendingChannelContext(input: {
     sync: { mode: "snapshot", status: "unavailable" },
   });
 }
+/**
+ * With unaddressed intake on, a thread collects many messages between turns.
+ * Later turns then read only what is new since the last admitted message and
+ * see which messages carried files, the same contract Slack threads use.
+ * With intake off, every turn reads the full bounded snapshot as before.
+ */
+async function resolveChannelContextHistory(input: {
+  connection: RemoteAgentLarkPlatformChannelConnectionRecord;
+  db: PostgresDatabase;
+  dependencies: RemoteAgentMessageChannelEventServiceDependencies;
+  env: CoreBindings;
+  event: MessageChannelMessageEvent;
+}): Promise<MessageChannelContextHistoryOptions | undefined> {
+  if (!isUnaddressedChannelIntakeEnabled(input.env)) {
+    return;
+  }
+  const locator = input.event.locator;
+  if (locator.provider !== "lark" && locator.provider !== "feishu") {
+    return;
+  }
+  const cursor = await input.dependencies.readContextCursor({
+    chatId: locator.chatId,
+    connectionGeneration: input.connection.connectionGeneration,
+    connectionId: input.connection.connectionId,
+    db: input.db,
+    organizationId: input.connection.organizationId,
+    rootMessageId: locator.rootMessageId,
+  });
+  return {
+    includeAttachments: true,
+    syncedThrough: cursor
+      ? {
+          atMs: cursor.syncedThroughAtMs,
+          messageId: cursor.syncedThroughMessageId,
+        }
+      : null,
+  };
+}
 async function readBoundedChannelContext(input: {
   adapter: ReturnType<MessageChannelProviderRegistry["require"]>;
   connection: Extract<
@@ -722,12 +895,14 @@ async function readBoundedChannelContext(input: {
       kind: "message";
     }
   >;
+  history: MessageChannelContextHistoryOptions | undefined;
 }): Promise<ChannelContext> {
   try {
     const context = await input.adapter.readChannelContext({
       connection: input.connection,
       conversationId: input.conversationId,
       event: input.event,
+      ...(input.history ? { history: input.history } : {}),
     });
     const parsed = channelContextSchema.safeParse(context);
     if (parsed.success) {
@@ -745,7 +920,10 @@ async function readBoundedChannelContext(input: {
     conversationId: input.conversationId,
     currentMessageId: input.event.messageId,
     messages: [],
-    sync: { mode: "snapshot", status: "unavailable" },
+    sync: {
+      mode: input.history?.syncedThrough ? "delta" : "snapshot",
+      status: "unavailable",
+    },
   });
 }
 async function settleRemoteAgentMessageChannelAdmissionFailure(input: {

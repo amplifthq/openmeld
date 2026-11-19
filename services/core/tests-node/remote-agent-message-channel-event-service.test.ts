@@ -14,6 +14,7 @@ import {
   processRemoteAgentMessageChannelEvent,
   RemoteAgentMessageChannelEventRetryableError,
   type RemoteAgentMessageChannelEventServiceDependencies,
+  submitAdmittedMessageChannelEvent,
 } from "../src/remote-agent/application/message-channel-event-service";
 import { TEST_CENTER_AGENT_MODEL_ROUTE } from "./helpers/center-agent-model-route.test-support";
 
@@ -337,6 +338,105 @@ describe("Remote Agent Message Channel event service", () => {
     );
   });
 
+  it("reads only what is new since the last admitted message, with attachment records, when unaddressed intake is on", async () => {
+    const envelope = createEnvelope();
+    const readChannelContext = vi.fn<
+      MessageChannelProviderAdapter["readChannelContext"]
+    >(({ conversationId }) =>
+      Promise.resolve({
+        provider: "lark",
+        conversationId,
+        currentMessageId: "om_message_1",
+        messages: [],
+        sync: { mode: "delta", status: "complete" },
+      })
+    );
+    const adapter = createProviderAdapter({ readChannelContext });
+    const dependencies = createDependencies();
+    dependencies.readContextCursor.mockResolvedValue({
+      syncedThroughAtMs: 2500,
+      syncedThroughMessageId: "om_previous_1",
+    });
+    const unusedDb = new PostgresDatabase({
+      connectionString:
+        "postgresql://127.0.0.1:1/unexpected_test_database_access",
+    });
+
+    await expect(
+      processRemoteAgentMessageChannelEvent(
+        {
+          db: unusedDb,
+          env: {
+            OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: "true",
+          } as CoreBindings,
+          envelope,
+          identityDb: unusedDb,
+          queueAttempts: 1,
+          queueMessageId: "queue_message_delta_1",
+          registry: createMessageChannelProviderRegistry([adapter]),
+        },
+        dependencies
+      )
+    ).resolves.toMatchObject({ status: "submitted" });
+    expect(dependencies.readContextCursor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: "oc_chat_1",
+        connectionGeneration: 3,
+        connectionId: "connection_lark_1",
+        organizationId: "org_1",
+        rootMessageId: "om_root_1",
+      })
+    );
+    expect(readChannelContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        history: {
+          includeAttachments: true,
+          syncedThrough: { atMs: 2500, messageId: "om_previous_1" },
+        },
+      })
+    );
+  });
+
+  it("stays silent when a routed batch of unaddressed messages cannot start because the Center Agent model is unavailable", async () => {
+    const envelope = createEnvelope({ mention: "group_message" });
+    if (envelope.event.kind !== "message") {
+      throw new Error("Expected a message event");
+    }
+    const adapter = createProviderAdapter();
+    const dependencies = createDependencies();
+    dependencies.resolveTurnTarget.mockResolvedValue({
+      connection: createLarkConnection(),
+      reasonCode: "message_channel.center_agent_model_unavailable",
+      status: "rejected",
+    });
+    const unusedDb = new PostgresDatabase({
+      connectionString:
+        "postgresql://127.0.0.1:1/unexpected_test_database_access",
+    });
+
+    await expect(
+      submitAdmittedMessageChannelEvent({
+        db: unusedDb,
+        dependencies,
+        env: {} as CoreBindings,
+        event: envelope.event,
+        identityDb: unusedDb,
+        registry: createMessageChannelProviderRegistry([adapter]),
+        source: {
+          addressed: false,
+          connectionId: "connection_lark_1",
+          provider: "lark",
+          providerEventId: "unaddressed-batch:om_message_1",
+        },
+      })
+    ).resolves.toEqual({
+      reasonCode: "message_channel.center_agent_model_unavailable",
+      status: "rejected",
+    });
+    expect(adapter.publishFailure).not.toHaveBeenCalled();
+    expect(dependencies.submitNativeDelivery).not.toHaveBeenCalled();
+  });
+
   it("passes only authorized prepared images into the native delivery", async () => {
     const envelope = createEnvelope();
     if (envelope.event.kind !== "message") {
@@ -501,6 +601,52 @@ describe("Remote Agent Message Channel event service", () => {
     );
   });
 
+  it("archives an unmentioned group message without starting a turn when unaddressed intake is on", async () => {
+    const envelope = createEnvelope({ mention: "group_message" });
+    const adapter = createProviderAdapter();
+    const dependencies = createDependencies();
+    const unusedDb = new PostgresDatabase({
+      connectionString:
+        "postgresql://127.0.0.1:1/unexpected_test_database_access",
+    });
+
+    await expect(
+      processRemoteAgentMessageChannelEvent(
+        {
+          db: unusedDb,
+          env: {
+            OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: "true",
+          } as CoreBindings,
+          envelope,
+          identityDb: unusedDb,
+          queueAttempts: 1,
+          queueMessageId: "queue_message_1",
+          registry: createMessageChannelProviderRegistry([adapter]),
+        },
+        dependencies
+      )
+    ).resolves.toEqual({ status: "observed" });
+    expect(dependencies.observeUnaddressedMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: "connection_lark_1",
+        event: expect.objectContaining({ messageId: "om_message_1" }),
+        provider: "lark",
+      })
+    );
+    expect(dependencies.resolveTurnTarget).not.toHaveBeenCalled();
+    expect(dependencies.submitNativeDelivery).not.toHaveBeenCalled();
+    // Nothing is said in the chat for an archived message.
+    expect(adapter.publishFailure).not.toHaveBeenCalled();
+    expect(adapter.publishReply).not.toHaveBeenCalled();
+    expect(adapter.createWorkingCard).not.toHaveBeenCalled();
+    expect(dependencies.completeIngress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nativeDeliveryId: null,
+        outcomeStatus: "observed",
+      })
+    );
+  });
+
   it("treats an exhausted ingress as an accepted terminal duplicate", async () => {
     const envelope = createEnvelope();
     const adapter = createProviderAdapter();
@@ -646,9 +792,15 @@ function createDependencies() {
     ),
     completeIngress: vi.fn(() => Promise.resolve(true)),
     failIngress: vi.fn(() => Promise.resolve(true)),
+    observeUnaddressedMessage: vi.fn<
+      RemoteAgentMessageChannelEventServiceDependencies["observeUnaddressedMessage"]
+    >(() => Promise.resolve({ status: "observed" as const })),
     prepareInputAttachments: vi.fn<
       RemoteAgentMessageChannelEventServiceDependencies["prepareInputAttachments"]
     >(() => Promise.resolve({ attachments: [], status: "ready" as const })),
+    readContextCursor: vi.fn<
+      RemoteAgentMessageChannelEventServiceDependencies["readContextCursor"]
+    >(() => Promise.resolve(null)),
     releaseIngress: vi.fn(() => Promise.resolve(true)),
     resolveTurnTarget: vi.fn<
       RemoteAgentMessageChannelEventServiceDependencies["resolveTurnTarget"]
