@@ -1,4 +1,4 @@
-import { runInDurableObject } from "cloudflare:test";
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
 import { reconcileDeletedAgentProfile } from "../src/agent-profile-binding/application/deleted-profile-reconcile-service";
@@ -9,9 +9,10 @@ import {
 } from "../src/space/application/space-members-service";
 import {
   listDueMemberProfileLivenessEvidence,
-  recordMemberProfileNotFoundObservation,
+  readNextMemberProfileLivenessAlarmAtMs,
 } from "../src/space/infrastructure/sql/space-member-liveness-repo";
 import {
+  clearSpaceMemberProjectionDirty,
   isSpaceMemberProjectionDirty,
   readSpaceMemberRecord,
   upsertSpaceMemberRecord,
@@ -102,6 +103,10 @@ describe("deleted agent profile reconcile", () => {
     const { shard, spaceId } = createSpaceShard();
     const profileId = "agt_cccccccc-cccc-4ccc-8ccc-cccccccccccc";
     await seedMember({ profileId, shard, spaceId });
+    await shard.rpcRecordMemberProfileNotFoundObservation({
+      profileId,
+      spaceId,
+    });
     const outcome = await shard.rpcReconcileDeletedAgentProfileMember({
       profileId,
       spaceId,
@@ -111,6 +116,11 @@ describe("deleted agent profile reconcile", () => {
       const record = readSpaceMemberRecord(state.storage.sql, profileId);
       expect(record?.status).toBe("removed");
       expect(record?.removedByProfileId).toBe("openmeld-system");
+      expect(
+        state.storage.sql
+          .exec("SELECT profile_id FROM space_member_profile_liveness")
+          .toArray()
+      ).toEqual([]);
       const signalRows = state.storage.sql
         .exec<{
           payload_json: string;
@@ -127,6 +137,43 @@ describe("deleted agent profile reconcile", () => {
     await expect(
       shard.rpcReconcileDeletedAgentProfileMember({ profileId, spaceId })
     ).resolves.toEqual({ status: "noop" });
+  });
+  it.each([
+    1, 2,
+  ])("stops an existing alarm for a removed member with %i old observations", async (count) => {
+    const { shard, spaceId } = createSpaceShard();
+    const profileId = "agt_removed";
+    await seedMember({ profileId, shard, spaceId });
+    await runInDurableObject(shard, async (_instance, state) => {
+      const sql = state.storage.sql;
+      // Restore the pre-fix state with the membership removal already projected.
+      sql.exec(
+        "UPDATE space_members SET status = 'removed' WHERE profile_id = ?",
+        profileId
+      );
+      clearSpaceMemberProjectionDirty(sql);
+      const observedAt = Date.now() - 31 * 60_000;
+      sql.exec(
+        "INSERT INTO space_member_profile_liveness (profile_id, first_not_found_at_ms, last_not_found_at_ms, observation_count) VALUES (?, ?, ?, ?)",
+        profileId,
+        observedAt,
+        observedAt,
+        count
+      );
+      const policy = { minAgeMs: 30 * 60_000, minObservations: 2 };
+      expect(readNextMemberProfileLivenessAlarmAtMs(sql, policy)).toBeNull();
+      expect(
+        listDueMemberProfileLivenessEvidence(sql, {
+          ...policy,
+          nowMs: Date.now(),
+        })
+      ).toEqual([]);
+      await state.storage.setAlarm(Date.now() + 60_000);
+    });
+    expect(await runDurableObjectAlarm(shard)).toBe(true);
+    await runInDurableObject(shard, async (_instance, state) => {
+      expect(await state.storage.getAlarm()).toBeNull();
+    });
   });
   it("removes a deleted human profile member with the human notice copy", async () => {
     const { shard, spaceId } = createSpaceShard();
@@ -327,40 +374,50 @@ describe("deleted agent profile reconcile", () => {
         ...env,
         OPENMELD_AUTH_WORKER: createAuthRpcStub(authState),
       } as unknown as CoreBindings;
-      const snapshot = await listSpaceMembersSnapshotUseCase({
-        sql: state.storage.sql,
-        env: snapshotEnv,
-        spaceId,
-        viewerOwnerUserId: "owner-1",
-        viewerProfileId: "hum-reconcile-host",
-        liveSessions: [],
-        nowIso: NOW_ISO,
-      });
+      const internal = instance as unknown as {
+        bindings: CoreBindings;
+        reconcileDeletedAgentProfileMemberLiveness: () => Promise<void>;
+        syncSpaceBackgroundAlarm: () => Promise<void>;
+      };
+      const firstObservation = Date.now() - 60_000;
+      const readMembers = (observedAt: number) =>
+        listSpaceMembersSnapshotUseCase({
+          sql: state.storage.sql,
+          env: snapshotEnv,
+          spaceId,
+          viewerOwnerUserId: "owner-1",
+          viewerProfileId: "hum-reconcile-host",
+          liveSessions: [],
+          nowIso: new Date(observedAt).toISOString(),
+          syncMemberLivenessAlarm: () => internal.syncSpaceBackgroundAlarm(),
+        });
+      const snapshot = await readMembers(firstObservation);
       expect(snapshot.agents[0]?.agentWakeAvailability?.reasonCode).toBe(
         "agent_profile.not_found"
       );
       // One observation is not enough evidence for the alarm to act on.
+      const policy = { minAgeMs: 30 * 60_000, minObservations: 2 };
+      expect(
+        readNextMemberProfileLivenessAlarmAtMs(state.storage.sql, policy)
+      ).toBeNull();
       expect(
         listDueMemberProfileLivenessEvidence(state.storage.sql, {
           minAgeMs: 30 * 60_000,
           minObservations: 2,
-          nowMs: Date.parse(NOW_ISO) + 31 * 60_000,
+          nowMs: firstObservation + 31 * 60_000,
         })
       ).toEqual([]);
-      // Backdate the first observation and add the second one so the
-      // threshold is met without waiting 30 minutes.
+      expect(await state.storage.getAlarm()).toBeNull();
+      await readMembers(Date.now());
+      expect(
+        readNextMemberProfileLivenessAlarmAtMs(state.storage.sql, policy)
+      ).toBe(firstObservation + policy.minAgeMs);
+      expect(await state.storage.getAlarm()).not.toBeNull();
+      // Exercise reconciliation once the first observation is old enough.
       state.storage.sql.exec(
         "UPDATE space_member_profile_liveness SET first_not_found_at_ms = ?",
-        Date.parse(NOW_ISO) - 31 * 60_000
+        firstObservation - 31 * 60_000
       );
-      recordMemberProfileNotFoundObservation(state.storage.sql, {
-        nowMs: Date.parse(NOW_ISO),
-        profileId,
-      });
-      const internal = instance as unknown as {
-        bindings: CoreBindings;
-        reconcileDeletedAgentProfileMemberLiveness: () => Promise<void>;
-      };
       const originalBindings = internal.bindings;
       try {
         // Transient auth failure keeps the evidence and the member.
@@ -372,7 +429,11 @@ describe("deleted agent profile reconcile", () => {
             },
           },
         } as unknown as CoreBindings;
-        await internal.reconcileDeletedAgentProfileMemberLiveness();
+        const retryStartedAt = Date.now();
+        await instance.alarm();
+        expect(await state.storage.getAlarm()).toBeGreaterThanOrEqual(
+          retryStartedAt + 5000
+        );
         expect(
           readSpaceMemberRecord(state.storage.sql, profileId)?.status
         ).toBe("active");
