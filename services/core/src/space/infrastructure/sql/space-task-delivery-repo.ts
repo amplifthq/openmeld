@@ -14,6 +14,7 @@ export type SpaceTaskDeliveryKind =
   | "completion"
   | "stop"
   | "github_projection"
+  | "github_pr_projection"
   | "project_projection";
 export type SpaceTaskDelivery = {
   id: string;

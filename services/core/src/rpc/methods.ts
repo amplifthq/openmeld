@@ -28203,7 +28203,7 @@ export async function rpcSpaceInputQueue(
 
 export type ListSpaceTasksInput = GetSpaceMetaInput & {
   phase?: SpaceTaskPhase;
-  taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+  taskContractVersion?: SpaceTaskDetailOptions["taskContractVersion"];
 };
 export type GetSpaceTaskInput = GetSpaceMetaInput &
   SpaceTaskDetailOptions & {
@@ -28212,13 +28212,13 @@ export type GetSpaceTaskInput = GetSpaceMetaInput &
 export type CreateSpaceTaskInput = GetSpaceMetaInput &
   SpaceTaskRequesterRepresentation & {
     body: CreateSpaceTaskBody;
-    taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+    taskContractVersion?: SpaceTaskDetailOptions["taskContractVersion"];
   };
 export type MutateSpaceTaskInput = GetSpaceMetaInput &
   SpaceTaskRequesterRepresentation & {
     taskId: string;
     body: MutateSpaceTaskBody;
-    taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+    taskContractVersion?: SpaceTaskDetailOptions["taskContractVersion"];
   };
 export async function rpcSpaceFilePins(
   env: CoreBindings,
@@ -28396,12 +28396,18 @@ export async function rpcMutateSpaceTask(
     requireRpcContext(input.context)
   );
   if (
-    input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION &&
     input.taskContractVersion === undefined &&
     (input.body.action === "set_projects" ||
       input.body.action === "detach_linear_external_work_item" ||
       (input.body.action === "attach_external_work_item" &&
         input.body.item.provider === "linear"))
+  ) {
+    throw spaceTaskContractUpdateRequiredError();
+  }
+  if (
+    input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION &&
+    ((input.body.action === "submit_result" && input.body.pullRequest) ||
+      (input.body.action === "review" && input.body.expectedPullRequestHeadSha))
   ) {
     throw spaceTaskContractUpdateRequiredError();
   }

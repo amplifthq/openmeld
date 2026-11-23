@@ -13,6 +13,7 @@ import {
   completeGitHubAppWebhookDelivery,
 } from "../../infrastructure/postgresql/github-app-webhook-delivery-repo";
 import { listActiveSpaceTaskGitHubIssueLinks } from "../../infrastructure/postgresql/space-task-github-issue-link-repo";
+import { listActiveSpaceTaskGitHubPullRequestLinks } from "../../infrastructure/postgresql/space-task-github-pr-link-repo";
 
 const CLAIM_TTL_MS = 30_000;
 
@@ -82,15 +83,28 @@ export async function processGitHubAppWebhookQueueMessage(input: {
   env: CoreBindings;
   message: GitHubAppWebhookQueueMessage;
 }): Promise<void> {
+  const { message } = input;
+  if (message.event === "issues") {
+    await processIssueWebhook({ env: input.env, message });
+    return;
+  }
+  await processPullRequestWebhook({ env: input.env, message });
+}
+
+async function processIssueWebhook(input: {
+  env: CoreBindings;
+  message: Extract<GitHubAppWebhookQueueMessage, { event: "issues" }>;
+}): Promise<void> {
   const db = getPostgresDatabase(input.env);
   const nowMs = Date.now();
+  const action = input.message.issue.state === "closed" ? "closed" : "reopened";
   const claim = await claimGitHubAppWebhookDelivery({
-    action: input.message.issue.state === "closed" ? "closed" : "reopened",
+    action,
     claimExpiresAtMs: nowMs + CLAIM_TTL_MS,
     claimId: crypto.randomUUID(),
     db,
     deliveryId: input.message.deliveryId,
-    event: input.message.event,
+    event: "issues",
     gatewayRequestId: input.message.gatewayRequestId,
     issueState: input.message.issue.state,
     nowMs,
@@ -132,6 +146,75 @@ export async function processGitHubAppWebhookQueueMessage(input: {
         observedAt: input.message.issue.updatedAt,
         observedState: input.message.issue.state,
         observedStateReason: input.message.issue.stateReason,
+        spaceId: link.spaceId,
+        taskId: link.taskId,
+      });
+    }
+    await completeGitHubAppWebhookDelivery({
+      db,
+      deliveryId: input.message.deliveryId,
+      failureCode: null,
+      nowMs: Date.now(),
+      state: links.length === 0 ? "ignored" : "completed",
+    });
+  } catch (error) {
+    await completeGitHubAppWebhookDelivery({
+      db,
+      deliveryId: input.message.deliveryId,
+      failureCode: "github.webhook_processing_failed",
+      nowMs: Date.now(),
+      state: "failed",
+    });
+    throw error;
+  }
+}
+
+async function processPullRequestWebhook(input: {
+  env: CoreBindings;
+  message: Extract<GitHubAppWebhookQueueMessage, { event: "pull_request" }>;
+}): Promise<void> {
+  const db = getPostgresDatabase(input.env);
+  const nowMs = Date.now();
+  const pullRequest = input.message.pullRequest;
+  const claim = await claimGitHubAppWebhookDelivery({
+    action: "observed",
+    claimExpiresAtMs: nowMs + CLAIM_TTL_MS,
+    claimId: crypto.randomUUID(),
+    db,
+    deliveryId: input.message.deliveryId,
+    event: "pull_request",
+    gatewayRequestId: input.message.gatewayRequestId,
+    issueState: null,
+    nowMs,
+    number: pullRequest.number,
+    ownerLogin: pullRequest.owner.toLowerCase(),
+    pullRequest,
+    receivedAtMs: input.message.receivedAtMs,
+    repo: pullRequest.repo.toLowerCase(),
+  });
+  if (claim === "duplicate") {
+    return;
+  }
+  try {
+    const links = await listActiveSpaceTaskGitHubPullRequestLinks({
+      db,
+      number: pullRequest.number,
+      owner: pullRequest.owner,
+      repo: pullRequest.repo,
+    });
+    for (const link of links) {
+      const stub = resolveSpaceStub(input.env.OPENMELD_SPACES, link.spaceId);
+      if (!stub) {
+        throw new Error(
+          "The linked Space is unavailable for pull request reconciliation."
+        );
+      }
+      await stub.rpcApplyGitHubPullRequestObservation({
+        identity: {
+          number: pullRequest.number,
+          owner: pullRequest.owner,
+          repo: pullRequest.repo,
+        },
         spaceId: link.spaceId,
         taskId: link.taskId,
       });

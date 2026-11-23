@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { remoteAgentGitShaSchema } from "./remote-agent-git";
 
 export const GITHUB_APP_WEBHOOK_RAW_BODY_MAX_BYTES = 262_144;
 
@@ -19,15 +20,39 @@ export const githubAppWebhookIssueObservationSchema = z.strictObject({
   url: z.url().max(2048),
 });
 
-export const githubAppWebhookQueueMessageSchema = z.strictObject({
+const githubAppWebhookPullRequestObservationSchema = z.strictObject({
+  number: z.number().int().positive(),
+  owner: githubLoginSchema,
+  repo: githubRepoNameSchema,
+  headSha: remoteAgentGitShaSchema,
+  beforeSha: remoteAgentGitShaSchema.optional(),
+  observedAt: z.string().datetime(),
+  url: z.url().max(2048),
+});
+
+const githubAppWebhookQueueMessageBaseShape = {
   deliveryId: z.string().trim().min(1).max(128),
-  event: z.literal("issues"),
   gatewayRequestId: z.string().uuid(),
-  issue: githubAppWebhookIssueObservationSchema,
   kind: z.literal("github_app_webhook"),
   receivedAtMs: z.number().int().nonnegative(),
   v: z.literal(1),
-});
+};
+
+export const githubAppWebhookQueueMessageSchema = z.discriminatedUnion(
+  "event",
+  [
+    z.strictObject({
+      ...githubAppWebhookQueueMessageBaseShape,
+      event: z.literal("issues"),
+      issue: githubAppWebhookIssueObservationSchema,
+    }),
+    z.strictObject({
+      ...githubAppWebhookQueueMessageBaseShape,
+      event: z.literal("pull_request"),
+      pullRequest: githubAppWebhookPullRequestObservationSchema,
+    }),
+  ]
+);
 
 export const githubAppWebhookVerificationInputSchema = z.strictObject({
   gatewayRequestId: z.string().uuid(),
@@ -102,4 +127,76 @@ export function readGitHubAppWebhookIssueObservation(input: {
     url: parsed.data.issue.html_url,
   });
   return observation.success ? observation.data : null;
+}
+
+export function readGitHubAppWebhookPullRequestObservation(input: {
+  event: string | null;
+  payload: unknown;
+}): z.infer<typeof githubAppWebhookPullRequestObservationSchema> | null {
+  if (input.event !== "pull_request") {
+    return null;
+  }
+  const payload = z
+    .object({
+      action: z.string(),
+      before: remoteAgentGitShaSchema.optional(),
+      after: remoteAgentGitShaSchema.optional(),
+      number: z.number().int().positive(),
+      pull_request: z
+        .object({
+          html_url: z.url(),
+          head: z
+            .object({
+              sha: remoteAgentGitShaSchema,
+            })
+            .catchall(z.unknown()),
+          updated_at: z.string().min(1),
+        })
+        .catchall(z.unknown()),
+      repository: z
+        .object({
+          name: githubRepoNameSchema,
+          owner: z
+            .object({
+              login: githubLoginSchema,
+            })
+            .catchall(z.unknown()),
+        })
+        .catchall(z.unknown()),
+    })
+    .catchall(z.unknown())
+    .safeParse(input.payload);
+  if (!payload.success) {
+    return null;
+  }
+  // We care about opened/synchronize/ready_for_review/closed (head updates on synchronize).
+  const allowed = new Set([
+    "opened",
+    "synchronize",
+    "ready_for_review",
+    "edited",
+    "reopened",
+    "closed",
+  ]);
+  if (!allowed.has(payload.data.action)) {
+    return null;
+  }
+  const observedAt = new Date(payload.data.pull_request.updated_at);
+  if (Number.isNaN(observedAt.getTime())) {
+    return null;
+  }
+  const prObservation = githubAppWebhookPullRequestObservationSchema.safeParse({
+    number: payload.data.number,
+    owner: payload.data.repository.owner.login,
+    repo: payload.data.repository.name,
+    headSha: payload.data.pull_request.head.sha,
+    ...(payload.data.action === "synchronize" &&
+    payload.data.before &&
+    payload.data.after === payload.data.pull_request.head.sha
+      ? { beforeSha: payload.data.before }
+      : {}),
+    observedAt: observedAt.toISOString(),
+    url: payload.data.pull_request.html_url,
+  });
+  return prObservation.success ? prObservation.data : null;
 }

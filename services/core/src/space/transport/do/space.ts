@@ -725,6 +725,7 @@ import {
 import {
   type ApplyGitHubIssueObservationInput,
   type ApplyGitHubIssueObservationResult,
+  type ApplyGitHubPullRequestObservationInput,
   type CreateSpaceTaskContext,
   SpaceTaskService,
 } from "../../application/space-task-service";
@@ -799,6 +800,7 @@ import {
   type SpaceDispatchLedgerStatus,
 } from "../../infrastructure/postgresql/space-dispatch-read-repo";
 import { projectSpaceTaskGitHubIssueLinks } from "../../infrastructure/postgresql/space-task-github-issue-link-repo";
+import { projectAndReconcileSpaceTaskPullRequest, reconcileSpaceTaskGitHubPullRequest } from "../../application/space-task-pull-request-observation";
 import { projectSpaceTaskProjectLinks } from "../../infrastructure/postgresql/space-task-project-link-repo";
 import { reconcileOrganizationAgentOwnership } from "../../infrastructure/sql/organization-agent-ownership";
 import { PluginConnectionContinuationRepository } from "../../infrastructure/sql/plugin-connection-continuation-repo";
@@ -2790,6 +2792,14 @@ export function resolveNextLiveInvalidationVersion(input: {
   );
   return Math.max(input.nowMs, lastVersion + 1);
 }
+function formatSpaceTaskPullRequestNote(
+  pr: SpaceTask["pullRequest"]
+): string {
+  return pr
+    ? `\n\nPR: ${pr.owner}/${pr.repo}#${String(pr.number)}\nHead commit: ${pr.headSha}\n${pr.url}`
+    : "";
+}
+
 export class Space extends DurableObject<CoreBindings> {
   private spaceTaskDeliveryFlush: Promise<void> | null = null;
   private readonly bindings: CoreBindings;
@@ -9894,6 +9904,23 @@ export class Space extends DurableObject<CoreBindings> {
       }
     );
   }
+  async rpcApplyGitHubPullRequestObservation(
+    input: ApplyGitHubPullRequestObservationInput
+  ): Promise<void> {
+    return await this.withPostgresRequest(
+      async () => {
+        this.applySpaceRef(input.spaceId);
+        await this.armSpaceTaskRecovery();
+        const updated = await reconcileSpaceTaskGitHubPullRequest({
+          db: getPostgresDatabase(this.bindings), service: this.spaceTaskService, taskId: input.taskId, identity: input.identity,
+        });
+        if (updated) {
+          await this.broadcastSpaceTasksChanged("space.task.observe_external_work_item");
+          await this.flushPendingSpaceTaskDeliveries();
+        }
+      }
+    );
+  }
   async rpcFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
     return await this.withPostgresRequest(
       async () => {
@@ -10148,6 +10175,10 @@ export class Space extends DurableObject<CoreBindings> {
     }
     if (delivery.kind === "github_projection") {
       await this.projectSpaceTaskGitHubIssueLinks(current);
+      return;
+    }
+    if (delivery.kind === "github_pr_projection") {
+      await this.projectSpaceTaskGitHubPullRequestLink(current);
       return;
     }
     if (delivery.kind === "project_projection") {
@@ -10416,6 +10447,7 @@ export class Space extends DurableObject<CoreBindings> {
       receipt.task.phase === "in_review" &&
       receipt.task.reviewer
     ) {
+      const prNote = formatSpaceTaskPullRequestNote(receipt.task.pullRequest);
       await this.publishSpaceTaskDirectedNotice({
         actor,
         eventId: receipt.event.eventId,
@@ -10423,7 +10455,24 @@ export class Space extends DurableObject<CoreBindings> {
         deliveryId,
         task: receipt.task,
         target: receipt.task.reviewer,
-        text: `Task ready for review: ${receipt.task.title}\n\n${receipt.task.result?.summary ?? "A result was submitted."}${!actor && receipt.task.reviewer.profileKind === "agent" ? `\n\nWake ${receipt.task.reviewer.profileName} to start the review.` : ""}`,
+        text: `Task ready for review: ${receipt.task.title}\n\n${receipt.task.result?.summary ?? "A result was submitted."}${prNote}${!actor && receipt.task.reviewer.profileKind === "agent" ? `\n\nWake ${receipt.task.reviewer.profileName} to start the review.` : ""}`,
+      });
+      return;
+    }
+    if (
+      receipt.event.type === "pull_request_head_changed" &&
+      receipt.task.phase === "in_review" &&
+      receipt.task.reviewer
+    ) {
+      const prNote = formatSpaceTaskPullRequestNote(receipt.task.pullRequest);
+      await this.publishSpaceTaskDirectedNotice({
+        actor,
+        eventId: receipt.event.eventId,
+        sourceDispatchChainContext,
+        deliveryId,
+        task: receipt.task,
+        target: receipt.task.reviewer,
+        text: `Pull request updated; review the new head commit: ${receipt.task.title}${prNote}${!actor && receipt.task.reviewer.profileKind === "agent" ? `\n\nWake ${receipt.task.reviewer.profileName} to start the review.` : ""}`,
       });
       return;
     }
@@ -10434,6 +10483,7 @@ export class Space extends DurableObject<CoreBindings> {
       return;
     }
     if (receipt.task.phase === "in_progress" && receipt.task.assignee) {
+      const prNote = formatSpaceTaskPullRequestNote(receipt.task.pullRequest);
       await this.publishSpaceTaskDirectedNotice({
         actor,
         eventId: receipt.event.eventId,
@@ -10441,7 +10491,7 @@ export class Space extends DurableObject<CoreBindings> {
         deliveryId,
         task: receipt.task,
         target: receipt.task.assignee,
-        text: `${receipt.event.type === "rework_continued" ? "Correction authorized" : "Changes requested"} for Task: ${receipt.task.title}\n\n${receipt.task.review?.feedback ?? "Review the latest feedback."}`,
+        text: `${receipt.event.type === "rework_continued" ? "Correction authorized" : "Changes requested"} for Task: ${receipt.task.title}\n\n${receipt.task.review?.feedback ?? "Review the latest feedback."}${prNote}`,
       });
       return;
     }
@@ -10666,6 +10716,36 @@ export class Space extends DurableObject<CoreBindings> {
       });
     } catch (error) {
       console.warn("[core.space.task_github_issue_link_projection_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+        spaceId: this.spaceId,
+        taskId: task.taskId,
+      });
+      throw error;
+    }
+  }
+  private async projectSpaceTaskGitHubPullRequestLink(
+    task: SpaceTask
+  ): Promise<void> {
+    const db = getPostgresDatabase(this.bindings);
+    const organizationId = this.readSpaceMetaRecord()?.organizationId?.trim();
+    if (!(db && organizationId)) {
+      throw new SpaceTaskDeliveryError(
+        "The Task's GitHub pull request link projection is unavailable. Check the Space database and Organization configuration.",
+        true
+      );
+    }
+    try {
+      if (await projectAndReconcileSpaceTaskPullRequest({
+        db,
+        nowMs: Date.now(),
+        organizationId,
+        spaceId: this.spaceId,
+        task, service: this.spaceTaskService,
+      })) {
+        await this.broadcastSpaceTasksChanged("space.task.observe_external_work_item");
+      }
+    } catch (error) {
+      console.warn("[core.space.task_github_pr_link_projection_failed]", {
         error: error instanceof Error ? error.message : String(error),
         spaceId: this.spaceId,
         taskId: task.taskId,

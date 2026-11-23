@@ -176,6 +176,7 @@ import { spaceInvitations } from "./space-invitation.schema.ts";
 import {
   githubAppWebhookDeliveries,
   spaceTaskGitHubIssueLinks,
+  spaceTaskGitHubPullRequestLinks,
 } from "./space-task-github.schema.ts";
 import {
   spaceTaskProjectLinks,
@@ -1943,6 +1944,7 @@ export const coreSchema = {
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
   spaceTaskGitHubIssueLinks,
+  spaceTaskGitHubPullRequestLinks,
   spaceTaskProjectLinks,
   spaceTaskProjectProjectionStates,
   githubAppWebhookDeliveries,
