@@ -2067,6 +2067,9 @@ The backstop is the Space-owned membership liveness reconcile:
 - The Space background alarm removes an agent member only after the evidence
   threshold is met (two independent observations, at least 30 minutes apart)
   AND a fresh auth re-verification still answers `profile.not_found`.
+- Only evidence for an active agent member with enough observations schedules
+  this check. Removing the member clears its evidence. Older evidence for
+  removed members contributes no alarm deadline.
 - A `found` re-verification clears the evidence. A transient auth failure
   keeps the evidence and retries on a later alarm. Space creators are never
   auto-removed.

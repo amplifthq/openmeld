@@ -857,6 +857,7 @@ import {
 import {
   clearMemberProfileLivenessEvidence,
   listDueMemberProfileLivenessEvidence,
+  MEMBER_PROFILE_LIVENESS_MIN_OBSERVATIONS,
   readNextMemberProfileLivenessAlarmAtMs,
   recordConfirmedMemberProfileDeletionObservation,
   recordMemberProfileNotFoundObservation,
@@ -1183,7 +1184,6 @@ type DispatchOutboxSubmissionResult = {
 // authoritative not_found observation at least this far after the first
 // before the alarm removes the member.
 const MEMBER_PROFILE_LIVENESS_MIN_AGE_MS = 30 * 60_000;
-const MEMBER_PROFILE_LIVENESS_MIN_OBSERVATIONS = 2;
 const OUTBOX_HANDED_OFF_REDRIVE_AFTER_MS = 15_000;
 const OUTBOX_HANDED_OFF_SKIP_REDRIVE_WITHIN_MS = 20_000;
 const SPACE_INDEX_PROJECTION_OUTBOX_REDRIVE_BATCH_SIZE = 10;
@@ -7992,7 +7992,10 @@ export class Space extends DurableObject<CoreBindings> {
     const nextDispatchAlarmAtMs = this.resolveNextDispatchOutboxAlarmAtMs();
     const nextMemberLivenessAlarmAtMs = readNextMemberProfileLivenessAlarmAtMs(
       this.ctx.storage.sql,
-      { minAgeMs: MEMBER_PROFILE_LIVENESS_MIN_AGE_MS }
+      {
+        minAgeMs: MEMBER_PROFILE_LIVENESS_MIN_AGE_MS,
+        minObservations: MEMBER_PROFILE_LIVENESS_MIN_OBSERVATIONS,
+      }
     );
     const nextStopPublicationAlarmAtMs = listPendingNativeWakeStops(
       this.ctx.storage.sql,
@@ -13649,9 +13652,6 @@ export class Space extends DurableObject<CoreBindings> {
           nowMs: Date.now(),
           profileId: input.profileId,
         });
-        // The members snapshot read path leans on later DO activity to re-sync
-        // the background alarm; this write may be the only activity a dormant
-        // Space ever sees, so it must arm the liveness alarm itself.
         await this.syncSpaceBackgroundAlarm();
         return { recorded: true };
       }
@@ -13860,30 +13860,29 @@ export class Space extends DurableObject<CoreBindings> {
     }
     const authRpc = this.bindings.OPENMELD_AUTH_WORKER;
     if (!authRpc || typeof authRpc.resolveProfileById !== "function") {
-      return;
+      throw new Error("Auth is unavailable for Space member verification");
     }
+    let retryError: Error | undefined;
     for (const evidence of due) {
-      let verdict: "found" | "not_found" | "unavailable";
+      let result: Awaited<ReturnType<typeof authRpc.resolveProfileById>>;
       try {
-        const result = await authRpc.resolveProfileById({
+        result = await authRpc.resolveProfileById({
           openMeldProfileId: evidence.profileId,
         });
-        if (result.ok) {
-          verdict = "found";
-        } else {
-          verdict =
-            result.code === "profile.not_found" ? "not_found" : "unavailable";
-        }
-      } catch {
-        verdict = "unavailable";
-      }
-      if (verdict === "unavailable") {
+      } catch (error) {
+        retryError = new Error(formatUnknownErrorMessage(error));
         continue;
       }
-      if (verdict === "found") {
+      if (result.ok) {
         clearMemberProfileLivenessEvidence(
           this.ctx.storage.sql,
           evidence.profileId
+        );
+        continue;
+      }
+      if (result.code !== "profile.not_found") {
+        retryError = new Error(
+          `Space member verification failed: ${result.code}`
         );
         continue;
       }
@@ -13894,12 +13893,17 @@ export class Space extends DurableObject<CoreBindings> {
           wakeCancellationConfirmed: false,
         });
       if (reconcileStatus === "deferred") {
+        retryError = new Error("Deleted Space member removal was deferred");
         continue;
       }
       clearMemberProfileLivenessEvidence(
         this.ctx.storage.sql,
         evidence.profileId
       );
+    }
+    // Let the shared Space alarm back off after processing the rest of the batch.
+    if (retryError) {
+      throw retryError;
     }
   }
   // Backstop for member writes whose call site did not project the index
@@ -19883,6 +19887,7 @@ export class Space extends DurableObject<CoreBindings> {
       return this.spaceNotFoundResponse();
     }
     const members = await listSpaceMembersSnapshotUseCase({
+      syncMemberLivenessAlarm: () => this.syncSpaceBackgroundAlarm(),
       sql: this.ctx.storage.sql,
       env: this.bindings,
       spaceId: this.spaceId,
@@ -20063,6 +20068,7 @@ export class Space extends DurableObject<CoreBindings> {
             ).avatarUrlByOwnerUserId ?? new Map<string, string | null>()
         );
     const snapshot = await listSpaceMembersSnapshotUseCase({
+      syncMemberLivenessAlarm: () => this.syncSpaceBackgroundAlarm(),
       includeAgentReadiness,
       profileFacts,
       membersBackfilled: true,
