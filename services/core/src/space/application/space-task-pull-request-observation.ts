@@ -2,7 +2,7 @@ import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   type GitHubPullRequestHeadEvidence,
   type GitHubPullRequestIdentity,
-  readLatestGitHubPullRequestObservations,
+  readGitHubPullRequestObservations,
 } from "../infrastructure/postgresql/github-app-webhook-delivery-repo";
 import { projectSpaceTaskGitHubPullRequestLink } from "../infrastructure/postgresql/space-task-github-pr-link-repo";
 import type { SpaceTaskService } from "./space-task-service";
@@ -12,7 +12,7 @@ import type { SpaceTaskService } from "./space-task-service";
 // a force-push round trip ends at the head at the start of that timestamp.
 export function resolveGitHubPullRequestHead(
   heads: readonly GitHubPullRequestHeadEvidence[],
-  anchorSha: string
+  anchorSha: string | null
 ): string | null {
   const first = heads[0];
   if (!first) {
@@ -38,16 +38,23 @@ export function resolveGitHubPullRequestHead(
     }
   }
   const root = start ?? anchorSha;
-  if (!graph.has(root)) {
+  if (!(root && graph.has(root))) {
     return null;
   }
+  return isConnected(graph, root) ? (end ?? anchorSha) : null;
+}
+
+function isConnected(
+  graph: ReturnType<typeof buildHeadTransitions>,
+  root: string
+) {
   const reachable = new Set([root]);
   for (const sha of reachable) {
     for (const neighbor of graph.get(sha)?.neighbors ?? []) {
       reachable.add(neighbor);
     }
   }
-  return reachable.size === graph.size ? (end ?? anchorSha) : null;
+  return reachable.size === graph.size;
 }
 
 function buildHeadTransitions(heads: readonly GitHubPullRequestHeadEvidence[]) {
@@ -79,15 +86,40 @@ export async function reconcileSpaceTaskGitHubPullRequest(input: {
   service: Pick<SpaceTaskService, "applyGitHubPullRequestObservation">;
   taskId: string;
 }): Promise<boolean> {
-  const snapshot = await readLatestGitHubPullRequestObservations(
+  const groups = await readGitHubPullRequestObservations(
     input.db,
     input.identity
   );
-  if (!snapshot) {
+  const latest = Array.from(groups.keys()).at(-1);
+  if (latest === undefined) {
     return false;
   }
+  const heads = groups.get(latest);
+  if (!heads) {
+    return false;
+  }
+  let priorHeadSha: string | null = null;
+  let evidenceCount = heads.length;
+  const earlierShas = new Set<string>();
+  for (const [time, group] of groups) {
+    if (time === latest) {
+      break;
+    }
+    evidenceCount += group.length;
+    priorHeadSha = resolveGitHubPullRequestHead(group, priorHeadSha);
+    for (const head of group) {
+      earlierShas.add(head.headSha);
+      if (head.beforeSha) {
+        earlierShas.add(head.beforeSha);
+      }
+    }
+  }
   const result = input.service.applyGitHubPullRequestObservation({
-    ...snapshot,
+    observedAtMs: latest,
+    heads,
+    priorHeadSha,
+    earlierShas,
+    evidenceCount,
     identity: input.identity,
     taskId: input.taskId,
   });

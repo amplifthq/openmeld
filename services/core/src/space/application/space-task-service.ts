@@ -293,7 +293,6 @@ export class SpaceTaskService {
           : undefined;
         this.input.repository.recordPullRequestCursor(taskId, {
           observedAtMs: previousObservation?.observedAtMs ?? 0,
-          anchorSha: body.pullRequest.headSha,
           evidenceCount: 0,
           pending: false,
         });
@@ -396,6 +395,9 @@ export class SpaceTaskService {
     input: Omit<ApplyGitHubPullRequestObservationInput, "spaceId"> & {
       observedAtMs: number;
       heads: readonly GitHubPullRequestHeadEvidence[];
+      priorHeadSha?: string | null;
+      earlierShas?: ReadonlySet<string>;
+      evidenceCount?: number;
     }
   ): ApplyGitHubPullRequestObservationResult {
     return this.input.runTransaction(() => {
@@ -467,35 +469,34 @@ export class SpaceTaskService {
       taskId: string;
       observedAtMs: number;
       heads: readonly GitHubPullRequestHeadEvidence[];
+      priorHeadSha?: string | null;
+      earlierShas?: ReadonlySet<string>;
+      evidenceCount?: number;
     },
     currentHead: string
   ): { headSha: string } | { skipReason: "pending" | "stale" } {
     const cursor = this.input.repository.readPullRequestCursor(input.taskId);
     const lastTime = cursor?.observedAtMs ?? 0;
+    const evidenceCount = input.evidenceCount ?? input.heads.length;
     if (
       input.observedAtMs < lastTime ||
       (input.observedAtMs === lastTime &&
-        input.heads.length <= (cursor?.evidenceCount ?? 0))
+        evidenceCount <= (cursor?.evidenceCount ?? 0))
     ) {
       return { skipReason: cursor?.pending ? "pending" : "stale" };
     }
-    const anchorSha =
-      input.observedAtMs === lastTime
-        ? (cursor?.anchorSha ?? currentHead)
-        : currentHead;
-    const unconfirmedAtSubmission = !(
-      cursor?.evidenceCount ||
+    const anchored =
+      (cursor?.evidenceCount && !cursor.pending) ||
+      input.earlierShas?.has(currentHead) ||
       input.heads.some(
-        (head) => head.beforeSha === anchorSha || head.headSha === anchorSha
-      )
-    );
-    const headSha = unconfirmedAtSubmission
-      ? null
-      : resolveGitHubPullRequestHead(input.heads, anchorSha);
+        (h) => h.headSha === currentHead || h.beforeSha === currentHead
+      );
+    const headSha = anchored
+      ? resolveGitHubPullRequestHead(input.heads, input.priorHeadSha ?? null)
+      : null;
     this.input.repository.recordPullRequestCursor(input.taskId, {
       observedAtMs: input.observedAtMs,
-      anchorSha,
-      evidenceCount: input.heads.length,
+      evidenceCount,
       pending: headSha === null,
     });
     if (!headSha) {

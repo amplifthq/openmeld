@@ -100,14 +100,10 @@ export type GitHubPullRequestHeadEvidence = {
   beforeSha: string | null;
 };
 
-export async function readLatestGitHubPullRequestObservations(
+export async function readGitHubPullRequestObservations(
   db: PostgresDatabase,
   identity: GitHubPullRequestIdentity
-): Promise<{
-  observedAtMs: number;
-  heads: GitHubPullRequestHeadEvidence[];
-} | null> {
-  // WITH TIES reads the full latest GitHub second under one database snapshot.
+): Promise<Map<number, GitHubPullRequestHeadEvidence[]>> {
   const { rows } = await db.query<{
     pr_head_sha: string;
     pr_before_sha: string | null;
@@ -116,23 +112,25 @@ export async function readLatestGitHubPullRequestObservations(
     text: `SELECT pr_head_sha, pr_before_sha, pr_observed_at_ms
            FROM openmeld.github_app_webhook_deliveries
            WHERE owner_login = $1 AND repo = $2 AND number = $3 AND pr_observed_at_ms IS NOT NULL
-           ORDER BY pr_observed_at_ms DESC FETCH FIRST 1 ROW WITH TIES`,
+           ORDER BY pr_observed_at_ms`,
     values: [
       identity.owner.toLowerCase(),
       identity.repo.toLowerCase(),
       identity.number,
     ],
   });
-  const first = rows[0];
-  return first
-    ? {
-        observedAtMs: Number(first.pr_observed_at_ms),
-        heads: rows.map((row) => ({
-          headSha: row.pr_head_sha,
-          beforeSha: row.pr_before_sha,
-        })),
-      }
-    : null;
+  const groups = new Map<number, GitHubPullRequestHeadEvidence[]>();
+  for (const row of rows) {
+    const time = Number(row.pr_observed_at_ms);
+    const head = { headSha: row.pr_head_sha, beforeSha: row.pr_before_sha };
+    const group = groups.get(time);
+    if (group) {
+      group.push(head);
+    } else {
+      groups.set(time, [head]);
+    }
+  }
+  return groups;
 }
 export async function completeGitHubAppWebhookDelivery(input: {
   db: PostgresDatabase;

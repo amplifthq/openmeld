@@ -245,6 +245,7 @@ describe("pull request head observation", () => {
           taskId: TASK_ID,
           identity: { owner: "acme", repo: "web", number: 42 },
           observedAtMs: Date.parse("2026-11-19T01:00:00Z"),
+          priorHeadSha: SHA_A,
           heads: edges.map(([beforeSha, headSha]) => ({ beforeSha, headSha })),
         });
       snapshot([first]);
@@ -252,6 +253,37 @@ describe("pull request head observation", () => {
       snapshot([first]);
       expect(harness.tasks.readTask(TASK_ID)?.pullRequest?.headSha).toBe(tip);
     }
+  });
+
+  it("keeps a closed cycle pending until an earlier provider observation establishes its start", () => {
+    const h = createHarness();
+    const task = linkedTask({});
+    if (!task.pullRequest) {
+      throw new Error("Missing PR fixture");
+    }
+    h.tasks.insertTask({
+      ...task,
+      pullRequest: { ...task.pullRequest, headSha: SHA_B },
+    });
+    const batch = {
+      taskId: TASK_ID,
+      identity: { owner: "acme", repo: "web", number: 42 },
+      observedAtMs: 10,
+      heads: [
+        { beforeSha: SHA_A, headSha: SHA_B },
+        { beforeSha: SHA_B, headSha: SHA_A },
+      ],
+    };
+    expect(h.service.applyGitHubPullRequestObservation(batch).skipReason).toBe(
+      "pending"
+    );
+    expect(
+      h.service.applyGitHubPullRequestObservation({
+        ...batch,
+        priorHeadSha: SHA_A,
+        evidenceCount: 3,
+      }).task?.pullRequest?.headSha
+    ).toBe(SHA_A);
   });
 
   it("blocks review while same-second evidence is disconnected, then accepts the reconciled head", () => {

@@ -434,6 +434,19 @@ describe("GitHub pull request webhook", () => {
         env,
         message: { ...message, deliveryId: "before-projection" },
       });
+      await processGitHubAppWebhookQueueMessage({
+        env,
+        message: {
+          ...message,
+          deliveryId: "later-before-projection",
+          pullRequest: {
+            ...message.pullRequest,
+            observedAt: "2026-11-19T01:00:01.000Z",
+            beforeSha: pullRequest.headSha,
+            headSha: "c".repeat(40),
+          },
+        },
+      });
       expect(rpcApplyGitHubPullRequestObservation).not.toHaveBeenCalled();
       const applyGitHubPullRequestObservation = vi.fn(() => ({
         updated: true,
@@ -451,10 +464,15 @@ describe("GitHub pull request webhook", () => {
       expect(applyGitHubPullRequestObservation).toHaveBeenCalledWith(
         expect.objectContaining({
           taskId: TASK_ID,
+          priorHeadSha: pullRequest.headSha,
+          earlierShas: new Set([
+            linkedTask.pullRequest.headSha,
+            pullRequest.headSha,
+          ]),
           heads: [
             {
-              beforeSha: linkedTask.pullRequest.headSha,
-              headSha: pullRequest.headSha,
+              beforeSha: pullRequest.headSha,
+              headSha: "c".repeat(40),
             },
           ],
         })

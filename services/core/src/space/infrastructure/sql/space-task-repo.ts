@@ -16,7 +16,7 @@ type StoredEventRow = { event_json: string };
 type StoredOperationRow = { request_json: string; response_json: string };
 export type SpaceTaskPullRequestCursor = {
   observedAtMs: number;
-  anchorSha: string;
+
   evidenceCount: number;
   pending: boolean;
 };
@@ -48,7 +48,7 @@ export function ensureSpaceTaskTables(sql: SqlStorage): void {
   sql.exec(`CREATE TABLE IF NOT EXISTS space_task_github_pr_observations (
     task_id TEXT PRIMARY KEY REFERENCES space_tasks(task_id) ON DELETE CASCADE,
     observed_at_ms INTEGER NOT NULL,
-    anchor_sha TEXT NOT NULL,
+
     evidence_count INTEGER NOT NULL,
     pending INTEGER NOT NULL
   )`);
@@ -73,18 +73,18 @@ export class SpaceTaskRepository {
     const row = this.sql
       .exec<{
         observed_at_ms: number;
-        anchor_sha: string;
+
         evidence_count: number;
         pending: number;
       }>(
-        "SELECT observed_at_ms, anchor_sha, evidence_count, pending FROM space_task_github_pr_observations WHERE task_id = ?",
+        "SELECT observed_at_ms, evidence_count, pending FROM space_task_github_pr_observations WHERE task_id = ?",
         taskId
       )
       .toArray()[0];
     return (
       row && {
         observedAtMs: row.observed_at_ms,
-        anchorSha: row.anchor_sha,
+
         evidenceCount: row.evidence_count,
         pending: row.pending === 1,
       }
@@ -96,12 +96,12 @@ export class SpaceTaskRepository {
     cursor: SpaceTaskPullRequestCursor
   ): void {
     this.sql.exec(
-      `INSERT INTO space_task_github_pr_observations (task_id, observed_at_ms, anchor_sha, evidence_count, pending) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO space_task_github_pr_observations (task_id, observed_at_ms, evidence_count, pending) VALUES (?, ?, ?, ?)
        ON CONFLICT(task_id) DO UPDATE SET observed_at_ms = excluded.observed_at_ms,
-         anchor_sha = excluded.anchor_sha, evidence_count = excluded.evidence_count, pending = excluded.pending`,
+         evidence_count = excluded.evidence_count, pending = excluded.pending`,
       taskId,
       cursor.observedAtMs,
-      cursor.anchorSha,
+
       cursor.evidenceCount,
       Number(cursor.pending)
     );
