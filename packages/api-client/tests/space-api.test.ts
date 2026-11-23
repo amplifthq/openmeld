@@ -548,7 +548,7 @@ describe("api-client space api", () => {
         .map(([request]) =>
           new URL(request.url).searchParams.get("taskContractVersion")
         )
-    ).toEqual(["3", "3", "3", "3", "3"]);
+    ).toEqual(["4", "4", "4", "4", "4"]);
 
     expect(transport).toHaveBeenNthCalledWith(
       5,

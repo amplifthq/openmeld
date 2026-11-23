@@ -126,6 +126,12 @@ describe("conversation Task tool boundary", () => {
     { action: "mark_in_progress" },
     { action: "submit_result", summary: "Verified the Task flow." },
     { action: "review", decision: "accepted", expectedResultRevision: 2 },
+    {
+      action: "review",
+      decision: "accepted",
+      expectedResultRevision: 2,
+      pullRequestHeadSha: "a".repeat(40),
+    },
   ])("forwards a private $action through Core and preserves its authorization denial", async (action) => {
     const { request, ...context } = await fixture("dm");
     const denied = new Error("space.membership_required");
@@ -159,6 +165,12 @@ describe("conversation Task tool boundary", () => {
               reviewerProfileId: action.reviewerProfileId,
             }
           : {}),
+      };
+    } else if (action.action === "review" && action.pullRequestHeadSha) {
+      const { pullRequestHeadSha, ...review } = action;
+      expectedBody = {
+        ...review,
+        expectedPullRequestHeadSha: pullRequestHeadSha,
       };
     } else if (action.action === "delegate") {
       expectedBody = {

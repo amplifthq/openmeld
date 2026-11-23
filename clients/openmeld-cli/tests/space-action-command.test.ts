@@ -682,6 +682,15 @@ describe("OpenMeld Space Action MCP server", () => {
         server.connect(serverTransport),
         client.connect(clientTransport),
       ]);
+      const { tools } = await client.listTools();
+      expect(
+        tools.find((tool) => tool.name === "review_task")?.inputSchema
+          .properties
+      ).toHaveProperty("expectedPullRequestHeadSha");
+      expect(
+        tools.find((tool) => tool.name === "submit_task_result")?.inputSchema
+          .properties
+      ).toHaveProperty("pullRequest");
       const result = await client.callTool({
         name: "review_task",
         arguments: {

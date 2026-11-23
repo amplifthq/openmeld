@@ -417,6 +417,7 @@ describe("GitHub pull request webhook", () => {
       gatewayRequestId: "11111111-1111-4111-8111-111111111111",
       kind: "github_app_webhook" as const,
       pullRequest: {
+        beforeSha: linkedTask.pullRequest.headSha,
         headSha: pullRequest.headSha,
         number: 42,
         observedAt: "2026-11-19T01:00:00.000Z",
@@ -450,6 +451,7 @@ describe("GitHub pull request webhook", () => {
       expect(rpcApplyGitHubPullRequestObservation).toHaveBeenCalledTimes(1);
       expect(rpcApplyGitHubPullRequestObservation).toHaveBeenCalledWith(
         expect.objectContaining({
+          beforeSha: linkedTask.pullRequest.headSha,
           headSha: pullRequest.headSha,
           spaceId: SPACE_ID,
           taskId: TASK_ID,
@@ -475,7 +477,14 @@ describe("GitHub pull request webhook", () => {
         nowMs: 30,
         organizationId: "org-1",
         spaceId: SPACE_ID,
-        task: { ...linkedTask, pullRequest: null },
+        task: {
+          ...linkedTask,
+          pullRequest: {
+            ...pullRequest,
+            number: 43,
+            url: "https://github.com/amplifthq/openmeld/pull/43",
+          },
+        },
       });
       await expect(
         listActiveSpaceTaskGitHubPullRequestLinks({
@@ -483,6 +492,29 @@ describe("GitHub pull request webhook", () => {
           number: 42,
           owner: "amplifthq",
           repo: "openmeld",
+        })
+      ).resolves.toEqual([]);
+      await expect(
+        listActiveSpaceTaskGitHubPullRequestLinks({
+          db: harness.db,
+          owner: "amplifthq",
+          repo: "openmeld",
+          number: 43,
+        })
+      ).resolves.toHaveLength(1);
+      await projectSpaceTaskGitHubPullRequestLink({
+        db: harness.db,
+        nowMs: 31,
+        organizationId: "org-1",
+        spaceId: SPACE_ID,
+        task: { ...linkedTask, pullRequest: null },
+      });
+      await expect(
+        listActiveSpaceTaskGitHubPullRequestLinks({
+          db: harness.db,
+          owner: "amplifthq",
+          repo: "openmeld",
+          number: 43,
         })
       ).resolves.toEqual([]);
     } finally {

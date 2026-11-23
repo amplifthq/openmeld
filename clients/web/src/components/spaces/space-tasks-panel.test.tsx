@@ -100,6 +100,47 @@ describe("SpaceTasksPanel", () => {
 		vi.mocked(useSpaceTasksPanelController).mockReset();
 	});
 
+	it("sends the full displayed PR head when accepting a Task result", () => {
+		const pullRequest = {
+			owner: "acme",
+			repo: "web",
+			number: 42,
+			url: "https://github.com/acme/web/pull/42",
+			headSha: "b".repeat(40),
+		};
+		const linked = spaceTaskSchema.parse({
+			...task,
+			phase: "in_review",
+			reviewer: requester,
+			pullRequest,
+			result: {
+				resultRevision: 5,
+				summary: "Ready to review",
+				submittedAt: task.updatedAt,
+				submittedBy: assignee,
+			},
+		});
+		const onMutate = vi.fn(async () => true);
+		render(
+			<SpaceTaskDetailDrawer
+				{...detailProps}
+				detail={{ task: linked, events: [], allowedActions: ["review"] }}
+				onMutate={onMutate}
+				task={linked}
+			/>
+		);
+		expect(screen.getByText(pullRequest.headSha.slice(0, 7))).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Accept result 5" }));
+		expect(onMutate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "review",
+				decision: "accepted",
+				expectedResultRevision: 5,
+				expectedPullRequestHeadSha: pullRequest.headSha,
+			})
+		);
+	});
+
 	it.each([
 		false,
 		true,

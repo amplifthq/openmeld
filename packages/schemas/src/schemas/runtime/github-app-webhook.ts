@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { remoteAgentGitShaSchema } from "./remote-agent-git";
 
 export const GITHUB_APP_WEBHOOK_RAW_BODY_MAX_BYTES = 262_144;
 
@@ -23,7 +24,8 @@ const githubAppWebhookPullRequestObservationSchema = z.strictObject({
   number: z.number().int().positive(),
   owner: githubLoginSchema,
   repo: githubRepoNameSchema,
-  headSha: z.string().trim().min(7).max(64),
+  headSha: remoteAgentGitShaSchema,
+  beforeSha: remoteAgentGitShaSchema.optional(),
   observedAt: z.string().datetime(),
   url: z.url().max(2048),
 });
@@ -137,13 +139,15 @@ export function readGitHubAppWebhookPullRequestObservation(input: {
   const payload = z
     .object({
       action: z.string(),
+      before: remoteAgentGitShaSchema.optional(),
+      after: remoteAgentGitShaSchema.optional(),
       number: z.number().int().positive(),
       pull_request: z
         .object({
           html_url: z.url(),
           head: z
             .object({
-              sha: z.string().min(7).max(64),
+              sha: remoteAgentGitShaSchema,
             })
             .catchall(z.unknown()),
           updated_at: z.string().min(1),
@@ -186,6 +190,11 @@ export function readGitHubAppWebhookPullRequestObservation(input: {
     owner: payload.data.repository.owner.login,
     repo: payload.data.repository.name,
     headSha: payload.data.pull_request.head.sha,
+    ...(payload.data.action === "synchronize" &&
+    payload.data.before &&
+    payload.data.after === payload.data.pull_request.head.sha
+      ? { beforeSha: payload.data.before }
+      : {}),
     observedAt: observedAt.toISOString(),
     url: payload.data.pull_request.html_url,
   });

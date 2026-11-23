@@ -143,12 +143,15 @@ function linkedTask(overrides: Partial<SpaceTask>): SpaceTask {
 function observe(
   service: SpaceTaskService,
   headSha: string,
-  operationId: string
+  operationId: string,
+  observedAt = "2026-11-19T01:00:00.000Z",
+  beforeSha?: string
 ) {
   return service.applyGitHubPullRequestObservation({
     identity: { number: 42, owner: "Acme", repo: "Web" },
     observeOperationId: operationId,
-    observedAt: "2026-11-19T01:00:00.000Z",
+    observedAt,
+    beforeSha,
     headSha,
     taskId: TASK_ID,
   });
@@ -208,13 +211,51 @@ describe("pull request head observation", () => {
     expect(harness.handoffs()).toHaveLength(0);
   });
 
-  it("ignores an observation of the head already recorded", () => {
+  it("keeps the submitted head when an older delivery arrives before or after a same-head observation", () => {
     const harness = createHarness();
-    harness.tasks.insertTask(linkedTask({}));
+    const task = linkedTask({});
+    harness.tasks.insertTask(task);
 
-    const result = observe(harness.service, SHA_A, "observe-a");
+    observe(harness.service, SHA_B, "before-link", "2026-11-18T23:59:59.000Z");
+    observe(harness.service, SHA_A, "observe-a");
+    const result = observe(
+      harness.service,
+      SHA_B,
+      "delayed-b",
+      "2026-11-19T00:59:59.000Z"
+    );
 
     expect(result).toMatchObject({ updated: false, skipReason: "stale" });
+    expect(harness.tasks.readTask(TASK_ID)).toEqual(task);
+    expect(harness.tasks.listEvents(TASK_ID)).toHaveLength(0);
+    expect(harness.handoffs()).toHaveLength(0);
+  });
+
+  it("preserves the human decision and its feedback when GitHub reports a new head", () => {
+    const harness = createHarness();
+    const task = linkedTask({
+      automaticReworkRounds: 2,
+      needsHumanDecision: true,
+      review: {
+        decision: "changes_requested",
+        feedback: "A person must decide whether to continue.",
+        resultRevision: 1,
+        reviewedAt: "2026-11-19T00:30:00.000Z",
+        reviewedBy: reviewer,
+        pullRequestHeadSha: SHA_A,
+      },
+    });
+    harness.tasks.insertTask(task);
+
+    observe(harness.service, SHA_B, "observe-b");
+
+    expect(harness.tasks.readTask(TASK_ID)).toMatchObject({
+      automaticReworkRounds: 2,
+      needsHumanDecision: true,
+      phase: "in_review",
+      pullRequest: { headSha: SHA_B },
+      review: task.review,
+    });
     expect(harness.handoffs()).toHaveLength(0);
   });
 
@@ -235,7 +276,8 @@ describe("pull request head observation", () => {
       true
     );
 
-    observe(harness.service, SHA_C, "observe-c");
+    const sameSecond = "2026-11-19T01:00:00.000Z";
+    observe(harness.service, SHA_C, "observe-c", sameSecond, SHA_B);
     const afterC = harness.tasks.readTask(TASK_ID);
     if (!afterC) {
       throw new Error("expected the Task to exist");
@@ -243,5 +285,9 @@ describe("pull request head observation", () => {
     expect(isSpaceTaskDeliveryCurrent(handoffForB, afterC, harness.tasks)).toBe(
       false
     );
+    observe(harness.service, SHA_A, "older", "2026-11-19T00:59:59.000Z");
+    observe(harness.service, SHA_B, "late-same-second", sameSecond, SHA_A);
+    expect(harness.tasks.readTask(TASK_ID)).toEqual(afterC);
+    expect(afterC.pullRequest?.headSha).toBe(SHA_C);
   });
 });

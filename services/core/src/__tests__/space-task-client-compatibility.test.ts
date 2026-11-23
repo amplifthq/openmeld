@@ -92,6 +92,36 @@ describe("Space Task client compatibility", () => {
       projectSpaceTasksForClient({ tasks: [task], truncated: false }, 2)
         .tasks[0]?.projectIds
     ).toEqual([]);
+    const unlinked = projectSpaceTasksForClient(
+      {
+        tasks: [{ ...task, pullRequest: null }],
+        truncated: false,
+      },
+      3
+    );
+    expect(unlinked.tasks[0]).not.toHaveProperty("pullRequest");
+  });
+
+  it("requires v4 for a commit-bound Task while v3 can still read ordinary Tasks", () => {
+    const linked = {
+      tasks: [
+        {
+          ...task,
+          pullRequest: {
+            owner: "acme",
+            repo: "web",
+            number: 42,
+            url: "https://github.com/acme/web/pull/42",
+            headSha: "a".repeat(40),
+          },
+        },
+      ],
+      truncated: false,
+    };
+    expect(() => projectSpaceTasksForClient(linked, 3)).toThrow(
+      "Update this OpenMeld client"
+    );
+    expect(projectSpaceTasksForClient(linked, 4)).toEqual(linked);
   });
 
   it("rejects Project and Linear facts for old clients instead of flattening them", () => {

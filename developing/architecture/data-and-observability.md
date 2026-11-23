@@ -393,6 +393,14 @@ webhook processing on the existing `OPENMELD_DAEMON_DISPATCH_QUEUE`. Duplicate
 `X-GitHub-Delivery` ids are ignored after a successful claim. Missing link
 rows mean no Space is scanned. Webhook callbacks grant no execution authority.
 
+For a linked pull request, the Space Task stores the head SHA and any accepted
+review records the SHA it covered. Space SQLite retains the latest GitHub
+observation time with the Task transaction, including newer observations of
+the same head. Within one GitHub timestamp, a different head needs a signed
+`synchronize` transition from the current SHA. The PostgreSQL
+`space_task_github_pr_links` table indexes the current link for webhook
+fan-out. Replacing a link detaches its predecessor in the same transaction.
+
 ## Center Agent generated session titles
 
 Space owns the generated default title in `space_meta.name`; the existing

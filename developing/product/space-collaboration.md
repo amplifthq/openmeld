@@ -213,7 +213,14 @@ A requested reviewer must be an active Space member before delegation succeeds.
 An unavailable reviewer is a blocker, not an implicit choice of no review.
 Reviews name the exact submitted result revision the reviewer saw. A concurrent
 result or Task change requires a fresh decision; clients do not replay an old
-acceptance against a refreshed revision. A human Space owner can take over an
+acceptance against a refreshed revision. An assignee can attach a GitHub pull
+request and its full head SHA at submission. Reviewers must name the commit
+they checked. When GitHub reports a different head after acceptance, the Task
+returns to review. A provider notice can reference the reviewer. Starting an
+Agent review requires an authorized Wake. A pending human decision keeps its
+original recipient and feedback when the head changes.
+
+A human Space owner can take over an
 Agent-requested Task decision, and approving further rework hands the next
 correction to the assignee through the same Space Wake path.
 

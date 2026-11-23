@@ -39,6 +39,10 @@ export function ensureSpaceTaskTables(sql: SqlStorage): void {
     response_json TEXT NOT NULL,
     created_at_ms INTEGER NOT NULL
   )`);
+  sql.exec(`CREATE TABLE IF NOT EXISTS space_task_github_pr_observations (
+    task_id TEXT PRIMARY KEY REFERENCES space_tasks(task_id) ON DELETE CASCADE,
+    observed_at_ms INTEGER NOT NULL
+  )`);
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_tasks_phase_updated ON space_tasks (phase, updated_at_ms DESC, task_id)"
   );
@@ -52,6 +56,24 @@ export class SpaceTaskRepository {
 
   constructor(sql: SqlStorage) {
     this.sql = sql;
+  }
+
+  readPullRequestObservedAt(taskId: string): number | undefined {
+    return this.sql
+      .exec<{ observed_at_ms: number }>(
+        "SELECT observed_at_ms FROM space_task_github_pr_observations WHERE task_id = ?",
+        taskId
+      )
+      .toArray()[0]?.observed_at_ms;
+  }
+
+  recordPullRequestObservedAt(taskId: string, observedAtMs: number): void {
+    this.sql.exec(
+      `INSERT INTO space_task_github_pr_observations (task_id, observed_at_ms) VALUES (?, ?)
+       ON CONFLICT(task_id) DO UPDATE SET observed_at_ms = excluded.observed_at_ms`,
+      taskId,
+      observedAtMs
+    );
   }
 
   readTask(taskId: string): SpaceTask | null {

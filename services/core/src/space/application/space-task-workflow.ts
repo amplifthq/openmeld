@@ -483,20 +483,16 @@ function reviewTaskResult({
       "This Task does not have a result awaiting review."
     );
   }
-  // Enforce commit-bound verification when a pull request is linked.
-  if (task.pullRequest) {
-    if (!command.expectedPullRequestHeadSha) {
-      return fail(
-        "space_task.result_revision_conflict",
-        "This Task is linked to a pull request. Supply the expected head commit SHA to review it."
-      );
-    }
-    if (command.expectedPullRequestHeadSha !== task.pullRequest.headSha) {
-      return fail(
-        "space_task.result_revision_conflict",
-        "The pull request head changed. Review the current commit before recording a decision."
-      );
-    }
+  if (
+    task.pullRequest &&
+    command.expectedPullRequestHeadSha !== task.pullRequest.headSha
+  ) {
+    return fail(
+      "space_task.result_revision_conflict",
+      command.expectedPullRequestHeadSha
+        ? "The pull request head changed. Review the current commit before recording a decision."
+        : "This Task is linked to a pull request. Supply the expected head commit SHA to review it."
+    );
   }
   if (command.expectedResultRevision !== task.result.resultRevision) {
     fail(
@@ -517,9 +513,9 @@ function reviewTaskResult({
     resultRevision: task.result.resultRevision,
     reviewedAt: now,
     reviewedBy: context.actor,
-    pullRequestHeadSha: task.pullRequest
-      ? task.pullRequest.headSha
-      : null,
+    ...(task.pullRequest
+      ? { pullRequestHeadSha: task.pullRequest.headSha }
+      : {}),
   } as const;
   if (command.decision === "accepted") {
     return finishMutation({

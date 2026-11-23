@@ -214,6 +214,7 @@ async function processPullRequestWebhook(input: {
         },
         observeOperationId: `github-pr-observe:${pullRequest.owner.toLowerCase()}:${pullRequest.repo.toLowerCase()}:${pullRequest.number}:${link.taskId}:${input.message.deliveryId}`,
         observedAt: pullRequest.observedAt,
+        beforeSha: pullRequest.beforeSha,
         headSha: pullRequest.headSha,
         spaceId: link.spaceId,
         taskId: link.taskId,

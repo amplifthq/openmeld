@@ -1626,12 +1626,17 @@ describe("gateway http forwarding", () => {
   });
 
   it.each([
-    { extra: {}, status: 403 },
-    { extra: { wakeAssignee: true, reviewerProfileId: null }, status: 403 },
-    { extra: { wakeAssignee: true }, status: 400 },
+    { extra: {}, status: 403, version: 3 },
+    {
+      extra: { wakeAssignee: true, reviewerProfileId: null },
+      status: 403,
+      version: 4,
+    },
+    { extra: { wakeAssignee: true }, status: 400, version: 4 },
   ])("preserves Task creation intent and owner denial, with $extra", async ({
     extra,
     status,
+    version,
   }) => {
     const { env, rpc } = makeEnv();
     const spaceId = "a".repeat(64);
@@ -1643,7 +1648,7 @@ describe("gateway http forwarding", () => {
     };
     const response = await app.fetch(
       new Request(
-        `http://local/v1/spaces/${spaceId}/tasks?taskContractVersion=3`,
+        `http://local/v1/spaces/${spaceId}/tasks?taskContractVersion=${version}`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -1661,7 +1666,7 @@ describe("gateway http forwarding", () => {
         expect.objectContaining({
           spaceId,
           body: { ...body, externalWorkItems: [] },
-          taskContractVersion: 3,
+          taskContractVersion: version,
         })
       );
     }

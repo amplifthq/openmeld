@@ -10,7 +10,10 @@ export const SPACE_TASK_RESULT_SUMMARY_MAX_CHARS = 8000;
 export const SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS = 8000;
 export const SPACE_TASK_OPERATION_ID_MAX_CHARS = 512;
 export const SPACE_TASK_LIST_MAX_ITEMS = 500;
-export const SPACE_TASK_WORKFLOW_CONTRACT_VERSION = 3;
+export const SPACE_TASK_WORKFLOW_CONTRACT_VERSION = 4;
+const taskContractVersionSchema = z
+  .literal([2, 3, SPACE_TASK_WORKFLOW_CONTRACT_VERSION])
+  .optional();
 export const SPACE_TASK_PROJECT_MAX_ITEMS = 12;
 
 const spaceTaskProjectIdsSchema = z
@@ -464,16 +467,12 @@ export const spaceTaskResponseSchema = z.strictObject({
 
 export const listSpaceTasksQuerySchema = z.strictObject({
   phase: spaceTaskPhaseSchema.optional(),
-  taskContractVersion: z
-    .union([z.literal(2), z.literal(SPACE_TASK_WORKFLOW_CONTRACT_VERSION)])
-    .optional(),
+  taskContractVersion: taskContractVersionSchema,
 });
 
 export const spaceTaskDetailOptionsSchema = z.strictObject({
   includeAffordances: z.boolean().optional(),
-  taskContractVersion: z
-    .union([z.literal(2), z.literal(SPACE_TASK_WORKFLOW_CONTRACT_VERSION)])
-    .optional(),
+  taskContractVersion: taskContractVersionSchema,
 });
 
 export const listSpaceTasksResponseSchema = z.strictObject({

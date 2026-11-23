@@ -57,6 +57,7 @@ export type ApplyGitHubPullRequestObservationInput = {
   };
   observeOperationId: string;
   observedAt: string;
+  beforeSha?: string;
   headSha: string;
   spaceId: string;
   taskId: string;
@@ -79,8 +80,10 @@ export type SpaceTaskRepositoryPort = Pick<
   | "listEvents"
   | "listTasks"
   | "readOperation"
+  | "readPullRequestObservedAt"
   | "readTask"
   | "recordOperation"
+  | "recordPullRequestObservedAt"
   | "updateTask"
 >;
 
@@ -270,6 +273,21 @@ export class SpaceTaskService {
         applied: true,
       });
       this.input.repository.updateTask(transition.task, current.revision);
+      if (body.action === "submit_result" && body.pullRequest) {
+        const previousObservation = isLinkedPullRequest(
+          current.pullRequest,
+          body.pullRequest
+        )
+          ? this.input.repository.readPullRequestObservedAt(taskId)
+          : undefined;
+        this.input.repository.recordPullRequestObservedAt(
+          taskId,
+          Math.max(
+            githubTimestampAtSubmission(transition.task.updatedAt),
+            previousObservation ?? 0
+          )
+        );
+      }
       this.input.repository.appendEvent(event);
       this.input.repository.recordOperation({
         operationId: body.operationId,
@@ -372,31 +390,42 @@ export class SpaceTaskService {
       if (!current) {
         return { updated: false, skipReason: "not_found", task: null };
       }
-      // Not linked or wrong identity -> ignore
       const pr = current.pullRequest;
-      if (
-        !pr ||
-        pr.owner.toLowerCase() !== input.identity.owner.toLowerCase() ||
-        pr.repo.toLowerCase() !== input.identity.repo.toLowerCase() ||
-        pr.number !== input.identity.number
-      ) {
+      if (!isLinkedPullRequest(pr, input.identity)) {
         return { updated: false, skipReason: "not_linked", task: current };
       }
-      // Stale observation?
+      const observedAt = Date.parse(input.observedAt);
+      const lastObservedAt =
+        this.input.repository.readPullRequestObservedAt(input.taskId) ??
+        githubTimestampAtSubmission(
+          current.result?.submittedAt ?? current.createdAt
+        );
+      // GitHub timestamps have second precision. A synchronize event can prove
+      // the next head within that second by naming the current head as its predecessor.
+      if (
+        !Number.isFinite(observedAt) ||
+        observedAt < lastObservedAt ||
+        (observedAt === lastObservedAt && input.beforeSha !== pr.headSha) ||
+        this.input.repository.readOperation(input.observeOperationId)
+      ) {
+        return { updated: false, skipReason: "stale", task: current };
+      }
+      this.input.repository.recordPullRequestObservedAt(
+        input.taskId,
+        observedAt
+      );
       if (pr.headSha === input.headSha) {
         return { updated: false, skipReason: "stale", task: current };
       }
       const now = new Date().toISOString();
-      // If a previously accepted review exists, mark stale and return to review.
-      const needsReverification = current.review?.decision === "accepted";
+      const needsReverification =
+        current.phase === "done" && current.review?.decision === "accepted";
       const next: SpaceTask = {
         ...current,
         pullRequest: { ...pr, headSha: input.headSha },
         phase: needsReverification ? "in_review" : current.phase,
-        needsHumanDecision: false,
         updatedAt: now,
         revision: current.revision + 1,
-        // Preserve result; clear review if we require re-verification
         review: needsReverification ? null : current.review,
       };
       const event: SpaceTaskEvent = this.buildEvent({
@@ -490,4 +519,20 @@ export class SpaceTaskService {
       createdAt: input.task.updatedAt,
     });
   }
+}
+
+function githubTimestampAtSubmission(timestamp: string): number {
+  return Math.floor(Date.parse(timestamp) / 1000) * 1000;
+}
+
+function isLinkedPullRequest(
+  pr: SpaceTask["pullRequest"],
+  identity: ApplyGitHubPullRequestObservationInput["identity"]
+): pr is NonNullable<SpaceTask["pullRequest"]> {
+  return (
+    !!pr &&
+    pr.number === identity.number &&
+    pr.owner.toLowerCase() === identity.owner.toLowerCase() &&
+    pr.repo.toLowerCase() === identity.repo.toLowerCase()
+  );
 }

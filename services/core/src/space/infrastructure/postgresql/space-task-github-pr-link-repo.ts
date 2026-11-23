@@ -29,12 +29,7 @@ export async function projectSpaceTaskGitHubPullRequestLink(input: {
       text: `UPDATE "openmeld"."space_task_github_pr_links"
          SET detached_at_ms = $1, updated_at_ms = $2
          WHERE space_id = $3 AND task_id = $4 AND detached_at_ms IS NULL`,
-      values: [
-        pr ? null : input.nowMs,
-        input.nowMs,
-        input.spaceId,
-        input.task.taskId,
-      ],
+      values: [input.nowMs, input.nowMs, input.spaceId, input.task.taskId],
     },
   ];
   if (pr) {
