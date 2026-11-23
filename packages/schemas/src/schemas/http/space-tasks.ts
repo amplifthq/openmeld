@@ -108,7 +108,7 @@ export const spaceTaskReviewSchema = z.strictObject({
   reviewedBy: spaceTaskActorSchema,
   // When the Task is linked to a GitHub pull request, reviews are bound
   // to the exact head commit SHA observed at review time.
-  pullRequestHeadSha: z.string().trim().min(7).max(64).nullable().optional(),
+  pullRequestHeadSha: spaceTaskPullRequestHeadShaSchema.nullable().optional(),
 });
 
 export const spaceTaskEventTypeSchema = z.enum([

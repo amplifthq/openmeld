@@ -19,7 +19,9 @@ import type {
   SpaceTaskPhase,
   SpaceTaskResponse,
 } from "@openmeld/schemas/types";
+import type { GitHubPullRequestHeadEvidence } from "../infrastructure/postgresql/github-app-webhook-delivery-repo";
 import type { SpaceTaskRepository } from "../infrastructure/sql/space-task-repo";
+import { resolveGitHubPullRequestHead } from "./space-task-pull-request-observation";
 import {
   applyGitHubIssueProviderObservation,
   mutateSpaceTask,
@@ -55,16 +57,14 @@ export type ApplyGitHubPullRequestObservationInput = {
     owner: string;
     repo: string;
   };
-  observeOperationId: string;
-  observedAt: string;
-  headSha: string;
+
   spaceId: string;
   taskId: string;
 };
 
 export type ApplyGitHubPullRequestObservationResult = {
   updated: boolean;
-  skipReason: "not_found" | "not_linked" | "stale" | null;
+  skipReason: "pending" | "not_found" | "not_linked" | "stale" | null;
   task: SpaceTask | null;
 };
 
@@ -79,10 +79,10 @@ export type SpaceTaskRepositoryPort = Pick<
   | "listEvents"
   | "listTasks"
   | "readOperation"
-  | "readPullRequestObservedAt"
+  | "readPullRequestCursor"
   | "readTask"
   | "recordOperation"
-  | "recordPullRequestObservedAt"
+  | "recordPullRequestCursor"
   | "updateTask"
 >;
 
@@ -252,6 +252,18 @@ export class SpaceTaskService {
           status: 404,
         });
       }
+      if (
+        body.action === "review" &&
+        current.pullRequest &&
+        this.input.repository.readPullRequestCursor(taskId)?.pending
+      ) {
+        throw new SpaceTaskWorkflowError({
+          code: "space_task.result_revision_conflict",
+          status: 409,
+          message:
+            "GitHub reported conflicting heads. Refresh the Task after the latest commit is confirmed.",
+        });
+      }
       const transition = mutateSpaceTask({
         task: current,
         command: body,
@@ -277,15 +289,14 @@ export class SpaceTaskService {
           current.pullRequest,
           body.pullRequest
         )
-          ? this.input.repository.readPullRequestObservedAt(taskId)
+          ? this.input.repository.readPullRequestCursor(taskId)
           : undefined;
-        this.input.repository.recordPullRequestObservedAt(
-          taskId,
-          Math.max(
-            Date.parse(transition.task.updatedAt),
-            previousObservation ?? 0
-          )
-        );
+        this.input.repository.recordPullRequestCursor(taskId, {
+          observedAtMs: previousObservation?.observedAtMs ?? 0,
+          anchorSha: body.pullRequest.headSha,
+          evidenceCount: 0,
+          pending: false,
+        });
       }
       this.input.repository.appendEvent(event);
       this.input.repository.recordOperation({
@@ -382,7 +393,10 @@ export class SpaceTaskService {
   }
 
   applyGitHubPullRequestObservation(
-    input: Omit<ApplyGitHubPullRequestObservationInput, "spaceId">
+    input: Omit<ApplyGitHubPullRequestObservationInput, "spaceId"> & {
+      observedAtMs: number;
+      heads: readonly GitHubPullRequestHeadEvidence[];
+    }
   ): ApplyGitHubPullRequestObservationResult {
     return this.input.runTransaction(() => {
       const current = this.input.repository.readTask(input.taskId);
@@ -393,24 +407,17 @@ export class SpaceTaskService {
       if (!isLinkedPullRequest(pr, input.identity)) {
         return { updated: false, skipReason: "not_linked", task: current };
       }
-      const observedAt = Date.parse(input.observedAt);
-      const lastObservedAt =
-        this.input.repository.readPullRequestObservedAt(input.taskId) ??
-        Date.parse(current.result?.submittedAt ?? current.createdAt);
-      // A same-second force push can restore a previous SHA. Even matching
-      // "before" SHAs cannot order those deliveries.
-      if (
-        !Number.isFinite(observedAt) ||
-        observedAt <= lastObservedAt ||
-        this.input.repository.readOperation(input.observeOperationId)
-      ) {
-        return { updated: false, skipReason: "stale", task: current };
+      const resolution = this.resolvePullRequestSnapshot(input, pr.headSha);
+      if ("skipReason" in resolution) {
+        return {
+          updated: false,
+          skipReason: resolution.skipReason,
+          task: current,
+        };
       }
-      this.input.repository.recordPullRequestObservedAt(
-        input.taskId,
-        observedAt
-      );
-      if (pr.headSha === input.headSha) {
+      const { headSha } = resolution;
+      const observeOperationId = `github-pr:${pr.owner.toLowerCase()}:${pr.repo.toLowerCase()}:${pr.number}:${input.taskId}:${input.observedAtMs}:${input.heads.length}:${current.revision}`;
+      if (pr.headSha === headSha) {
         return { updated: false, skipReason: "stale", task: current };
       }
       const now = new Date().toISOString();
@@ -418,7 +425,7 @@ export class SpaceTaskService {
         current.phase === "done" && current.review?.decision === "accepted";
       const next: SpaceTask = {
         ...current,
-        pullRequest: { ...pr, headSha: input.headSha },
+        pullRequest: { ...pr, headSha },
         phase: needsReverification ? "in_review" : current.phase,
         updatedAt: now,
         revision: current.revision + 1,
@@ -426,21 +433,21 @@ export class SpaceTaskService {
       };
       const event: SpaceTaskEvent = this.buildEvent({
         task: next,
-        operationId: input.observeOperationId,
+        operationId: observeOperationId,
         type: "pull_request_head_changed",
         actor: { provider: "github" },
         fromPhase: current.phase,
         detail: needsReverification
-          ? `Pull request head changed; re-verification required for ${pr.owner}/${pr.repo}#${pr.number} (${input.headSha.slice(0, 7)}).`
-          : `Pull request head observed: ${pr.owner}/${pr.repo}#${pr.number} (${input.headSha.slice(0, 7)}).`,
+          ? `Pull request head changed; re-verification required for ${pr.owner}/${pr.repo}#${pr.number} (${headSha.slice(0, 7)}).`
+          : `Pull request head observed: ${pr.owner}/${pr.repo}#${pr.number} (${headSha.slice(0, 7)}).`,
       });
       this.input.repository.updateTask(next, current.revision);
       this.input.repository.appendEvent(event);
       this.input.repository.recordOperation({
-        operationId: input.observeOperationId,
+        operationId: observeOperationId,
         requestJson: JSON.stringify({
           body: {
-            headSha: input.headSha,
+            headSha,
             number: input.identity.number,
             owner: input.identity.owner,
             repo: input.identity.repo,
@@ -453,6 +460,49 @@ export class SpaceTaskService {
       this.input.onMutation?.({ applied: true, task: next, event }, current);
       return { updated: true, skipReason: null, task: next };
     });
+  }
+
+  private resolvePullRequestSnapshot(
+    input: {
+      taskId: string;
+      observedAtMs: number;
+      heads: readonly GitHubPullRequestHeadEvidence[];
+    },
+    currentHead: string
+  ): { headSha: string } | { skipReason: "pending" | "stale" } {
+    const cursor = this.input.repository.readPullRequestCursor(input.taskId);
+    const lastTime = cursor?.observedAtMs ?? 0;
+    if (
+      input.observedAtMs < lastTime ||
+      (input.observedAtMs === lastTime &&
+        input.heads.length <= (cursor?.evidenceCount ?? 0))
+    ) {
+      return { skipReason: cursor?.pending ? "pending" : "stale" };
+    }
+    const anchorSha =
+      input.observedAtMs === lastTime
+        ? (cursor?.anchorSha ?? currentHead)
+        : currentHead;
+    const unconfirmedAtSubmission = !(
+      cursor?.evidenceCount ||
+      input.heads.some(
+        (head) => head.beforeSha === anchorSha || head.headSha === anchorSha
+      )
+    );
+    const headSha = unconfirmedAtSubmission
+      ? null
+      : resolveGitHubPullRequestHead(input.heads, anchorSha);
+    this.input.repository.recordPullRequestCursor(input.taskId, {
+      observedAtMs: input.observedAtMs,
+      anchorSha,
+      evidenceCount: input.heads.length,
+      pending: headSha === null,
+    });
+    if (!headSha) {
+      return { skipReason: "pending" };
+    }
+
+    return { headSha };
   }
 
   private requireActiveMember(

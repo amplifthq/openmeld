@@ -187,9 +187,10 @@ async function processPullRequestWebhook(input: {
     issueState: null,
     nowMs,
     number: pullRequest.number,
-    ownerLogin: pullRequest.owner,
+    ownerLogin: pullRequest.owner.toLowerCase(),
+    pullRequest,
     receivedAtMs: input.message.receivedAtMs,
-    repo: pullRequest.repo,
+    repo: pullRequest.repo.toLowerCase(),
   });
   if (claim === "duplicate") {
     return;
@@ -204,7 +205,9 @@ async function processPullRequestWebhook(input: {
     for (const link of links) {
       const stub = resolveSpaceStub(input.env.OPENMELD_SPACES, link.spaceId);
       if (!stub) {
-        continue;
+        throw new Error(
+          "The linked Space is unavailable for pull request reconciliation."
+        );
       }
       await stub.rpcApplyGitHubPullRequestObservation({
         identity: {
@@ -212,9 +215,6 @@ async function processPullRequestWebhook(input: {
           owner: pullRequest.owner,
           repo: pullRequest.repo,
         },
-        observeOperationId: `github-pr-observe:${pullRequest.owner.toLowerCase()}:${pullRequest.repo.toLowerCase()}:${pullRequest.number}:${link.taskId}:${input.message.deliveryId}`,
-        observedAt: pullRequest.observedAt,
-        headSha: pullRequest.headSha,
         spaceId: link.spaceId,
         taskId: link.taskId,
       });

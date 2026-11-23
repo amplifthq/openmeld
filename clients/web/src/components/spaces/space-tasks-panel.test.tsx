@@ -121,7 +121,7 @@ describe("SpaceTasksPanel", () => {
 			},
 		});
 		const onMutate = vi.fn(async () => true);
-		render(
+		const { rerender } = render(
 			<SpaceTaskDetailDrawer
 				{...detailProps}
 				detail={{ task: linked, events: [], allowedActions: ["review"] }}
@@ -137,6 +137,33 @@ describe("SpaceTasksPanel", () => {
 				decision: "accepted",
 				expectedResultRevision: 5,
 				expectedPullRequestHeadSha: pullRequest.headSha,
+			})
+		);
+		const changed = {
+			...linked,
+			pullRequest: { ...pullRequest, headSha: "c".repeat(40) },
+		};
+		fireEvent.change(screen.getByLabelText("Review note"), {
+			target: { value: "Feedback for B" },
+		});
+		rerender(
+			<SpaceTaskDetailDrawer
+				{...detailProps}
+				detail={{ task: changed, events: [], allowedActions: ["review"] }}
+				onMutate={onMutate}
+				task={changed}
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Request changes" }));
+		expect(onMutate).toHaveBeenCalledTimes(1);
+		fireEvent.click(screen.getByText("Review updated commit"));
+		expect(
+			(screen.getByLabelText("Review note") as HTMLTextAreaElement).value
+		).toBe("");
+		fireEvent.click(screen.getByRole("button", { name: "Accept result 5" }));
+		expect(onMutate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				expectedPullRequestHeadSha: changed.pullRequest.headSha,
 			})
 		);
 	});

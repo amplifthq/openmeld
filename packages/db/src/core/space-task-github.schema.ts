@@ -117,6 +117,9 @@ export const githubAppWebhookDeliveries = applicationTable(
     repo: text("repo"),
     number: bigint("number", { mode: "number" }),
     issueState: text("issue_state"),
+    prHeadSha: text("pr_head_sha"),
+    prBeforeSha: text("pr_before_sha"),
+    prObservedAtMs: bigint("pr_observed_at_ms", { mode: "number" }),
     gatewayRequestId: text("gateway_request_id").notNull(),
     state: text("state").notNull(),
     claimId: text("claim_id"),
@@ -136,6 +139,9 @@ export const githubAppWebhookDeliveries = applicationTable(
       table.state,
       table.updatedAtMs
     ),
+    index("github_app_webhook_deliveries_pr_time_idx")
+      .on(table.ownerLogin, table.repo, table.number, table.prObservedAtMs)
+      .where(sql`"pr_observed_at_ms" IS NOT NULL`),
     check(
       "github_app_webhook_deliveries_id_check",
       sql`length(trim("delivery_id")) > 0`

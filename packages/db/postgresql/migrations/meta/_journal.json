@@ -400,6 +400,13 @@
       "when": 1795122957853,
       "tag": "0056_space_task_github_pr_links",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1795412598755,
+      "tag": "0057_github_pr_observation_evidence",
+      "breakpoints": true
     }
   ]
 }

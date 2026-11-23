@@ -817,14 +817,18 @@ function TaskResultControl(input: TaskControlInput) {
 
 function TaskReviewControl(input: TaskControlInput) {
 	const [feedback, setFeedback] = useState("");
+	const [reviewedHead, setReviewedHead] = useState(
+		input.task.pullRequest?.headSha
+	);
+	const headChanged = reviewedHead !== input.task.pullRequest?.headSha;
 	const result = input.task.result;
 	if (!result) {
 		return null;
 	}
 	const override = input.task.reviewer?.profileId !== input.selfProfileId;
 	const pullRequest = input.task.pullRequest ?? null;
-	const pullRequestHead = pullRequest
-		? { expectedPullRequestHeadSha: pullRequest.headSha }
+	const pullRequestHead = reviewedHead
+		? { expectedPullRequestHeadSha: reviewedHead }
 		: {};
 	return (
 		<div className="mt-4 space-y-2">
@@ -841,6 +845,24 @@ function TaskReviewControl(input: TaskControlInput) {
 					</a>{" "}
 					at commit <code>{pullRequest.headSha.slice(0, 7)}</code>
 				</p>
+			) : null}
+			{headChanged ? (
+				<div>
+					<p aria-live="polite">
+						The pull request changed. Review the new commit before submitting a
+						decision.
+					</p>
+					<Button
+						onClick={() => {
+							setFeedback("");
+							setReviewedHead(input.task.pullRequest?.headSha);
+						}}
+						size="sm"
+						variant="outline"
+					>
+						Review updated commit
+					</Button>
+				</div>
 			) : null}
 			<label
 				className="font-medium text-xs"
@@ -862,7 +884,7 @@ function TaskReviewControl(input: TaskControlInput) {
 			/>
 			<div className="flex flex-wrap gap-2">
 				<Button
-					disabled={input.busy || (override && !feedback.trim())}
+					disabled={input.busy || headChanged || (override && !feedback.trim())}
 					onClick={() =>
 						input.mutate({
 							action: "review",
@@ -877,7 +899,7 @@ function TaskReviewControl(input: TaskControlInput) {
 					Accept result {result.resultRevision}
 				</Button>
 				<Button
-					disabled={input.busy || !feedback.trim()}
+					disabled={input.busy || headChanged || !feedback.trim()}
 					onClick={() =>
 						input.mutate({
 							action: "review",

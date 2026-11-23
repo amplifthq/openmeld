@@ -115,6 +115,7 @@ it("reads the provider timestamp and full head SHA from a synchronize delivery",
       payload: value,
     });
   expect(read(payload)).toMatchObject({
+    beforeSha: before,
     headSha: after,
     observedAt: "2019-05-15T15:20:33.000Z",
   });

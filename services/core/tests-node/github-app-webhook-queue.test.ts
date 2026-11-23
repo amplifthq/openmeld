@@ -1,5 +1,6 @@
 import { spaceTaskGitHubIssueOperationId } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
+import { projectAndReconcileSpaceTaskPullRequest } from "../src/space/application/space-task-pull-request-observation";
 import {
   claimGitHubAppWebhookDelivery,
   completeGitHubAppWebhookDelivery,
@@ -417,6 +418,7 @@ describe("GitHub pull request webhook", () => {
       gatewayRequestId: "11111111-1111-4111-8111-111111111111",
       kind: "github_app_webhook" as const,
       pullRequest: {
+        beforeSha: linkedTask.pullRequest.headSha,
         headSha: pullRequest.headSha,
         number: 42,
         observedAt: "2026-11-19T01:00:00.000Z",
@@ -428,13 +430,35 @@ describe("GitHub pull request webhook", () => {
       v: 1 as const,
     };
     try {
-      await projectSpaceTaskGitHubPullRequestLink({
+      await processGitHubAppWebhookQueueMessage({
+        env,
+        message: { ...message, deliveryId: "before-projection" },
+      });
+      expect(rpcApplyGitHubPullRequestObservation).not.toHaveBeenCalled();
+      const applyGitHubPullRequestObservation = vi.fn(() => ({
+        updated: true,
+        skipReason: null,
+        task: linkedTask,
+      }));
+      await projectAndReconcileSpaceTaskPullRequest({
+        service: { applyGitHubPullRequestObservation },
         db: harness.db,
         nowMs: 10,
         organizationId: "org-1",
         spaceId: SPACE_ID,
         task: linkedTask,
       });
+      expect(applyGitHubPullRequestObservation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId: TASK_ID,
+          heads: [
+            {
+              beforeSha: linkedTask.pullRequest.headSha,
+              headSha: pullRequest.headSha,
+            },
+          ],
+        })
+      );
       await expect(
         listActiveSpaceTaskGitHubPullRequestLinks({
           db: harness.db,
@@ -450,8 +474,7 @@ describe("GitHub pull request webhook", () => {
       expect(rpcApplyGitHubPullRequestObservation).toHaveBeenCalledTimes(1);
       expect(rpcApplyGitHubPullRequestObservation).toHaveBeenCalledWith(
         expect.objectContaining({
-          headSha: pullRequest.headSha,
-          observedAt: message.pullRequest.observedAt,
+          identity: { owner: "amplifthq", repo: "openmeld", number: 42 },
           spaceId: SPACE_ID,
           taskId: TASK_ID,
         })

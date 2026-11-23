@@ -726,7 +726,6 @@ import {
   type ApplyGitHubIssueObservationInput,
   type ApplyGitHubIssueObservationResult,
   type ApplyGitHubPullRequestObservationInput,
-  type ApplyGitHubPullRequestObservationResult,
   type CreateSpaceTaskContext,
   SpaceTaskService,
 } from "../../application/space-task-service";
@@ -801,7 +800,7 @@ import {
   type SpaceDispatchLedgerStatus,
 } from "../../infrastructure/postgresql/space-dispatch-read-repo";
 import { projectSpaceTaskGitHubIssueLinks } from "../../infrastructure/postgresql/space-task-github-issue-link-repo";
-import { projectSpaceTaskGitHubPullRequestLink } from "../../infrastructure/postgresql/space-task-github-pr-link-repo";
+import { projectAndReconcileSpaceTaskPullRequest, reconcileSpaceTaskGitHubPullRequest } from "../../application/space-task-pull-request-observation";
 import { projectSpaceTaskProjectLinks } from "../../infrastructure/postgresql/space-task-project-link-repo";
 import { reconcileOrganizationAgentOwnership } from "../../infrastructure/sql/organization-agent-ownership";
 import { PluginConnectionContinuationRepository } from "../../infrastructure/sql/plugin-connection-continuation-repo";
@@ -9904,18 +9903,18 @@ export class Space extends DurableObject<CoreBindings> {
   }
   async rpcApplyGitHubPullRequestObservation(
     input: ApplyGitHubPullRequestObservationInput
-  ): Promise<ApplyGitHubPullRequestObservationResult> {
+  ): Promise<void> {
     return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
         await this.armSpaceTaskRecovery();
-        const result =
-          this.spaceTaskService.applyGitHubPullRequestObservation(input);
-        if (result.task && result.updated) {
+        const updated = await reconcileSpaceTaskGitHubPullRequest({
+          db: getPostgresDatabase(this.bindings), service: this.spaceTaskService, taskId: input.taskId, identity: input.identity,
+        });
+        if (updated) {
           await this.broadcastSpaceTasksChanged("space.task.observe_external_work_item");
           await this.flushPendingSpaceTaskDeliveries();
         }
-        return result;
       }
     );
   }
@@ -10733,13 +10732,15 @@ export class Space extends DurableObject<CoreBindings> {
       );
     }
     try {
-      await projectSpaceTaskGitHubPullRequestLink({
+      if (await projectAndReconcileSpaceTaskPullRequest({
         db,
         nowMs: Date.now(),
         organizationId,
         spaceId: this.spaceId,
-        task,
-      });
+        task, service: this.spaceTaskService,
+      })) {
+        await this.broadcastSpaceTasksChanged("space.task.observe_external_work_item");
+      }
     } catch (error) {
       console.warn("[core.space.task_github_pr_link_projection_failed]", {
         error: error instanceof Error ? error.message : String(error),

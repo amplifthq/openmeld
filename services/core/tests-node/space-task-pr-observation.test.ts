@@ -143,14 +143,13 @@ function linkedTask(overrides: Partial<SpaceTask>): SpaceTask {
 function observe(
   service: SpaceTaskService,
   headSha: string,
-  operationId: string,
+  _delivery: string,
   observedAt = "2026-11-19T01:00:00.000Z"
 ) {
   return service.applyGitHubPullRequestObservation({
     identity: { number: 42, owner: "Acme", repo: "Web" },
-    observeOperationId: operationId,
-    observedAt,
-    headSha,
+    observedAtMs: Date.parse(observedAt),
+    heads: [{ headSha, beforeSha: _delivery === "before-link" ? null : SHA_A }],
     taskId: TASK_ID,
   });
 }
@@ -230,6 +229,89 @@ describe("pull request head observation", () => {
     expect(harness.tasks.readTask(TASK_ID)).toEqual(task);
     expect(harness.tasks.listEvents(TASK_ID)).toHaveLength(0);
     expect(harness.handoffs()).toHaveLength(0);
+  });
+
+  it("reconciles both delivery orders and a force-push round trip from retained evidence", () => {
+    for (const [first, second, tip] of [
+      [[SHA_A, SHA_B], [SHA_B, SHA_C], SHA_C],
+      [[SHA_B, SHA_C], [SHA_A, SHA_B], SHA_C],
+      [[SHA_B, SHA_A], [SHA_A, SHA_B], SHA_A],
+      [[SHA_A, SHA_B], [SHA_B, SHA_A], SHA_A],
+    ] as const) {
+      const harness = createHarness();
+      harness.tasks.insertTask(linkedTask({}));
+      const snapshot = (edges: readonly (readonly [string, string])[]) =>
+        harness.service.applyGitHubPullRequestObservation({
+          taskId: TASK_ID,
+          identity: { owner: "acme", repo: "web", number: 42 },
+          observedAtMs: Date.parse("2026-11-19T01:00:00Z"),
+          heads: edges.map(([beforeSha, headSha]) => ({ beforeSha, headSha })),
+        });
+      snapshot([first]);
+      snapshot([second, first]);
+      snapshot([first]);
+      expect(harness.tasks.readTask(TASK_ID)?.pullRequest?.headSha).toBe(tip);
+    }
+  });
+
+  it("blocks review while same-second evidence is disconnected, then accepts the reconciled head", () => {
+    const harness = createHarness();
+    harness.tasks.insertTask(linkedTask({}));
+    const identity = { owner: "acme", repo: "web", number: 42 };
+    const time = Date.parse("2026-11-19T01:00:00Z");
+    const disconnected = [
+      { beforeSha: SHA_A, headSha: SHA_B },
+      { beforeSha: SHA_C, headSha: "d".repeat(40) },
+    ];
+    const apply = (heads: typeof disconnected) =>
+      harness.service.applyGitHubPullRequestObservation({
+        taskId: TASK_ID,
+        identity,
+        heads,
+        observedAtMs: time,
+      });
+    expect(apply(disconnected).skipReason).toBe("pending");
+    const review = (sha: string, revision: number) =>
+      harness.service.mutate(
+        TASK_ID,
+        {
+          action: "review",
+          operationId: "accept-proof",
+          expectedRevision: revision,
+          expectedResultRevision: 1,
+          expectedPullRequestHeadSha: sha,
+          decision: "accepted",
+        },
+        { actor: reviewer, isSpaceOwner: false, resolveMember: () => reviewer }
+      );
+    expect(() => review(SHA_A, 3)).toThrow("conflicting heads");
+    const confirmed = apply([
+      ...disconnected,
+      { beforeSha: SHA_B, headSha: SHA_C },
+    ]).task;
+    if (!confirmed?.pullRequest) {
+      throw new Error("Missing reconciled pull request");
+    }
+    expect(
+      review(confirmed.pullRequest.headSha, confirmed.revision).task.review
+        ?.pullRequestHeadSha
+    ).toBe("d".repeat(40));
+  });
+
+  it("admits a signed transition that occurred between reading a commit and submitting the result", () => {
+    const harness = createHarness();
+    const task = linkedTask({});
+    if (!task.result) {
+      throw new Error("Expected a submitted result");
+    }
+    harness.tasks.insertTask({
+      ...task,
+      result: { ...task.result, submittedAt: "2026-11-19T01:00:02.000Z" },
+    });
+    expect(
+      observe(harness.service, SHA_B, "push", "2026-11-19T01:00:01.000Z").task
+        ?.pullRequest?.headSha
+    ).toBe(SHA_B);
   });
 
   it("preserves the human decision and its feedback when GitHub reports a new head", () => {

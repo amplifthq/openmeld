@@ -1570,7 +1570,7 @@ rejects provider attribution. No historical attribution is inferred or rewritten
 Task contract version 4 adds a linked pull request, its observed head and the
 reviewed SHA. Core rejects older clients with HTTP 426 before they can change
 a PR-linked Task. Unlinked Tasks retain their older wire shapes. Apply the
-PR-link migration and deploy Core and Gateway before releasing v4 Web, Remote
+PR-link and webhook evidence migrations and deploy Core and Gateway before releasing v4 Web, Remote
 Agent and CLI callers. Existing issue queue messages remain readable. Once a
 Task has recorded a PR link, its Space storage needs a v4-capable reader.
 

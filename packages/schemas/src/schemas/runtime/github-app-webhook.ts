@@ -25,6 +25,7 @@ const githubAppWebhookPullRequestObservationSchema = z.strictObject({
   owner: githubLoginSchema,
   repo: githubRepoNameSchema,
   headSha: remoteAgentGitShaSchema,
+  beforeSha: remoteAgentGitShaSchema.optional(),
   observedAt: z.string().datetime(),
   url: z.url().max(2048),
 });
@@ -138,6 +139,8 @@ export function readGitHubAppWebhookPullRequestObservation(input: {
   const payload = z
     .object({
       action: z.string(),
+      before: remoteAgentGitShaSchema.optional(),
+      after: remoteAgentGitShaSchema.optional(),
       number: z.number().int().positive(),
       pull_request: z
         .object({
@@ -187,6 +190,11 @@ export function readGitHubAppWebhookPullRequestObservation(input: {
     owner: payload.data.repository.owner.login,
     repo: payload.data.repository.name,
     headSha: payload.data.pull_request.head.sha,
+    ...(payload.data.action === "synchronize" &&
+    payload.data.before &&
+    payload.data.after === payload.data.pull_request.head.sha
+      ? { beforeSha: payload.data.before }
+      : {}),
     observedAt: observedAt.toISOString(),
     url: payload.data.pull_request.html_url,
   });
