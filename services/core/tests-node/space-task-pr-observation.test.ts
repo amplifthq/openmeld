@@ -144,14 +144,12 @@ function observe(
   service: SpaceTaskService,
   headSha: string,
   operationId: string,
-  observedAt = "2026-11-19T01:00:00.000Z",
-  beforeSha?: string
+  observedAt = "2026-11-19T01:00:00.000Z"
 ) {
   return service.applyGitHubPullRequestObservation({
     identity: { number: 42, owner: "Acme", repo: "Web" },
     observeOperationId: operationId,
     observedAt,
-    beforeSha,
     headSha,
     taskId: TASK_ID,
   });
@@ -217,7 +215,10 @@ describe("pull request head observation", () => {
     harness.tasks.insertTask(task);
 
     observe(harness.service, SHA_B, "before-link", "2026-11-18T23:59:59.000Z");
-    observe(harness.service, SHA_A, "observe-a");
+    const sameSecond = "2026-11-19T01:00:00.000Z";
+    // GitHub moved A -> B -> A in one second. The return to A arrived first.
+    observe(harness.service, SHA_A, "back-at-a", sameSecond);
+    observe(harness.service, SHA_B, "late-push-away-from-a", sameSecond);
     const result = observe(
       harness.service,
       SHA_B,
@@ -276,8 +277,8 @@ describe("pull request head observation", () => {
       true
     );
 
-    const sameSecond = "2026-11-19T01:00:00.000Z";
-    observe(harness.service, SHA_C, "observe-c", sameSecond, SHA_B);
+    const timeC = "2026-11-19T01:00:01.000Z";
+    observe(harness.service, SHA_C, "observe-c", timeC);
     const afterC = harness.tasks.readTask(TASK_ID);
     if (!afterC) {
       throw new Error("expected the Task to exist");
@@ -286,8 +287,16 @@ describe("pull request head observation", () => {
       false
     );
     observe(harness.service, SHA_A, "older", "2026-11-19T00:59:59.000Z");
-    observe(harness.service, SHA_B, "late-same-second", sameSecond, SHA_A);
+    observe(harness.service, SHA_B, "late-same-second", timeC);
     expect(harness.tasks.readTask(TASK_ID)).toEqual(afterC);
     expect(afterC.pullRequest?.headSha).toBe(SHA_C);
+    // A genuinely later force push back to B is still a new review target.
+    observe(
+      harness.service,
+      SHA_B,
+      "force-push-back",
+      "2026-11-19T01:00:02.000Z"
+    );
+    expect(harness.tasks.readTask(TASK_ID)?.pullRequest?.headSha).toBe(SHA_B);
   });
 });

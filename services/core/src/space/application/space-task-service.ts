@@ -57,7 +57,6 @@ export type ApplyGitHubPullRequestObservationInput = {
   };
   observeOperationId: string;
   observedAt: string;
-  beforeSha?: string;
   headSha: string;
   spaceId: string;
   taskId: string;
@@ -283,7 +282,7 @@ export class SpaceTaskService {
         this.input.repository.recordPullRequestObservedAt(
           taskId,
           Math.max(
-            githubTimestampAtSubmission(transition.task.updatedAt),
+            Date.parse(transition.task.updatedAt),
             previousObservation ?? 0
           )
         );
@@ -397,15 +396,12 @@ export class SpaceTaskService {
       const observedAt = Date.parse(input.observedAt);
       const lastObservedAt =
         this.input.repository.readPullRequestObservedAt(input.taskId) ??
-        githubTimestampAtSubmission(
-          current.result?.submittedAt ?? current.createdAt
-        );
-      // GitHub timestamps have second precision. A synchronize event can prove
-      // the next head within that second by naming the current head as its predecessor.
+        Date.parse(current.result?.submittedAt ?? current.createdAt);
+      // A same-second force push can restore a previous SHA. Even matching
+      // "before" SHAs cannot order those deliveries.
       if (
         !Number.isFinite(observedAt) ||
-        observedAt < lastObservedAt ||
-        (observedAt === lastObservedAt && input.beforeSha !== pr.headSha) ||
+        observedAt <= lastObservedAt ||
         this.input.repository.readOperation(input.observeOperationId)
       ) {
         return { updated: false, skipReason: "stale", task: current };
@@ -519,10 +515,6 @@ export class SpaceTaskService {
       createdAt: input.task.updatedAt,
     });
   }
-}
-
-function githubTimestampAtSubmission(timestamp: string): number {
-  return Math.floor(Date.parse(timestamp) / 1000) * 1000;
 }
 
 function isLinkedPullRequest(

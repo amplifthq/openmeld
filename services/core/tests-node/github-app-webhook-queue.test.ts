@@ -417,7 +417,6 @@ describe("GitHub pull request webhook", () => {
       gatewayRequestId: "11111111-1111-4111-8111-111111111111",
       kind: "github_app_webhook" as const,
       pullRequest: {
-        beforeSha: linkedTask.pullRequest.headSha,
         headSha: pullRequest.headSha,
         number: 42,
         observedAt: "2026-11-19T01:00:00.000Z",
@@ -451,8 +450,8 @@ describe("GitHub pull request webhook", () => {
       expect(rpcApplyGitHubPullRequestObservation).toHaveBeenCalledTimes(1);
       expect(rpcApplyGitHubPullRequestObservation).toHaveBeenCalledWith(
         expect.objectContaining({
-          beforeSha: linkedTask.pullRequest.headSha,
           headSha: pullRequest.headSha,
+          observedAt: message.pullRequest.observedAt,
           spaceId: SPACE_ID,
           taskId: TASK_ID,
         })
