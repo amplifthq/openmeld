@@ -52,6 +52,7 @@ import {
 } from "../infrastructure/sql/space-member-display-cache-repo";
 import {
   clearMemberProfileLivenessEvidence,
+  MEMBER_PROFILE_LIVENESS_MIN_OBSERVATIONS,
   recordMemberProfileNotFoundObservation,
 } from "../infrastructure/sql/space-member-liveness-repo";
 import {
@@ -473,6 +474,7 @@ export const leaveSpaceUseCase = (input: {
 };
 type SpaceMembersSnapshotInput = {
   includeAgentReadiness?: boolean;
+  syncMemberLivenessAlarm?: () => Promise<void>;
   profileFacts?:
     | AuthProfileFacts
     | null
@@ -734,11 +736,12 @@ async function buildSpaceMembersSnapshot(
   // only record observations here; the Space background alarm re-verifies
   // and performs the actual removal once the evidence threshold is met.
   const livenessObservedAtMs = Date.parse(generatedAt);
-  measureSpaceMembersSnapshotTiming(
+  const needsLivenessAlarm = measureSpaceMembersSnapshotTiming(
     input.timing,
     "liveness",
     "record member liveness observations",
     () => {
+      let needsAlarm = false;
       if (
         input.includeAgentReadiness !== false &&
         Number.isFinite(livenessObservedAtMs)
@@ -748,17 +751,27 @@ async function buildSpaceMembersSnapshot(
             agent.agentWakeAvailability?.reasonCode ===
             "agent_profile.not_found"
           ) {
-            recordMemberProfileNotFoundObservation(input.sql, {
-              nowMs: livenessObservedAtMs,
-              profileId: agent.profileId,
-            });
+            const observations = recordMemberProfileNotFoundObservation(
+              input.sql,
+              {
+                nowMs: livenessObservedAtMs,
+                profileId: agent.profileId,
+              }
+            );
+            if (observations >= MEMBER_PROFILE_LIVENESS_MIN_OBSERVATIONS) {
+              needsAlarm = true;
+            }
           } else {
             clearMemberProfileLivenessEvidence(input.sql, agent.profileId);
           }
         }
       }
+      return needsAlarm;
     }
   );
+  if (needsLivenessAlarm) {
+    await input.syncMemberLivenessAlarm?.();
+  }
   const memberSummary = measureSpaceMembersSnapshotTiming(
     input.timing,
     "summary",
