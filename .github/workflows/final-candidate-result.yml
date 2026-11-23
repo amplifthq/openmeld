@@ -27,6 +27,7 @@ jobs:
       head: ${{ steps.identity.outputs.head }}
       base: ${{ steps.identity.outputs.base }}
       pr: ${{ steps.identity.outputs.pr }}
+      confidence: ${{ steps.identity.outputs.confidence }}
       state: ${{ steps.publish_final.outputs.state }}
       description: ${{ steps.publish_final.outputs.description }}
     env:
@@ -136,6 +137,7 @@ jobs:
       CANDIDATE_SERVER_URL: ${{ github.server_url }}
       CANDIDATE_HEAD_SHA: ${{ needs.verify.outputs.head }}
       CANDIDATE_PR_NUMBER: ${{ needs.verify.outputs.pr }}
+      CANDIDATE_CONFIDENCE: ${{ needs.verify.outputs.confidence }}
       VERIFIED_STATE: ${{ needs.verify.outputs.state }}
       VERIFIED_DESCRIPTION: ${{ needs.verify.outputs.description }}
       VERIFIER_RESULT: ${{ needs.verify.result }}
@@ -152,9 +154,7 @@ jobs:
           test "$(jq -r .head.sha <<<"$pr_json")" = "$CANDIDATE_HEAD_SHA"
           runs="$(gh api "repos/$CANDIDATE_REPOSITORY/actions/workflows/final-candidate.yml/runs?event=pull_request&head_sha=$CANDIDATE_HEAD_SHA&per_page=100")"
           latest_id="$(jq -r --arg pr "$CANDIDATE_PR_NUMBER" '.workflow_runs | map(select(.display_title | startswith("Final Candidate PR #" + $pr + " @ "))) | sort_by(.created_at, .id) | last | .id' <<<"$runs")"
-          if [ "$latest_id" != "$CANDIDATE_RUN_ID" ]; then exit 0; fi
           source_run="$(gh api "repos/$CANDIDATE_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID")"
-          if [ "$(jq -r .run_attempt <<<"$source_run")" != "$CANDIDATE_RUN_ATTEMPT" ]; then exit 0; fi
           state=failure
           description='Final Candidate result validation failed'
           if [ "$VERIFIER_RESULT" = success ] && [ "$VERIFIED_STATE" = success ]; then
@@ -163,7 +163,196 @@ jobs:
           elif [ "$VERIFIER_RESULT" = success ] && [ "$VERIFIED_STATE" = failure ]; then
             description="$VERIFIED_DESCRIPTION"
           fi
-          gh api --method POST "repos/$CANDIDATE_REPOSITORY/statuses/$CANDIDATE_HEAD_SHA" \
-            -f state="$state" -f context='OpenMeld Final Candidate' \
-            -f description="$description" \
-            -f target_url="$CANDIDATE_SERVER_URL/$CANDIDATE_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID"
+          status_history() {
+            gh api --paginate --slurp "repos/$CANDIDATE_REPOSITORY/commits/$CANDIDATE_HEAD_SHA/statuses?per_page=100" |
+              jq -ce --arg context "${1:-OpenMeld Final Candidate}" 'add | map(select(.context == $context))'
+          }
+          # GitHub returns newest first. Keep the ID of the actual request
+          # even if a concurrent terminal write has temporarily hidden it.
+          latest_request() {
+            jq -c --arg sha "${CANDIDATE_HEAD_SHA:0:12}" '
+              (first(.[] | select(.state == "pending" and ((.description // "") | test("; repair [0-9]+$") | not) and
+                (.description == ("Requested standard Final Candidate @ " + $sha + "; waiting for its result") or
+                 .description == ("Requested full Final Candidate @ " + $sha + "; waiting for its result") or
+                 ((.description // "") | startswith("Running ") and contains("@ " + $sha + " on "))))) // null) |
+              if (.description // "" | startswith("Requested ")) then . else null end'
+          }
+          request_fulfilled() {
+            local prior legacy target published_at prior_source response
+            prior="$(jq -ce --argjson r "$request" '.[:index($r)] | map(select(.state == "success" or .state == "failure" or .state == "error"))' <<<"$before")" || return 2
+            if jq -e --arg suffix "; request $request_id" --arg prefix "$actions_url/" --arg passed "Passed $confidence @ ${CANDIDATE_HEAD_SHA:0:12} on " '
+              any(.[]; ((.description // "") | endswith($suffix)) and
+                (.state != "success" or (.description | startswith($passed))) and
+                ((.target_url // "") | startswith($prefix) and (ltrimstr($prefix) | test("^[0-9]+/attempts/[0-9]+$"))))' <<<"$prior" >/dev/null; then return 0; fi
+            # Legacy hosted results carry no receipt. Verify the referenced
+            # source before allowing a later automatic run to change confidence.
+            legacy="$(jq -r --arg prefix "$actions_url/" --arg passed "Passed $confidence @ ${CANDIDATE_HEAD_SHA:0:12} on " '
+              .[] | select(((.description // "") | contains("; request ") | not) and
+                (.state != "success" or (.description | startswith($passed)))) |
+              . as $status | (.target_url // "") | select(startswith($prefix)) | ltrimstr($prefix) |
+              select(test("^[1-9][0-9]*(/attempts/[1-9][0-9]*)?$")) | [., $status.created_at] | @tsv' <<<"$prior")" || return 2
+            while IFS=$'\t' read -r target published_at; do
+              [[ -n "$target" ]] || continue
+              if ! response="$(gh api "repos/$CANDIDATE_REPOSITORY/actions/runs/$target" --include)"; then
+                if [[ "${response%%$'\n'*}" =~ ^HTTP/[0-9.]+[[:space:]]404([[:space:]]|$) ]]; then continue; fi
+                return 2
+              fi
+              prior_source="$(sed '1,/^[[:space:]]*$/d' <<<"$response")"
+              if jq -e --arg title "Final Candidate PR #${request_url##*/} @ $CANDIDATE_HEAD_SHA [$confidence] on " \
+                --argjson since "$request_created" --arg target "$target" --arg published "$published_at" --arg head "$CANDIDATE_HEAD_SHA" '
+                .event == "pull_request" and .path == ".github/workflows/final-candidate.yml" and
+                .head_sha == $head and (.id | tostring) == ($target | split("/")[0]) and
+                (.display_title | startswith($title) and (ltrimstr($title) | test("^[0-9a-f]{40}$"))) and
+                (.created_at | fromdateiso8601) > $since and
+                (if ($target | contains("/")) then (.run_attempt | tostring) == ($target | split("/")[2])
+                 else .run_attempt == 1 or ($published | fromdateiso8601) > (.run_started_at | fromdateiso8601) end)' <<<"$prior_source" >/dev/null; then
+                return 0
+              else
+                [[ $? == 1 ]] || return 2
+              fi
+            done <<<"$legacy"
+            return 1
+          }
+          post_status() {
+            gh api --method POST "repos/$CANDIDATE_REPOSITORY/statuses/$CANDIDATE_HEAD_SHA" \
+              -f state="$1" -f context="${4:-OpenMeld Final Candidate}" -f description="$2" -f target_url="$3" --jq '.id'
+          }
+          scoped_receipt() {
+            local own own_id own_created source_created suffix receipt context prior
+            own="$(jq -c --arg url "$pr_url" 'map(select(.target_url == $url))' <<<"$before" | latest_request)"
+            [[ "$own" != null ]] || return 0
+            [[ "$latest_id" == "$CANDIDATE_RUN_ID" && "$(jq -r .run_attempt <<<"$source_run")" == "$CANDIDATE_RUN_ATTEMPT" ]] || return 0
+            [[ "$(jq -er .description <<<"$own")" == "Requested $CANDIDATE_CONFIDENCE Final Candidate @ ${CANDIDATE_HEAD_SHA:0:12}; waiting for its result" ]] || return 0
+            own_id="$(jq -er .id <<<"$own")"
+            own_created="$(jq -er '.created_at | fromdateiso8601' <<<"$own")"
+            source_created="$(jq -er '.created_at | fromdateiso8601' <<<"$source_run")"
+            (( source_created > own_created )) || return 0
+            suffix="; request $own_id"
+            receipt="${description:0:$((140 - ${#suffix}))}$suffix"
+            context="OpenMeld Final Candidate PR #$CANDIDATE_PR_NUMBER"
+            prior="$(status_history "$context")"
+            if ! jq -e --arg url "$run_url" --arg state "$state" --arg receipt "$receipt" '
+              any(.[]; .target_url == $url and .state == $state and .description == $receipt)' <<<"$prior" >/dev/null; then
+              post_status "$state" "$receipt" "$run_url" "$context"
+            fi
+          }
+          reconciliation_history() {
+            local after attempt
+            for attempt in 1 2 3; do
+              if after="$(status_history)"; then printf '%s\n' "$after"; return 0; fi
+              if (( attempt == 3 )); then return 1; fi
+              sleep "$attempt"
+            done
+          }
+          reconcile_result() {
+            local written="$1" acknowledged="$2" anchor="${3:-$1}" after desired verdict detail destination suffix
+            suffix="; repair $anchor"
+            while :; do
+              after="$(reconciliation_history)"
+              # Only repair a write we own. Ignore correction copies when
+              # locating original local evidence and its admission marker.
+              desired="$(jq -c --arg anchor "$anchor" --arg written "$written" --arg url "$run_url" \
+                --arg ack "$acknowledged" --arg short "${CANDIDATE_HEAD_SHA:0:12}" --arg repo "$CANDIDATE_SERVER_URL/$CANDIDATE_REPOSITORY/pull/" '
+                def replay: (.description // "") | test("; repair [0-9]+$");
+                def request: .state == "pending" and
+                  (.description == ("Requested standard Final Candidate @ " + $short + "; waiting for its result") or
+                   .description == ("Requested full Final Candidate @ " + $short + "; waiting for its result"));
+                def localurl: (.target_url // "") | startswith($repo) and (ltrimstr($repo) | test("^[1-9][0-9]*$"));
+                def takeover: .state == "pending" and localurl and
+                  ((.description // "") | test("^Running .* @ " + $short + " on [0-9a-f]{12}$"));
+                . as $all |
+                (map(.id | tostring) | index($anchor)) as $at |
+                if (.[0].id | tostring) != $written or $at == null or
+                   .[$at].target_url != $url or (.[$at].state != "success" and .[$at].state != "failure") then null
+                else (first(.[] | select((replay | not) and (request or takeover))) // null) as $m |
+                  if $m == null then null
+                  elif ($m | request) then
+                    if ($m.id | tostring) == $ack then null
+                    else {state:"pending", description:"Waiting for the current Final Candidate request", target_url:$m.target_url} end
+                  else ($all | index($m)) as $start |
+                    ($m.description | capture("(?<identity>@ " + $short + " on [0-9a-f]{12})$").identity) as $identity |
+                    (first($all[:([$at,$start]|min)][] | select((replay | not) and .target_url == $m.target_url and
+                      ((.description // "") | contains($identity)) and
+                      (.state == "failure" or (.state == "success" and ((.description // "") | startswith("Passed "))))) ) // null) as $terminal |
+                    if $terminal != null then $terminal
+                    elif $start < $at then $m else null end
+                  end
+                end' <<<"$after")"
+              [[ -n "$desired" && "$desired" != null ]] || return 0
+              verdict="$(jq -er .state <<<"$desired")"
+              detail="$(jq -er .description <<<"$desired")"
+              destination="$(jq -er .target_url <<<"$desired")"
+              detail="${detail:0:$((140 - ${#suffix}))}$suffix"
+              if jq -e --arg state "$verdict" --arg desc "$detail" --arg url "$destination" '
+                 .[0].state == $state and .[0].description == $desc and .[0].target_url == $url' <<<"$after" >/dev/null; then return 0; fi
+              written="$(post_status "$verdict" "$detail" "$destination")"
+              [[ "$written" =~ ^[0-9]+$ ]]
+              # Any new local result or explicit request that crossed this
+              # POST is now visible between our correction and the anchor.
+            done
+          }
+          pr_url="$CANDIDATE_SERVER_URL/$CANDIDATE_REPOSITORY/pull/$CANDIDATE_PR_NUMBER"
+          actions_url="$CANDIDATE_SERVER_URL/$CANDIDATE_REPOSITORY/actions/runs"
+          run_url="$actions_url/$CANDIDATE_RUN_ID/attempts/$CANDIDATE_RUN_ATTEMPT"
+          before="$(status_history)"
+          scoped_receipt
+          repair_anchor="$(jq -r '(.[0].description // "") | (capture("; repair (?<id>[0-9]+)$").id // empty)' <<<"$before")"
+          if [[ -n "$repair_anchor" ]] && jq -e --arg anchor "$repair_anchor" --arg url "$run_url" '
+             any(.[]; (.id | tostring) == $anchor and .target_url == $url and (.state == "success" or .state == "failure"))' <<<"$before" >/dev/null; then
+            reconcile_result "$(jq -er '.[0].id' <<<"$before")" "" "$repair_anchor"
+            exit 0
+          fi
+          if jq -e '.[0].state == "pending" and ((.[0].description // "") | startswith("Running "))' <<<"$before" >/dev/null; then exit 0; fi
+          request="$(latest_request <<<"$before")"
+          request_id="$(jq -r '.id // empty' <<<"$request")"
+          if [[ -z "$request_id" ]]; then
+            # A retry of the old hosted publisher may start after the local
+            # handoff has already posted its final status for this head.
+            local_finished="$(jq -r --arg prefix "$CANDIDATE_SERVER_URL/$CANDIDATE_REPOSITORY/pull/" --arg sha "${CANDIDATE_HEAD_SHA:0:12}" '
+              .[0] as $t | select(($t.state == "success" or $t.state == "failure") and
+                (($t.target_url // "") | startswith($prefix) and (ltrimstr($prefix) | test("^[1-9][0-9]*$")))) |
+              first(.[] | select(.state == "pending" and .target_url == $t.target_url and
+                ((.description // "") | test("^Running .* @ " + $sha + " on [0-9a-f]{12}$")))) |
+              (.description | capture("(?<identity>@ " + $sha + " on [0-9a-f]{12})$").identity) as $identity |
+              select(($t.description // "") | contains($identity)) | $t.created_at | fromdateiso8601' <<<"$before")"
+            if [[ -n "$local_finished" ]]; then
+              attempt_started="$(jq -er '(if .run_attempt == 1 then .created_at else .run_started_at end) | fromdateiso8601' <<<"$source_run")"
+              if (( attempt_started <= local_finished )); then exit 0; fi
+            fi
+          fi
+          if [[ -n "$request_id" ]]; then
+            # A new explicit request adds a label and creates a new source
+            # run. Re-running an older source does not own the new request.
+            source_created="$(jq -er '.created_at | fromdateiso8601' <<<"$source_run")"
+            request_created="$(jq -er '.created_at | fromdateiso8601' <<<"$request")"
+            request_url="$(jq -er .target_url <<<"$request")"
+            confidence="$(jq -r '.description | split(" ")[1]' <<<"$request")"
+            fulfilled=0
+            request_fulfilled || fulfilled=$?
+            if (( fulfilled > 1 )); then exit 1; fi
+            if (( fulfilled == 1 )); then
+              expected="Requested $CANDIDATE_CONFIDENCE Final Candidate @ ${CANDIDATE_HEAD_SHA:0:12}; waiting for its result"
+              if (( source_created <= request_created )) || ! jq -e --arg description "$expected" --arg url "$pr_url" '
+                .description == $description and .target_url == $url' <<<"$request" >/dev/null; then
+                # A retry can find this run's terminal still hiding the request
+                # after a previous post-write read failed.
+                own="$(jq -r --arg url "$run_url" '.[0] | select(.target_url == $url and (.state == "success" or .state == "failure")) | .id' <<<"$before")"
+                if [[ -n "$own" ]]; then reconcile_result "$own" ""; fi
+                exit 0
+              fi
+              suffix="; request $request_id"
+              description="${description:0:$((140 - ${#suffix}))}$suffix"
+            elif [[ "$request_url" == "$pr_url" ]] && (( source_created <= request_created )); then
+              exit 0
+            fi
+          fi
+          if [ "$latest_id" != "$CANDIDATE_RUN_ID" ]; then exit 0; fi
+          if [ "$(jq -r .run_attempt <<<"$source_run")" != "$CANDIDATE_RUN_ATTEMPT" ]; then exit 0; fi
+          if jq -e --arg state "$state" --arg description "$description" --arg url "$run_url" --arg request "$request_id" '
+            .[0].state == $state and .[0].target_url == $url and
+            (.[0].description == $description or ($request != "" and ((.[0].description // "") | endswith("; request " + $request))))' <<<"$before" >/dev/null; then exit 0; fi
+          written="$(post_status "$state" "$description" "$run_url")"
+          [[ "$written" =~ ^[0-9]+$ ]]
+          # Status creation is append-only. Reconcile a request that landed
+          # between the final read and our POST while our own write is latest.
+          reconcile_result "$written" "$request_id"

@@ -18,8 +18,7 @@ const NOT_MERGE_PATTERN = /is not a merge of PR #7 head/u;
 const FOREIGN_CONTROL_PATTERN = /did not carry:\n- package\.json/u;
 const QUEUE_REF_PATTERN = /does not name one queued pull request/u;
 const PULL_REQUEST_STATE_PATTERN = /is not an open pull request into main/u;
-const NOT_TARGET_TIP_PATTERN =
-  /is not the main tip .*; control-changing pull requests validate only directly on the target branch/u;
+const NOT_TARGET_TIP_PATTERN = /is not the main tip/u;
 const NON_PRINTABLE_PATTERN =
   /status description contains a non-printable character/u;
 
@@ -129,23 +128,34 @@ test("runs a merge group without control drift under current-main control", () =
   const repo = createRepository();
   try {
     const group = createControlMergeGroup(repo, { prChange: "docs/note.md" });
-    const result = resolveMergeGroupControl({
+    const input = {
       baseSha: group.baseSha,
       github: {
-        readBranchSha: () => assert.fail("no API read without drift"),
+        readBranchSha: () => group.baseSha,
         readCombinedStatus: () => assert.fail("no API read without drift"),
         readPullRequest: () => assert.fail("no API read without drift"),
       },
       headRef: queueRef(group.baseSha),
       headSha: group.headSha,
       repoRoot: repo.root,
-    });
-    assert.deepEqual(result, {
+    };
+    assert.deepEqual(resolveMergeGroupControl(input), {
       bootstrapReason: null,
       controlSha: group.baseSha,
       controlTrust: "current-main",
       driftedPaths: [],
     });
+    input.github.readBranchSha = () => repo.forkPoint;
+    assert.throws(
+      () => resolveMergeGroupControl(input),
+      NOT_TARGET_TIP_PATTERN
+    );
+    const tips = [group.baseSha, group.headSha];
+    input.github.readBranchSha = () => tips.shift();
+    assert.throws(
+      () => resolveMergeGroupControl(input),
+      NOT_TARGET_TIP_PATTERN
+    );
   } finally {
     rmSync(repo.root, { force: true, recursive: true });
   }

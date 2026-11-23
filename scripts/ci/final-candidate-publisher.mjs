@@ -71,6 +71,7 @@ function run() {
       expectedHeadSha: expected.headSha,
       pullRequestNumber,
       repository,
+      requireCurrentBase: options.outputOnly !== "true",
       sourceRef: candidateRef,
     });
     assertCandidateSnapshot(liveState.snapshot, {

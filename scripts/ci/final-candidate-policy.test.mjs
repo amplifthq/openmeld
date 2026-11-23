@@ -19,6 +19,7 @@ const HEAD_SHA = "2".repeat(40);
 const TREE_SHA = "3".repeat(40);
 const DIRTY_WORKTREE_PATTERN = /worktree is dirty/u;
 const MAIN_ADVANCED_PATTERN = /Main advanced/u;
+const MISSING_MAIN_SHA_PATTERN = /exact current main SHA/u;
 const MAIN_OR_PULL_REQUEST_BASE_ADVANCED_PATTERN =
   /Pull request base drifted|Main advanced/u;
 const MISSING_ANCESTRY_PATTERN = /does not contain current main/u;
@@ -470,6 +471,14 @@ test("completed pull-request evidence keeps its exact base fact when main advanc
 
   assert.doesNotThrow(() =>
     assertCandidateSnapshot(snapshot, { requireCurrentBase: false })
+  );
+  const pinned = { ...snapshot, currentMainSha: null };
+  assert.doesNotThrow(() =>
+    assertCandidateSnapshot(pinned, { requireCurrentBase: false })
+  );
+  assert.throws(
+    () => assertCandidateSnapshot(pinned),
+    MISSING_MAIN_SHA_PATTERN
   );
   assert.throws(
     () => assertCandidateSnapshot(snapshot),

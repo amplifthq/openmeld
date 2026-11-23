@@ -3,6 +3,11 @@
 import { execFileSync } from "node:child_process";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import {
+  expectsResultPublication,
+  ResultListingChangedError,
+  resultPublicationFinished,
+} from "./final-candidate-run-context.mjs";
 
 const ACTIONS_BUDGET_PATTERN =
   /Actions budget is preventing further use|spending limit needs to be increased|recent account payments have failed/iu;
@@ -11,13 +16,20 @@ const FINAL_CANDIDATE_CONTEXT = "OpenMeld Final Candidate";
 const FINAL_CANDIDATE_WORKFLOW = "final-candidate.yml";
 const DEFAULT_INTERVAL_SECONDS = 30;
 const DEFAULT_TIMEOUT_SECONDS = 75 * 60;
+const SHARED_GATE_REPAIR = /; repair [1-9]\d*$/u;
 
-export function buildFinalCandidateObservation(input) {
-  const sharedStatus = input.commitStatuses.find(
-    (status) => status.context === FINAL_CANDIDATE_CONTEXT
-  );
+export function buildFinalCandidateObservation(
+  input,
+  sharedStatus = observedCommitStatus(input)
+) {
   const exactStatus = resolveExactStatus(sharedStatus, input.pullRequest);
-  const annotationMessages = input.jobs.flatMap((job) =>
+  const run =
+    requestConfidence(sharedStatus, input.pullRequest) &&
+    !isPendingRequestForRun(sharedStatus, input.pullRequest, input.run)
+      ? null
+      : input.run;
+  const jobs = run ? input.jobs : [];
+  const annotationMessages = jobs.flatMap((job) =>
     (input.annotationsByCheckRunId.get(job.id) ?? []).map((annotation) =>
       String(annotation.message ?? "").trim()
     )
@@ -25,7 +37,7 @@ export function buildFinalCandidateObservation(input) {
   const budgetMessage = annotationMessages.find((message) =>
     ACTIONS_BUDGET_PATTERN.test(message)
   );
-  const candidateRunner = input.jobs.find(
+  const candidateRunner = jobs.find(
     (job) => job.name === "Final Candidate Runner"
   );
   const candidateChecksStarted = Boolean(candidateRunner?.steps?.length);
@@ -33,35 +45,27 @@ export function buildFinalCandidateObservation(input) {
     baseSha: input.pullRequest.base.sha,
     candidateChecksStarted,
     exactStatus,
+    sharedGateStatus:
+      input.commitStatuses.find(
+        (status) => status.context === FINAL_CANDIDATE_CONTEXT
+      )?.state ?? "missing",
     headSha: input.pullRequest.head.sha,
     hostedAvailability: budgetMessage ? "unavailable" : "available",
     pullRequestNumber: input.pullRequest.number,
     pullRequestUrl: input.pullRequest.html_url,
-    runConclusion: input.run?.conclusion ?? null,
-    runId: input.run?.id ?? null,
-    runStatus: input.run?.status ?? null,
-    runUrl: input.run?.html_url ?? null,
+    runConclusion: run?.conclusion ?? null,
+    runId: run?.id ?? null,
+    runStatus: run?.status ?? null,
+    runUrl: run?.html_url ?? null,
   };
 
-  // A newer run for this head (an explicit request) leaves the earlier exact
-  // status in place until its own result reports; wait for that run.
-  if (
-    exactStatus === "success" &&
-    input.run &&
-    input.run.status !== "completed"
-  ) {
-    return { ...common, reason: "run-in-progress", state: "waiting" };
-  }
   if (exactStatus === "success") {
-    return {
-      ...common,
-      ...(budgetMessage ? { detail: budgetMessage } : {}),
-      reason: "exact-status-success",
-      state: "success",
-    };
-  }
-  if (!input.run) {
-    return { ...common, reason: "run-not-created", state: "waiting" };
+    return successfulStatusObservation(
+      common,
+      input.pullRequest,
+      sharedStatus,
+      budgetMessage
+    );
   }
   if (budgetMessage) {
     return {
@@ -71,14 +75,51 @@ export function buildFinalCandidateObservation(input) {
       state: "hosted-unavailable",
     };
   }
-  if (input.run.status !== "completed") {
+  if (run && run.status !== "completed") {
     return { ...common, reason: "run-in-progress", state: "waiting" };
   }
-  if (input.run.conclusion === "success") {
+  if (
+    sharedStatus?.context === receiptContext(input.pullRequest) &&
+    ["failure", "error"].includes(exactStatus)
+  ) {
+    return {
+      ...common,
+      state: "failure",
+      reason: "request-result-failed",
+      evidenceUrl: sharedStatus.target_url,
+    };
+  }
+  if (!run) {
+    return { ...common, reason: "run-not-created", state: "waiting" };
+  }
+  return completedRunObservation(common);
+}
+
+function successfulStatusObservation(common, pr, status, budgetMessage) {
+  if (common.runStatus && common.runStatus !== "completed") {
+    return { ...common, reason: "run-in-progress", state: "waiting" };
+  }
+  return {
+    ...common,
+    evidenceUrl:
+      status.target_url === pr.html_url || sourceTarget(status, pr)
+        ? status.target_url
+        : null,
+    ...(budgetMessage ? { detail: budgetMessage } : {}),
+    reason: "exact-status-success",
+    state: "success",
+  };
+}
+
+function completedRunObservation(common) {
+  if (common.runConclusion === "success") {
+    if (common.exactStatus === "pending") {
+      return { ...common, reason: "exact-status-pending", state: "waiting" };
+    }
     return {
       ...common,
       reason:
-        exactStatus === "stale-success"
+        common.exactStatus === "stale-success"
           ? "exact-status-stale"
           : "exact-status-missing",
       state: "failure",
@@ -86,9 +127,194 @@ export function buildFinalCandidateObservation(input) {
   }
   return {
     ...common,
-    reason: `run-${input.run.conclusion ?? "failed"}`,
+    reason: `run-${common.runConclusion ?? "failed"}`,
     state: "failure",
   };
+}
+
+function requestConfidence(status, pr) {
+  if (status?.state !== "pending" || status.target_url !== pr.html_url) {
+    return null;
+  }
+  return ["standard", "full"].find(
+    (confidence) =>
+      status.description ===
+      `Requested ${confidence} Final Candidate @ ${pr.head.sha.slice(0, 12)}; waiting for its result`
+  );
+}
+
+const SOURCE_TARGET = /^(\d+)(?:\/attempts\/(\d+))?$/u;
+function sourceTarget(status, pr) {
+  const prefix = `${pr.html_url.slice(0, pr.html_url.lastIndexOf("/pull/"))}/actions/runs/`;
+  if (!status.target_url?.startsWith(prefix)) {
+    return null;
+  }
+  const match = SOURCE_TARGET.exec(status.target_url.slice(prefix.length));
+  return match
+    ? { id: Number(match[1]), attempt: match[2] ? Number(match[2]) : null }
+    : null;
+}
+
+function matchesAttempt(status, target, run) {
+  if (!(target && run) || target.id !== run.id) {
+    return false;
+  }
+  if (target.attempt !== null) {
+    return target.attempt === run.run_attempt;
+  }
+  return (
+    run.run_attempt === 1 ||
+    Date.parse(status.created_at) > Date.parse(run.run_started_at)
+  );
+}
+
+// GitHub's combined status only retains the last write per context. A hosted
+// publisher can race a new request, so keep the request from the ordered ledger
+// until a terminal status can be attributed to it.
+function isRequestOrTakeover(status, pr) {
+  if (SHARED_GATE_REPAIR.test(status.description)) {
+    return false;
+  }
+  return (
+    requestConfidence(status, pr) ||
+    (status.state === "pending" &&
+      status.target_url === pr.html_url &&
+      status.description?.startsWith("Running ") &&
+      status.description.includes(`@ ${pr.head.sha.slice(0, 12)} on `))
+  );
+}
+
+function receiptContext(pr) {
+  return `${FINAL_CANDIDATE_CONTEXT} PR #${pr.number}`;
+}
+
+function automaticCommitStatus(input, shared) {
+  const pr = input.pullRequest;
+  const prPrefix = `${pr.html_url.slice(0, pr.html_url.lastIndexOf("/pull/"))}/pull/`;
+  // A PR-targeted pending or local takeover on this SHA may belong to a
+  // different PR. Source-run URLs identify hosted results independently.
+  const status = shared.find((candidate) => {
+    if (candidate.target_url?.startsWith(prPrefix)) {
+      return candidate.target_url === pr.html_url;
+    }
+    const target = sourceTarget(candidate, pr);
+    if (!target || target.id === input.run?.id) {
+      return true;
+    }
+    const source = lookupHistoricalSource(input, target);
+    return (
+      expectsResultPublication(source, pr.number, pr.head.sha) ||
+      (source?.pull_requests?.length === 1 &&
+        source.pull_requests[0].number === pr.number &&
+        source.head_sha === pr.head.sha)
+    );
+  });
+  const run = input.run;
+  if (
+    status &&
+    expectsResultPublication(run, pr.number, pr.head.sha) &&
+    sourceTarget(status, pr)?.id === run.id &&
+    !matchesAttempt(status, sourceTarget(status, pr), run)
+  ) {
+    return (
+      shared.find((candidate) =>
+        matchesAttempt(candidate, sourceTarget(candidate, pr), run)
+      ) ?? null
+    );
+  }
+  return status ?? null;
+}
+
+function observedCommitStatus(input) {
+  const pr = input.pullRequest;
+  const scoped = receiptContext(pr);
+  const statuses = input.commitStatuses.filter(
+    (status) =>
+      (status.context === FINAL_CANDIDATE_CONTEXT ||
+        status.context === scoped) &&
+      !SHARED_GATE_REPAIR.test(status.description)
+  );
+  const shared = statuses.filter(
+    (status) => status.context === FINAL_CANDIDATE_CONTEXT
+  );
+  const latest = shared[0];
+  const marker = shared.find((status) => isRequestOrTakeover(status, pr));
+  const confidence = requestConfidence(marker, pr);
+  if (!confidence) {
+    return automaticCommitStatus(input, shared);
+  }
+  const terminal = statuses
+    .slice(0, statuses.indexOf(marker))
+    .find((status) => resultForRequest(input, status, marker, confidence));
+  if (!terminal) {
+    return marker;
+  }
+  const target = sourceTarget(terminal, pr);
+  const current = latest && sourceTarget(latest, pr);
+  if (matchesAttempt(latest, current, input.run) && current.id > target.id) {
+    return latest;
+  }
+  if (
+    target.id === input.run?.id &&
+    !matchesAttempt(terminal, target, input.run)
+  ) {
+    return marker;
+  }
+  return terminal;
+}
+
+function resultForRequest(input, status, marker, confidence) {
+  const pr = input.pullRequest;
+  const target = sourceTarget(status, pr);
+  if (!(target && ["success", "failure", "error"].includes(status.state))) {
+    return false;
+  }
+  if (
+    status.state === "success" &&
+    !status.description?.startsWith(
+      `Passed ${confidence} @ ${pr.head.sha.slice(0, 12)} on `
+    )
+  ) {
+    return false;
+  }
+  // A hosted receipt identifies the request even when an automatic run with
+  // a different confidence has since become the latest source for this head.
+  if (status.description?.includes("; request ")) {
+    return (
+      target.attempt !== null &&
+      Number.isSafeInteger(marker.id) &&
+      status.description.endsWith(`; request ${marker.id}`)
+    );
+  }
+  if (status.context === receiptContext(pr)) {
+    return false;
+  }
+  const source =
+    input.run?.id === target.id
+      ? input.run
+      : lookupHistoricalSource(input, target);
+  return Boolean(
+    source &&
+      expectsResultPublication(source, pr.number, pr.head.sha) &&
+      source.display_title.includes(` [${confidence}] on `) &&
+      Date.parse(source.created_at) > Date.parse(marker.created_at) &&
+      matchesAttempt(status, target, source)
+  );
+}
+
+const GH_HTTP_NOT_FOUND = /(?:^|\n)gh: [^\r\n]*\(HTTP 404\)$/u;
+function lookupHistoricalSource(input, target) {
+  try {
+    return input.readStatusSource?.(target);
+  } catch (error) {
+    if (
+      error?.status === 1 &&
+      GH_HTTP_NOT_FOUND.test(String(error.stderr).trimEnd())
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function resolveExactStatus(status, pullRequest) {
@@ -134,12 +360,20 @@ export function renderFinalCandidateObservation(observation) {
     `Hosted lane: ${hostedLane}`,
     `Candidate checks started: ${observation.candidateChecksStarted ? "yes" : "no"}`,
     `Exact status: ${observation.exactStatus}`,
+    `Shared commit status: ${observation.sharedGateStatus}`,
   ];
   if (observation.runId) {
     lines.push(
-      `Run: ${String(observation.runId)} (${observation.runStatus}/${observation.runConclusion ?? "none"})`,
-      `Evidence: ${observation.runUrl}`
+      `Run: ${String(observation.runId)} (${observation.runStatus}/${observation.runConclusion ?? "none"})`
     );
+  }
+  const evidenceUrl =
+    observation.state === "success" ||
+    observation.reason === "request-result-failed"
+      ? observation.evidenceUrl
+      : observation.runUrl;
+  if (evidenceUrl) {
+    lines.push(`Evidence: ${evidenceUrl}`);
   }
   if (observation.detail) {
     lines.push(`GitHub fact: ${observation.detail}`);
@@ -219,11 +453,13 @@ export async function runFinalCandidateObserver(input = {}) {
   const adapters = { ...defaultAdapters(), ...input.adapters };
   const repository = options.repository ?? adapters.resolveRepository();
   const startedAt = adapters.now();
+  const annotationCache = { attempt: null, byJob: new Map() };
   let previousFingerprint = null;
 
   while (true) {
     const observation = await readObservation({
       adapters,
+      annotationCache,
       pullRequestNumber: options.pullRequestNumber,
       repository,
     });
@@ -251,6 +487,9 @@ async function readObservation(input) {
     input.repository,
     input.pullRequestNumber
   );
+  if (pullRequest.number !== input.pullRequestNumber) {
+    throw new Error("GitHub returned a different pull request number.");
+  }
   if (!EXACT_SHA_PATTERN.test(String(pullRequest.head?.sha ?? ""))) {
     throw new Error("GitHub did not return an exact pull request head SHA.");
   }
@@ -259,32 +498,133 @@ async function readObservation(input) {
   }
   const run = await input.adapters.readLatestRun(
     input.repository,
-    pullRequest.head.sha
+    pullRequest.head.sha,
+    pullRequest.number
   );
   const jobs = run
-    ? await input.adapters.readJobs(input.repository, run.id)
+    ? await input.adapters.readJobs(input.repository, run.id, run.run_attempt)
     : [];
   const annotationsByCheckRunId = new Map();
+  const attempt = run ? `${run.id}:${run.run_attempt}` : null;
   for (const job of jobs) {
     if (job.conclusion !== "failure") {
       continue;
     }
+    const cached =
+      attempt === input.annotationCache.attempt
+        ? input.annotationCache.byJob.get(job.id)
+        : undefined;
     annotationsByCheckRunId.set(
       job.id,
-      await input.adapters.readAnnotations(input.repository, job.id)
+      cached ?? (await input.adapters.readAnnotations(input.repository, job.id))
     );
   }
+  input.annotationCache.attempt = attempt;
+  input.annotationCache.byJob = annotationsByCheckRunId;
   const commitStatuses = await input.adapters.readCommitStatuses(
     input.repository,
-    pullRequest.head.sha
+    pullRequest.head.sha,
+    pullRequest
   );
-  return buildFinalCandidateObservation({
+  const facts = {
     annotationsByCheckRunId,
     commitStatuses,
     jobs,
     pullRequest,
     run,
-  });
+    readStatusSource: (target) =>
+      input.adapters.readStatusSource(input.repository, target),
+  };
+  return await observeResultPublication(input, facts);
+}
+
+function isPendingRequestForRun(status, pr, run) {
+  // A new request can be pending before its source run is visible. GitHub
+  // timestamps have second precision, so equality cannot establish ordering.
+  const confidence = requestConfidence(status, pr);
+  return Boolean(
+    confidence &&
+      expectsResultPublication(run, pr.number, pr.head.sha) &&
+      Date.parse(status.created_at) < Date.parse(run.created_at) &&
+      run.display_title.includes(` [${confidence}] on `)
+  );
+}
+
+async function observeResultPublication(input, facts) {
+  const { pullRequest, run } = facts;
+  const sharedStatus = observedCommitStatus(facts);
+  const observation = buildFinalCandidateObservation(facts, sharedStatus);
+  if (
+    !(
+      expectsResultPublication(run, pullRequest.number, pullRequest.head.sha) &&
+      ((observation.reason === "exact-status-missing" &&
+        observation.exactStatus === "missing") ||
+        (observation.reason === "exact-status-pending" &&
+          isPendingRequestForRun(sharedStatus, pullRequest, run)))
+    )
+  ) {
+    return observation;
+  }
+  let finished;
+  try {
+    finished = await input.adapters.resultPublicationFinished(
+      input.repository,
+      run
+    );
+  } catch (error) {
+    if (!(error instanceof ResultListingChangedError)) {
+      throw error;
+    }
+    finished = false;
+  }
+  if (!finished) {
+    return { ...observation, reason: "result-not-published", state: "waiting" };
+  }
+  // Status and workflow evidence are separate reads. A push or rerun during
+  // publication belongs to the next observation.
+  const statuses = await input.adapters.readCommitStatuses(
+    input.repository,
+    pullRequest.head.sha,
+    pullRequest
+  );
+  const latest = await input.adapters.readLatestRun(
+    input.repository,
+    pullRequest.head.sha,
+    pullRequest.number
+  );
+  const live = await input.adapters.readPullRequest(
+    input.repository,
+    pullRequest.number
+  );
+  if (
+    live.number !== pullRequest.number ||
+    live.head?.sha !== pullRequest.head.sha ||
+    latest?.id !== run.id ||
+    latest.run_attempt !== run.run_attempt ||
+    latest.status !== run.status ||
+    latest.conclusion !== run.conclusion
+  ) {
+    return { ...observation, reason: "source-changed", state: "waiting" };
+  }
+  const finalFacts = {
+    ...facts,
+    commitStatuses: statuses,
+  };
+  const finalStatus = observedCommitStatus(finalFacts);
+  const final = buildFinalCandidateObservation(finalFacts, finalStatus);
+  if (
+    final.reason === "exact-status-pending" &&
+    isPendingRequestForRun(finalStatus, pullRequest, run)
+  ) {
+    return {
+      ...final,
+      reason: "result-status-unpublished",
+      state: "failure",
+      detail:
+        "The result workflow finished while its requested status was still pending.",
+    };
+  }
+  return final;
 }
 
 function defaultAdapters() {
@@ -295,33 +635,24 @@ function defaultAdapters() {
         "api",
         `repos/${repository}/check-runs/${String(checkRunId)}/annotations`,
       ]),
-    readCommitStatuses: (repository, headSha) =>
-      runGhJson(["api", `repos/${repository}/commits/${headSha}/status`])
-        .statuses,
-    readJobs: (repository, runId) =>
+    readCommitStatuses: readCommitStatusHistory,
+    readStatusSource: (repository, target) =>
       runGhJson([
         "api",
-        `repos/${repository}/actions/runs/${String(runId)}/jobs`,
+        `repos/${repository}/actions/runs/${target.id}${target.attempt ? `/attempts/${target.attempt}` : ""}`,
+      ]),
+    readJobs: (repository, runId, attempt) =>
+      runGhJson([
+        "api",
+        `repos/${repository}/actions/runs/${String(runId)}/attempts/${String(attempt)}/jobs`,
         "-X",
         "GET",
         "-f",
         "per_page=100",
       ]).jobs,
-    readLatestRun: (repository, headSha) => {
-      const runs = runGhJson([
-        "api",
-        `repos/${repository}/actions/workflows/${FINAL_CANDIDATE_WORKFLOW}/runs`,
-        "-X",
-        "GET",
-        "-f",
-        `head_sha=${headSha}`,
-        "-f",
-        "event=pull_request",
-        "-f",
-        "per_page=10",
-      ]).workflow_runs;
-      return runs.find((run) => run.head_sha === headSha) ?? null;
-    },
+    readLatestRun: readLatestCandidateRun,
+    resultPublicationFinished: (repository, source) =>
+      resultPublicationFinished(repository, source, runGhJson),
     readPullRequest: (repository, pullRequestNumber) =>
       runGhJson([
         "api",
@@ -334,6 +665,61 @@ function defaultAdapters() {
   };
 }
 
+function readCommitStatusHistory(repository, headSha, pr) {
+  const history = [];
+  for (let page = 1; ; page++) {
+    const result = runGhJson([
+      "api",
+      `repos/${repository}/commits/${headSha}/statuses?per_page=100&page=${page}`,
+      "--jq",
+      `{count:length,statuses:[.[] | select(.context == "${FINAL_CANDIDATE_CONTEXT}" or .context == "${receiptContext(pr)}") | {state,context,description,target_url,created_at,id}]}`,
+    ]);
+    history.push(...result.statuses);
+    if (
+      result.count < 100 ||
+      result.statuses.some((status) => isRequestOrTakeover(status, pr))
+    ) {
+      return history;
+    }
+  }
+}
+
+export function readLatestCandidateRun(
+  repository,
+  headSha,
+  prNumber,
+  read = runGhJson
+) {
+  const prefix = `Final Candidate PR #${prNumber} @ ${headSha} [`;
+  for (let page = 1; ; page++) {
+    const { workflow_runs: runs, total_count: total } = read([
+      "api",
+      `repos/${repository}/actions/workflows/${FINAL_CANDIDATE_WORKFLOW}/runs?event=pull_request&head_sha=${headSha}&per_page=100&page=${page}`,
+    ]);
+    const match = runs.find((run) => {
+      if (
+        run.head_sha !== headSha ||
+        run.display_title?.startsWith("Ignored Final Candidate")
+      ) {
+        return false;
+      }
+      const linked = run.pull_requests?.some((pr) => pr.number === prNumber);
+      if (run.display_title?.startsWith("Final Candidate PR ")) {
+        // Older inline publishers named the confidence but did not name a base.
+        const ownTitle =
+          expectsResultPublication(run, prNumber, headSha) ||
+          run.display_title === `${prefix}standard]` ||
+          run.display_title === `${prefix}full]`;
+        return ownTitle && (!run.pull_requests?.length || linked);
+      }
+      return run.pull_requests?.length === 1 && linked;
+    });
+    if (match || runs.length < 100 || page * 100 >= total) {
+      return match ?? null;
+    }
+  }
+}
+
 function observationFingerprint(observation) {
   return [
     observation.headSha,
@@ -344,6 +730,7 @@ function observationFingerprint(observation) {
     observation.runStatus,
     observation.runConclusion,
     observation.exactStatus,
+    observation.sharedGateStatus,
   ].join(":");
 }
 

@@ -31,6 +31,28 @@ export function resolveMergeGroupControl(input) {
       throw new Error("Merge-group control requires exact base and head SHAs.");
     }
   }
+  const queue = parseQueueRef(input.headRef);
+  if (queue.baseRef !== "main") {
+    throw new Error(
+      `Merge-group Final Candidate requires a queue into main, found ${queue.baseRef}.`
+    );
+  }
+  assertMainTip(input);
+  const decision = inspectMergeGroupControl(input, repoRoot, queue);
+  assertMainTip(input);
+  return decision;
+}
+
+function assertMainTip(input) {
+  const targetTipSha = input.github.readBranchSha("main");
+  if (targetTipSha !== input.baseSha) {
+    throw new Error(
+      `Merge group base ${input.baseSha} is not the main tip ${String(targetTipSha)}. Requeue against current main.`
+    );
+  }
+}
+
+function inspectMergeGroupControl(input, repoRoot, queue) {
   const groupDrift = inspectTrustedCandidateEntrypoints({
     candidateRef: input.headSha,
     candidateRoot: repoRoot,
@@ -46,16 +68,6 @@ export function resolveMergeGroupControl(input) {
     };
   }
 
-  const queue = parseQueueRef(input.headRef);
-  // An entry queued behind another is based on that entry's temporary merge,
-  // which may carry uncertified control. Only a group built directly on the
-  // target branch tip can carry a control change.
-  const targetTipSha = input.github.readBranchSha(queue.baseRef);
-  if (targetTipSha !== input.baseSha) {
-    throw new Error(
-      `Merge group base ${input.baseSha} is not the ${queue.baseRef} tip ${String(targetTipSha)}; control-changing pull requests validate only directly on the target branch. Requeue when the queue ahead is empty.`
-    );
-  }
   const pullRequest = input.github.readPullRequest(queue.pullRequestNumber);
   const pullRequestHeadSha = String(pullRequest?.head?.sha ?? "");
   if (

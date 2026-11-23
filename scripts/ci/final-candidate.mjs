@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { FINAL_CANDIDATE_EVIDENCE_VERSION } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
 import { settleHostedCandidateRuns } from "./final-candidate-handoff.mjs";
@@ -23,6 +24,7 @@ import {
   createFinalCandidatePlan,
   executeCandidateChecks,
   FINAL_CANDIDATE_LABELS,
+  FINAL_CANDIDATE_STATUS_CONTEXT,
   formatCommand,
   resolveCandidateDependencyScope,
   resolveFinalCandidateLabel,
@@ -35,6 +37,7 @@ import {
   isCommitAncestor,
   publishCommitStatus,
   publishPullRequestComment,
+  readPullRequest,
   resolveBranchName,
   resolveCandidateState,
   resolveChangedPaths,
@@ -43,7 +46,6 @@ import {
   resolveMergeGroupState,
   resolveObject,
   resolveRepository,
-  runGh,
   runGhJson,
 } from "./final-candidate-state.mjs";
 
@@ -67,7 +69,7 @@ async function run() {
     return;
   }
   if (command === "request") {
-    requestRemoteCandidate(options);
+    await requestRemoteCandidate(options);
     return;
   }
   if (command === "run") {
@@ -110,7 +112,7 @@ function runPlan(options, command) {
   }
 }
 
-function requestRemoteCandidate(options) {
+async function requestRemoteCandidate(options) {
   const pullRequestNumber = requirePullRequestNumber(options.pr);
   const repository = resolveRepository(options.repository);
   const candidateRoot = path.resolve(options.candidateRoot ?? process.cwd());
@@ -141,42 +143,47 @@ function requestRemoteCandidate(options) {
   printPlan(plan, []);
 
   const requestedLabel = resolveFinalCandidateLabel(options.confidence);
-  const labels = new Set(state.pullRequest.labels.map((label) => label.name));
-  for (const label of Object.values(FINAL_CANDIDATE_LABELS)) {
-    if (!labels.has(label)) {
-      continue;
-    }
-    runGh([
-      "api",
-      "--method",
-      "DELETE",
-      `repos/${repository}/issues/${pullRequestNumber}/labels/${label}`,
-    ]);
-    process.stdout.write(
-      `Reset label ${label} so this explicit request creates one unambiguous ${options.confidence} run.\n`
-    );
-  }
-  // The result workflow publishes only on completion, so an earlier exact
-  // success would stay green while the requested run executes. Mark the head
-  // pending now; the trusted publisher overwrites it with the new result.
-  publishCommitStatus({
-    description: `Requested ${options.confidence} Final Candidate @ ${state.snapshot.expectedHeadSha.slice(0, 12)}; waiting for its result`,
-    headSha: state.snapshot.expectedHeadSha,
-    repository,
-    state: "pending",
-    targetUrl: state.pullRequest.html_url,
+  const endpoint = `repos/${repository}/issues/${pullRequestNumber}`;
+  let triggerAttempted = false;
+  await requestConfidenceLabel({
+    requestedLabel,
+    readState: () =>
+      readRequestState(
+        repository,
+        pullRequestNumber,
+        state.snapshot.expectedHeadSha,
+        state.pullRequest.html_url,
+        triggerAttempted
+      ),
+    removeLabel: (label) =>
+      runGhJson(["api", "--method", "DELETE", `${endpoint}/labels/${label}`]),
+    addLabel: (label) => {
+      triggerAttempted = true;
+      return runGhJson(
+        ["api", "--method", "POST", `${endpoint}/labels`, "--input", "-"],
+        { labels: [label] }
+      );
+    },
+    markPending: () => {
+      const posted = publishCommitStatus({
+        description: requestStatusDescription(
+          options.confidence,
+          state.snapshot.expectedHeadSha
+        ),
+        headSha: state.snapshot.expectedHeadSha,
+        repository,
+        state: "pending",
+        targetUrl: state.pullRequest.html_url,
+      });
+      triggerAttempted = false;
+      if (!Number.isSafeInteger(posted.id) || posted.id <= 0) {
+        throw new Error(
+          "GitHub did not return the ID of the pending Final Candidate request."
+        );
+      }
+      return { id: posted.id, label: requestedLabel };
+    },
   });
-  runGhJson(
-    [
-      "api",
-      "--method",
-      "POST",
-      `repos/${repository}/issues/${pullRequestNumber}/labels`,
-      "--input",
-      "-",
-    ],
-    { labels: [requestedLabel] }
-  );
   process.stdout.write(
     [
       "Remote Final Candidate requested.",
@@ -189,6 +196,254 @@ function requestRemoteCandidate(options) {
       "No check result exists yet. Use the trusted quiet wait command; it prints only state transitions and the final exact status.",
       "",
     ].join("\n")
+  );
+}
+
+function requestStatusDescription(confidence, head) {
+  return `Requested ${confidence} Final Candidate @ ${head.slice(0, 12)}; waiting for its result`;
+}
+
+function readLatestRequestMarker(repository, head, prUrl) {
+  for (let page = 1; ; page++) {
+    const statuses = runGhJson([
+      "api",
+      `repos/${repository}/commits/${head}/statuses?per_page=100&page=${page}`,
+    ]);
+    for (const status of statuses) {
+      if (
+        status.context !== FINAL_CANDIDATE_STATUS_CONTEXT ||
+        status.state !== "pending"
+      ) {
+        continue;
+      }
+      if (
+        status.description?.startsWith("Running ") &&
+        status.description.includes(`@ ${head.slice(0, 12)} on `)
+      ) {
+        return null;
+      }
+      const confidence = Object.keys(FINAL_CANDIDATE_LABELS).find(
+        (level) => status.description === requestStatusDescription(level, head)
+      );
+      if (confidence) {
+        if (status.target_url !== prUrl) {
+          return null;
+        }
+        return { id: status.id, label: FINAL_CANDIDATE_LABELS[confidence] };
+      }
+    }
+    if (statuses.length < 100) {
+      return null;
+    }
+  }
+}
+
+function readRequestState(
+  repository,
+  number,
+  expectedHead,
+  prUrl,
+  triggerAttempted
+) {
+  for (let attempt = 0; ; attempt++) {
+    let current;
+    let marker;
+    try {
+      current = readPullRequest(repository, number);
+      marker = readLatestRequestMarker(repository, expectedHead, prUrl);
+    } catch (error) {
+      if (attempt === 0) {
+        continue;
+      }
+      const trigger = triggerAttempted
+        ? "A request-label trigger was attempted. Check Final Candidate status before retrying."
+        : "No request-label trigger was attempted for this pending status. Retry the request.";
+      throw new Error(
+        `Could not read PR #${number} after writing pending for ${expectedHead}. ${trigger} ${error.message}`,
+        { cause: error }
+      );
+    }
+    if (current.head.sha !== expectedHead) {
+      throw new Error(
+        `Pull request head changed from ${expectedHead} to ${current.head.sha}. Retry the request for the new head.`
+      );
+    }
+    if (
+      current.state !== "open" ||
+      current.draft ||
+      current.base.ref !== "main"
+    ) {
+      throw new Error(
+        `PR #${number} must remain open, ready for review and targeting main to request Final Candidate.`
+      );
+    }
+    return { labels: current.labels, marker };
+  }
+}
+
+// Each label addition triggers a workflow. Remove existing request labels to
+// re-arm retries, and use the add response to see competing writes. Replacing
+// the entire PR label set would overwrite unrelated triage changes.
+export async function requestConfidenceLabel(input) {
+  const own = await input.markPending();
+  let target = own;
+  let mutated = false;
+  const readLabels = async () => {
+    const { labels, marker } = await input.readState();
+    if (
+      !(marker && Number.isSafeInteger(marker.id)) ||
+      marker.id < target.id ||
+      (marker.id === target.id && marker.label !== target.label)
+    ) {
+      throw new Error(
+        "Cannot confirm ownership of the latest Final Candidate request. Check Final Candidate status."
+      );
+    }
+    if (marker.id !== target.id) {
+      throw new SupersededRequest(marker);
+    }
+    return labels;
+  };
+  const change = (operation) => (name) => {
+    mutated = true;
+    return operation(name);
+  };
+  for (;;) {
+    try {
+      await applyConfidenceLabel({
+        ...input,
+        requestedLabel: target.label,
+        readLabels,
+        addLabel: change(input.addLabel),
+        removeLabel: change(input.removeLabel),
+      });
+      break;
+    } catch (error) {
+      if (!(error instanceof SupersededRequest && mutated)) {
+        throw error;
+      }
+      // Our write could have crossed the winning marker. A fresh edge of the
+      // winning level restores run order even if its label is already present.
+      target = error.marker;
+    }
+  }
+  if (target.id !== own.id) {
+    throw new SupersededRequest(target);
+  }
+}
+
+class SupersededRequest extends Error {
+  constructor(marker) {
+    super(
+      `Concurrent Final Candidate request ${marker.id} superseded this request. Check Final Candidate status.`
+    );
+    this.marker = marker;
+  }
+}
+
+function ghDidNotStart(error) {
+  return error.syscall === "spawnSync gh" && error.code === "EAGAIN";
+}
+
+// Each new attachment can start a paid workflow. Allow the original trigger
+// and two repairs for this immutable marker before reporting contention.
+const MAX_LABEL_RECONCILIATION_PASSES = 3;
+
+async function applyConfidenceLabel(input) {
+  const requested = input.requestedLabel;
+  const now = input.now ?? (() => performance.now());
+  const sleep = input.sleep ?? delay;
+  const competing =
+    requested === FINAL_CANDIDATE_LABELS.full
+      ? FINAL_CANDIDATE_LABELS.standard
+      : FINAL_CANDIDATE_LABELS.full;
+  const has = (labels, name) => labels.some((label) => label.name === name);
+  const remove = async (name, requiredLabel) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await input.removeLabel(name);
+      } catch (error) {
+        const current = await input.readLabels();
+        if (
+          !has(current, name) ||
+          (requiredLabel && !has(current, requiredLabel))
+        ) {
+          return current;
+        }
+        // A name can be detached and reattached while a response is lost.
+        // EAGAIN from spawning gh proves the DELETE was never sent.
+        if (!ghDidNotStart(error)) {
+          throw new Error(
+            `Could not confirm removal of ${name}. Its current attachment may belong to another request. Check Final Candidate status before retrying. ${error.message}`,
+            { cause: error }
+          );
+        }
+        if (attempt === 1) {
+          throw error;
+        }
+      }
+    }
+  };
+  const add = async () => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await input.addLabel(requested);
+      } catch (error) {
+        // A lost response may have triggered a run for a superseded marker.
+        // Recheck before retrying only a POST that never left this process.
+        await input.readLabels();
+        if (attempt === 1 || !ghDidNotStart(error)) {
+          throw error;
+        }
+      }
+    }
+  };
+  let missingWinner = false;
+  for (let pass = 0; pass < MAX_LABEL_RECONCILIATION_PASSES; pass++) {
+    // GitHub timestamps have whole-second precision. Rearm from a label
+    // snapshot taken after that second so even overlapping same-mode requests
+    // have a trigger distinguishable from their pending marker.
+    const earliestTrigger = now() + 1000;
+    for (
+      let remaining = 1000;
+      remaining > 0;
+      remaining = earliestTrigger - now()
+    ) {
+      await sleep(Math.ceil(remaining));
+    }
+    const existing = await input.readLabels();
+    if (
+      missingWinner &&
+      has(existing, requested) &&
+      !has(existing, competing)
+    ) {
+      // The previous confirmation saw this label absent under this same
+      // marker. Another helper has since triggered the winning level.
+      return;
+    }
+    for (const name of [requested, competing]) {
+      if (has(existing, name)) {
+        await remove(name);
+        // Label writes have no head precondition. Recheck after a mutation
+        // before the next DELETE or the trigger POST.
+        await input.readLabels();
+      }
+    }
+    const added = await add();
+    if (has(added, competing)) {
+      await input.readLabels();
+      await remove(competing, requested);
+    }
+    const current = await input.readLabels();
+    if (has(current, requested) && !has(current, competing)) {
+      return;
+    }
+    missingWinner = !has(current, requested);
+    // The current marker still owns this request. A crossing mutation changed
+    // its labels; restore the winning edge and confirm again.
+  }
+  throw new Error(
+    `Final Candidate request for ${requested} did not settle after ${MAX_LABEL_RECONCILIATION_PASSES} trigger rounds. Check Final Candidate status before retrying.`
   );
 }
 
