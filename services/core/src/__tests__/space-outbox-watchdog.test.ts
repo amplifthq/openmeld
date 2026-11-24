@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { PostgreSQLBinding } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
@@ -1521,6 +1522,7 @@ const createAlarmLaneHarness = (lanes: {
     configurable: true,
   });
   Object.defineProperties(space, {
+    alarmStepContext: { value: new AsyncLocalStorage<string>() },
     ctx: {
       value: {
         storage: {

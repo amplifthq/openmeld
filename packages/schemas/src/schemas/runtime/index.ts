@@ -61,6 +61,7 @@ export {
   githubAppWebhookVerificationInputSchema,
   githubAppWebhookVerificationResponseSchema,
   readGitHubAppWebhookIssueObservation,
+  readGitHubAppWebhookPullRequestObservation,
 } from "./github-app-webhook";
 export {
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,

@@ -209,6 +209,7 @@ export const {
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
   spaceTaskGitHubIssueLinks,
+  spaceTaskGitHubPullRequestLinks,
   spaceTaskProjectLinks,
   spaceTaskProjectProjectionStates,
   githubAppWebhookDeliveries,

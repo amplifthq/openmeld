@@ -1542,7 +1542,7 @@ GitHub close-prompt policy.
 
 New Task fields and the Linear variant are strict-reader changes. Deploy
 consumers that understand `projectIds` and both provider variants before Core
-begins returning them. Version 2 supports these fields. Updated clients send
+begins returning them. Version 2 supports these fields. Version 3 clients send
 `taskContractVersion=3` on Task
 read/write routes. For an older client, Core omits the empty new field from a
 legacy Task and returns `space_task.contract_update_required` (HTTP 426) when
@@ -1566,6 +1566,13 @@ receivers and promptly update consumers before exposing the new workflow.
 Persisted Tasks, events, receipts, and delivery intents
 require the version 3 reader on rollback; do not roll back to a reader that
 rejects provider attribution. No historical attribution is inferred or rewritten.
+
+Task contract version 4 adds a linked pull request, its observed head and the
+reviewed SHA. Core rejects older clients with HTTP 426 before they can change
+a PR-linked Task. Unlinked Tasks retain their older wire shapes. Apply the
+PR-link and webhook evidence migrations and deploy Core and Gateway before releasing v4 Web, Remote
+Agent and CLI callers. Existing issue queue messages remain readable. Once a
+Task has recorded a PR link, its Space storage needs a v4-capable reader.
 
 Gateway `POST /github/app/webhook` forwards the raw body and GitHub delivery
 headers to Core `verifyGitHubAppWebhook`. Core verifies

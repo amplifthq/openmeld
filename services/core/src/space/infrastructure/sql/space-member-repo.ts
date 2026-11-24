@@ -3,6 +3,7 @@ import type {
   SpaceMemberSource,
   SpaceMemberStatus,
 } from "@openmeld/schemas/types";
+import { clearMemberProfileLivenessEvidence } from "./space-member-liveness-repo";
 import { isoToTimestampMs, timestampMsToIso } from "./space-schema-repo";
 
 const MAX_DATE_TIMESTAMP_MS = 8_640_000_000_000_000;
@@ -329,6 +330,9 @@ export const upsertSpaceMemberRecord = (
     parseIsoTimestampMs(record.createdAt, "space_members.created_at"),
     parseIsoTimestampMs(record.updatedAt, "space_members.updated_at")
   );
+  if (record.status === "removed") {
+    clearMemberProfileLivenessEvidence(sql, record.profileId);
+  }
   markSpaceMemberProjectionDirty(sql);
 };
 

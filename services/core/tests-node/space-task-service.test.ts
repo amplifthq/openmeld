@@ -31,6 +31,10 @@ const members = new Map(
 
 function createService() {
   const tasks = new Map<string, SpaceTask>();
+  const observedAt = new Map<
+    string,
+    import("../src/space/infrastructure/sql/space-task-repo").SpaceTaskPullRequestCursor
+  >();
   const events: SpaceTaskEvent[] = [];
   const operations = new Map<
     string,
@@ -42,6 +46,8 @@ function createService() {
     listEvents: (taskId) => events.filter((event) => event.taskId === taskId),
     listTasks: () => [...tasks.values()],
     readOperation: (operationId) => operations.get(operationId) ?? null,
+    readPullRequestCursor: (taskId) => observedAt.get(taskId),
+    recordPullRequestCursor: (taskId, time) => observedAt.set(taskId, time),
     readTask: (taskId) => tasks.get(taskId) ?? null,
     recordOperation: (operation) => {
       operations.set(operation.operationId, operation);

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { readGitHubAppWebhookIssueObservation } from "../../src/index";
+import {
+  readGitHubAppWebhookIssueObservation,
+  readGitHubAppWebhookPullRequestObservation,
+} from "../../src/index";
 
 const closedPayload = {
   action: "closed",
@@ -88,4 +91,41 @@ describe("GitHub App webhook issue observation", () => {
       })
     ).toBeNull();
   });
+});
+
+it("reads the provider timestamp and full head SHA from a synchronize delivery", () => {
+  // Relevant fields from octokit/webhooks' pull_request/synchronize example.
+  const before = "f95f852bd8fca8fcc58a9a2d6c842781e32a215e";
+  const after = "ec26c3e57ca3a959ca5aad62de7213c562f8c821";
+  const payload = {
+    action: "synchronize",
+    number: 2,
+    before,
+    after,
+    pull_request: {
+      head: { sha: after },
+      html_url: "https://github.com/Codertocat/Hello-World/pull/2",
+      updated_at: "2019-05-15T15:20:33Z",
+    },
+    repository: { name: "Hello-World", owner: { login: "Codertocat" } },
+  };
+  const read = (value: typeof payload) =>
+    readGitHubAppWebhookPullRequestObservation({
+      event: "pull_request",
+      payload: value,
+    });
+  expect(read(payload)).toMatchObject({
+    beforeSha: before,
+    headSha: after,
+    observedAt: "2019-05-15T15:20:33.000Z",
+  });
+  expect(
+    read({
+      ...payload,
+      pull_request: {
+        ...payload.pull_request,
+        head: { sha: after.slice(0, 7) },
+      },
+    })
+  ).toBeNull();
 });

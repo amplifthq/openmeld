@@ -214,6 +214,7 @@ export { spaceInvitations } from "./space-invitation.schema.ts";
 export {
   githubAppWebhookDeliveries,
   spaceTaskGitHubIssueLinks,
+  spaceTaskGitHubPullRequestLinks,
 } from "./space-task-github.schema.ts";
 export {
   spaceTaskProjectLinks,
