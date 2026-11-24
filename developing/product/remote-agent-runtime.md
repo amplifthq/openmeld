@@ -2373,21 +2373,27 @@ message subtypes are never input.
 
 1. **Archive.** Core stores each unaddressed message from the provider's push
    event. It does not poll. Nothing is posted to the chat.
-2. **Batch.** Messages are grouped per thread, or per sender for top-level
-   messages. A batch closes after 8 seconds without a new message, or 30
-   seconds after its first message, so a burst becomes one input.
+2. **Batch.** A batch is one sender's messages: their replies in one thread,
+   or their top-level messages in the conversation. A batch closes after 8
+   seconds without a new message, or 30 seconds after its first message, so a
+   burst becomes one input. A mention settles the waiting messages it covers
+   (the sender's own top-level messages, or every waiting message in its
+   thread) so they never start a second turn; the mention's turn reads them as
+   Channel context. A message still waiting after 10 minutes, for example
+   because intake was turned off before its flush, expires and is never
+   routed.
 3. **Route.** One metered auxiliary call labels the batch `chatter`,
    `new_request`, or `follow_up`. `chatter` stays archived and wakes nobody. A
    batch that cannot be labeled after four queue attempts is archived as
    `unrouted` and also wakes nobody.
 4. **Turn.** A `new_request` or `follow_up` batch starts one ordinary Center
    Agent turn through the provider's addressed path. The requester is the
-   sender of the batch's last message, with that sender's verified identity
-   and authority. Other senders' words reach the model only as untrusted
-   Channel context, never as the request. On Feishu the request text is the
-   requester's messages in the batch; on Slack it is the last message as Slack
-   returns it, with the earlier messages supplied as thread or channel context.
-   Only the last message's files are attached.
+   batch's sender, with that sender's verified identity and authority. Other
+   senders' words reach the model only as untrusted Channel context, never as
+   the request. On Feishu the request text is the requester's messages in the
+   batch; on Slack it is the last message as Slack returns it, with the
+   earlier messages supplied as thread or channel context. Only the last
+   message's files are attached.
 
 The label is an admission gate and nothing else. It decides whether a turn
 starts. It never answers, authorizes an action, selects a tool, or reduces the

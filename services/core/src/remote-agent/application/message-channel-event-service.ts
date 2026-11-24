@@ -53,6 +53,7 @@ import {
 import {
   isUnaddressedChannelIntakeEnabled,
   observeUnaddressedLarkPlatformMessage,
+  settleUnaddressedChannelMessagesAnsweredByMention,
   type UnaddressedChannelObservationResult,
 } from "./message-channel-unaddressed-intake-service";
 import { buildPluginChannelSourceProof } from "./plugin-channel-source-proof";
@@ -208,6 +209,11 @@ export type RemoteAgentMessageChannelEventServiceDependencies = {
   submitNativeDelivery(
     input: Parameters<typeof submitRemoteAgentMessageChannelNativeDelivery>[0]
   ): Promise<RemoteAgentMessageChannelNativeDeliveryResult>;
+  settleUnaddressedMessagesForMention(
+    input: Parameters<
+      typeof settleUnaddressedChannelMessagesAnsweredByMention
+    >[0]
+  ): Promise<number>;
   readContextCursor(
     input: Parameters<typeof readRemoteAgentLarkPlatformContextCursor>[0]
   ): Promise<{
@@ -259,6 +265,8 @@ const DEFAULT_DEPENDENCIES: RemoteAgentMessageChannelEventServiceDependencies =
       );
     },
     readContextCursor: readRemoteAgentLarkPlatformContextCursor,
+    settleUnaddressedMessagesForMention:
+      settleUnaddressedChannelMessagesAnsweredByMention,
     releaseIngress: releaseRemoteAgentMessageChannelEventIngressForRetry,
     prepareInputAttachments: prepareMessageChannelInputAttachments,
     resolveTurnTarget: resolveMessageChannelTurnTarget,
@@ -485,6 +493,24 @@ async function processClaimedMessageChannelEvent(input: {
   });
   if (admission.status === "ignored") {
     return admission;
+  }
+  if (
+    admission.event.kind === "message" &&
+    admission.event.mention === "group_mention" &&
+    admission.event.locator.provider === input.envelope.provider &&
+    isUnaddressedChannelIntakeEnabled(input.env)
+  ) {
+    await input.dependencies.settleUnaddressedMessagesForMention({
+      connectionId: input.envelope.connectionId,
+      conversationKey: admission.event.locator.chatId,
+      db: input.db,
+      messageId: admission.event.messageId,
+      nowMs: Date.now(),
+      provider: input.envelope.provider,
+      rootMessageId: admission.event.locator.rootMessageId,
+      senderId: admission.event.senderId,
+      sentAtMs: admission.event.sentAtMs,
+    });
   }
   if (admission.status === "unaddressed") {
     return await input.dependencies.observeUnaddressedMessage({

@@ -1,5 +1,5 @@
 {
-  "id": "62033c27-0ce1-426d-9cf1-f317f25986ca",
+  "id": "f92ed1b2-5f4e-46e5-bfb5-25e2387bd53b",
   "prevId": "fcf44cff-40e0-4969-a6bd-34e4f87bb3d1",
   "version": "7",
   "dialect": "postgresql",
@@ -20848,7 +20848,7 @@
         },
         "openMeldRemoteAgent_message_channel_unaddressed_route_check": {
           "name": "openMeldRemoteAgent_message_channel_unaddressed_route_check",
-          "value": "\"route\" is null\n          or \"route\" in ('follow_up', 'new_request', 'chatter', 'unrouted')"
+          "value": "\"route\" is null\n          or \"route\" in ('follow_up', 'new_request', 'chatter', 'unrouted', 'addressed', 'expired')"
         },
         "openMeldRemoteAgent_message_channel_unaddressed_claim_check": {
           "name": "openMeldRemoteAgent_message_channel_unaddressed_claim_check",

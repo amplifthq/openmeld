@@ -1,5 +1,6 @@
 import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
+  remoteAgentSlackAppMentionEventSchema,
   remoteAgentSlackChannelMessageEventSchema,
   remoteAgentSlackEventCallbackPayloadSchema,
 } from "@openmeld/schemas";
@@ -8,6 +9,7 @@ import { readRemoteAgentSlackWorkspaceBinding } from "../infrastructure/postgres
 import { readSlackWorkspaceToken } from "../infrastructure/postgresql/slack-workspace-token-repo";
 import {
   recordAndScheduleUnaddressedChannelMessage,
+  type settleUnaddressedChannelMessagesAnsweredByMention,
   type UnaddressedChannelBatchRequest,
   type UnaddressedChannelBatchSubmission,
   type UnaddressedChannelObservationDependencies,
@@ -137,6 +139,50 @@ export async function observeUnaddressedSlackChannelMessage(
     },
     dependencies
   );
+}
+
+/**
+ * Settles the waiting channel messages that a real Slack app mention covers,
+ * so their batch does not start a second turn. Returns the number settled,
+ * or null when the payload is not a channel app mention.
+ */
+export async function settleUnaddressedSlackMessagesForMention(
+  input: {
+    getDb(): PostgresDatabase;
+    nowMs: number;
+    payload: unknown;
+  },
+  dependencies: {
+    settle: typeof settleUnaddressedChannelMessagesAnsweredByMention;
+  }
+): Promise<number | null> {
+  const payload = remoteAgentSlackEventCallbackPayloadSchema.safeParse(
+    input.payload
+  );
+  if (!payload.success) {
+    return null;
+  }
+  const mention = remoteAgentSlackAppMentionEventSchema.safeParse(
+    payload.data.event
+  );
+  if (!mention.success) {
+    return null;
+  }
+  const sentAtMs = parseSlackTimestampMs(mention.data.ts);
+  if (sentAtMs === null) {
+    return null;
+  }
+  return await dependencies.settle({
+    connectionId: payload.data.team_id,
+    conversationKey: mention.data.channel,
+    db: input.getDb(),
+    messageId: mention.data.ts,
+    nowMs: input.nowMs,
+    provider: "slack",
+    rootMessageId: mention.data.thread_ts ?? mention.data.ts,
+    senderId: mention.data.user,
+    sentAtMs,
+  });
 }
 
 /**

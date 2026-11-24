@@ -17,9 +17,11 @@ import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../infrastr
 import { readRemoteAgentLarkPlatformContextCursor } from "../infrastructure/postgresql/lark-platform-context-cursor-repo";
 import {
   claimDueUnaddressedChannelBatch,
+  expireStaleUnaddressedChannelMessages,
   type recordUnaddressedChannelMessage,
   releaseUnaddressedChannelBatch,
   settleUnaddressedChannelBatch,
+  settleUnaddressedChannelMessagesForMention,
   type UnaddressedChannelBatchClaim,
   type UnaddressedChannelMessageRecord,
 } from "../infrastructure/postgresql/message-channel-unaddressed-message-repo";
@@ -30,6 +32,13 @@ export const UNADDRESSED_CHANNEL_QUIET_WINDOW_MS = 8000;
 export const UNADDRESSED_CHANNEL_MAX_WAIT_MS = 30_000;
 const UNADDRESSED_CHANNEL_BATCH_CLAIM_LEASE_MS = 120_000;
 export const UNADDRESSED_CHANNEL_BATCH_MAX_QUEUE_ATTEMPTS = 4;
+/**
+ * A message still waiting after this long is never routed. Normal routing
+ * settles within the max wait plus queue retries and one expired claim lease;
+ * anything older was orphaned (a lost flush, or intake turned off and on) and
+ * must not resurface as a request.
+ */
+export const UNADDRESSED_CHANNEL_MAX_PENDING_AGE_MS = 10 * 60_000;
 
 type LarkPlatformProvider = "feishu" | "lark";
 type MessageEvent = Extract<NormalizedMessageChannelEvent, { kind: "message" }>;
@@ -82,6 +91,9 @@ export type UnaddressedChannelIntakeDependencies = {
   classifyBatch(
     input: ClassifyUnaddressedChannelBatchInput
   ): Promise<UnaddressedChannelBatchRoute>;
+  expireStaleMessages(
+    input: Parameters<typeof expireStaleUnaddressedChannelMessages>[0]
+  ): Promise<number>;
   hasPriorAgentTurn(input: {
     db: PostgresDatabase;
     trigger: UnaddressedChannelMessageRecord;
@@ -102,9 +114,9 @@ export type UnaddressedChannelIntakeDependencies = {
 };
 
 /**
- * The one input for the turn. The sender of the last message is the
- * requester, so `text` holds only that person's words; other people's
- * messages in the burst stay reference material in the conversation.
+ * The one input for the turn. A batch holds one sender's messages, so that
+ * sender is the requester and `text` holds only their words; other people's
+ * messages in the thread stay reference material in the conversation.
  */
 export type UnaddressedChannelBatchRequest = {
   db: PostgresDatabase;
@@ -141,8 +153,10 @@ export function isUnaddressedChannelIntakeEnabled(
 }
 
 /**
- * Replies in one thread form one batch. Top-level messages have no shared
- * root, so one person's consecutive top-level messages form the batch.
+ * A batch is one person's consecutive messages: their top-level messages in
+ * the conversation, or their replies in one thread. Keeping senders apart
+ * means a turn only ever carries its own requester's words and authority;
+ * the thread's other messages still reach the model as Channel context.
  */
 export function buildUnaddressedChannelBatchKey(input: {
   messageId: string;
@@ -151,7 +165,38 @@ export function buildUnaddressedChannelBatchKey(input: {
 }): string {
   return input.rootMessageId === input.messageId
     ? `sender:${input.senderId}`
-    : `thread:${input.rootMessageId}`;
+    : `thread:${input.rootMessageId}:sender:${input.senderId}`;
+}
+
+/**
+ * Stops the waiting messages that an addressed mention already covers from
+ * being routed as a second turn: the mentioning sender's own top-level
+ * messages for a top-level mention, or the whole thread for a reply. The
+ * mention's turn reads those messages as Channel context.
+ */
+export async function settleUnaddressedChannelMessagesAnsweredByMention(input: {
+  connectionId: string;
+  conversationKey: string;
+  db: PostgresDatabase;
+  messageId: string;
+  nowMs: number;
+  provider: UnaddressedChannelBatchQueueMessage["provider"];
+  rootMessageId: string;
+  senderId: string;
+  sentAtMs: number;
+}): Promise<number> {
+  return await settleUnaddressedChannelMessagesForMention({
+    connectionId: input.connectionId,
+    conversationKey: input.conversationKey,
+    db: input.db,
+    nowMs: input.nowMs,
+    provider: input.provider,
+    scope:
+      input.rootMessageId === input.messageId
+        ? { batchKey: buildUnaddressedChannelBatchKey(input) }
+        : { rootMessageId: input.rootMessageId },
+    sentThroughMs: input.sentAtMs,
+  });
 }
 
 export function createUnaddressedChannelIntakeDependencies(input: {
@@ -160,6 +205,7 @@ export function createUnaddressedChannelIntakeDependencies(input: {
 }): UnaddressedChannelIntakeDependencies {
   return {
     claimBatch: claimDueUnaddressedChannelBatch,
+    expireStaleMessages: expireStaleUnaddressedChannelMessages,
     async classifyBatch(request) {
       const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
       if (!worker?.classifyUnaddressedChannelBatch) {
@@ -344,6 +390,23 @@ export async function flushUnaddressedChannelBatch(
   dependencies: UnaddressedChannelIntakeDependencies
 ): Promise<UnaddressedChannelBatchFlushResult> {
   const { message } = input;
+  const expired = await dependencies.expireStaleMessages({
+    batchKey: message.batchKey,
+    connectionId: message.connectionId,
+    conversationKey: message.conversationKey,
+    db: input.db,
+    nowMs: input.nowMs,
+    observedBeforeMs: input.nowMs - UNADDRESSED_CHANNEL_MAX_PENDING_AGE_MS,
+    provider: message.provider,
+  });
+  if (expired > 0) {
+    console.warn("[core.message_channel.unaddressed_messages_expired]", {
+      batchKey: message.batchKey,
+      connectionId: message.connectionId,
+      expired,
+      provider: message.provider,
+    });
+  }
   const batchId = crypto.randomUUID();
   const claim = await dependencies.claimBatch({
     batchId,
@@ -474,7 +537,7 @@ async function routeClaimedUnaddressedChannelBatch(input: {
   const submission = await dependencies.submitRequest({
     db,
     requestEventId: `unaddressed-batch:${trigger.messageId}`,
-    text: buildUnaddressedChannelRequestText(input.messages, trigger),
+    text: buildUnaddressedChannelRequestText(input.messages),
     trigger,
   });
   if (submission.status === "not_submitted") {
@@ -511,12 +574,11 @@ async function routeClaimedUnaddressedChannelBatch(input: {
   };
 }
 
+/** Every message in a batch has the same sender, the requester. */
 function buildUnaddressedChannelRequestText(
-  messages: readonly UnaddressedChannelMessageRecord[],
-  trigger: UnaddressedChannelMessageRecord
+  messages: readonly UnaddressedChannelMessageRecord[]
 ): string {
   return messages
-    .filter((message) => message.senderId === trigger.senderId)
     .map((message) => message.text)
     .join("\n")
     .slice(-MESSAGE_CHANNEL_EVENT_TEXT_MAX_CHARS)

@@ -26,7 +26,7 @@ CREATE TABLE "openmeld"."openMeldRemoteAgent_message_channel_unaddressed_message
 	CONSTRAINT "openMeldRemoteAgent_message_channel_unaddressed_source_check" CHECK ("source" in ('push', 'backfill')),
 	CONSTRAINT "openMeldRemoteAgent_message_channel_unaddressed_state_check" CHECK ("state" in ('pending', 'routing', 'archived', 'routed')),
 	CONSTRAINT "openMeldRemoteAgent_message_channel_unaddressed_route_check" CHECK ("route" is null
-          or "route" in ('follow_up', 'new_request', 'chatter', 'unrouted')),
+          or "route" in ('follow_up', 'new_request', 'chatter', 'unrouted', 'addressed', 'expired')),
 	CONSTRAINT "openMeldRemoteAgent_message_channel_unaddressed_claim_check" CHECK ("state" <> 'routing'
           or ("batch_id" is not null and "claim_expires_at_ms" is not null)),
 	CONSTRAINT "openMeldRemoteAgent_message_channel_unaddressed_identity_check" CHECK (length(trim("organization_id")) > 0

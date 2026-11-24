@@ -13,6 +13,17 @@ import type {
 const TABLE =
   '"openmeld"."openMeldRemoteAgent_message_channel_unaddressed_messages"';
 
+/**
+ * Why a message stopped waiting. `addressed`: a later mention by the same
+ * sender, or in the same thread, started the turn instead. `expired`: it
+ * waited longer than the pending age limit and is never routed.
+ */
+export type UnaddressedChannelArchiveRoute =
+  | UnaddressedChannelBatchRoute
+  | "addressed"
+  | "expired"
+  | "unrouted";
+
 export type UnaddressedChannelMessageRecord = {
   batchId: string | null;
   batchKey: string;
@@ -27,7 +38,7 @@ export type UnaddressedChannelMessageRecord = {
   /** Lark and Feishu file references. Empty for Slack. */
   resources: MessageChannelResourceDescriptor[];
   rootMessageId: string;
-  route: UnaddressedChannelBatchRoute | "unrouted" | null;
+  route: UnaddressedChannelArchiveRoute | null;
   /** Slack file references. Empty for Lark and Feishu. */
   slackFiles: RemoteAgentSlackEventFile[];
   senderId: string;
@@ -268,6 +279,88 @@ export async function claimDueUnaddressedChannelBatch(
   };
 }
 
+/**
+ * Archives the waiting messages of one batch scope that are too old to route.
+ * A row still being routed under a live claim is left alone.
+ */
+export async function expireStaleUnaddressedChannelMessages(
+  input: BatchScope & {
+    db: PostgresDatabase;
+    nowMs: number;
+    observedBeforeMs: number;
+  }
+): Promise<number> {
+  const result = await input.db.query({
+    text: `
+      UPDATE ${TABLE}
+      SET state = 'archived',
+          route = 'expired',
+          claim_expires_at_ms = NULL,
+          updated_at_ms = greatest(updated_at_ms, $6)
+      WHERE provider = $1
+        AND connection_id = $2
+        AND conversation_key = $3
+        AND batch_key = $4
+        AND observed_at_ms < $5
+        AND (
+          state = 'pending'
+          OR (state = 'routing' AND claim_expires_at_ms <= $6)
+        )
+    `,
+    values: [
+      input.provider,
+      input.connectionId,
+      input.conversationKey,
+      input.batchKey,
+      input.observedBeforeMs,
+      input.nowMs,
+    ],
+  });
+  return Number(result.rowCount ?? 0);
+}
+
+/**
+ * Archives the waiting messages that an addressed mention answers, so their
+ * batch never starts a second turn. Only messages sent up to the mention are
+ * taken; a batch already being routed keeps its claim.
+ */
+export async function settleUnaddressedChannelMessagesForMention(input: {
+  connectionId: string;
+  conversationKey: string;
+  db: PostgresDatabase;
+  nowMs: number;
+  provider: MessageChannelProvider;
+  scope: { batchKey: string } | { rootMessageId: string };
+  sentThroughMs: number;
+}): Promise<number> {
+  const byBatch = "batchKey" in input.scope;
+  const result = await input.db.query({
+    text: `
+      UPDATE ${TABLE}
+      SET state = 'archived',
+          route = 'addressed',
+          updated_at_ms = greatest(updated_at_ms, $6)
+      WHERE provider = $1
+        AND connection_id = $2
+        AND conversation_key = $3
+        AND state = 'pending'
+        AND sent_at_ms <= $5
+        AND ${byBatch ? "batch_key" : "root_message_id"} = $4
+    `,
+    values: [
+      input.provider,
+      input.connectionId,
+      input.conversationKey,
+      "batchKey" in input.scope
+        ? input.scope.batchKey
+        : input.scope.rootMessageId,
+      input.sentThroughMs,
+      input.nowMs,
+    ],
+  });
+  return Number(result.rowCount ?? 0);
+}
+
 /** Returns a claimed batch to the waiting state so a retry can claim it. */
 export async function releaseUnaddressedChannelBatch(input: {
   batchId: string;
@@ -295,7 +388,7 @@ export async function settleUnaddressedChannelBatch(input: {
   db: PostgresDatabase;
   nativeDeliveryId: string | null;
   nowMs: number;
-  route: UnaddressedChannelBatchRoute | "unrouted";
+  route: Exclude<UnaddressedChannelArchiveRoute, "addressed" | "expired">;
   state: "archived" | "routed";
 }): Promise<number> {
   const result = await input.db.query({

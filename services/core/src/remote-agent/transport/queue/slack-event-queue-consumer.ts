@@ -3,7 +3,10 @@ import { remoteAgentSlackEventQueueMessageSchema } from "@openmeld/schemas";
 import type { RemoteAgentSlackEventQueueMessage } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../../lib/bindings";
 import { emitCoreCloudflareRuntimeEvidence } from "../../../shared/observability/cloudflare-runtime-evidence";
-import { isUnaddressedChannelIntakeEnabled } from "../../application/message-channel-unaddressed-intake-service";
+import {
+  isUnaddressedChannelIntakeEnabled,
+  settleUnaddressedChannelMessagesAnsweredByMention,
+} from "../../application/message-channel-unaddressed-intake-service";
 import { RemoteAgentSlackSubmissionOutcomeUnknownError } from "../../application/native-delivery-service";
 import {
   processRemoteAgentSlackEvent,
@@ -12,6 +15,7 @@ import {
 import {
   observeUnaddressedSlackChannelMessage,
   readUnaddressedSlackWorkspace,
+  settleUnaddressedSlackMessagesForMention,
 } from "../../application/slack-unaddressed-message-service";
 import { recordUnaddressedChannelMessage } from "../../infrastructure/postgresql/message-channel-unaddressed-message-repo";
 
@@ -166,6 +170,34 @@ async function handleUnaddressedSlackChannelMessage(
     return false;
   }
   const eventId = queueMessage.payload.event_id ?? null;
+  // A real app mention owns the turn for what it covers. Settle the waiting
+  // messages before the turn starts; if that keeps failing, the mention still
+  // gets its turn and the waiting batch may start a second one.
+  try {
+    await settleUnaddressedSlackMessagesForMention(
+      {
+        getDb: () => getPostgresDatabase(input.env),
+        nowMs: Date.now(),
+        payload: queueMessage.payload,
+      },
+      { settle: settleUnaddressedChannelMessagesAnsweredByMention }
+    );
+  } catch (error) {
+    const finalAttempt =
+      input.message.attempts >= REMOTE_AGENT_SLACK_EVENT_MAX_QUEUE_ATTEMPTS;
+    console.warn("[core.remote_agent.slack_event.unaddressed_settle_failed]", {
+      attempts: input.message.attempts,
+      error: toErrorMessage(error),
+      eventId,
+      proceeding: finalAttempt,
+    });
+    if (!finalAttempt) {
+      input.message.retry({
+        delaySeconds: REMOTE_AGENT_SLACK_EVENT_RETRY_DELAY_SECONDS,
+      });
+      return true;
+    }
+  }
   try {
     const observation = await observeUnaddressedSlackChannelMessage(
       {

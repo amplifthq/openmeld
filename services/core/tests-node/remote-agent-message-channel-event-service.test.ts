@@ -149,6 +149,10 @@ describe("Remote Agent Message Channel event service", () => {
         outcomeStatus: "submitted",
       })
     );
+    // With unaddressed intake off there is no waiting batch to settle.
+    expect(
+      dependencies.settleUnaddressedMessagesForMention
+    ).not.toHaveBeenCalled();
   });
 
   it("admits an external Lark participant with an unverified sender boundary", async () => {
@@ -395,6 +399,28 @@ describe("Remote Agent Message Channel event service", () => {
         },
       })
     );
+    // The mention covers the waiting messages in its thread, so their batch
+    // must not start a second turn.
+    expect(
+      dependencies.settleUnaddressedMessagesForMention
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: "connection_lark_1",
+        conversationKey: "oc_chat_1",
+        messageId: "om_message_1",
+        provider: "lark",
+        rootMessageId: "om_root_1",
+        senderId: "ou_member_1",
+        sentAtMs: 3000,
+      })
+    );
+    expect(
+      dependencies.settleUnaddressedMessagesForMention.mock
+        .invocationCallOrder[0]
+    ).toBeLessThan(
+      dependencies.submitNativeDelivery.mock.invocationCallOrder[0] ??
+        Number.POSITIVE_INFINITY
+    );
   });
 
   it("stays silent when a routed batch of unaddressed messages cannot start because the Center Agent model is unavailable", async () => {
@@ -635,6 +661,9 @@ describe("Remote Agent Message Channel event service", () => {
     );
     expect(dependencies.resolveTurnTarget).not.toHaveBeenCalled();
     expect(dependencies.submitNativeDelivery).not.toHaveBeenCalled();
+    expect(
+      dependencies.settleUnaddressedMessagesForMention
+    ).not.toHaveBeenCalled();
     // Nothing is said in the chat for an archived message.
     expect(adapter.publishFailure).not.toHaveBeenCalled();
     expect(adapter.publishReply).not.toHaveBeenCalled();
@@ -801,6 +830,9 @@ function createDependencies() {
     readContextCursor: vi.fn<
       RemoteAgentMessageChannelEventServiceDependencies["readContextCursor"]
     >(() => Promise.resolve(null)),
+    settleUnaddressedMessagesForMention: vi.fn<
+      RemoteAgentMessageChannelEventServiceDependencies["settleUnaddressedMessagesForMention"]
+    >(() => Promise.resolve(0)),
     releaseIngress: vi.fn(() => Promise.resolve(true)),
     resolveTurnTarget: vi.fn<
       RemoteAgentMessageChannelEventServiceDependencies["resolveTurnTarget"]

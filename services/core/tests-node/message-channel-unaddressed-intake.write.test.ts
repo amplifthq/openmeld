@@ -10,6 +10,8 @@ import { submitUnaddressedLarkPlatformRequest } from "../src/remote-agent/applic
 import {
   flushUnaddressedChannelBatch,
   observeUnaddressedLarkPlatformMessage,
+  settleUnaddressedChannelMessagesAnsweredByMention,
+  UNADDRESSED_CHANNEL_MAX_PENDING_AGE_MS,
   UNADDRESSED_CHANNEL_MAX_WAIT_MS,
   UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
   type UnaddressedChannelBatchRequest,
@@ -17,11 +19,13 @@ import {
 } from "../src/remote-agent/application/message-channel-unaddressed-intake-service";
 import {
   observeUnaddressedSlackChannelMessage,
+  settleUnaddressedSlackMessagesForMention,
   submitUnaddressedSlackRequest,
 } from "../src/remote-agent/application/slack-unaddressed-message-service";
 import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../src/remote-agent/infrastructure/postgresql/lark-platform-channel-connection-repo";
 import {
   claimDueUnaddressedChannelBatch,
+  expireStaleUnaddressedChannelMessages,
   listUnaddressedChannelMessages,
   recordUnaddressedChannelMessage,
   releaseUnaddressedChannelBatch,
@@ -39,10 +43,19 @@ const START_MS = 1_000_000;
 const SLACK_TEAM_ID = "T123";
 const SLACK_CHANNEL_ID = "C123";
 const SLACK_BOT_USER_ID = "U0BOT";
+const ARI_THREAD_BATCH = `thread:${ROOT_ID}:sender:ou_ari`;
+const BO_THREAD_BATCH = `thread:${ROOT_ID}:sender:ou_bo`;
 
 describe("unaddressed Channel message intake", () => {
-  it("turns a burst in one thread into one request from the last sender once the thread goes quiet", async () => {
+  it("keeps each sender's replies in a thread as their own batch, so a bystander's reply never becomes the request", async () => {
     const fixture = await createFixture({ route: "new_request" });
+    fixture.classifyBatch.mockImplementation((request) =>
+      Promise.resolve(
+        request.messages.every((message) => message.text === "Same for me")
+          ? "chatter"
+          : "new_request"
+      )
+    );
     try {
       await fixture.observe({
         id: "om_1",
@@ -63,56 +76,218 @@ describe("unaddressed Channel message intake", () => {
         atMs: START_MS + 4000,
       });
 
-      // The first message's flush arrives while the burst is still active.
+      // Ari's first flush arrives while Ari is still typing.
       await expect(
         fixture.flush({
           scheduledBy: START_MS,
           atMs: START_MS + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
         })
       ).resolves.toEqual({ status: "superseded" });
-      expect(fixture.classifyBatch).not.toHaveBeenCalled();
 
-      const lastObservedAtMs = START_MS + 4000;
+      const ariLastObservedAtMs = START_MS + 4000;
       await expect(
         fixture.flush({
-          scheduledBy: lastObservedAtMs,
-          atMs: lastObservedAtMs + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+          scheduledBy: ariLastObservedAtMs,
+          atMs: ariLastObservedAtMs + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
         })
       ).resolves.toMatchObject({
         deliveryId: "delivery_1",
         route: "new_request",
         status: "routed",
       });
-
-      expect(fixture.classifyBatch).toHaveBeenCalledOnce();
       expect(
         fixture.classifyBatch.mock.calls[0]?.[0].messages.map(
           (message) => message.messageId
         )
-      ).toEqual(["om_1", "om_2", "om_3"]);
+      ).toEqual(["om_1", "om_3"]);
       expect(fixture.submitRequest).toHaveBeenCalledOnce();
       expect(fixture.submitRequest.mock.calls[0]?.[0]).toMatchObject({
         requestEventId: "unaddressed-batch:om_3",
-        // Another person's words are never attributed to the requester.
         text: "Login is broken\nIt fails after the SSO redirect",
         trigger: {
+          batchKey: ARI_THREAD_BATCH,
           conversationKey: CHAT_ID,
           messageId: "om_3",
           rootMessageId: ROOT_ID,
           senderId: "ou_ari",
         },
       });
+
+      // Bo's reply is its own batch: it is classified alone and, as chatter,
+      // starts nothing under Bo's identity.
+      await expect(
+        fixture.flush({
+          batchKey: BO_THREAD_BATCH,
+          scheduledBy: START_MS + 2000,
+          atMs: START_MS + 2000 + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+        })
+      ).resolves.toMatchObject({ route: "chatter", status: "archived" });
+      expect(
+        fixture.classifyBatch.mock.calls[1]?.[0].messages.map(
+          (message) => message.messageId
+        )
+      ).toEqual(["om_2"]);
+      expect(fixture.submitRequest).toHaveBeenCalledOnce();
       await expect(fixture.states()).resolves.toEqual([
         { id: "om_1", route: "new_request", state: "routed" },
-        { id: "om_2", route: "new_request", state: "routed" },
+        { id: "om_2", route: "chatter", state: "archived" },
         { id: "om_3", route: "new_request", state: "routed" },
       ]);
 
       // A flush that arrives after the batch was routed finds nothing to do.
       await expect(
-        fixture.flush({ scheduledBy: START_MS + 2000, atMs: START_MS + 60_000 })
+        fixture.flush({ scheduledBy: START_MS, atMs: START_MS + 60_000 })
       ).resolves.toEqual({ status: "empty" });
       expect(fixture.submitRequest).toHaveBeenCalledOnce();
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("lets a mention in a thread settle that thread's waiting messages so they start no second turn", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await fixture.observe({
+        id: "om_1",
+        sender: "ou_ari",
+        text: "Staging deploy returns 502",
+        atMs: START_MS,
+      });
+      await fixture.observe({
+        id: "om_2",
+        sender: "ou_bo",
+        text: "Seeing it too",
+        atMs: START_MS + 1000,
+      });
+
+      await expect(
+        settleUnaddressedChannelMessagesAnsweredByMention({
+          connectionId: "connection_feishu_1",
+          conversationKey: CHAT_ID,
+          db: fixture.db,
+          messageId: "om_mention",
+          nowMs: START_MS + 3000,
+          provider: "feishu",
+          rootMessageId: ROOT_ID,
+          senderId: "ou_ari",
+          sentAtMs: START_MS + 3000,
+        })
+      ).resolves.toBe(2);
+      // A message sent after the mention is new input and keeps waiting.
+      await fixture.observe({
+        id: "om_4",
+        sender: "ou_ari",
+        text: "Thanks!",
+        atMs: START_MS + 5000,
+      });
+
+      await expect(fixture.states()).resolves.toEqual([
+        { id: "om_1", route: "addressed", state: "archived" },
+        { id: "om_2", route: "addressed", state: "archived" },
+        { id: "om_4", route: null, state: "pending" },
+      ]);
+      await expect(
+        fixture.flush({
+          scheduledBy: START_MS + 5000,
+          atMs: START_MS + 5000 + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+        })
+      ).resolves.toMatchObject({ status: "routed" });
+      expect(
+        fixture.classifyBatch.mock.calls[0]?.[0].messages.map(
+          (message) => message.messageId
+        )
+      ).toEqual(["om_4"]);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("lets a top-level mention settle only the same sender's waiting top-level messages", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await fixture.observe({
+        id: "om_ari_top",
+        rootMessageId: "om_ari_top",
+        sender: "ou_ari",
+        text: "Staging deploy returns 502",
+        atMs: START_MS,
+      });
+      await fixture.observe({
+        id: "om_bo_top",
+        rootMessageId: "om_bo_top",
+        sender: "ou_bo",
+        text: "Who has the release notes?",
+        atMs: START_MS + 500,
+      });
+
+      await expect(
+        settleUnaddressedChannelMessagesAnsweredByMention({
+          connectionId: "connection_feishu_1",
+          conversationKey: CHAT_ID,
+          db: fixture.db,
+          messageId: "om_ari_mention",
+          nowMs: START_MS + 2000,
+          provider: "feishu",
+          rootMessageId: "om_ari_mention",
+          senderId: "ou_ari",
+          sentAtMs: START_MS + 2000,
+        })
+      ).resolves.toBe(1);
+      await expect(fixture.states()).resolves.toEqual([
+        { id: "om_ari_top", route: "addressed", state: "archived" },
+        { id: "om_bo_top", route: null, state: "pending" },
+      ]);
+      await expect(
+        fixture.flush({
+          batchKey: "sender:ou_ari",
+          scheduledBy: START_MS,
+          atMs: START_MS + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+        })
+      ).resolves.toEqual({ status: "empty" });
+      expect(fixture.submitRequest).not.toHaveBeenCalled();
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("expires messages left waiting past the pending age limit instead of routing them", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      // Intake was turned off before this message's flush ran, so it was
+      // never routed.
+      await fixture.observe({
+        id: "om_old",
+        sender: "ou_ari",
+        text: "Delete the old preview deploys",
+        atMs: START_MS,
+      });
+      const laterMs =
+        START_MS + UNADDRESSED_CHANNEL_MAX_PENDING_AGE_MS + 60_000;
+      await fixture.observe({
+        id: "om_new",
+        sender: "ou_ari",
+        text: "Can someone check the staging logs?",
+        atMs: laterMs,
+      });
+
+      await expect(
+        fixture.flush({
+          scheduledBy: laterMs,
+          atMs: laterMs + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+        })
+      ).resolves.toMatchObject({ status: "routed" });
+      expect(
+        fixture.classifyBatch.mock.calls[0]?.[0].messages.map(
+          (message) => message.messageId
+        )
+      ).toEqual(["om_new"]);
+      expect(fixture.submitRequest.mock.calls[0]?.[0].text).toBe(
+        "Can someone check the staging logs?"
+      );
+      await expect(fixture.states()).resolves.toEqual([
+        { id: "om_old", route: "expired", state: "archived" },
+        { id: "om_new", route: "new_request", state: "routed" },
+      ]);
     } finally {
       await fixture.close();
     }
@@ -388,6 +563,51 @@ describe("unaddressed Channel message intake", () => {
       await fixture.close();
     }
   });
+
+  it("lets a Slack app mention settle the same person's waiting channel messages", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await expect(
+        fixture.observeSlack({
+          text: "Staging deploy returns 502",
+          ts: "1710000000.000100",
+        })
+      ).resolves.toEqual({ status: "observed" });
+      await expect(
+        settleUnaddressedSlackMessagesForMention(
+          {
+            getDb: () => fixture.db,
+            nowMs: START_MS + 2000,
+            payload: createSlackChannelMessagePayload({
+              type: "app_mention",
+              text: `<@${SLACK_BOT_USER_ID}> can you check?`,
+              ts: "1710000003.000100",
+            }),
+          },
+          { settle: settleUnaddressedChannelMessagesAnsweredByMention }
+        )
+      ).resolves.toBe(1);
+      await expect(fixture.slackStates()).resolves.toEqual([
+        { id: "1710000000.000100", route: "addressed", state: "archived" },
+      ]);
+      // An ordinary channel message is not a mention and settles nothing.
+      await expect(
+        settleUnaddressedSlackMessagesForMention(
+          {
+            getDb: () => fixture.db,
+            nowMs: START_MS + 3000,
+            payload: createSlackChannelMessagePayload({
+              text: "Thanks",
+              ts: "1710000004.000100",
+            }),
+          },
+          { settle: settleUnaddressedChannelMessagesAnsweredByMention }
+        )
+      ).resolves.toBeNull();
+    } finally {
+      await fixture.close();
+    }
+  });
 });
 
 describe("routed Lark-platform unaddressed request", () => {
@@ -514,6 +734,7 @@ async function createFixture(input: {
   const dependencies: UnaddressedChannelIntakeDependencies = {
     claimBatch: claimDueUnaddressedChannelBatch,
     classifyBatch,
+    expireStaleMessages: expireStaleUnaddressedChannelMessages,
     hasPriorAgentTurn: () => Promise.resolve(false),
     releaseBatch: releaseUnaddressedChannelBatch,
     settleBatch: settleUnaddressedChannelBatch,
@@ -551,7 +772,7 @@ async function createFixture(input: {
         {
           db: harness.db,
           message: {
-            batchKey: flushInput.batchKey ?? `thread:${ROOT_ID}`,
+            batchKey: flushInput.batchKey ?? ARI_THREAD_BATCH,
             connectionId: flushInput.connectionId ?? connection.connectionId,
             conversationKey: flushInput.conversationKey ?? CHAT_ID,
             kind: "remote_agent_message_channel_unaddressed_batch",
@@ -566,9 +787,11 @@ async function createFixture(input: {
         dependencies
       );
     },
+    db: harness.db,
     observe(message: {
       atMs: number;
       id: string;
+      rootMessageId?: string;
       sender: string;
       text: string;
     }) {
@@ -648,6 +871,7 @@ function createSlackChannelMessagePayload(event: Record<string, unknown>) {
 function createThreadReply(input: {
   atMs: number;
   id: string;
+  rootMessageId?: string;
   sender: string;
   text: string;
 }): MessageEvent {
@@ -658,7 +882,7 @@ function createThreadReply(input: {
       chatId: CHAT_ID,
       connectionId: "connection_feishu_1",
       provider: "feishu",
-      rootMessageId: ROOT_ID,
+      rootMessageId: input.rootMessageId ?? ROOT_ID,
       tenantKey: "tenant_feishu_1",
       threadId: null,
     },
@@ -679,7 +903,7 @@ function createLarkRequest(): UnaddressedChannelBatchRequest {
     text: "Login is broken",
     trigger: {
       batchId: "batch_1",
-      batchKey: `thread:${ROOT_ID}`,
+      batchKey: ARI_THREAD_BATCH,
       connectionGeneration: 3,
       connectionId: "connection_feishu_1",
       conversationKey: CHAT_ID,

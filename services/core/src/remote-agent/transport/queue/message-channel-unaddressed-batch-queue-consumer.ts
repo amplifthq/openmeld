@@ -31,8 +31,9 @@ export async function handleUnaddressedChannelBatchQueueMessage(input: {
     return false;
   }
   if (!isUnaddressedChannelIntakeEnabled(input.env)) {
-    // Turning intake off stops routing. Waiting messages stay archived as
-    // pending rows and are routed if intake is turned on again.
+    // Turning intake off stops routing. Waiting messages stay as pending rows;
+    // after the pending age limit a later flush expires them, so turning
+    // intake back on never routes an old request.
     input.message.ack();
     return true;
   }

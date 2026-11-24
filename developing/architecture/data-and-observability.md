@@ -2587,8 +2587,11 @@ A row moves `pending` -> `routing` -> `archived` or `routed`. `routing` is a
 120-second lease held by one batch flush; an expired lease returns the rows to
 the next flush. `route` records the admission label (`chatter`, `new_request`,
 `follow_up`) or `unrouted` when the batch could not be labeled or submitted
-after four queue attempts. `native_delivery_id` links a routed Feishu batch to
-its delivery. The table is a record of what was observed and how it was
+after four queue attempts. Two outcomes bypass routing: `addressed` when a
+later mention by the same sender (top level) or in the same thread started the
+turn instead, and `expired` when a row waited more than 10 minutes and a later
+flush of its batch archived it without routing. `native_delivery_id` links a
+routed Feishu batch to its delivery. The table is a record of what was observed and how it was
 routed. It is not execution truth, and no reader derives Wakeability or task
 state from it.
 

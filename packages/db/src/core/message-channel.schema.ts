@@ -668,7 +668,7 @@ export const openMeldRemoteAgentMessageChannelUnaddressedMessages =
       check(
         "openMeldRemoteAgent_message_channel_unaddressed_route_check",
         sql`"route" is null
-          or "route" in ('follow_up', 'new_request', 'chatter', 'unrouted')`
+          or "route" in ('follow_up', 'new_request', 'chatter', 'unrouted', 'addressed', 'expired')`
       ),
       check(
         "openMeldRemoteAgent_message_channel_unaddressed_claim_check",
