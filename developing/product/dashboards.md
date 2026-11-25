@@ -1,5 +1,13 @@
 # Organization Dashboards
 
+## Agent Context
+
+- Purpose: Define dashboard creation, source access, and the shared dashboard collection.
+- Read this when: Changing dashboard types, source links, access, or Center Agent drafts.
+- Update this when: The dashboard contract, permissions, or source behavior changes.
+- Do not use this for: Provider-side issue mutations, analytics collection, or artifact hosting.
+- Source of truth: Core owns dashboard configuration; each source owns and authorizes its own data.
+
 Dashboard is a workspace collection, not a single preset report. Current
 human members can create and view Dashboards. A creator, owner, or admin can
 edit or archive one. The collection owns names and source configuration,

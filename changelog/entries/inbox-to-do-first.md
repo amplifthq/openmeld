@@ -6,4 +6,5 @@ areas: ["inbox"]
 audiences: ["users"]
 ---
 
-Open Inbox on To do to find the open requests and reviews that need you. Switch to Activity for conversation and system updates.
+Inbox shows OpenMeld requests and assigned GitHub issues in one TODO list.
+Open the source, mark the row Done, or ignore it without changing the source.
