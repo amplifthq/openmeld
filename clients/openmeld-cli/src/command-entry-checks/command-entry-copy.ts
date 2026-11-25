@@ -735,6 +735,30 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     cliUpdateAction: "reading a space board",
     serviceAction: null,
   },
+  "space.tasks": {
+    signInAction: "reading space tasks",
+    profileAction: "reading space tasks",
+    cliUpdateAction: "reading space tasks",
+    serviceAction: null,
+  },
+  "space.tasks.show": {
+    signInAction: "reading a space task",
+    profileAction: "reading a space task",
+    cliUpdateAction: "reading a space task",
+    serviceAction: null,
+  },
+  "space.tasks.create": {
+    signInAction: "creating a space task",
+    profileAction: "creating a space task",
+    cliUpdateAction: "creating a space task",
+    serviceAction: null,
+  },
+  "space.tasks.change": {
+    signInAction: "changing a space task",
+    profileAction: "changing a space task",
+    cliUpdateAction: "changing a space task",
+    serviceAction: null,
+  },
   "space.members": {
     signInAction: "reading the Space member directory",
     profileAction: "reading the Space member directory",

@@ -3,6 +3,7 @@ import {
   hasJsonOutputArgv,
   isCliMetadataQueryArgv,
   isPassiveCliQueryArgv,
+  isWorkspaceMcpServerArgv,
   parseLeadingCommandTokensFromArgv,
 } from "../src/runtime/view-argv";
 
@@ -157,5 +158,27 @@ describe("isCliMetadataQueryArgv", () => {
         "--help",
       ])
     ).toBe(false);
+  });
+});
+
+describe("isWorkspaceMcpServerArgv", () => {
+  it.each(
+    [
+      ["mcp"],
+      ["--view", "agent", "mcp", "--read-only"],
+      ["mcp", "--view=agent", "--profile", "usr_me"],
+    ].map((args) => [args])
+  )("routes %j before normal startup", (args) => {
+    expect(isWorkspaceMcpServerArgv(["node", "openmeld", ...args])).toBe(true);
+  });
+
+  it.each(
+    [
+      ["--view", "agent", "mcp", "--help"],
+      ["mcp", "--version"],
+      ["space", "board", "--", "mcp"],
+    ].map((args) => [args])
+  )("leaves %j on the ordinary path", (args) => {
+    expect(isWorkspaceMcpServerArgv(["node", "openmeld", ...args])).toBe(false);
   });
 });
