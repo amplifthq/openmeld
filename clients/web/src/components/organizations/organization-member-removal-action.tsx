@@ -78,6 +78,13 @@ export function OrganizationMemberRemovalAction(input: {
 	const usesDefaultSuccessor =
 		defaultSuccessor !== undefined &&
 		defaultSuccessor.userId === successorUserId;
+	const nativeRemoval = {
+		memberIdOrEmail: input.member.memberId,
+		organizationId: input.organizationId,
+		...(input.surface === "team"
+			? { expectedMemberRole: input.member.role }
+			: {}),
+	};
 	const removeMutation = useMutation({
 		mutationFn: async () => {
 			const plan = removalPreview.data;
@@ -104,10 +111,7 @@ export function OrganizationMemberRemovalAction(input: {
 				}
 			}
 			try {
-				await removeOrganizationMember({
-					memberIdOrEmail: input.member.memberId,
-					organizationId: input.organizationId,
-				});
+				await removeOrganizationMember(nativeRemoval);
 			} catch (error) {
 				if (plan.spaces.length > 0) {
 					throw new Error(

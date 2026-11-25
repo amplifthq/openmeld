@@ -130,6 +130,7 @@ it.each([
 	expect(mocks.remove).toHaveBeenCalledExactlyOnceWith({
 		memberIdOrEmail: member.memberId,
 		organizationId: organization.id,
+		expectedMemberRole: member.role,
 	});
 	expect(mocks.prepare).toHaveBeenCalledExactlyOnceWith({
 		memberId: member.memberId,
