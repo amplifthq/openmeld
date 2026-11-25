@@ -11,31 +11,35 @@ const executionContext = {
 
 type AcceptedWebSocket = WebSocket & { accept(): void };
 
+function createAuthenticatedResolver() {
+  return vi.fn(async () => ({
+    ok: true as const,
+    claims: {
+      authenticated: true as const,
+      requestId: "req-account-stream",
+      callerPrincipalId: "user-1",
+      activeOrganizationId: "org-1",
+      organizationContextSource: "request" as const,
+      profileId: "11111111-1111-4111-8111-111111111111",
+      profileKind: "human" as const,
+      ownerIds: ["user-1"],
+      authMethod: "session" as const,
+    },
+    profile: {
+      ok: true as const,
+      resolvedProfile: {
+        openMeldProfileId: "11111111-1111-4111-8111-111111111111",
+        profileName: "Mira",
+        profileKind: "human" as const,
+        ownerUserId: "user-1",
+      },
+    },
+  }));
+}
+
 describe("account invalidation stream", () => {
   it("authenticates the requested Organization and forwards only refresh hints", async () => {
-    const auth = vi.fn(async () => ({
-      ok: true as const,
-      claims: {
-        authenticated: true as const,
-        requestId: "req-account-stream",
-        callerPrincipalId: "user-1",
-        activeOrganizationId: "org-1",
-        organizationContextSource: "request" as const,
-        profileId: "11111111-1111-4111-8111-111111111111",
-        profileKind: "human" as const,
-        ownerIds: ["user-1"],
-        authMethod: "session" as const,
-      },
-      profile: {
-        ok: true as const,
-        resolvedProfile: {
-          openMeldProfileId: "11111111-1111-4111-8111-111111111111",
-          profileName: "Mira",
-          profileKind: "human" as const,
-          ownerUserId: "user-1",
-        },
-      },
-    }));
+    const auth = createAuthenticatedResolver();
     // biome-ignore lint/correctness/noUndeclaredVariables: Provided by the Workers test runtime.
     const pair = new WebSocketPair();
     const upstreamClient = pair[0];
@@ -107,5 +111,72 @@ describe("account invalidation stream", () => {
     );
     expect(response.status).toBe(400);
     expect(auth).not.toHaveBeenCalled();
+  });
+
+  it("rejects the upgrade when Core does not answer within the connect timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const abortReasons: unknown[] = [];
+      const coreFetch = vi.fn((request: Request) => {
+        request.signal.addEventListener(
+          "abort",
+          () => {
+            abortReasons.push(request.signal.reason);
+          },
+          { once: true }
+        );
+        return new Promise<Response>(() => {
+          // Keep the handshake pending so the timeout owns completion.
+        });
+      });
+      const responsePromise = app.fetch(
+        new Request(
+          "http://local/v1/account/invalidation-stream?organizationId=org-1",
+          { headers: { Upgrade: "websocket" } }
+        ),
+        {
+          OPENMELD_AUTH_WORKER: {
+            resolveRequestAuthWithProfile: createAuthenticatedResolver(),
+          },
+          OPENMELD_CORE_WORKER: { fetch: coreFetch },
+        } as unknown as CloudflareBindings,
+        executionContext
+      );
+      await vi.advanceTimersByTimeAsync(15_000);
+      const response = await responsePromise;
+
+      expect(response.status).toBe(504);
+      expect(abortReasons).toHaveLength(1);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: false,
+        error: { code: "upstream_unreachable" },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns an explicit rejection when the Core upgrade request fails", async () => {
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/account/invalidation-stream?organizationId=org-1",
+        { headers: { Upgrade: "websocket" } }
+      ),
+      {
+        OPENMELD_AUTH_WORKER: {
+          resolveRequestAuthWithProfile: createAuthenticatedResolver(),
+        },
+        OPENMELD_CORE_WORKER: {
+          fetch: vi.fn(() => Promise.reject(new Error("core unavailable"))),
+        },
+      } as unknown as CloudflareBindings,
+      executionContext
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error: { code: "upstream_unreachable" },
+    });
   });
 });

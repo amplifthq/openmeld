@@ -11,6 +11,12 @@ import { buildProfileDisplay } from "@openmeld/protocol";
 import type { Hono } from "hono";
 import { logAuditEvent } from "../audit";
 import type { HonoBindings } from "../lib/bindings";
+import {
+  closeRelayedWebSocket,
+  fetchUpstreamWebSocketUpgrade,
+  UPSTREAM_WEBSOCKET_UPGRADE_TIMEOUT_MS,
+  UpstreamWebSocketUpgradeTimeoutError,
+} from "../lib/websocket-upgrade-relay";
 import { createInitialState, handleClientFrame } from "../session";
 import { readSpacePasswordHeader } from "./rpc-http.helpers";
 
@@ -77,31 +83,32 @@ export function registerWebSocketRoute(app: Hono<HonoBindings>): void {
       upstreamHeaders.set(OPENMELD_HEADER_SPACE_PASSWORD, password);
     }
 
-    const upstreamRequest = new Request(upstreamUrl.toString(), {
-      method: "GET",
-      headers: upstreamHeaders,
-    });
-
     // Stream is intentionally the exception: keep HTTP upgrade proxying via
     // coreRpc.fetch while non-stream routes use pure typed RPC methods.
     let upstreamResp: Response;
     try {
-      upstreamResp = await Promise.resolve(
-        c.var.coreRpc.fetch(upstreamRequest)
-      );
+      upstreamResp = await fetchUpstreamWebSocketUpgrade({
+        fetchUpstream: (request) => c.var.coreRpc.fetch(request),
+        headers: upstreamHeaders,
+        timeoutMessage: `core space stream upgrade timeout after ${String(
+          UPSTREAM_WEBSOCKET_UPGRADE_TIMEOUT_MS
+        )}ms`,
+        url: upstreamUrl.toString(),
+      });
     } catch (err) {
+      const isTimeout = err instanceof UpstreamWebSocketUpgradeTimeoutError;
       logAuditEvent({
         event: "ws.reject",
         route: "/v1/spaces/:spaceId/stream",
         method: "GET",
         spaceId,
-        status: 502,
-        errorCode: "upstream_unreachable",
+        status: isTimeout ? 504 : 502,
+        errorCode: isTimeout ? "upstream_timeout" : "upstream_unreachable",
         profileKind: resolvedProfileKind,
         ...contextAuditFields(context),
       });
       return jsonErrorResponse({
-        status: 502,
+        status: isTimeout ? 504 : 502,
         code: "upstream_unreachable",
         message: toErrorMessage(err),
         requestId: context.actorContext.requestId,
@@ -164,16 +171,10 @@ export function registerWebSocketRoute(app: Hono<HonoBindings>): void {
         profileKind: resolvedProfileKind,
         ...contextAuditFields(context),
       });
-      try {
-        server.close(code, reason);
-      } catch {
-        // ignore
-      }
-      try {
-        upstream.close(code, reason);
-      } catch {
-        // ignore
-      }
+      // The audit event keeps the observed code. The wire code is normalized
+      // so a codeless or abnormal closure on one side still closes the other.
+      closeRelayedWebSocket(server, code, reason);
+      closeRelayedWebSocket(upstream, code, reason);
     };
 
     const sendToServer = (payload: string | ArrayBuffer): void => {

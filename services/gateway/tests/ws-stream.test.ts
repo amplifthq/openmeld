@@ -4,7 +4,7 @@ import {
 } from "@openmeld/gateway-contract";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import app from "../src/index";
-import { waitForJsonMessage } from "./test-support/ws-stream";
+import { waitForClose, waitForJsonMessage } from "./test-support/ws-stream";
 
 const TEST_EXECUTION_CONTEXT = {
   waitUntil: () => undefined,
@@ -683,6 +683,92 @@ describe("gateway websocket stream", () => {
 
     clientSocket.close(1000, "done");
     upstreamServerSocket.close(1000, "done");
+  });
+
+  it("closes the client when Core closes the stream without a status code", async () => {
+    let resolveUpstreamSocket: ((socket: AcceptableWebSocket) => void) | null =
+      null;
+    const upstreamSocketReady = new Promise<AcceptableWebSocket>((resolve) => {
+      resolveUpstreamSocket = resolve;
+    });
+    const upstreamFetch = vi.fn((_request: Request) => {
+      const [upstreamClient, upstreamServer] = createWebSocketPair();
+      upstreamServer.accept();
+      resolveUpstreamSocket?.(upstreamServer);
+      return Promise.resolve(
+        new Response(null, { status: 101, webSocket: upstreamClient })
+      );
+    });
+    const env = {
+      OPENMELD_CORE_WORKER: { fetch: upstreamFetch },
+      OPENMELD_AUTH_WORKER: createAuthWorkerMock(),
+    } as unknown as CloudflareBindings;
+
+    const response = await app.fetch(
+      new Request("http://local/v1/spaces/demo/stream", {
+        headers: { Upgrade: "websocket" },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(101);
+    const clientSocket = response.webSocket;
+    if (!clientSocket) {
+      throw new Error("Missing client websocket");
+    }
+    clientSocket.accept();
+    const clientClosed = waitForClose(clientSocket);
+
+    // A codeless close surfaces as the reserved 1005 on the Gateway's side of
+    // the Core socket; that code cannot be written back to the client as-is.
+    (await upstreamSocketReady).close();
+
+    await expect(clientClosed).resolves.toEqual({
+      code: 1011,
+      reason: "upstream_closed",
+    });
+  });
+
+  it("rejects the upgrade when Core does not answer within the connect timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const abortReasons: unknown[] = [];
+      const upstreamFetch = vi.fn((request: Request) => {
+        request.signal.addEventListener(
+          "abort",
+          () => {
+            abortReasons.push(request.signal.reason);
+          },
+          { once: true }
+        );
+        return new Promise<Response>(() => {
+          // Keep the handshake pending so the timeout owns completion.
+        });
+      });
+      const env = {
+        OPENMELD_CORE_WORKER: { fetch: upstreamFetch },
+        OPENMELD_AUTH_WORKER: createAuthWorkerMock(),
+      } as unknown as CloudflareBindings;
+
+      const responsePromise = app.fetch(
+        new Request("http://local/v1/spaces/demo/stream", {
+          headers: { Upgrade: "websocket" },
+        }),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      await vi.advanceTimersByTimeAsync(15_000);
+      const response = await responsePromise;
+
+      expect(response.status).toBe(504);
+      expect(abortReasons).toHaveLength(1);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: false,
+        error: { code: "upstream_unreachable", requestId: "req-test" },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

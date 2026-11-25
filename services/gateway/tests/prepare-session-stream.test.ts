@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import app from "../src/index";
-import { decodeEventData } from "./test-support/ws-stream";
+import { decodeEventData, waitForClose } from "./test-support/ws-stream";
 
 const TEST_EXECUTION_CONTEXT = {
   waitUntil: () => undefined,
@@ -225,6 +225,92 @@ describe("gateway prepare session stream", () => {
 
     expect(response.status).toBe(101);
     await expect(upstreamMessagePromise).resolves.toBe("terminal-step-frame");
+  });
+
+  it("closes the client when Core closes the stream without a status code", async () => {
+    let upstreamServerSocket: AcceptableWebSocket | null = null;
+    const upstreamFetch = vi.fn(() => {
+      const [upstreamClient, upstreamServer] = createWebSocketPair();
+      upstreamServer.accept();
+      upstreamServerSocket = upstreamServer;
+      return Promise.resolve(
+        new Response(null, { status: 101, webSocket: upstreamClient })
+      );
+    });
+    const env = {
+      OPENMELD_CORE_WORKER: { fetch: upstreamFetch },
+      OPENMELD_AUTH_WORKER: createAuthWorkerMock(),
+    } as unknown as CloudflareBindings;
+
+    const response = await app.fetch(
+      new Request("http://local/v1/prepare/sessions/prep-123/stream?role=web", {
+        headers: { Upgrade: "websocket" },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(101);
+    const clientSocket = response.webSocket;
+    if (!clientSocket) {
+      throw new Error("Missing client websocket");
+    }
+    clientSocket.accept();
+    const clientClosed = waitForClose(clientSocket);
+
+    (upstreamServerSocket as AcceptableWebSocket | null)?.close();
+
+    await expect(clientClosed).resolves.toEqual({
+      code: 1011,
+      reason: "upstream_closed",
+    });
+  });
+
+  it("reports an upgrade timeout on the accepted client socket", async () => {
+    vi.useFakeTimers();
+    try {
+      const upstreamFetch = vi.fn(
+        () =>
+          new Promise<Response>(() => {
+            // Keep the handshake pending so the timeout owns completion.
+          })
+      );
+      const env = {
+        OPENMELD_CORE_WORKER: { fetch: upstreamFetch },
+        OPENMELD_AUTH_WORKER: createAuthWorkerMock(),
+      } as unknown as CloudflareBindings;
+
+      const responsePromise = app.fetch(
+        new Request(
+          "http://local/v1/prepare/sessions/prep-123/stream?role=web",
+          { headers: { Upgrade: "websocket" } }
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      await vi.advanceTimersByTimeAsync(15_000);
+      const response = await responsePromise;
+
+      expect(response.status).toBe(101);
+      const clientSocket = response.webSocket;
+      if (!clientSocket) {
+        throw new Error("Missing client websocket");
+      }
+      const frames: string[] = [];
+      clientSocket.addEventListener("message", (event) => {
+        frames.push(decodeEventData(event.data));
+      });
+      const clientClosed = waitForClose(clientSocket);
+      clientSocket.accept();
+      vi.useRealTimers();
+
+      await expect(clientClosed).resolves.toEqual({
+        code: 1011,
+        reason: "upstream_unreachable",
+      });
+      expect(frames.join("")).toContain("upstream_unreachable");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

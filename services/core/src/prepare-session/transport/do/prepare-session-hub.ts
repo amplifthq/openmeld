@@ -410,6 +410,12 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
     exceptSocket?: WebSocket
   ): void {
     this.syncTerminalBinding(snapshot);
+    // Validate once before the loop so an invalid frame still fails the
+    // caller, while a broken recipient socket only affects that recipient.
+    const serializedFrame = this.serializeFrame({
+      type: "snapshot_changed",
+      payload: { snapshot },
+    });
     for (const socket of this.ctx.getWebSockets()) {
       if (socket === exceptSocket) {
         continue;
@@ -418,7 +424,21 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       if (attachment.prepareSessionId !== snapshot.prepareSessionId) {
         continue;
       }
-      this.sendSnapshot(socket, snapshot, "snapshot_changed");
+      if (socket.readyState !== WebSocket.OPEN) {
+        continue;
+      }
+      try {
+        socket.send(serializedFrame);
+      } catch {
+        // Delivery is per recipient: one socket that broke mid-broadcast must
+        // not keep the remaining recipients on a stale snapshot. Closing it
+        // makes that recipient reconnect and read the current snapshot.
+        try {
+          socket.close(1011, "snapshot_delivery_failed");
+        } catch {
+          // The socket is already closed.
+        }
+      }
     }
   }
   private broadcastConnectionProgress(
@@ -533,13 +553,16 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
     webSocket: WebSocket,
     frame: PrepareSessionStreamServerFrame
   ): void {
+    webSocket.send(this.serializeFrame(frame));
+  }
+  private serializeFrame(frame: PrepareSessionStreamServerFrame): string {
     const parsed = prepareSessionStreamServerFrameSchema.safeParse(frame);
     if (!parsed.success) {
       throw new Error(
         `invalid prepare session server frame: ${parsed.error.message}`
       );
     }
-    webSocket.send(JSON.stringify(parsed.data));
+    return JSON.stringify(parsed.data);
   }
   private requireDb(): PostgresDatabase {
     const db = getPostgresDatabase(this.env);

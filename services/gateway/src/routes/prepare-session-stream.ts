@@ -6,6 +6,11 @@ import {
 } from "@openmeld/gateway-contract";
 import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
+import {
+  closeRelayedWebSocket,
+  fetchUpstreamWebSocketUpgrade,
+  UPSTREAM_WEBSOCKET_UPGRADE_TIMEOUT_MS,
+} from "../lib/websocket-upgrade-relay";
 
 type AcceptableWebSocket = WebSocket & {
   accept(): void;
@@ -68,9 +73,9 @@ export function registerPrepareSessionStreamRoute(
         return;
       }
       closed = true;
-      safeClose(server, code, reason);
+      closeRelayedWebSocket(server, code, reason);
       if (upstream) {
-        safeClose(upstream, code, reason);
+        closeRelayedWebSocket(upstream, code, reason);
       }
     };
 
@@ -111,15 +116,18 @@ export function registerPrepareSessionStreamRoute(
             [PREPARE_TOKEN_HEADER]: c.req.header(PREPARE_TOKEN_HEADER) ?? "",
           });
 
-    const upstreamResponse = await Promise.resolve(
-      c.var.coreRpc.fetch(
-        new Request(upstreamUrl.toString(), {
-          headers: upstreamHeaders,
-          method: "GET",
-        })
-      )
-    ).catch((error) => {
-      server.send(
+    // The client socket is already accepted, so a failed or stalled upgrade
+    // is reported on that socket instead of leaving the client waiting.
+    const upstreamResponse = await fetchUpstreamWebSocketUpgrade({
+      fetchUpstream: (request) => c.var.coreRpc.fetch(request),
+      headers: upstreamHeaders,
+      timeoutMessage: `core prepare session stream upgrade timeout after ${String(
+        UPSTREAM_WEBSOCKET_UPGRADE_TIMEOUT_MS
+      )}ms`,
+      url: upstreamUrl.toString(),
+    }).catch((error) => {
+      sendWebSocketFrame(
+        server,
         wsErrorFrame({
           code: "upstream_unreachable",
           message: toErrorMessage(error),
@@ -164,14 +172,6 @@ export function registerPrepareSessionStreamRoute(
 
     return new Response(null, { status: 101, webSocket: client });
   });
-}
-
-function safeClose(webSocket: WebSocket, code: number, reason: string): void {
-  try {
-    webSocket.close(code, reason);
-  } catch {
-    // Socket may already be closed.
-  }
 }
 
 function readWebSocketFrame(data: unknown): WebSocketFrame | null {

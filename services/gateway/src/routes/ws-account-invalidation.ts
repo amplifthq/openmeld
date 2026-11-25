@@ -1,10 +1,17 @@
 import {
   applyOpenMeldRequestContextHeaders,
   jsonErrorResponse,
+  toErrorMessage,
   withRequestIdHeader,
 } from "@openmeld/gateway-contract";
 import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
+import {
+  closeRelayedWebSocket,
+  fetchUpstreamWebSocketUpgrade,
+  UPSTREAM_WEBSOCKET_UPGRADE_TIMEOUT_MS,
+  UpstreamWebSocketUpgradeTimeoutError,
+} from "../lib/websocket-upgrade-relay";
 
 type AcceptedWebSocket = WebSocket & { accept(): void };
 
@@ -26,9 +33,25 @@ export function registerAccountInvalidationStreamRoute(
       new Headers({ Upgrade: "websocket" }),
       { requestContext: context }
     );
-    const upstream = await Promise.resolve(
-      c.var.coreRpc.fetch(new Request(c.req.url, { headers: upstreamHeaders }))
-    );
+    let upstream: Response;
+    try {
+      upstream = await fetchUpstreamWebSocketUpgrade({
+        fetchUpstream: (request) => c.var.coreRpc.fetch(request),
+        headers: upstreamHeaders,
+        timeoutMessage: `core account invalidation stream upgrade timeout after ${String(
+          UPSTREAM_WEBSOCKET_UPGRADE_TIMEOUT_MS
+        )}ms`,
+        url: c.req.url,
+      });
+    } catch (error) {
+      return jsonErrorResponse({
+        status:
+          error instanceof UpstreamWebSocketUpgradeTimeoutError ? 504 : 502,
+        code: "upstream_unreachable",
+        message: toErrorMessage(error),
+        requestId,
+      });
+    }
     if (upstream.status !== 101) {
       return withRequestIdHeader(upstream, requestId);
     }
@@ -53,18 +76,8 @@ export function registerAccountInvalidationStreamRoute(
         return;
       }
       closed = true;
-      // Reserved local-only codes cannot be sent in a Close frame.
-      const wireCode = [1004, 1005, 1006, 1015].includes(code) ? 1011 : code;
-      try {
-        server.close(wireCode, reason);
-      } catch {
-        // Both endpoints may already have closed.
-      }
-      try {
-        upstreamSocket.close(wireCode, reason);
-      } catch {
-        // Both endpoints may already have closed.
-      }
+      closeRelayedWebSocket(server, code, reason);
+      closeRelayedWebSocket(upstreamSocket, code, reason);
     };
     server.addEventListener("message", (event) => {
       if (event.data !== "ping") {
