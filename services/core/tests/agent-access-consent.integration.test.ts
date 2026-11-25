@@ -872,26 +872,51 @@ describe("Colleague use of an Agent (Phase 4)", () => {
         expect(
           readSpaceMemberRecord(space.state.storage.sql, f.felix.profileId)
         ).toBeNull();
+        const observerJoin = {
+          context: space.context(f.felix),
+          members: [
+            {
+              agentControllerRef: null,
+              ownerName: f.felix.name,
+              ownerUserId: f.felix.userId,
+              profileId: f.felix.profileId,
+              profileKind: "human" as const,
+              profileName: f.felix.name,
+            },
+          ],
+          spaceId: space.spaceId,
+        };
         await expect(
           space.instance.rpcPostMembers({
-            context: space.context(f.felix),
-            members: [
-              {
-                agentControllerRef: null,
-                ownerName: f.felix.name,
-                ownerUserId: f.felix.userId,
-                profileId: f.felix.profileId,
-                profileKind: "human",
-                profileName: f.felix.name,
-              },
-            ],
+            ...observerJoin,
             requireActorMembership: true,
-            spaceId: space.spaceId,
           })
         ).rejects.toMatchObject({
           code: "space.membership_required",
           status: 403,
         });
+        await expect(
+          space.instance.rpcPostMembers({
+            ...observerJoin,
+            members: [
+              ...observerJoin.members,
+              {
+                agentControllerRef: null,
+                ownerName: f.sam.name,
+                ownerUserId: f.sam.userId,
+                profileId: f.sam.profileId,
+                profileKind: "human",
+                profileName: f.sam.name,
+              },
+            ],
+          })
+        ).rejects.toMatchObject({
+          code: "space.membership_required",
+          status: 403,
+        });
+        expect(
+          readSpaceMemberRecord(space.state.storage.sql, f.sam.profileId)
+        ).toBeNull();
         const [dispatched] = space.outbox(message);
         expect(dispatched?.requestChain).toEqual([
           { kind: "human", profileId: f.tali.profileId },
@@ -941,6 +966,12 @@ describe("Colleague use of an Agent (Phase 4)", () => {
         expect(
           readSpaceMemberRecord(space.state.storage.sql, f.felix.profileId)
         ).toBeNull();
+
+        await space.instance.rpcPostMembers(observerJoin);
+        expect(
+          readSpaceMemberRecord(space.state.storage.sql, f.felix.profileId)
+            ?.status
+        ).toBe("active");
       }
     );
   });
