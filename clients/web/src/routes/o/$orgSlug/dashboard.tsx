@@ -1,3 +1,4 @@
+import { organizationDashboardArtifactSchema } from "@openmeld/schemas";
 import { ChartBarIcon } from "@phosphor-icons/react";
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod/v4";
@@ -18,14 +19,10 @@ export const Route = createFileRoute("/o/$orgSlug/dashboard")({
 			.optional()
 			.catch(undefined),
 		draftName: z.string().trim().min(1).max(100).optional().catch(undefined),
-		draftArtifactSpaceId: z
-			.string()
-			.regex(/^[A-Za-z0-9_-]{1,256}$/u)
+		draftArtifactSpaceId: organizationDashboardArtifactSchema.shape.spaceId
 			.optional()
 			.catch(undefined),
-		draftArtifactFileId: z
-			.string()
-			.regex(/^[A-Za-z0-9_-]{1,256}$/u)
+		draftArtifactFileId: organizationDashboardArtifactSchema.shape.fileId
 			.optional()
 			.catch(undefined),
 		draftArtifactRevision: z.coerce

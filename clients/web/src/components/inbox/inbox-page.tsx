@@ -402,12 +402,14 @@ export function InboxPage(input: {
 		);
 	};
 	const renderFeedPanel = () => {
+		const githubResult = githubIssues.data?.result;
 		const githubPreventsEmpty =
 			isTodo &&
 			(githubIssues.visibleIssues.length > 0 ||
 				githubIssues.isFetching ||
 				githubIssues.isError ||
-				githubIssues.data?.result.status === "unavailable");
+				githubResult?.status === "unavailable" ||
+				(githubResult?.status === "ready" && githubResult.partial));
 		const showEmpty =
 			Boolean(firstPage) &&
 			rows.length === 0 &&

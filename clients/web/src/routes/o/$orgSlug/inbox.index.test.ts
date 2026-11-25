@@ -44,11 +44,11 @@ describe("Inbox index route", () => {
 		);
 	});
 
-	it("prefetches To do by default and retains the explicit Activity URL", () => {
+	it("uses one TODO feed even when an old URL selects Activity", () => {
 		const loaderDeps = Route.options.loaderDeps;
 		expect(loaderDeps?.({ search: {} })).toMatchObject({ category: "todo" });
 		expect(loaderDeps?.({ search: { view: "all" } })).toMatchObject({
-			category: "all",
+			category: "todo",
 		});
 	});
 

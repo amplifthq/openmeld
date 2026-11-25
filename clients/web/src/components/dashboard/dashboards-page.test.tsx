@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -44,16 +45,20 @@ const item = {
 function renderDashboard(
 	props: Partial<React.ComponentProps<typeof DashboardsPage>> = {}
 ) {
-	return render(
-		<QueryClientProvider client={new QueryClient()}>
-			<DashboardsPage
-				accountId="reader"
-				organizationId="org-1"
-				orgSlug="example"
-				{...props}
-			/>
-		</QueryClientProvider>
-	);
+	const client = new QueryClient();
+	return {
+		client,
+		...render(
+			<QueryClientProvider client={client}>
+				<DashboardsPage
+					accountId="reader"
+					organizationId="org-1"
+					orgSlug="example"
+					{...props}
+				/>
+			</QueryClientProvider>
+		),
+	};
 }
 
 describe("workspace Dashboards", () => {
@@ -86,6 +91,54 @@ describe("workspace Dashboards", () => {
 				},
 				organizationId: "org-1",
 			})
+		);
+	});
+
+	it.each([
+		false,
+		true,
+	])("preserves a dashboard draft on a background refresh error (editing existing: %s)", async (existing) => {
+		const editable = {
+			...item,
+			canManage: true,
+			kind: "traffic",
+			repository: null,
+		};
+		const snapshot = {
+			dashboards: existing ? [editable] : [],
+			organizationId: "org-1",
+		};
+		mocks.list.mockResolvedValue(snapshot);
+		const { client } = renderDashboard({ id: existing ? item.id : undefined });
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: existing ? "Edit dashboard" : "New dashboard",
+			})
+		);
+		fireEvent.change(screen.getByLabelText("Name"), {
+			target: { value: "Unsubmitted changes" },
+		});
+		mocks.list.mockRejectedValueOnce(new Error("Temporary transport error"));
+		await act(async () => {
+			await client.invalidateQueries({ queryKey: ["organization-dashboards"] });
+		});
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"Dashboards couldn’t be loaded"
+		);
+		expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
+			"Unsubmitted changes"
+		);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: existing ? "Save changes" : "Create dashboard",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+		expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
+			"Unsubmitted changes"
 		);
 	});
 

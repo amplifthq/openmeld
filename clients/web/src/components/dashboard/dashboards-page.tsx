@@ -25,6 +25,18 @@ type DashboardScope = {
 	orgSlug: string;
 };
 
+function canKeepDashboardDraft(
+	editing: boolean,
+	hasCachedData: boolean,
+	error: Error | null
+) {
+	if (!(editing && hasCachedData)) {
+		return false;
+	}
+	const status = error && "status" in error ? error.status : undefined;
+	return status !== 401 && status !== 403 && status !== 404;
+}
+
 export function DashboardsPage({
 	id,
 	prefill,
@@ -65,6 +77,10 @@ export function DashboardsPage({
 	const selected = id
 		? dashboards.find((dashboard) => dashboard.id === id)
 		: undefined;
+	const showContent =
+		query.isSuccess ||
+		canKeepDashboardDraft(editing, Boolean(query.data), query.error);
+	const editorBusy = mutation.isPending || query.isError;
 	return (
 		<section className="flex w-full min-w-0 flex-col gap-5 py-[var(--app-page-block-padding)]">
 			{id && (
@@ -95,7 +111,7 @@ export function DashboardsPage({
 					This dashboard is no longer available.
 				</p>
 			)}
-			{query.isSuccess && selected && (
+			{showContent && selected && (
 				<>
 					{selected.canManage && !editing && (
 						<div className="flex flex-wrap gap-2">
@@ -146,7 +162,7 @@ export function DashboardsPage({
 					)}
 					{editing ? (
 						<DashboardEditor
-							busy={mutation.isPending}
+							busy={editorBusy}
 							dashboard={selected}
 							onCancel={() => setEditing(false)}
 							onSave={mutation.mutate}
@@ -157,11 +173,11 @@ export function DashboardsPage({
 					)}
 				</>
 			)}
-			{query.isSuccess && !id && (
+			{showContent && !id && (
 				<>
 					{editing ? (
 						<DashboardEditor
-							busy={mutation.isPending}
+							busy={editorBusy}
 							onCancel={() => setEditing(false)}
 							onSave={mutation.mutate}
 							orgSlug={scope.orgSlug}
