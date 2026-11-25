@@ -20193,25 +20193,25 @@ export async function rpcConvertDirectMessageToSpace(
       })
   );
   if (isMemberAgentsEnabled()) {
-    // Agents already in the Direct Message were consented to; a new one
-    // is asked for like any other addition.
-    await rejectNonOwnerPersonalAgentAdditions({
+    await authorizeColleagueAgentAdditions({
+      context,
       db,
+      env,
       members: members.filter(
         (member) => !currentMemberProfileIds.has(member.profileId)
       ),
       organizationId: activeOrganization.organizationId,
-      rootUserId: normalizeOptionalText(context.actorContext.ownerUserId),
     });
   }
-  const membersWithAgentOwners = await resolveSpaceMembersWithAgentOwners({
-    context,
-    env,
-    expandAgentOwnersInDirectMessageConversion: true,
-    members: [...members, ...currentAgentMembers],
-    spaceId,
-    stub,
-  });
+  const { members: membersWithAgentOwners } =
+    await resolveSpaceMembersWithAgentOwners({
+      context,
+      env,
+      expandAgentOwnersInDirectMessageConversion: true,
+      members: [...members, ...currentAgentMembers],
+      spaceId,
+      stub,
+    });
   const response = await stub.rpcConvertDirectMessageToSpace({
     context,
     ...(parsed.data.includeMemberSnapshots
@@ -24253,14 +24253,15 @@ export async function rpcAddSpaceMembers(
 ): Promise<PostSpaceMembersResponse> {
   const context = requireRpcContext(input.context);
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  const members = await resolveSpaceMembersWithAgentOwners({
-    context,
-    env,
-    members: input.members,
-    ...(input.password === undefined ? {} : { password: input.password }),
-    spaceId,
-    stub,
-  });
+  const { members, requiresActorMembership } =
+    await resolveSpaceMembersWithAgentOwners({
+      context,
+      env,
+      members: input.members,
+      ...(input.password === undefined ? {} : { password: input.password }),
+      spaceId,
+      stub,
+    });
   await assertAdditionalMembersCanBeAddedToSpace({
     env,
     members,
@@ -24269,7 +24270,7 @@ export async function rpcAddSpaceMembers(
   return await stub.rpcPostMembers({
     spaceId,
     members,
-    ...(input.requireActorMembership === true
+    ...(input.requireActorMembership === true || requiresActorMembership
       ? { requireActorMembership: true }
       : {}),
     ...(input.password === undefined ? {} : { password: input.password }),
@@ -24284,7 +24285,10 @@ async function resolveSpaceMembersWithAgentOwners(input: {
   password?: string;
   spaceId: string;
   stub: SpaceRpcStub;
-}): Promise<ResolvedSpaceMemberProfile[]> {
+}): Promise<{
+  members: ResolvedSpaceMemberProfile[];
+  requiresActorMembership: boolean;
+}> {
   const spaceMeta = await readSpaceMetaForMemberResolution(input);
   const identityDb = requireIdentityDb(input.env);
   const profileContexts = await readSpaceMemberProfileContexts({
@@ -24302,19 +24306,18 @@ async function resolveSpaceMembersWithAgentOwners(input: {
     !spaceMeta.directMessage?.convertedAt &&
     input.expandAgentOwnersInDirectMessageConversion !== true
   ) {
-    return [...input.members];
+    return { members: [...input.members], requiresActorMembership: false };
   }
-  if (
+  const requiresActorMembership =
     isMemberAgentsEnabled() &&
-    input.expandAgentOwnersInDirectMessageConversion !== true
-  ) {
-    await rejectNonOwnerPersonalAgentAdditions({
+    input.expandAgentOwnersInDirectMessageConversion !== true &&
+    (await authorizeColleagueAgentAdditions({
+      context: input.context,
       db: identityDb,
+      env: input.env,
       members: input.members,
       organizationId: spaceMeta.organizationId,
-      rootUserId: normalizeOptionalText(input.context.actorContext.ownerUserId),
-    });
-  }
+    }));
   const ownerHumans = await resolveAgentOwnerHumanMembers({
     db: identityDb,
     members: input.members,
@@ -24322,26 +24325,27 @@ async function resolveSpaceMembersWithAgentOwners(input: {
     profileContexts,
   });
   const seenProfileIds = new Set<string>();
-  return [...input.members, ...ownerHumans].filter((member) => {
-    if (seenProfileIds.has(member.profileId)) {
-      return false;
-    }
-    seenProfileIds.add(member.profileId);
-    return true;
-  });
+  return {
+    members: [...input.members, ...ownerHumans].filter((member) => {
+      if (seenProfileIds.has(member.profileId)) {
+        return false;
+      }
+      seenProfileIds.add(member.profileId);
+      return true;
+    }),
+    requiresActorMembership,
+  };
 }
-/**
- * Only the owner adds their own Agent (with themselves, atomically). Anyone
- * else asks the owner instead (design-plans/member-agent-program.md §4.6),
- * and a caller without a human root, such as the Center Agent, cannot add
- * another owner's Agent at all.
- */
-async function rejectNonOwnerPersonalAgentAdditions(input: {
+
+// A direct addition of a teammate's Agent requires membership in both the
+// Organization and the destination Space. The Space verifies its own membership.
+async function authorizeColleagueAgentAdditions(input: {
+  context: CoreRpcContextInput;
   db: PostgresDatabase;
+  env: CoreBindings;
   members: readonly ResolvedSpaceMemberProfile[];
   organizationId: string;
-  rootUserId: string | null;
-}): Promise<void> {
+}): Promise<boolean> {
   const targets = await readAgentAccessTargets({
     db: asQueryable(input.db),
     organizationId: input.organizationId,
@@ -24349,16 +24353,39 @@ async function rejectNonOwnerPersonalAgentAdditions(input: {
       .filter((member) => member.profileKind === "agent")
       .map((member) => member.profileId),
   });
-  for (const target of targets.values()) {
-    if (target.ownerUserId === input.rootUserId) {
-      continue;
-    }
+  const actor = input.context.actorContext;
+  const actorOwnerUserId = normalizeOptionalText(actor.ownerUserId);
+  const addsColleagueAgent = [...targets.values()].some(
+    (target) => target.ownerUserId !== actorOwnerUserId
+  );
+  if (!addsColleagueAgent) {
+    return false;
+  }
+  const userId = normalizeOptionalText(actor.callerPrincipalId);
+  if (
+    !(actor.profileKind === "human" && userId && userId === actorOwnerUserId)
+  ) {
     throw createCoreRpcHttpError({
-      status: 409,
-      code: "agent_access.request_required",
-      reason: `Only ${target.ownerName} can add ${target.profileName}. Ask them from Add members or by mentioning it.`,
+      code: "space.forbidden",
+      reason:
+        "Only Organization members can add a teammate's Agent to a Space.",
+      status: 403,
     });
   }
+  const membership = await resolveOrganizationMembershipById({
+    env: input.env,
+    organizationId: input.organizationId,
+    requestId: actor.requestId,
+    userId,
+  });
+  if (!membership.ok) {
+    throw createCoreRpcHttpError({
+      code: membership.code,
+      reason: membership.message,
+      status: membership.status,
+    });
+  }
+  return true;
 }
 async function readSpaceMetaForMemberResolution(input: {
   context: CoreRpcContextInput;

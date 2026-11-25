@@ -9822,7 +9822,7 @@ describe("organization Core RPC", () => {
     });
   });
 
-  it("lets only the owner add their MemberAgent, still with the owner, once MemberAgents are on", async () => {
+  it("lets Organization members add a teammate's MemberAgent and its owner", async () => {
     const spaceId =
       "aeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeae";
     const db = await createOrganizationRpcDb({
@@ -9876,25 +9876,43 @@ describe("organization Core RPC", () => {
           members: [agent],
           spaceId,
         })
-      ).rejects.toMatchObject({
-        code: "agent_access.request_required",
-        status: 409,
+      ).resolves.toMatchObject({
+        addedMemberIds: [AGENT_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
       });
-      expect(spaceStub.rpcPostMembers).not.toHaveBeenCalled();
+      expect(spaceStub.rpcPostMembers).toHaveBeenLastCalledWith(
+        expect.objectContaining({ requireActorMembership: true })
+      );
 
       await expect(
         rpcAddSpaceMembers(env, {
           context: buildContext({
             activeOrganizationId: "org-a",
+            userId: "outside-user",
+          }),
+          members: [agent],
+          spaceId,
+        })
+      ).rejects.toMatchObject({
+        code: "organization.membership_required",
+        status: 403,
+      });
+      expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
+
+      await expect(
+        rpcAddSpaceMembers(env, {
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            profileId: SECOND_HUMAN_PROFILE_ID,
             userId: "user-b",
           }),
           members: [agent],
           spaceId,
         })
       ).resolves.toMatchObject({
-        addedMemberIds: [AGENT_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
+        addedMemberIds: [],
+        alreadyMemberIds: [AGENT_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
       });
-      expect(spaceStub.rpcPostMembers).toHaveBeenCalledWith(
+      expect(spaceStub.rpcPostMembers).toHaveBeenLastCalledWith(
         expect.objectContaining({
           members: [
             expect.objectContaining({ profileId: AGENT_PROFILE_ID }),
@@ -10650,7 +10668,7 @@ describe("organization Core RPC", () => {
     });
   });
 
-  it("adds an existing Agent's owner when another member converts the Direct Message", async () => {
+  it("adds a teammate's Agent and its owner when converting a Direct Message", async () => {
     const spaceId =
       "7878787878787878787878787878787878787878787878787878787878787878";
     const db = await createOrganizationRpcDb({
@@ -10665,7 +10683,7 @@ describe("organization Core RPC", () => {
         },
         {
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: "user-b",
           profileHandle: "new-agent",
           profileId: SECOND_AGENT_PROFILE_ID,
           profileName: "New Agent",
@@ -10702,16 +10720,21 @@ describe("organization Core RPC", () => {
       userId: "user-a",
     });
 
-    await expect(
-      rpcConvertDirectMessageToSpace(env, {
-        context,
-        name: "Ava and the Agents",
-        profileIds: [SECOND_AGENT_PROFILE_ID],
-        spaceId,
-      })
-    ).resolves.toMatchObject({
-      addedMemberIds: [SECOND_AGENT_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
-    });
+    memberAgentsFeature.enabled = true;
+    try {
+      await expect(
+        rpcConvertDirectMessageToSpace(env, {
+          context,
+          name: "Ava and the Agents",
+          profileIds: [SECOND_AGENT_PROFILE_ID],
+          spaceId,
+        })
+      ).resolves.toMatchObject({
+        addedMemberIds: [SECOND_AGENT_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
+      });
+    } finally {
+      memberAgentsFeature.enabled = false;
+    }
     expect(spaceStub.rpcConvertDirectMessageToSpace).toHaveBeenCalledWith({
       context,
       members: [
