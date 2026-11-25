@@ -1,8 +1,12 @@
-import type { AgentActivitySnapshotResponse } from "@openmeld/schemas/types";
+import { AGENT_ACTIVITY_PRESENCE_TTL_MAX_MS } from "@openmeld/schemas";
+import type {
+	AgentActivityInventorySession,
+	AgentActivitySessionInventoryResponse,
+} from "@openmeld/schemas/types";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { formatLocalAgentDisplayName } from "#/components/profiles/local-agent-display-name";
-import { agentActivitySnapshotQueryOptions } from "#/query/organizations/agent-activity";
+import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
+import { agentActivitySessionsQueryOptions } from "#/query/organizations/agent-activity";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
 	month: "short",
@@ -11,69 +15,72 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 	minute: "2-digit",
 });
 
-const eventLabels = {
-	session_started: "Started",
-	session_ended: "Ended",
-	session_error: "Failed",
-	session_idle: "Paused",
-} as const;
-
 export function MemberSharedActivity(input: {
 	organizationId: string;
 	memberUserId: string;
 	nowMs: number;
 }) {
-	const query = useQuery(
-		agentActivitySnapshotQueryOptions({
-			organizationId: input.organizationId,
-			memberUserId: input.memberUserId,
-		})
-	);
-	if (!query.isSuccess || query.data.organizationId !== input.organizationId) {
+	const viewer = useOptionalAppOrganization();
+	const hasViewer =
+		Boolean(viewer?.currentUserId) &&
+		viewer?.currentOrganization.id === input.organizationId;
+	const options = agentActivitySessionsQueryOptions({
+		enabled: hasViewer,
+		limit: 12,
+		organizationId: input.organizationId,
+		memberUserId: input.memberUserId,
+	});
+	const query = useQuery({
+		...options,
+		// Do not reuse an authorized response under another account.
+		queryKey: [...options.queryKey, "member-profile", viewer?.currentUserId],
+		gcTime: 0,
+		staleTime: 0,
+	});
+	if (
+		!(hasViewer && query.isSuccess) ||
+		query.fetchStatus === "paused" ||
+		query.data.organization.id !== input.organizationId
+	) {
 		return null;
 	}
 	return (
 		<MemberSharedActivityReadout
+			inventory={query.data}
 			memberUserId={input.memberUserId}
 			nowMs={input.nowMs}
-			snapshot={query.data}
 		/>
 	);
 }
 
+function currentFocus(session: AgentActivityInventorySession, nowMs: number) {
+	return (
+		session.dataState === "current" &&
+		session.computer.state === "online" &&
+		session.status === "working" &&
+		session.lastActiveAtMs + AGENT_ACTIVITY_PRESENCE_TTL_MAX_MS > nowMs
+	);
+}
+
 export function MemberSharedActivityReadout(input: {
-	snapshot: AgentActivitySnapshotResponse;
+	inventory: AgentActivitySessionInventoryResponse;
 	memberUserId: string;
 	nowMs: number;
 }) {
-	const projects = new Map(
-		input.snapshot.projects.map((project) => [project.id, project.name])
-	);
-	const sessions = input.snapshot.sessions
-		.filter((session) => session.memberUserId === input.memberUserId)
-		.toSorted((a, b) => b.lastObservedAtMs - a.lastObservedAtMs);
+	const sessions = input.inventory.sessions
+		.filter(
+			(session) =>
+				session.owner.userId === input.memberUserId &&
+				session.organization.id === input.inventory.organization.id
+		)
+		.toSorted((a, b) => b.lastActiveAtMs - a.lastActiveAtMs);
 	const focus = [
 		...new Set(
 			sessions
-				.filter(
-					(session) =>
-						session.isActive &&
-						session.expiresAtMs > input.nowMs &&
-						session.lastObservedAtMs + input.snapshot.stalenessThresholdMs >
-							input.nowMs
-				)
-				.map((session) => projects.get(session.projectId))
-				.filter((name): name is string => Boolean(name))
+				.filter((session) => currentFocus(session, input.nowMs))
+				.map((session) => session.project.name)
 		),
 	].slice(0, 3);
-	const recentEvents = input.snapshot.recentEvents
-		.filter(
-			(event) =>
-				event.memberUserId === input.memberUserId &&
-				Object.hasOwn(eventLabels, event.eventType)
-		)
-		.toSorted((a, b) => b.observedAtMs - a.observedAtMs)
-		.slice(0, 4);
 	return (
 		<>
 			{focus.length > 0 ? (
@@ -89,28 +96,10 @@ export function MemberSharedActivityReadout(input: {
 				<ActivitySection title="Recent sessions">
 					{sessions.slice(0, 5).map((session) => (
 						<ActivityRow
-							at={session.lastObservedAtMs}
-							detail={projects.get(session.projectId)}
-							key={session.id}
-							title={
-								session.title || formatLocalAgentDisplayName(session.provider)
-							}
-						/>
-					))}
-				</ActivitySection>
-			) : null}
-			{recentEvents.length > 0 ? (
-				<ActivitySection title="Activity">
-					{recentEvents.map((event) => (
-						<ActivityRow
-							at={event.observedAtMs}
-							detail={eventLabels[event.eventType as keyof typeof eventLabels]}
-							key={event.eventId}
-							title={
-								event.title ||
-								projects.get(event.projectId) ||
-								formatLocalAgentDisplayName(event.provider)
-							}
+							at={session.lastActiveAtMs}
+							detail={session.project.name}
+							key={`${session.localAgent.agentControllerRef}:${session.nativeSessionId}`}
+							title={session.nativeSessionTitle ?? session.localAgent.name}
 						/>
 					))}
 				</ActivitySection>

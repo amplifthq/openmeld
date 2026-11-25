@@ -3299,10 +3299,13 @@ without sending a message. Own Agent management remains available through
 **Manage**. Hide the section rather than show a zero count for a teammate with
 no visible local Agents.
 
-Show a short **Current focus**, **Recent sessions**, and **Activity** readout
-from the authenticated member-filtered Agent Activity snapshot when it has
-content. Only currently active, fresh observations contribute to Focus.
-Heartbeats, private session contents, and other members' events do not appear.
+Show a short **Current focus** and **Recent sessions** readout from the
+authenticated, member-filtered Agent Activity Session Inventory. The People
+profile does not fetch the legacy snapshot or render a separate legacy event
+feed. Only current, online, working sessions with recent activity contribute
+to Focus. Private session contents and other members' sessions do not appear.
+The readout is scoped to the signed-in viewer, Organization, and subject; a
+failed or unavailable read does not fall back to retained events.
 Profile Report and research controls are not on the People profile; retained
 reports and research APIs keep their existing destination and permissions.
 Open a separate human Direct Message for another active member, and allow

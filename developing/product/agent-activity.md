@@ -437,7 +437,10 @@ complete authorized source set for every Session page; it is not a fixed-size
 snapshot and must not be silently truncated. Internal device id, Service
 runtime id, local connection hash, and absolute path never leave Core.
 
-Web keeps **Agent Activity → Sessions** as the sole Session inventory product.
+Web keeps **Agent Activity → Sessions** as the sole full Session inventory
+product. People may show a short, member-filtered readout from the same
+authorized inventory. The readout does not use retained legacy snapshot
+events or bypass Project/source visibility.
 It may offer Create Agent Profile, Resume as Agent Profile, Fork as Agent
 Profile, Open Agent Profile, and Add to Space according to the returned facts.
 Those actions belong to their authoritative Profile, Binding, and Space
