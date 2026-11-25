@@ -13,6 +13,7 @@ import type {
   SpaceMessageDetailsWakeContext,
   SpaceMessageDetailsWakeTarget,
   SpaceMessageDetailsWorkingDetails,
+  WakeTiming,
   WakeTraceWaterfallItem,
 } from "@openmeld/schemas/types";
 
@@ -33,6 +34,7 @@ export type ProjectSpaceMessageDetailsInput = {
   visibleReplySignal: VisibleMessageSignal | null;
   visibleSignal: VisibleMessageSignal;
   wakeSourceSignal: WakeSourceSignal | null;
+  wakeTimingByTargetProfileId?: ReadonlyMap<string, WakeTiming>;
   wakeTraceItems?: readonly WakeTraceWaterfallItem[];
   workingDetails?: SpaceMessageDetailsWorkingDetails | null;
   targetOwnerUserIdByProfileId?: ReadonlyMap<string, string | null>;
@@ -51,6 +53,7 @@ export function projectSpaceMessageDetails(
       input.targetOwnerUserIdByProfileId ?? new Map(),
     viewerOwnerUserId: normalizeOptionalText(input.viewerOwnerUserId),
     wakeSourceSignal: input.wakeSourceSignal,
+    wakeTimingByTargetProfileId: input.wakeTimingByTargetProfileId ?? new Map(),
     wakeTraceItems: input.wakeTraceItems ?? [],
   });
   const newTaskSource = projectNewTaskSource(
@@ -223,6 +226,7 @@ function projectWakeContext(input: {
   targetOwnerUserIdByProfileId: ReadonlyMap<string, string | null>;
   viewerOwnerUserId: string | null;
   wakeSourceSignal: WakeSourceSignal | null;
+  wakeTimingByTargetProfileId: ReadonlyMap<string, WakeTiming>;
   wakeTraceItems: readonly WakeTraceWaterfallItem[];
 }): SpaceMessageDetailsWakeContext {
   if (!input.wakeSourceSignal) {
@@ -254,6 +258,7 @@ function projectWakeContext(input: {
               ? input.originalErrorByTargetProfileId.get(targetProfileId)
               : undefined,
           targetProfileId,
+          timing: input.wakeTimingByTargetProfileId.get(targetProfileId),
           wakeTraceItem:
             wakeTraceItemByTargetProfileId.get(targetProfileId) ?? null,
         })
@@ -264,6 +269,7 @@ function projectWakeContext(input: {
 function projectWakeTarget(input: {
   originalError?: string;
   targetProfileId: string;
+  timing?: WakeTiming;
   wakeTraceItem: WakeTraceWaterfallItem | null;
 }): SpaceMessageDetailsWakeTarget {
   if (!input.wakeTraceItem) {
@@ -285,6 +291,7 @@ function projectWakeTarget(input: {
     ...(input.originalError ? { originalError: input.originalError } : {}),
     agentContext: projectWakeTargetAgentContext(input.wakeTraceItem),
     steps: input.wakeTraceItem.steps,
+    ...(input.timing ? { timing: input.timing } : {}),
   };
 }
 

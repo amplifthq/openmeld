@@ -181,21 +181,46 @@ requester or Space owner to authorize more work. Task state never substitutes
 for RuntimeCoordinator or native-delivery execution truth.
 An explicit Task delegation assigns the existing Task and records its reviewer
 with the initial Wake intent in one Space transaction. Ordinary assignment still
-does not Wake anyone. Delegation remains **To do** until its assignee explicitly
+does not Wake anyone. Creating and delegating a new Task can commit its brief,
+assignee, explicit reviewer decision, and initial Wake intent together. A failed
+transaction creates neither the Task nor its handoff; retrying the identical
+operation returns the original receipt. The requester/owner permission check and
+live member and reviewer checks apply before that transaction. Native Agent tools
+use this operation when new delegated work should start now, and reuse an existing
+Task when one already represents the request. Delegation remains **To do** until its assignee explicitly
 starts it; a queued or failed handoff is shown separately. Generic Wake,
 ordinary replies, and execution completion never advance the Task. Every
 initial, review, and rework handoff carries the same Task identity and its
 current brief in the Agent dispatch context.
+System-emitted Task handoffs must prepare the same durable Wake dispatch seed
+as ordinary messages before publishing an activated message. A blocked target,
+including a self-Wake, leaves a visible Task delivery failure with its original
+reason; it is never recorded as a successful handoff. The Task phase remains
+unchanged, and ordinary Wake permission checks still apply.
+The native Agent Task tool can read one exact Task's current detail, including
+pending or failed handoffs, through the same authorized Task read projection.
+Agent reports do not infer delivery from a mutation receipt or Task phase.
+Current Task details use the same supersession check as delivery execution.
+An earlier failed handoff stops requiring attention once later Task progress
+supersedes it; its retained failure record remains available for diagnostics.
+Unreadable delivery intent stays visible because its supersession cannot be verified.
 When the Center Agent arranges a Task for its verified current human requester,
 Core rechecks the live delivery, Binding, and requester access. The requester
 must still be an active member of this Space and the Task's requester. This
-permits assignment, brief updates, and reviewer selection only; it does not
+permits creation with an initial handoff, assignment, brief updates, and reviewer selection; it does not
 permit the Center Agent to start, submit, or accept another Agent's work.
 A requested reviewer must be an active Space member before delegation succeeds.
 An unavailable reviewer is a blocker, not an implicit choice of no review.
 Reviews name the exact submitted result revision the reviewer saw. A concurrent
 result or Task change requires a fresh decision; clients do not replay an old
-acceptance against a refreshed revision. A human Space owner can take over an
+acceptance against a refreshed revision. An assignee can attach a GitHub pull
+request and its full head SHA at submission. Reviewers must name the commit
+they checked. When GitHub reports a different head after acceptance, the Task
+returns to review. A provider notice can reference the reviewer. Starting an
+Agent review requires an authorized Wake. A pending human decision keeps its
+original recipient and feedback when the head changes.
+
+A human Space owner can take over an
 Agent-requested Task decision, and approving further rework hands the next
 correction to the assignee through the same Space Wake path.
 
@@ -225,12 +250,14 @@ associated with a Space Task when the Task list can confirm whether that issue
 is already linked. The issue body receives an OpenMeld Task
 reference, and the Task stores the repository and issue number. Closing that
 issue through those same GitHub tools, or through a verified GitHub App
-webhook after the issue is already linked, uses the provider's confirmed closure
-reason. Completed issues submit a Task result: Done without a reviewer, In review
-with a reviewer. Not planned and duplicate issues cancel still-active linked
-Tasks. Missing or unknown reasons only refresh the observed issue state; they
-never infer success or cancellation. Reopening the issue
-refreshes that observation and does not reopen a completed or canceled Task.
+webhook after the issue is already linked, updates the external issue observation.
+Provider closure, including Completed, Not planned, or Duplicate, never submits
+a result, accepts review, completes, or cancels the Task. Moving work to another
+issue is not proof that its requested outcome has been delivered. The assignee
+submits the verified outcome through the Task workflow; its reviewer accepts
+that exact result when review is required. A requester or other authorized
+member cancels work explicitly. Reopening the issue refreshes the observation
+and does not reopen a completed or canceled Task.
 Closing or completing a Task does not silently patch GitHub; the Task result
 prompts the Agent or person to close the linked issue when it is still open.
 This is authorized association for already-linked issues, not an import of
@@ -241,22 +268,17 @@ optional provider project, and URL. Failure to attach after creation is a
 partial outcome; recovery adds only the Task reference. Linear references do
 not claim status monitoring, close synchronization, or automatic follow-up.
 Webhook deliveries grant no new execution authority and do not start Agent
-work. When a completed issue needs review, Space publishes a system-authored
-notice at the original Task location, using the same stable handoff identity.
-It mentions a Human reviewer. For an Agent reviewer, it uses a Reference and
-asks a Space member to Wake that Agent to start the review. Member-authorized
-Task handoffs retain their normal permission checks and Wake behavior.
+work or review. Member-authorized Task handoffs retain their normal permission
+checks and Wake behavior. Creating or linking an issue records who created the
+Task, but leaves its assignee empty until an executor is explicitly selected;
+the Center Agent is not an implicit implementation owner.
 
 Project Common Agents are selection suggestions in a Task assignment flow.
-When one is outside the Space and belongs to the caller, **Add and assign**
-discloses that the Agent and its owner will join the Space, applies the
-existing atomic membership operation first, then makes the revision-checked
-Task assignment. When it belongs to another member, the add becomes the owner
-request described in Agent Owner Participation; nothing joins and the Task is
-not assigned to that Agent until the owner lets it join. A membership success
-followed by assignment failure is shown as a partial outcome; it is never
-silently rolled back or described as successful assignment. Assignment alone
-does not start an execution.
+When a Common Agent is outside the Space, **Add and assign** discloses that
+the Agent and its owner will join the Space, applies the same membership
+operation as **Add People or Agents**, then makes the revision-checked Task
+assignment. If assignment fails after membership succeeds, the UI reports both
+outcomes. Assignment alone does not start an execution.
 
 ## Editing and Recalling Messages
 
@@ -356,30 +378,27 @@ contract in `packages/schemas`; clients do not derive authorization from UI.
 
 ## Agent Owner Participation
 
-The Add People or Agents picker shows the effective membership selection:
-selecting one of the caller's own ordinary Agents also checks the caller.
-Selecting another member's Agent does not add it; it submits the access request
-described below. The count and checkmarks
-agree before submission. Deselecting the last Agent removes an implicitly
-selected owner; an explicitly selected owner remains selected. Deselecting an
-owner also clears their selected Agents. Search filtering must not erase the
-effective selection. Core still resolves the authoritative owner at mutation
-time; these checkmarks are not permission facts.
+An active Organization member can use **Add People or Agents** to add a
+teammate's Agent directly to a Space they have joined. Selecting an ordinary
+Agent also checks its owner if the owner has yet to join. The count and
+checkmarks show who will join before submission. Deselecting the last Agent
+clears an owner selected through that Agent and keeps an explicitly selected
+owner. Deselecting an owner also clears their selected Agents. Search preserves
+the selection. Core resolves the authoritative owner at mutation time.
 
 An ordinary human-owned Agent Profile participates in an ordinary Space with
-its owner. When the owner adds their own Agent, Core resolves the Agent's current
-authoritative `ownerUserId` and that Organization member's active default Human
-Profile, then submits the Agent and Human through one atomic Space membership
-mutation. A cached owner name or caller-supplied Human Profile is never enough.
+its owner when added through the membership picker. Core resolves the Agent's
+current authoritative `ownerUserId` and that Organization member's active
+default Human Profile, then submits the Agent and Human through one atomic
+Space membership mutation. A cached owner name or caller-supplied Human Profile is never enough.
 If the owner is already an active member, the Human addition is an idempotent
 no-op. If Core cannot resolve the current owner and Human Profile, the whole add
 fails instead of admitting an ownerless ordinary Agent.
 
-When anyone other than the owner mentions or adds another member's Agent in a
-Space that Agent is not in, the Agent is not added and not woken. Core instead
-creates a request bound to the exact message id (or the add operation), stored
-on the MemberAgent; editing or deleting that message voids the request and its
-author sees that it was voided. The mention chip shows "Requested <owner>". In
+When someone mentions a teammate's Agent that has yet to join the Space, Core
+creates a request bound to the exact message id and stored on the MemberAgent.
+Editing or deleting that message voids the request and its author sees that it
+was voided. The mention chip shows "Requested <owner>". In
 the @ picker these Agents are grouped under "<owner>'s Agents · not in this
 Space". A colleague's Agent is left out only when its profile id is already a
 member; a shared name or Harness never hides it. Choosing one inserts the
@@ -615,6 +634,25 @@ guide from the Space Durable Object and places the optional projection in that
 turn's Remote Agent envelope. Center Agent DMs, Slack conversations, and
 Slack-destination Routines do not receive a Space guide. This is a per-turn read
 projection, not cached conversation state.
+
+Every Agent prompt introduces the guide with one shared heading
+(`SPACE_GUIDE_PROMPT_HEADING` in `@openmeld/space-mesh`) that tells the Agent
+to follow it for all work in the Space, with OpenMeld rules and safety
+boundaries taking precedence.
+
+In Web, an ordinary Space shows the guide in a Guide tab after Files. Every
+member can read it; Space owners can edit and save it there, and Core still
+authorizes the write. When a member confirms a durable Space rule in conversation,
+the Center Agent replies with the agreed wording and explains that a human
+Space owner can save it here.
+Web saves against the guide the owner started editing. If its text has changed,
+the owner's draft stays open so they can copy their changes and edit the latest
+guide. The guide accepts up to `MAX_TEXT_LENGTH` (100,000)
+characters, the same cap as other Space text. Web does not show a running
+count and reports the cap only when an edit exceeds it. An unsaved edit
+survives switching Space tabs, and the tab rereads the guide each time it
+opens. Center Agent DMs do not show the tab; the public Space page shows the
+guide read-only under Space context.
 
 The Space Board is a read-only, room-scoped summary for collaborators and
 agents. It composes:
@@ -1570,10 +1608,24 @@ executable relation inside Space Message Addressing.
 Reference is collaboration context only. If a message only references an Agent
 Profile, the user should not expect local work or an agent reply.
 
-Every newly authored Wake, Reference, or Human Mention target must be an active member of the
-current Space at the Space write boundary. A removed member or a Profile that
-belongs only to the Organization cannot be used as a current addressing target,
-because the resulting message could not resolve that target from Space truth.
+Every newly authored Wake or Reference target must be an active member of the
+current Space at the Space write boundary. Human Mentions in ordinary message
+publication, including Agent final replies and Routine reports, may also target
+an active Human Profile in the same Organization. Space resolves these targets
+against its current membership and the Organization identity owner before writing
+the message. It seals each person's display identity and `space` or `organization`
+scope in message metadata; clients cannot supply this proof. The badge describes
+membership when the message was sent, not current authorization.
+
+An Organization-only mention does not add membership or grant any content access.
+Its recipient receives a minimal Inbox mention with no Space name, message body,
+attachment preview, or thread preview. Current Organization membership and Profile
+identity gate that receipt. Opening the link still uses normal Space authorization.
+The ordinary Composer picker and `@all` continue selecting current Space members;
+this change enables explicit Agent/Routine recipients and their displayed tokens,
+not Organization-wide automatic recipient expansion. Editing a historical message
+does not issue a new notification, and newly added edit targets retain the current
+Space-member authoring rule.
 Mentioning an Agent that has no Profile in the Space is not an addressing
 target: the owner's own mention adds the default Profile through the atomic
 owner join first, and anyone else's mention creates the owner request described
@@ -1590,7 +1642,9 @@ create Human Mention, so Web
 shows a fixed `@Name` mark instead of a meaningless Wake/Reference selector.
 Each inline Agent token shows its own Wake or Reference relation, so Web does
 not repeat those relations in a bottom count summary. Human Mentions stay
-visible in the message itself without an Agent relation label. Every Composer
+visible in the message itself without an Agent relation label. Published Human
+Mentions with sealed scope show `Space member` or `Organization · not in this Space`.
+Every Composer
 inline target provides a direct remove action in addition to keyboard deletion.
 The `@all` picker lets a member choose People, Agents, or Both. The Composer
 shows that selection as one `@everyone`, `@agents`, or `@all` token, respectively,
@@ -1867,7 +1921,9 @@ nested Thread action or date-navigation surface. Per-message times remain visibl
 
 Thread unread navigation includes only that Thread's replies. Visible-message
 acknowledgements use the existing Space read owner and update the aggregate main
-unread projection; there is no independent Thread counter. Jump to latest and
+unread projection. While the Thread panel is open, its preview keeps a neutral
+**Open thread** link, and the main shortcut navigates to unread messages outside
+that Thread. Jump to latest and
 navigation alone do not mark unseen replies read. Each Thread retains the
 viewer's reading position independently of the main conversation.
 
@@ -1942,8 +1998,10 @@ reply placement is resolved and locked by Space before publication, and later
 callbacks and recovery reuse it. This does not change the source message's
 observation scope or RuntimeCoordinator execution authority.
 
-Local Wake instructions direct agents to share a brief public blocker update
-through `report_progress` when useful work can continue. The update explains
+Local Wake instructions direct agents to share verified milestones during long
+tasks and a brief public blocker update through `report_progress` when useful
+work can continue. This tool is independent of final-only output; it does not
+forward native conversation messages. A blocker update explains
 the effect on the request and the next step; private commentary is not Space
 progress. Repeated unchanged updates, credentials, raw commands, and private
 reasoning stay out of public progress. If supported recovery cannot unblock any
@@ -2006,14 +2064,13 @@ including after refresh; private thinking and transient work are not retained.
 An empty stopped response shows the target identity and `(Request stopped)` alone. Stop
 does not imply that earlier actions were undone.
 
-For ordinary account-owned Profiles, only the account that authored the Wake's
-source message or the target Agent Profile's owner may stop that Wake, and they
-must still have writable Space access. Space membership, Space creation, or
-Organization administration alone
-does not grant this permission. Other members can follow progress but cannot
-interrupt the work. Signing in to several accounts on one computer does not
-combine their permissions. This rule covers queued, running, and native-delivery
-Wakes; each target of a multi-Agent Wake is authorized separately.
+With writable Space access, the account that authored a Wake's source message
+or owns its target Agent Profile may stop that Wake. A signed-in Organization
+owner may also stop an undelivered Wake in an ordinary Space they have joined
+with their Human Profile. The Space rechecks each target on Stop. Once a
+workstation execution is linked or hosted admission has begun, the Organization
+owner role grants no Stop authority. This permission does not extend to Direct
+Messages, welcoming Spaces, delegated Agent requests, or member removal.
 
 The currently designated Center Agent may also stop its own request in an
 Agent Direct Message. Before publication, it must still be the exact private
@@ -2189,6 +2246,19 @@ UI or derive an alternate final status from component-local state. Live
 progress may enrich this one projection while the Space is open, but it remains
 transient evidence and never replaces Core or RuntimeCoordinator execution
 truth.
+
+Message details also answers where a Wake's time went. For each workstation
+Wake target, Timing separates OpenMeld routing and delivery, waiting in the
+Agent's queue or on the computer, the Agent run, waiting for the user's input,
+and time OpenMeld did not record. End-to-end time is never the sum of parallel
+targets or retried attempts, and time without evidence stays **Not recorded**
+rather than being blamed on the Agent or on OpenMeld. Agent run is the span from
+the Agent starting the request to finishing it, so it includes tool use and any
+wait the Agent did not report; it is not model thinking time. Result accepted
+and result visible are separate facts, and neither claims that the requested
+business outcome passed. Timing describes one Wake; linking several Wakes of
+one business task, Agent-reported business phases, registered wait-and-resume
+conditions, and exclusive-resource status are not part of this projection.
 
 An originating Center Agent request also exposes its explicitly declared
 delegation through Message details. Each child has one row with the permitted

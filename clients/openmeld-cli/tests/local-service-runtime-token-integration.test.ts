@@ -1,20 +1,33 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createInflightTaskControlRegistry,
   createLocalAdapterContainer,
   createPendingAgentInteractionRegistry,
+  type LocalDaemonAdapterEntry,
 } from "@openmeld/local-service";
 import {
   RUNTIME_COORDINATOR_EXECUTION_TOKEN_MODEL_VERSION,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
 } from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LedgerPaths } from "../src/local-service/core/types";
+import { systemDir } from "../src/config/paths";
+import type {
+  DaemonProfileRouteConfig,
+  LedgerPaths,
+} from "../src/local-service/core/types";
 import { handleDispatchDeliverFrame } from "../src/local-service/dispatch/execute-dispatch-task";
+import { auditExecutionContextGitConfig } from "../src/local-service/dispatch/execution-context-git-config";
+import { acquireExecutionHostOwnership } from "../src/local-service/execution-host/ownership";
+import { withProviderInvocationObserver } from "../src/local-service/execution-host/runtime";
+import { resolveCurrentEffectiveProfileWorkingFolderRuntime } from "../src/profile-workspace/effective-runtime-resolution";
+import { setCustomProfileWorkspace } from "../src/profile-workspace/service";
 import type { Presenter } from "../src/runtime/presenter/types";
 import { createInProcessExecutionHost } from "./helpers/execution-host";
+import { withTempHome } from "./helpers/fs";
 
 vi.mock("../src/agent-activity/integration-refresh", () => ({
   createManagedAgentActivityIntegrationRefreshScheduler: () => ({
@@ -28,6 +41,10 @@ vi.mock("../src/agent-activity/local-sync", () => ({
     stop: async () => undefined,
   }),
 }));
+
+vi.mock("../src/local-service/dispatch/execution-context-git-config", {
+  spy: true,
+});
 
 const RUNTIME_COORDINATOR_EXECUTION_ID =
   "rce_space-1_dispatch-1_agent-profile-1";
@@ -162,9 +179,299 @@ function createDeliverRequest() {
   };
 }
 
+type TestHost = Awaited<ReturnType<typeof createInProcessExecutionHost>>;
+
+function createTokenHost(input: {
+  ledgerPaths: LedgerPaths;
+  adapter: LocalDaemonAdapterEntry;
+  route?: DaemonProfileRouteConfig;
+  onWorkStateChange?: Parameters<
+    typeof createInProcessExecutionHost
+  >[0]["onWorkStateChange"];
+}) {
+  const profileId = "agent-profile-1";
+  return createInProcessExecutionHost({
+    stateRoot: input.ledgerPaths.rootDirPath,
+    daemonSessionId: "daemon-session-1",
+    deviceId: "device-1",
+    ownerUserId: "user-1",
+    profileOwnerName: null,
+    presenter: createPresenter(),
+    onWorkStateChange: input.onWorkStateChange,
+    resources: {
+      ledgerPaths: input.ledgerPaths,
+      contextStore: new Map(),
+      inflightDispatchMetaByTaskId: new Map(),
+      inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+      pendingAgentInteractionRegistry: createPendingAgentInteractionRegistry(),
+      dispatchLimits: { globalConcurrency: 1, queueMax: 4 },
+      localAdapterContainer: createLocalAdapterContainer([input.adapter]),
+      initialCatalog: {
+        profileIds: [profileId],
+        skippedProfiles: [],
+        routeByProfileId: new Map(
+          input.route ? [[profileId, input.route]] : []
+        ),
+      },
+    },
+  });
+}
+
+function acknowledgeAdmission(
+  host: TestHost,
+  payload: Record<string, unknown>,
+  connectionGeneration: number,
+  accepted: boolean
+) {
+  return host.port.call("handleFrame", {
+    connectionGeneration,
+    frame: {
+      v: 1,
+      code: "daemon.dispatch.lifecycle_acknowledged",
+      payload: {
+        acknowledgementId: payload.acknowledgementId,
+        dispatchId: payload.dispatchId,
+        attemptId: payload.attemptId,
+        connectionGeneration,
+        accepted,
+        validForMs: accepted ? 30_000 : 0,
+        reasonCode: accepted
+          ? null
+          : "runtime_coordinator.execution_not_active",
+      },
+    },
+  });
+}
+
 describe("local service token-backed execution start", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+  });
+
+  it("preserves the control result, invalidation and stop when only the release observation fails", async () => {
+    await withTempHome(async () => {
+      const host = await createTokenHost({
+        ledgerPaths: createLedgerPaths(),
+        adapter: {
+          adapterId: "codex",
+          transportModes: ["codex-app-server"],
+          adapter: {
+            adapterId: "codex",
+            dispatch: vi.fn(),
+            interrupt: vi.fn(),
+          },
+        },
+        onWorkStateChange: (state) => {
+          if (!state.unattributedWork) {
+            throw new Error("fixture release observation failed");
+          }
+        },
+      });
+      const events = vi.fn();
+      host.port.onEvent(events);
+      try {
+        await expect(
+          host.port.call("setEnabled", {
+            agentId: "unknown-fixture-agent",
+            enabled: true,
+          })
+        ).resolves.toMatchObject({ accepted: false, status: "rejected" });
+        expect(events).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "invalidate", scope: "execution" })
+        );
+        await expect(host.port.call("stop", {})).resolves.toMatchObject({
+          localQuiescent: true,
+        });
+      } finally {
+        await host.close();
+      }
+    });
+  });
+
+  it("fences isolated workspace cleanup after the provider finishes, including during drain", async () => {
+    await withTempHome(async (home) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockRejectedValue(new Error("offline fixture"))
+      );
+      execFileSync("git", ["init", "--template=", "--quiet"], { cwd: home });
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=test@example.invalid",
+          "-c",
+          "core.hooksPath=/dev/null",
+          "commit",
+          "--quiet",
+          "--allow-empty",
+          "-m",
+          "fixture",
+        ],
+        { cwd: home }
+      );
+      const request = createDeliverRequest();
+      const profileId = request.profileId;
+      await setCustomProfileWorkspace({
+        openMeldProfileId: profileId,
+        customWorkspacePath: home,
+      });
+      const folder = await resolveCurrentEffectiveProfileWorkingFolderRuntime({
+        openMeldProfileId: profileId,
+        mode: "dispatch",
+      });
+      const ledgerPaths = createLedgerPaths();
+      const owner = await acquireExecutionHostOwnership({
+        stateRoot: ledgerPaths.rootDirPath,
+        hostInstanceId: randomUUID(),
+        lane: "dev-local",
+        ownerUserId: request.ownerUserId,
+        deviceId: "device",
+        bootIdentity: null,
+      });
+      const receipt = () =>
+        JSON.parse(
+          readFileSync(
+            join(
+              systemDir({ env: { OPENMELD_HOME: ledgerPaths.rootDirPath } }),
+              "execution-host-owner.json"
+            ),
+            "utf8"
+          )
+        );
+      const finishProvider = Promise.withResolvers<void>();
+      const providerStarted = Promise.withResolvers<void>();
+      const dispatch = vi.fn(async () => {
+        providerStarted.resolve();
+        await finishProvider.promise;
+        return {
+          status: "failed" as const,
+          errorType: "adapter" as const,
+          errorMessage: "fixture provider finished",
+        };
+      });
+      const adapter = withProviderInvocationObserver(
+        {
+          adapterId: "codex",
+          transportModes: ["codex-app-server"],
+          adapter: { adapterId: "codex", dispatch, interrupt: vi.fn() },
+        },
+        owner.observeProviderInvocation
+      );
+      const host = await createTokenHost({
+        ledgerPaths,
+        adapter,
+        onWorkStateChange: owner.observeWork,
+        route: {
+          profileId,
+          bindingId: "binding-1",
+          agentControllerRef: "builtin:codex",
+          openMeldServiceRuntimeId: "runtime-1",
+          configurationRevision: 1,
+          contextIdMappingSpec: {
+            mappingVersion: 1,
+            sourceField: "OPENMELD_CLI_CONTEXT_ID",
+          },
+          transportMode: "codex-app-server",
+          streamingMode: "final",
+          workingFolderRuntime: folder,
+        },
+      });
+      const receiptsDuringCleanup: unknown[] = [];
+      vi.mocked(auditExecutionContextGitConfig).mockImplementationOnce(() => {
+        receiptsDuringCleanup.push(receipt());
+        return Promise.resolve({
+          restoredSettings: 0,
+          declaredHookInstallers: 0,
+          unverifiedHookSettings: 0,
+        });
+      });
+      host.port.onEvent((event) => {
+        if (
+          event.type === "frame" &&
+          event.frame.code === "daemon.dispatch.result"
+        ) {
+          providerStarted.reject(
+            new Error(
+              `Provider did not start: ${JSON.stringify(event.frame.payload)}`
+            )
+          );
+        }
+        if (
+          event.type !== "frame" ||
+          event.frame.code !== "daemon.dispatch.lifecycle"
+        ) {
+          return;
+        }
+        const p = event.frame.payload as Record<string, unknown>;
+        if (p.acknowledgementId) {
+          return acknowledgeAdmission(host, p, 1, true);
+        }
+      });
+      try {
+        await host.port.call("configureConnection", {
+          connectionGeneration: 1,
+          catalogRevision: 0,
+          executionAdmissionConfirmation: true,
+          leases: [{ profileId, leaseEpoch: 1 }],
+        });
+        await host.port.call("handleFrame", {
+          connectionGeneration: 1,
+          frame: {
+            v: 1,
+            code: "daemon.dispatch.deliver",
+            payload: {
+              ...request,
+              payload: {
+                ...request.payload,
+                transportMode: "codex-app-server",
+                controllerSnapshot: {
+                  ...request.payload.controllerSnapshot,
+                  bindingId: "binding-1",
+                  configurationRevision: 1,
+                },
+                executionContext: {
+                  version: 1,
+                  id: randomUUID(),
+                  scope: {
+                    organizationId: "org",
+                    requesterProfileId: "human",
+                    spaceId: "space-1",
+                    targetProfileId: profileId,
+                    threadId: null,
+                  },
+                  access: "workspace",
+                  workspace: "isolated",
+                  permissionSource: "agent_settings",
+                  nativeConversationId: null,
+                  runtimeWorkspaceFingerprint: null,
+                },
+              },
+            },
+          },
+        });
+        await providerStarted.promise;
+        await host.port.call("beginDrain", {});
+        finishProvider.resolve();
+        await host.port.call("drain", {});
+        expect(receiptsDuringCleanup).toEqual([
+          expect.objectContaining({
+            localQuiescent: false,
+            processEvidenceComplete: false,
+          }),
+        ]);
+        expect(receipt()).toMatchObject({
+          localQuiescent: true,
+          processEvidenceComplete: true,
+        });
+      } finally {
+        finishProvider.resolve();
+        await host.close();
+        await owner.release();
+      }
+    });
   });
 
   it.each([
@@ -174,33 +481,12 @@ describe("local service token-backed execution start", () => {
     const ledgerPaths = createLedgerPaths();
     vi.stubEnv("OPENMELD_HOME", ledgerPaths.rootDirPath);
     const dispatch = vi.fn();
-    const host = await createInProcessExecutionHost({
-      stateRoot: ledgerPaths.rootDirPath,
-      daemonSessionId: "daemon-session-1",
-      deviceId: "device-1",
-      ownerUserId: "user-1",
-      profileOwnerName: null,
-      presenter: createPresenter(),
-      resources: {
-        ledgerPaths,
-        contextStore: new Map(),
-        inflightDispatchMetaByTaskId: new Map(),
-        inflightTaskControlRegistry: createInflightTaskControlRegistry(),
-        pendingAgentInteractionRegistry:
-          createPendingAgentInteractionRegistry(),
-        localAdapterContainer: createLocalAdapterContainer([
-          {
-            adapterId: "codex",
-            transportModes: ["local-cli"],
-            adapter: { adapterId: "codex", dispatch, interrupt: vi.fn() },
-          },
-        ]),
-        initialCatalog: {
-          profileIds: ["agent-profile-1"],
-          routeByProfileId: new Map(),
-          skippedProfiles: [],
-        },
-        dispatchLimits: { globalConcurrency: 1, queueMax: 4 },
+    const host = await createTokenHost({
+      ledgerPaths,
+      adapter: {
+        adapterId: "codex",
+        transportModes: ["local-cli"],
+        adapter: { adapterId: "codex", dispatch, interrupt: vi.fn() },
       },
     });
     let rejectAdmissions = false;
@@ -218,22 +504,7 @@ describe("local service token-backed execution start", () => {
       }
       acknowledgements.push(payload);
       if (rejectAdmissions) {
-        return host.port.call("handleFrame", {
-          connectionGeneration: 2,
-          frame: {
-            v: 1,
-            code: "daemon.dispatch.lifecycle_acknowledged",
-            payload: {
-              acknowledgementId: payload.acknowledgementId,
-              dispatchId: payload.dispatchId,
-              attemptId: payload.attemptId,
-              connectionGeneration: 2,
-              accepted: false,
-              reasonCode: "runtime_coordinator.execution_not_active",
-              validForMs: 0,
-            },
-          },
-        });
+        return acknowledgeAdmission(host, payload, 2, false);
       }
     });
     const configure = (connectionGeneration: number, leaseEpoch: number) =>

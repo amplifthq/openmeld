@@ -47,8 +47,8 @@ export const sessions = applicationTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    activeOrganizationId: text("active_organization_id"),
     cliCredentialAt: epochMilliseconds("cli_credential_at"),
+    activeOrganizationId: text("active_organization_id"),
   },
   (table) => [index("sessions_userId_idx").on(table.userId)]
 );
@@ -162,18 +162,25 @@ export const invitations = applicationTable(
   ]
 );
 
-export const deviceCodes = applicationTable("device_codes", {
-  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
-  deviceCode: text("device_code").notNull(),
-  userCode: text("user_code").notNull(),
-  userId: text("user_id"),
-  expiresAt: epochMilliseconds("expires_at").notNull(),
-  status: text("status").notNull(),
-  lastPolledAt: epochMilliseconds("last_polled_at"),
-  pollingInterval: bigint("polling_interval", { mode: "number" }),
-  clientId: text("client_id"),
-  scope: text("scope"),
-});
+export const deviceCodes = applicationTable(
+  "device_codes",
+  {
+    id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+    deviceCode: text("device_code").notNull(),
+    userCode: text("user_code").notNull(),
+    userId: text("user_id"),
+    expiresAt: epochMilliseconds("expires_at").notNull(),
+    status: text("status").notNull(),
+    lastPolledAt: epochMilliseconds("last_polled_at"),
+    pollingInterval: bigint("polling_interval", { mode: "number" }),
+    clientId: text("client_id"),
+    scope: text("scope"),
+  },
+  (table) => [
+    uniqueIndex("deviceCodes_deviceCode_uidx").on(table.deviceCode),
+    uniqueIndex("deviceCodes_userCode_uidx").on(table.userCode),
+  ]
+);
 
 export const passkeys = applicationTable(
   "passkeys",
@@ -198,6 +205,13 @@ export const passkeys = applicationTable(
   ]
 );
 
+export const rateLimits = applicationTable("rate_limits", {
+  id: text("id").primaryKey().default(sql`gen_random_uuid()::text`),
+  key: text("key").notNull().unique(),
+  count: bigint("count", { mode: "number" }).notNull(),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+});
+
 export const usersRelations = relations(users, ({ many }) => ({
   sessions: many(sessions),
   accounts: many(accounts),
@@ -207,14 +221,14 @@ export const usersRelations = relations(users, ({ many }) => ({
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
-  users: one(users, {
+  user: one(users, {
     fields: [sessions.userId],
     references: [users.id],
   }),
 }));
 
 export const accountsRelations = relations(accounts, ({ one }) => ({
-  users: one(users, {
+  user: one(users, {
     fields: [accounts.userId],
     references: [users.id],
   }),
@@ -226,29 +240,29 @@ export const organizationsRelations = relations(organizations, ({ many }) => ({
 }));
 
 export const membersRelations = relations(members, ({ one }) => ({
-  organizations: one(organizations, {
+  organization: one(organizations, {
     fields: [members.organizationId],
     references: [organizations.id],
   }),
-  users: one(users, {
+  user: one(users, {
     fields: [members.userId],
     references: [users.id],
   }),
 }));
 
 export const invitationsRelations = relations(invitations, ({ one }) => ({
-  organizations: one(organizations, {
+  organization: one(organizations, {
     fields: [invitations.organizationId],
     references: [organizations.id],
   }),
-  users: one(users, {
+  user: one(users, {
     fields: [invitations.inviterId],
     references: [users.id],
   }),
 }));
 
 export const passkeysRelations = relations(passkeys, ({ one }) => ({
-  users: one(users, {
+  user: one(users, {
     fields: [passkeys.userId],
     references: [users.id],
   }),

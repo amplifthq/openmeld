@@ -19,6 +19,16 @@ describe("query config", () => {
 		);
 	});
 
+	it("waits for a fresh sign-in instead of retrying the same session", () => {
+		expect(
+			shouldRetryQuery(0, {
+				status: 403,
+				code: "SESSION_NOT_FRESH",
+				message: "Session is not fresh",
+			})
+		).toBe(false);
+	});
+
 	it("does not retry an active-organization membership mismatch", () => {
 		// This is handled by the membership self-heal path, not by retrying the
 		// same request against the same stale active organization.

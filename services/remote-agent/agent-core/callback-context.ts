@@ -344,6 +344,20 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  resolveRemoteAgentReplyMentions?(input: unknown): Promise<unknown>;
+  centerAgentReadSpaceGuide?(
+    input: import("@openmeld/schemas/types").CenterAgentReadSpaceGuideRequest
+  ): Promise<
+    import("@openmeld/schemas/types").CenterAgentReadSpaceGuideResponse
+  >;
+  centerAgentWorkTarget?(
+    input: import("@openmeld/schemas/types").CenterAgentWorkTargetRequest
+  ): Promise<import("@openmeld/schemas/types").CenterAgentWorkTargetResponse>;
+  readApprovedPluginAction?(
+    input: import("@openmeld/schemas/types").ReadApprovedPluginActionInput
+  ): Promise<
+    import("@openmeld/schemas/types").ReadApprovedPluginActionResponse
+  >;
   authorizeLocalPluginConnection?(input: unknown): Promise<unknown>;
   recordRemoteAiUsage?(
     input: RemoteAiUsageWrite
@@ -543,6 +557,11 @@ export type RemoteAgentCoreWorkerBinding = {
       context: OpenMeldRequestContext;
     }
   ): Promise<CenterAgentReadSlackFileResponse>;
+  readFeishuGroupHistory?(
+    input: import("@openmeld/schemas").FeishuGroupHistoryCall & {
+      context: OpenMeldRequestContext;
+    }
+  ): Promise<import("@openmeld/schemas").FeishuGroupHistoryResult>;
   centerAgentReadChannelFile?(
     input: CenterAgentReadChannelFileBody & { context: OpenMeldRequestContext }
   ): Promise<CenterAgentReadChannelFileResponse>;

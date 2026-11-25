@@ -1,6 +1,6 @@
 import { env as runtimeEnv } from "cloudflare:test";
 import type { AgentComputer } from "../../flue-adapter/computer-workspace";
-import type { AccountErasureProbe } from "./worker";
+import type { AccountErasureProbe, ScheduleDiagnosticProbe } from "./worker";
 
 /**
  * Durable Object bindings that `vitest.workerd.config.ts` configures for the
@@ -11,6 +11,7 @@ export type WorkerTestEnv = {
   ACCOUNT_ERASURE_PROBE: DurableObjectNamespace<AccountErasureProbe>;
   AGENT_COMPUTER: DurableObjectNamespace<AgentComputer>;
   COMPUTER_PROBE: DurableObjectNamespace;
+  SCHEDULE_DIAGNOSTIC_PROBE: DurableObjectNamespace<ScheduleDiagnosticProbe>;
 };
 
 export const env = runtimeEnv as unknown as WorkerTestEnv;

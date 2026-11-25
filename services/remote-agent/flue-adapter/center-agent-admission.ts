@@ -1,5 +1,8 @@
 import { CLOUDFLARE_AGENT_INTERNAL_DISPATCH_PATH } from "@flue/runtime/internal";
-import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
+import type {
+  CenterAgentModelRoute,
+  RemoteAgentWorkerAdmissionRejectedResponse,
+} from "@openmeld/schemas/types";
 import {
   listDueRetryableCallbackContexts,
   type RemoteAgentCoreWorkerBinding,
@@ -12,6 +15,7 @@ import {
   buildRemoteAgentName,
   type RemoteAgentAdmissionHost,
   type RemoteAgentAdmissionImage,
+  RemoteAgentAdmissionRejectedError,
   type RemoteAgentAdmissionStageReporter,
 } from "../agent-core/submission";
 import {
@@ -26,6 +30,10 @@ import {
 import type { RemoteAgentProviderContextCapacity } from "./provider-context-capacity";
 
 type FlueCenterAgentAdmissionReceipt<Result> =
+  | {
+      rejection: RemoteAgentWorkerAdmissionRejectedResponse;
+      status: "rejected";
+    }
   | { claimedAtMs: number; status: "claimed" }
   | { result: Result; status: "finalized" };
 
@@ -58,6 +66,9 @@ export async function prepareFlueCenterAgentAdmission<Result>(input: {
     }
 > {
   const existingSubmission = await input.readExistingSubmission();
+  if (existingSubmission?.status === "rejected") {
+    throw new RemoteAgentAdmissionRejectedError(existingSubmission.rejection);
+  }
   if (existingSubmission?.status === "finalized") {
     await input.cleanupFinalizedSubmissionReplay();
     return { outcome: "finalized", submission: existingSubmission };
@@ -110,13 +121,7 @@ export function createFlueCenterAgentAdmissionHost(input: {
   }) => Promise<string>;
 }): RemoteAgentAdmissionHost {
   return {
-    admitConversationTurn: async ({
-      images,
-      message,
-      metadata,
-      request,
-      submissionId,
-    }) => {
+    prepareConversationTurn: async ({ images, message, request }) => {
       let routedImages = images;
       let routedMessage = message;
       if (request.v !== 1 && images.length > 0) {
@@ -138,13 +143,22 @@ export function createFlueCenterAgentAdmissionHost(input: {
         });
         routedImages = [];
       }
+      return { images: routedImages, message: routedMessage };
+    },
+    admitConversationTurn: async ({
+      images,
+      message,
+      metadata,
+      request,
+      submissionId,
+    }) => {
       await input.registerProvider({
         ...(request.v !== 1 ? { modelRoute: request.modelRoute } : {}),
         organizationId: request.organizationId,
       });
       input.reportStage?.("provider_registered");
       input.reportStage?.("flue_request_started");
-      const serializedImages = routedImages.map((image) => {
+      const serializedImages = images.map((image) => {
         if (!("data" in image)) {
           throw new Error(
             "Legacy Flue image admission requires an inline image payload."
@@ -163,7 +177,7 @@ export function createFlueCenterAgentAdmissionHost(input: {
               id: buildRemoteAgentName(request),
               message: {
                 kind: "user",
-                body: routedMessage,
+                body: message,
                 ...(serializedImages.length > 0
                   ? { attachments: serializedImages }
                   : {}),

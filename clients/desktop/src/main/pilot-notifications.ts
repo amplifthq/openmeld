@@ -22,6 +22,7 @@ import {
 } from "@openmeld/schemas";
 import type { InboxItem } from "@openmeld/schemas/types";
 import { type BrowserWindow, Notification, shell } from "electron";
+import { WINDOW_IPC } from "../shared/ipc-contract";
 import { PILOT_IPC } from "../shared/pilot-bridge";
 import type { createPilotAuth } from "./pilot-auth";
 
@@ -36,12 +37,16 @@ export function createPilotNotifications(input: {
   setTrayPresentation?: (presentation: DesktopTrayPresentation) => void;
   setTrayContext?: (context: DesktopTrayContext | null) => void;
   invalidateTrayScope?: () => void;
+  readLocalServiceAuthenticationRequired?: (userId: string) => Promise<boolean>;
 }) {
   let generation = 0;
   let activationRevision = 0;
   let navigationRevision = 0;
   let context: DesktopNotificationContext = null;
   let contextRevision = 0;
+  const serviceAuthNotices = new Set<string>();
+  let serviceAuthCheckPending = false;
+  let serviceAuthCheckedAt = Number.NEGATIVE_INFINITY;
   const active = new Set<Notification>();
   const pending = new Map<
     Notification,
@@ -70,6 +75,8 @@ export function createPilotNotifications(input: {
     generation += 1;
     contextRevision += 1;
     context = null;
+    serviceAuthNotices.clear();
+    serviceAuthCheckedAt = Number.NEGATIVE_INFINITY;
     input.invalidateTrayScope?.();
     input.setInboxAttention?.(null);
     input.setTrayPresentation?.({ status: "signed_out" });
@@ -164,7 +171,8 @@ export function createPilotNotifications(input: {
     soundEnabled: boolean,
     epoch: number,
     reference?: DesktopNotificationReference,
-    isCurrent: () => boolean = () => true
+    isCurrent: () => boolean = () => true,
+    onActivate?: () => Promise<void>
   ): Promise<DesktopNotificationResult> => {
     if (!Notification.isSupported()) {
       return Promise.resolve("unavailable");
@@ -213,7 +221,7 @@ export function createPilotNotifications(input: {
       });
       notification.once("close", () => active.delete(notification));
       notification.on("click", () => {
-        activate(reference, epoch)
+        (onActivate ? onActivate() : activate(reference, epoch))
           .then(() => notification.close())
           .catch((error: unknown) =>
             console.warn("[openmeld.desktop.notification_click_failed]", {
@@ -229,6 +237,71 @@ export function createPilotNotifications(input: {
         console.warn("[openmeld.desktop.notification_failed]", { error });
       }
     });
+  };
+  const observeServiceAuthentication = async (
+    next: NonNullable<DesktopNotificationContext>,
+    epoch: number
+  ) => {
+    if (next.computer?.statusTone === "connected") {
+      serviceAuthNotices.delete(next.userId);
+      return;
+    }
+    if (
+      !(
+        input.readLocalServiceAuthenticationRequired &&
+        next.enabled &&
+        next.computer?.statusTone
+      ) ||
+      serviceAuthNotices.has(next.userId) ||
+      serviceAuthCheckPending ||
+      Date.now() - serviceAuthCheckedAt < 60_000
+    ) {
+      return;
+    }
+    serviceAuthCheckPending = true;
+    serviceAuthCheckedAt = Date.now();
+    const isCurrent = () =>
+      epoch === generation &&
+      context?.userId === next.userId &&
+      context.enabled &&
+      context.computer?.statusTone !== "connected";
+    try {
+      if (
+        !(
+          (await input.readLocalServiceAuthenticationRequired(next.userId)) &&
+          isCurrent() &&
+          (await currentAccount(next.userId, epoch))
+        )
+      ) {
+        return;
+      }
+      const result = await deliver(
+        "Reconnect this computer",
+        "OpenMeld Service needs you to sign in again. Open Computer settings and reconnect to receive new tasks.",
+        false,
+        epoch,
+        undefined,
+        isCurrent,
+        async () => {
+          if (!(isCurrent() && (await currentAccount(next.userId, epoch)))) {
+            return;
+          }
+          await activate(undefined, epoch);
+          input
+            .getWindow()
+            ?.webContents.send(WINDOW_IPC.navigateDestination, "computer");
+        }
+      );
+      if (result === "delivered" && isCurrent()) {
+        serviceAuthNotices.add(next.userId);
+      }
+    } catch (error) {
+      console.warn("[openmeld.desktop.service_auth_check_failed]", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+    } finally {
+      serviceAuthCheckPending = false;
+    }
   };
   const noCandidateStatus = (
     next: NonNullable<DesktopNotificationContext>
@@ -406,6 +479,9 @@ export function createPilotNotifications(input: {
         ...(next.computer ? { computer: next.computer } : {}),
         unreadCount: next.unreadCount,
       });
+      // Reuse existing notification refreshes. Healthy Computers never spawn
+      // a local probe, and a disconnected Computer is checked at most once a minute.
+      observeServiceAuthentication(next, epoch);
       await refreshTrayPresentation(next, epoch);
     },
     async show(raw: unknown): Promise<DesktopNotificationResult> {

@@ -39,7 +39,7 @@ jobs:
           dependency_mode: release-tools
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.401
+          dotnet-version: 10.0.403
       - run: node scripts/release/build-windows-process-helper.mjs
       - uses: actions/upload-artifact@v4
         with:

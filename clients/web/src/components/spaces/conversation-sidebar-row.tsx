@@ -366,6 +366,9 @@ const ConversationSidebarRowContent = memo(
 									data-sidebar="menu-heading"
 								>
 									<span className="flex min-w-0 flex-1 items-center gap-1.5">
+										{presentation && (hasUnread || input.attentionTone) && (
+											<ConversationRowUnread input={input} />
+										)}
 										<span
 											className={`min-w-0 flex-1 text-foreground ${grid ? "line-clamp-2 break-words leading-4" : "truncate"} ${hasUnread ? "font-semibold" : "font-normal"}`}
 											data-conversation-title="true"
@@ -379,13 +382,6 @@ const ConversationSidebarRowContent = memo(
 									</span>
 									{!grid && timestamp !== null && !presentation && (
 										<ConversationSidebarRowTime timestamp={timestamp} />
-									)}
-									{presentation && input.attentionTone && (
-										<span
-											aria-hidden="true"
-											className={`status-dot mr-1.5 shrink-0 ${resolveInboxIndicatorClassName(input.attentionTone)}`}
-											data-conversation-unread-indicator="true"
-										/>
 									)}
 								</span>
 								{!grid &&
@@ -441,22 +437,30 @@ function ConversationRowStatus({
 	) : (
 		(input.unreadCount > 0 || input.attentionTone) && (
 			<SidebarMenuBadge>
-				{input.attentionTone ? (
-					<span
-						aria-hidden="true"
-						className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
-						data-conversation-unread-indicator="true"
-					/>
-				) : (
-					<SpaceUnreadLink
-						count={input.unreadCount}
-						messageUnreadCount={input.messageUnreadCount}
-						spaceId={input.conversation.spaceId}
-						url={input.url}
-					/>
-				)}
+				<ConversationRowUnread input={input} />
 			</SidebarMenuBadge>
 		)
+	);
+}
+
+function ConversationRowUnread({
+	input,
+}: {
+	input: ConversationSidebarRowProps;
+}) {
+	return input.attentionTone ? (
+		<span
+			aria-hidden="true"
+			className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+			data-conversation-unread-indicator="true"
+		/>
+	) : (
+		<SpaceUnreadLink
+			count={input.unreadCount}
+			messageUnreadCount={input.messageUnreadCount}
+			spaceId={input.conversation.spaceId}
+			url={input.url}
+		/>
 	);
 }
 

@@ -35,15 +35,23 @@ function personalRequest(): RemoteAgentWorkerSubmitTurnRequest {
 }
 
 describe("personal Remote Agent shared Space context", () => {
-  it("identifies exact activated participants without treating references as workers", () => {
+  it.each([
+    "personal_agent",
+    "center_agent",
+  ] as const)("identifies exact activated participants for %s without treating references as workers", (kind) => {
     const request = personalRequest();
-    const context = renderPersonalRemoteAgentCollaborationContext(request);
+    if (request.v !== 4) {
+      throw new Error("expected v4");
+    }
+    if (kind === "center_agent") {
+      request.conversationIdentity = undefined;
+    }
+    const context = buildRemoteAgentPromptMessage(request);
     expect(context).toContain(`Profile ID: ${request.agentProfileId}`);
     expect(context).toContain("2 Agent Profiles were activated");
     expect(context).toContain("agt_teammate");
     expect(context).not.toContain("agt_reference_only");
     expect(context?.toLowerCase()).toContain("activation is not evidence");
-    expect(context).toContain("openmeld_read_space_board");
     expect(context).toContain("openmeld_read_space_updates");
     expect(context).not.toContain("local OpenMeld Service");
   });

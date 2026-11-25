@@ -14,7 +14,7 @@ import {
 
 // Resolves Auth-owned Profile lineage for one Space object. A recent copy in
 // Space storage survives object restarts within the bounded freshness rule;
-// concurrent reads for one owner share one Auth call.
+// Only reads in the same input-gate scope can await the same pending Auth I/O.
 export class SpaceProfileLineageCache {
   // Live fan-out restores a missing copy at most this often per owner, so an
   // unavailable Auth read is not retried on every broadcast.
@@ -24,9 +24,13 @@ export class SpaceProfileLineageCache {
   private readonly fetchedAtMsByOwnerUserId = new Map<string, number>();
   private readonly loadsByOwnerUserId = new Map<
     string,
-    Promise<CreatorProfileIdsByProfileId | undefined>
+    {
+      gateId: string | undefined;
+      result: Promise<CreatorProfileIdsByProfileId | undefined>;
+    }
   >();
   private readonly input: {
+    activeGateId: () => string | undefined;
     authRpc: () => CoreBindings["OPENMELD_AUTH_WORKER"];
     onLoadError: (error: unknown, ownerUserId: string) => void;
     // Last lineage resolved per owner, kept for synchronous readers.
@@ -42,17 +46,9 @@ export class SpaceProfileLineageCache {
   async resolve(
     ownerUserId: string
   ): Promise<CreatorProfileIdsByProfileId | undefined> {
-    const sql = this.input.sql();
-    const cached = readSpaceProfileLineage(sql, ownerUserId);
-    const use = classifyCachedProfileLineage({
-      cached,
-      nowMs: Date.now(),
-      requiredProfileIds: listActiveSpaceMemberProfileIdsForOwnerUserId(
-        sql,
-        ownerUserId
-      ),
-    });
-    if (cached && use !== "reload") {
+    const entry = this.readUsableCache(ownerUserId);
+    if (entry) {
+      const { cached, use } = entry;
       this.remember(
         ownerUserId,
         cached.creatorProfileIdByProfileId,
@@ -66,6 +62,23 @@ export class SpaceProfileLineageCache {
     // An expired copy must not keep authorizing synchronous readers.
     this.forget(ownerUserId);
     return await this.load(ownerUserId);
+  }
+
+  private readUsableCache(ownerUserId: string) {
+    const sql = this.input.sql();
+    const cached = readSpaceProfileLineage(sql, ownerUserId);
+    if (!cached) {
+      return undefined;
+    }
+    const use = classifyCachedProfileLineage({
+      cached,
+      nowMs: Date.now(),
+      requiredProfileIds: listActiveSpaceMemberProfileIdsForOwnerUserId(
+        sql,
+        ownerUserId
+      ),
+    });
+    return use === "reload" ? undefined : { cached, use };
   }
 
   // Synchronous read for live fan-out to open sessions, under the same
@@ -133,9 +146,10 @@ export class SpaceProfileLineageCache {
   private load(
     ownerUserId: string
   ): Promise<CreatorProfileIdsByProfileId | undefined> {
+    const gateId = this.input.activeGateId();
     const inFlight = this.loadsByOwnerUserId.get(ownerUserId);
-    if (inFlight) {
-      return inFlight;
+    if (inFlight && inFlight.gateId === gateId) {
+      return inFlight.result;
     }
     const sql = this.input.sql();
     // Coverage is captured before the read: a member who joins meanwhile
@@ -145,26 +159,37 @@ export class SpaceProfileLineageCache {
       ownerUserId
     );
     const fetchedAtMs = Date.now();
-    const load = loadCreatorProfileIdsByOwnerUserId({
-      authRpc: this.input.authRpc(),
-      ownerUserId,
-      onError: this.input.onLoadError,
-    })
-      .then((loaded) => {
-        if (loaded) {
-          writeSpaceProfileLineage(sql, ownerUserId, {
-            creatorProfileIdByProfileId: loaded,
-            coveredProfileIds,
-            fetchedAtMs,
-          });
-          this.remember(ownerUserId, loaded, fetchedAtMs);
-        }
-        return loaded;
+    const load: Promise<CreatorProfileIdsByProfileId | undefined> =
+      loadCreatorProfileIdsByOwnerUserId({
+        authRpc: this.input.authRpc(),
+        ownerUserId,
+        onError: this.input.onLoadError,
       })
-      .finally(() => {
-        this.loadsByOwnerUserId.delete(ownerUserId);
-      });
-    this.loadsByOwnerUserId.set(ownerUserId, load);
+        .then((loaded) => {
+          // A different gate may already have rechecked access for this owner.
+          // A superseded load cannot restore older lineage, even within one ms.
+          if (this.loadsByOwnerUserId.get(ownerUserId)?.result !== load) {
+            const entry = this.readUsableCache(ownerUserId);
+            return entry && entry.cached.fetchedAtMs >= fetchedAtMs
+              ? entry.cached.creatorProfileIdByProfileId
+              : undefined;
+          }
+          if (loaded) {
+            writeSpaceProfileLineage(sql, ownerUserId, {
+              creatorProfileIdByProfileId: loaded,
+              coveredProfileIds,
+              fetchedAtMs,
+            });
+            this.remember(ownerUserId, loaded, fetchedAtMs);
+          }
+          return loaded;
+        })
+        .finally(() => {
+          if (this.loadsByOwnerUserId.get(ownerUserId)?.result === load) {
+            this.loadsByOwnerUserId.delete(ownerUserId);
+          }
+        });
+    this.loadsByOwnerUserId.set(ownerUserId, { gateId, result: load });
     return load;
   }
 }

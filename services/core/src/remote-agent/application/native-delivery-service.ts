@@ -2,7 +2,7 @@ import {
   getPostgresDatabase,
   type PostgresDatabase,
 } from "@openmeld/db/postgresql";
-import type { Profile, SignalEnvelope, SpaceMeta } from "@openmeld/protocol";
+import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import type {
   PluginChannelSelection,
   PluginChannelSourceProof,
@@ -49,8 +49,10 @@ import {
   resolveCenterAgentCompletedCallbackMessage,
   resolveSpaceFileContentResponseSchema,
   routineWorkflowContinuationEventPayloadSchema,
+  SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
   SPACE_MESSAGE_FILE_MAX_COUNT,
+  SPACE_REPLY_MENTION_INVALID_PUBLIC_COPY,
   spaceCodeWorkHandoffSchema,
   spaceMessageAttachmentsSchema,
 } from "@openmeld/schemas";
@@ -85,7 +87,6 @@ import {
   createAuthenticatedSpaceAccessContext,
   createDispatchContinuationSpaceAccessContext,
   renderDispatchSourceText,
-  type SpaceAccessContext,
 } from "@openmeld/space";
 import {
   type AgentProfileBindingRecord,
@@ -129,7 +130,6 @@ import {
   DISPATCH_HINT_SYSTEM_PROFILE_NAME,
 } from "../../dispatch/rules/dispatch-hint-policy";
 import type { CoreBindings } from "../../lib/bindings";
-
 import { readEnabledOrganizationSkillReleaseSelection } from "../../organization-skills/organization-skill-service";
 import {
   readOrganizationAccountIdentityProjection,
@@ -165,6 +165,7 @@ import { RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE } from "../../
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 import { parseRpcErrorPayload } from "../../shared/rpc/rpc-json";
 import type { SpaceBootstrapTimingCollector } from "../../space/application/space-bootstrap-timing";
+import { readSpaceGuide } from "../../space/application/space-guide";
 import { SPACE_FINAL_OUTCOME_STOPPED_ERROR_CODE } from "../../space/application/space-signal-service";
 import { truncateSpaceTextToProtocolLimit } from "../../space/application/space-text";
 import {
@@ -177,6 +178,10 @@ import {
   REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE,
   REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_ROUTINE_REASON,
 } from "../../usage/ai-usage-policy";
+import {
+  completeFeishuDelegationHandoff,
+  takeFeishuDelegationCard,
+} from "../infrastructure/postgresql/feishu-delegation-handoff";
 import {
   blockRemoteAgentRoutineRecoveryForTargetMismatch,
   claimRemoteAgentAcceptedDeliveryProbeSchedule,
@@ -266,6 +271,7 @@ import type { MessageChannelProviderRegistry } from "./message-channel-adapters"
 import { publishRemoteAgentMessageChannelAdmissionFailure } from "./message-channel-admission-watchdog-publication";
 import { createConfiguredMessageChannelProviderRegistry } from "./message-channel-provider-runtime";
 import {
+  assertMessageChannelCallbackAuthority,
   buildComputerSetupGuidanceText,
   publishRemoteAgentMessageChannelCallback,
   publishRemoteAgentMessageChannelIdentityGuidanceAfterResult,
@@ -319,7 +325,10 @@ import {
   requirePersonalRemoteAgentBinding,
 } from "./personal-remote-agent-binding";
 import { buildMessageChannelProviderPublicationUuid } from "./provider-publication-uuid";
-import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
+import {
+  resolveCenterAgentSpaceConversationId,
+  resolveRemoteAgentNativeDeliveryRuntimeConversationId,
+} from "./remote-agent-conversation-continuity";
 import { attachCenterAgentMemoryToTurnEnvelope as attachCenterAgentMemoryToTurnEnvelopeImpl } from "./remote-agent-memory-context";
 import { resolveRemoteAgentRuntimeAvailability } from "./remote-agent-runtime-policy";
 import { truncateRemoteAgentTriggerText } from "./remote-agent-trigger-text";
@@ -1025,8 +1034,9 @@ export async function submitRemoteAgentNativeDelivery(
                       name: "openmeld_remote_admission_space_guide",
                     },
                     () =>
-                      readCurrentRemoteAgentSpaceGuide({
+                      readSpaceGuide({
                         env: input.env,
+                        organizationId: input.binding.organizationId,
                         spaceAccess:
                           createDispatchContinuationSpaceAccessContext({
                             attemptId: input.executionAttemptId,
@@ -1144,7 +1154,15 @@ export async function submitRemoteAgentNativeDelivery(
               },
             };
           })()
-        : { v: 2 }),
+        : {
+            v: 2,
+            conversationId: resolveCenterAgentSpaceConversationId({
+              spaceId: input.message.spaceId,
+              sourceSignalId: input.message.sourceEventId,
+              threadContext: input.message.threadContext,
+              isCenterAgentDm: turnEnvelope.space.isCenterAgentDm,
+            }),
+          }),
       organizationId: input.binding.organizationId,
       spaceId: input.message.spaceId,
       agentProfileId: input.message.targetProfileId,
@@ -2691,6 +2709,18 @@ async function stageTaskContinuationDelivery(input: {
     triggerMessageId: observer.triggerMessageId,
     triggerText: null,
   });
+  if (
+    messageChannelLocator?.provider === "feishu" &&
+    input.input.delegation?.barrier === "all_terminal" &&
+    !input.input.summaryOnly &&
+    !routineRunId
+  ) {
+    await takeFeishuDelegationCard({
+      db: input.input.db,
+      parentId: observer.deliveryId,
+      nextId: stagedDelivery.deliveryId,
+    });
+  }
   return stagedDelivery;
 }
 async function claimRoutineContinuationFinalResultOwnership(input: {
@@ -3295,7 +3325,7 @@ type RemoteAgentTaskContinuationWorkerProtocol =
           v: 2;
         }
       >,
-      "modelRoute" | "v"
+      "modelRoute" | "v" | "conversationId"
     >
   | Pick<
       Extract<
@@ -3318,7 +3348,13 @@ function inheritRemoteAgentTaskContinuationWorkerProtocol(
     case 1:
       return { v: request.v };
     case 2:
-      return { modelRoute: request.modelRoute, v: request.v };
+      return {
+        modelRoute: request.modelRoute,
+        v: request.v,
+        ...(request.conversationId
+          ? { conversationId: request.conversationId }
+          : {}),
+      };
     case 4:
       return {
         conversationId: request.conversationId,
@@ -4556,8 +4592,9 @@ async function resolveRoutineTurnEnvelopeWithMemory(input: {
     webAppUrl: input.env.WEB_APP_URL,
   });
   if (destination.kind === "space") {
-    const spaceGuide = await readCurrentRemoteAgentSpaceGuide({
+    const spaceGuide = await readSpaceGuide({
       env: input.env,
+      organizationId: input.routine.organizationId,
       spaceAccess: createAuthenticatedSpaceAccessContext({
         requestContext: buildRemoteAgentRoutineSubmissionContext({
           run: input.run,
@@ -7209,6 +7246,15 @@ async function rememberCenterAgentCompletedTurn(input: {
   if (!(source && speakerMember && userMessage)) {
     return;
   }
+  if (source === "space_conversation") {
+    const designation = await readCenterAgentDesignationRecord({
+      db: getPostgresDatabase(input.env),
+      organizationId: input.delivery.organizationId,
+    });
+    if (designation?.agentProfileId !== input.delivery.profileId) {
+      return;
+    }
+  }
   const messageChannelProvider =
     source === "message_channel_conversation"
       ? input.delivery.messageChannelLocator?.provider
@@ -7636,28 +7682,6 @@ async function readRemoteAgentSpaceSourceSignal(input: {
     ) ?? null
   );
 }
-async function readCurrentRemoteAgentSpaceGuide(input: {
-  env: CoreBindings;
-  spaceAccess: SpaceAccessContext;
-  spaceId: string;
-}): Promise<string | null> {
-  const stub = resolveSpaceStub(input.env.OPENMELD_SPACES, input.spaceId) as {
-    rpcGetMeta(request: {
-      spaceAccess: SpaceAccessContext;
-      spaceId: string;
-    }): Promise<SpaceMeta>;
-  } | null;
-  if (!stub?.rpcGetMeta) {
-    throw new Error(
-      `Remote Agent turn envelope could not read Space ${input.spaceId} metadata`
-    );
-  }
-  const meta = await stub.rpcGetMeta({
-    spaceAccess: input.spaceAccess,
-    spaceId: input.spaceId,
-  });
-  return normalizeOptionalText(meta.guide);
-}
 function withRemoteAgentSpaceGuide(
   turnEnvelope: RemoteAgentTurnEnvelope,
   spaceGuide: string | null
@@ -7927,7 +7951,7 @@ export async function completeRemoteAgentNativeDelivery(
       reasonCode: "remote_agent.callback_invalid",
     });
   }
-  const body = canonicalizeRemoteAgentCallbackBody(parsed.data);
+  let body = canonicalizeRemoteAgentCallbackBody(parsed.data);
   const db = getPostgresDatabase(env);
   if (!db) {
     return remoteAgentCoreCallbackResponseSchema.parse({
@@ -8008,6 +8032,7 @@ export async function completeRemoteAgentNativeDelivery(
     delivery,
     nowMs,
   });
+  body = resolveRetainedPublicationCallback(body, delivery);
   if (isRemoteAgentWorkLoopContinuationCallback(body)) {
     return await continueRemoteAgentNativeDeliveryWorkLoop({
       body,
@@ -9054,12 +9079,19 @@ async function completeRemoteAgentCompletedCallback(input: {
       env,
     });
   } catch (error) {
-    if (
-      resolveRemoteAgentPublicationErrorCode(error) ===
-      SPACE_FINAL_OUTCOME_STOPPED_ERROR_CODE
-    ) {
+    const publicationErrorCode = resolveRemoteAgentPublicationErrorCode(error);
+    if (publicationErrorCode === SPACE_FINAL_OUTCOME_STOPPED_ERROR_CODE) {
       return await settleRemoteAgentStoppedCallback({
         body,
+        db,
+        delivery,
+        env,
+        nowMs,
+      });
+    }
+    if (publicationErrorCode === SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE) {
+      return await completeRemoteAgentFailedCallback({
+        body: buildInvalidMentionPublicationCallback(body),
         db,
         delivery,
         env,
@@ -9355,6 +9387,39 @@ function resolveRemoteAgentPublicationErrorCode(error: unknown): string | null {
   return jsonStart >= 0
     ? (parseRpcErrorPayload(message.slice(jsonStart))?.code ?? null)
     : null;
+}
+function resolveRetainedPublicationCallback(
+  body: RemoteAgentCoreCallbackEvent,
+  delivery: RemoteAgentNativeDeliveryRecord
+): RemoteAgentCoreCallbackEvent {
+  // A rejected recipient cannot become valid by replaying the completed body.
+  // If publishing the failure notice was interrupted, resume that same notice.
+  return delivery.conversationKind === "space" &&
+    delivery.finalPublicationPayload?.failureCode ===
+      SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
+    ? buildInvalidMentionPublicationCallback(body)
+    : body;
+}
+function buildInvalidMentionPublicationCallback(
+  body: RemoteAgentCoreCallbackEvent
+): RemoteAgentFailedCallbackBody {
+  const failureMessage = SPACE_REPLY_MENTION_INVALID_PUBLIC_COPY;
+  return {
+    agentProfileId: body.agentProfileId,
+    bindingId: body.bindingId,
+    callbackAttempt: body.callbackAttempt,
+    dispatchId: body.dispatchId,
+    idempotencyKey: body.idempotencyKey,
+    organizationId: body.organizationId,
+    spaceId: body.spaceId,
+    submissionId: body.submissionId,
+    triggerMessageId: body.triggerMessageId,
+    status: "failed",
+    failureCode: SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
+    failureDetail: failureMessage,
+    failureMessage,
+    ...("files" in body && body.files ? { files: body.files } : {}),
+  };
 }
 function buildRemoteAgentFinalPublicationPayload(input: {
   body: RemoteAgentCoreCallbackBody;
@@ -9684,6 +9749,27 @@ async function completeRemoteAgentMessageChannelCallback(input: {
   options: CenterAgentMemoryRuntimeOptions;
   registry: MessageChannelProviderRegistry;
 }): Promise<RemoteAgentCoreCallbackResponse> {
+  if (
+    input.delivery.messageChannelLocator?.provider === "feishu" &&
+    !input.delivery.routineRunId &&
+    !isRemoteAgentFailedCallback(input.body)
+  ) {
+    assertMessageChannelCallbackAuthority(input);
+    const handedOff = await completeFeishuDelegationHandoff({
+      db: input.db,
+      delivery: input.delivery,
+      nowMs: input.clock(),
+    });
+    if (handedOff) {
+      await projectRemoteAgentNativeDeliveryTerminalEffects({
+        db: input.db,
+        delivery: handedOff,
+        env: input.env,
+        nowMs: input.clock(),
+      });
+      return { status: "accepted", publishedSignalId: null };
+    }
+  }
   const outcome = await publishRemoteAgentMessageChannelCallback({
     body: input.body,
     clock: input.clock,
@@ -13905,6 +13991,11 @@ async function projectRemoteAgentNativeDeliveryTerminalEffects(input: {
       db: routineOwnerDb,
       failureCode:
         input.delivery.status === "failed" ? input.delivery.failureCode : null,
+      failureDetail:
+        input.delivery.failureCode ===
+        SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
+          ? input.delivery.failureDetail
+          : null,
       nowMs: input.nowMs,
       publishedSignalId: input.delivery.publishedSignalId,
       runId: routineRunId,

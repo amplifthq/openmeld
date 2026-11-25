@@ -142,6 +142,72 @@ test("local execution slots run one task per execution lane", async () => {
   assert.deepEqual(startedTaskIds, ["task-a", "task-b"]);
 });
 
+test("local execution slots report started work and fail a task whose pre-run hook throws", async () => {
+  const runningAtHook = [];
+  const runTaskIds = [];
+  const completed = [];
+  const queue = createLocalExecutionSlots({
+    onChanged: () => {
+      if (completed.length > 0) {
+        throw new Error("receipt unavailable after release");
+      }
+    },
+    limits: { globalConcurrency: 1, queueMax: 10 },
+    beforeTaskRun: (task) => {
+      runningAtHook.push([task.taskId, queue.getRunningWork().taskIds]);
+      if (task.taskId === "task-b") {
+        throw new Error("receipt unavailable");
+      }
+    },
+    onTaskCompleted: (event) => {
+      completed.push([event.taskId, event.result]);
+    },
+  });
+  const taskA = createDeferred();
+  const refused = [];
+  for (const taskId of ["task-a", "task-b"]) {
+    queue.request({
+      ...buildTask({
+        attemptId: `attempt-${taskId}`,
+        dispatchId: `dispatch-${taskId}`,
+        localExecutionLaneKey: `profile:${taskId}`,
+        profileId: taskId,
+        run: async () => {
+          runTaskIds.push(taskId);
+          if (taskId === "task-a") {
+            await taskA.promise;
+          }
+        },
+        taskId,
+      }),
+      // The task owner reports the refusal through its own result channel.
+      onRunRefused: (error) => {
+        refused.push([taskId, error.message]);
+      },
+    });
+  }
+
+  // A queued task has not begun work yet.
+  assert.deepEqual(queue.getRunningWork(), {
+    adapterOperationIds: [],
+    taskIds: ["task-a"],
+  });
+  taskA.resolve();
+  await queue.drain();
+
+  assert.deepEqual(runningAtHook, [
+    ["task-a", ["task-a"]],
+    ["task-b", ["task-b"]],
+  ]);
+  assert.deepEqual(runTaskIds, ["task-a"]);
+  assert.deepEqual(refused, [["task-b", "receipt unavailable"]]);
+  assert.deepEqual(completed.at(-1), ["task-b", "failed"]);
+  assert.deepEqual(queue.getRunningWork(), {
+    adapterOperationIds: [],
+    taskIds: [],
+  });
+});
+
 test("local execution slots include adapter maintenance in quiescence and draining", async () => {
   const queue = createLocalExecutionSlots({
     limits: { globalConcurrency: 1, queueMax: 10 },
@@ -153,6 +219,10 @@ test("local execution slots include adapter maintenance in quiescence and draini
   });
   assert.deepEqual(queue.getDrainState(), { activeGlobal: 0, pendingCount: 0 });
   assert.equal(queue.isQuiescent(), false);
+  assert.deepEqual(queue.getRunningWork(), {
+    adapterOperationIds: ["codex"],
+    taskIds: [],
+  });
   queue.beginDrain();
   let drained = false;
   const drain = queue.drain().then(() => {

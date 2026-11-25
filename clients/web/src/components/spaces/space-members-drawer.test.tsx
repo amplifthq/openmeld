@@ -51,10 +51,8 @@ const {
 	updatePrimaryBindingAgentControllerCollaborationModeMock: vi.fn(),
 }));
 
-// These cases cover direct adds; the MemberAgent request path has its own
-// tests in agent-access.test.tsx.
 vi.mock("#/lib/member-agents/member-agents-feature", () => ({
-	isMemberAgentsEnabled: () => false,
+	isMemberAgentsEnabled: () => true,
 }));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
@@ -1534,7 +1532,7 @@ describe("SpaceMembersSidePanel", () => {
 		false,
 		true,
 		"welcome",
-	])("adds workspace directory members and Center Agent atomically (scenario=%s)", async (scenario) => {
+	])("adds workspace directory people and Agents atomically (scenario=%s)", async (scenario) => {
 		const isPersonal = scenario === true;
 		const isWelcome = scenario === "welcome";
 		if (isWelcome) {
@@ -1545,6 +1543,18 @@ describe("SpaceMembersSidePanel", () => {
 		}
 		const centerAgentProfileId = "agt_44444444-4444-4444-8444-444444444444";
 		const humanProfileId = "22222222-2222-4222-8222-222222222222";
+		const addsTeammateAgent = scenario === false;
+		const expectedAddition = {
+			directoryProfileIds: [
+				humanProfileId,
+				addsTeammateAgent
+					? "agt_88888888-8888-4888-8888-888888888888"
+					: centerAgentProfileId,
+			],
+			...(addsTeammateAgent
+				? {}
+				: { expectedCenterAgentProfileId: centerAgentProfileId }),
+		};
 		const onAddOrganizationDirectoryProfiles = vi
 			.fn<
 				(input: {
@@ -1678,15 +1688,18 @@ describe("SpaceMembersSidePanel", () => {
 				.getAttribute("aria-checked")
 		).toBe("false");
 
-		fireEvent.click(screen.getByRole("checkbox", { name: "Mira" }));
-		fireEvent.click(screen.getByRole("checkbox", { name: "Center Agent" }));
+		if (addsTeammateAgent) {
+			fireEvent.click(screen.getByRole("checkbox", { name: "Research Agent" }));
+		} else {
+			fireEvent.click(screen.getByRole("checkbox", { name: "Mira" }));
+			fireEvent.click(screen.getByRole("checkbox", { name: "Center Agent" }));
+		}
 		fireEvent.click(screen.getByRole("button", { name: "Add 2 members" }));
 
 		await waitFor(() => {
-			expect(onAddOrganizationDirectoryProfiles).toHaveBeenCalledWith({
-				directoryProfileIds: [humanProfileId, centerAgentProfileId],
-				expectedCenterAgentProfileId: centerAgentProfileId,
-			});
+			expect(onAddOrganizationDirectoryProfiles).toHaveBeenCalledWith(
+				expectedAddition
+			);
 		});
 		await waitFor(() => {
 			expect(toastMock.error).toHaveBeenCalledWith(
@@ -1706,10 +1719,9 @@ describe("SpaceMembersSidePanel", () => {
 
 		await waitFor(() => {
 			expect(onAddOrganizationDirectoryProfiles).toHaveBeenCalledTimes(2);
-			expect(onAddOrganizationDirectoryProfiles).toHaveBeenLastCalledWith({
-				directoryProfileIds: [humanProfileId, centerAgentProfileId],
-				expectedCenterAgentProfileId: centerAgentProfileId,
-			});
+			expect(onAddOrganizationDirectoryProfiles).toHaveBeenLastCalledWith(
+				expectedAddition
+			);
 		});
 		await waitFor(() => {
 			expect(

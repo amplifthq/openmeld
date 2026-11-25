@@ -244,7 +244,6 @@ const workerPackages = [
     expectedGeneratedBindings: [
       "AUTH_EMAIL",
       "OPENMELD_POSTGRESQL",
-      "OPENMELD_AUTH_KV",
       "OPENMELD_OBSERVABILITY",
       "OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER",
     ],

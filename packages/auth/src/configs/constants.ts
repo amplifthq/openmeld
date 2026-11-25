@@ -62,4 +62,5 @@ export const AUTH_RATE_LIMIT_CUSTOM_RULES = {
 
 export const AUTHENTICATION_RATE_LIMIT_CONFIG = {
   customRules: AUTH_RATE_LIMIT_CUSTOM_RULES,
+  storage: "database",
 } as const;

@@ -9,7 +9,10 @@ import { AppMainContent } from "#/components/app/app-main-content";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { SpaceLanding } from "#/components/spaces/space-landing";
-import type { SpaceView } from "#/components/spaces/space-view";
+import {
+	type SpaceView,
+	toCenterAgentSpaceView,
+} from "#/components/spaces/space-view";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import { useCenterAgentPendingMessage } from "#/hooks/use-center-agent-pending-message";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
@@ -193,10 +196,11 @@ function CenterAgentDirectMessageEntry(input: {
 			: input.sessionId;
 	const handleSpaceViewCommitted = useCallback(
 		(view: SpaceView) => {
+			const routeView = toCenterAgentSpaceView(view);
 			navigate({
 				replace: true,
 				to: buildOrganizationCenterAgentChatPath(input.organizationSlug, {
-					...(view === "messages" ? {} : { view }),
+					...(routeView === "messages" ? {} : { view: routeView }),
 					focusSignalId: input.initialFocusSignalId,
 					focusThreadRootSignalId: input.initialFocusThreadRootSignalId,
 					...(resolvedSessionId === undefined

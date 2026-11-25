@@ -24,25 +24,22 @@ describe("Computer sleep prevention", () => {
     const { path, power } = await setup();
     await power.ready;
     await writeFile(path, "broken-json");
-    const restored = createComputerPower({ path, supported: true });
+    const acquire = vi.fn();
+    const restored = createComputerPower({ path, supported: true, acquire });
     await expect(restored.request({ operation: "read" })).rejects.toThrow(
       "Could not read sleep prevention settings"
     );
+    await restored.setActiveTasks(1);
+    expect(acquire).not.toHaveBeenCalled();
     await restored.stop();
     await power.stop();
   });
-  it("defaults off, holds only during local tasks, and releases after the last concurrent task", async () => {
+  it("defaults on, holds only during local tasks, and releases after the last concurrent task", async () => {
     const { power, acquire, release } = await setup();
-    expect(await power.read()).toMatchObject({ enabled: false, active: false });
-    await power.setActiveTasks(2);
+    expect(await power.read()).toMatchObject({ enabled: true, active: false });
     expect(acquire).not.toHaveBeenCalled();
-    expect(
-      await power.request({
-        operation: "update",
-        enabled: true,
-        expectedRevision: 0,
-      })
-    ).toMatchObject({ enabled: true, active: true });
+    await power.setActiveTasks(2);
+    expect(await power.read()).toMatchObject({ enabled: true, active: true });
     await power.setActiveTasks(1);
     expect(release).not.toHaveBeenCalled();
     expect(acquire).toHaveBeenCalledTimes(1);
@@ -54,22 +51,25 @@ describe("Computer sleep prevention", () => {
     await power.request({
       operation: "update",
       enabled: false,
-      expectedRevision: 1,
+      expectedRevision: 0,
     });
     expect(release).toHaveBeenCalledTimes(2);
     await power.stop();
   });
-  it("persists one preference, rejects stale concurrent writes, and restores without holding while idle", async () => {
+  it.each([
+    true,
+    false,
+  ])("persists enabled=%s across restarts and rejects stale concurrent writes", async (enabled) => {
     const { power, path, acquire } = await setup();
     const results = await Promise.allSettled([
       power.request({
         operation: "update",
-        enabled: true,
+        enabled,
         expectedRevision: 0,
       }),
       power.request({
         operation: "update",
-        enabled: false,
+        enabled: !enabled,
         expectedRevision: 0,
       }),
     ]);
@@ -78,16 +78,18 @@ describe("Computer sleep prevention", () => {
       "rejected",
     ]);
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
-      enabled: true,
+      enabled,
       revision: 1,
     });
     const restored = createComputerPower({ path, supported: true, acquire });
     expect(await restored.read()).toMatchObject({
-      enabled: true,
+      enabled,
       active: false,
       revision: 1,
     });
     expect(acquire).not.toHaveBeenCalled();
+    await restored.setActiveTasks(1);
+    expect(acquire).toHaveBeenCalledTimes(enabled ? 1 : 0);
     await restored.stop();
     await power.stop();
   });
@@ -95,13 +97,7 @@ describe("Computer sleep prevention", () => {
     const { power, acquire } = await setup();
     acquire.mockRejectedValueOnce(new Error("OS refused the request"));
     await power.setActiveTasks(1);
-    expect(
-      await power.request({
-        operation: "update",
-        enabled: true,
-        expectedRevision: 0,
-      })
-    ).toMatchObject({
+    expect(await power.read()).toMatchObject({
       enabled: true,
       active: false,
       problem: "OS refused the request",
@@ -109,12 +105,12 @@ describe("Computer sleep prevention", () => {
     await power.request({
       operation: "update",
       enabled: false,
-      expectedRevision: 1,
+      expectedRevision: 0,
     });
     await power.request({
       operation: "update",
       enabled: true,
-      expectedRevision: 2,
+      expectedRevision: 1,
     });
     acquire.mock.calls[1]?.[0]("Helper exited");
     expect(await power.read()).toMatchObject({

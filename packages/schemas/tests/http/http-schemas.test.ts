@@ -682,16 +682,16 @@ describe("http schemas", () => {
       expect(parsed.success).toBe(true);
     });
 
-    it("rejects Space guide updates longer than 4,000 characters", () => {
-      expect(MAX_SPACE_GUIDE_LENGTH).toBe(4000);
+    it("rejects Space guide updates longer than 100,000 characters", () => {
+      expect(MAX_SPACE_GUIDE_LENGTH).toBe(100_000);
       expect(
         patchSpaceMetaBodySchema.safeParse({
-          guide: "g".repeat(4000),
+          guide: "g".repeat(100_000),
         }).success
       ).toBe(true);
       expect(
         patchSpaceMetaBodySchema.safeParse({
-          guide: "g".repeat(4001),
+          guide: "g".repeat(100_001),
         }).success
       ).toBe(false);
     });
@@ -711,6 +711,20 @@ describe("http schemas", () => {
       expect(
         patchSpaceMetaBodySchema.safeParse({
           name: "n".repeat(MAX_SPACE_NAME_LENGTH + 1),
+        }).success
+      ).toBe(false);
+    });
+
+    it("requires the reviewed guide and rejects mixing a guarded edit with replacement", () => {
+      expect(
+        patchSpaceMetaBodySchema.safeParse({
+          guideEdit: { text: "Unreviewed." },
+        }).success
+      ).toBe(false);
+      expect(
+        patchSpaceMetaBodySchema.safeParse({
+          guideEdit: { previous: "", text: "Reviewed." },
+          guide: "Unconditional replacement.",
         }).success
       ).toBe(false);
     });

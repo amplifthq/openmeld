@@ -20,6 +20,7 @@ import {
 import {
 	readSelectedSpaceProfileFromRequest,
 	type SelectedSpaceProfile,
+	SelectedSpaceProfileAccessError,
 } from "./selected-space-profile.server";
 
 const OPENMELD_HEADER_PROFILE_ID = "x-openmeld-profile-id";
@@ -280,6 +281,9 @@ export async function proxySpaceLiveStreamRequest(input: {
 			diagnostics,
 			error,
 		});
+		if (error instanceof SelectedSpaceProfileAccessError) {
+			return createStreamAccessErrorResponse(error, requestId);
+		}
 		return createStreamErrorResponse({
 			status: 502,
 			code: "upstream_error",
@@ -406,9 +410,33 @@ async function cloneStreamErrorResponseWithClearedProtectedSpaceCookie(input: {
 	});
 }
 
+function createStreamAccessErrorResponse(
+	error: SelectedSpaceProfileAccessError,
+	requestId: string
+): Response {
+	const response = createStreamErrorResponse({
+		status: error.status,
+		code: error.status === 401 ? "auth.unauthenticated" : "space.forbidden",
+		message:
+			error.status === 401
+				? "Sign in to connect to this space."
+				: "You don't have permission to connect to this space with this profile.",
+		requestId,
+	});
+	response.headers.set("cache-control", "private, no-store");
+	for (const cookie of error.setCookies) {
+		response.headers.append("set-cookie", cookie);
+	}
+	return response;
+}
+
 function createStreamErrorResponse(input: {
 	status: number;
-	code: "bad_request" | "upstream_error";
+	code:
+		| "bad_request"
+		| "upstream_error"
+		| "auth.unauthenticated"
+		| "space.forbidden";
 	message: string;
 	requestId: string;
 }): Response {
@@ -464,7 +492,12 @@ function logSpaceLiveStreamProxyFailure(input: {
 	};
 	error: unknown;
 }): void {
-	console.error(
+	const status =
+		input.error instanceof SelectedSpaceProfileAccessError
+			? input.error.status
+			: undefined;
+	const log = status === undefined ? console.error : console.warn;
+	log(
 		JSON.stringify({
 			event: "web.space_stream_proxy",
 			requestId: input.diagnostics.requestId,
@@ -473,6 +506,7 @@ function logSpaceLiveStreamProxyFailure(input: {
 			protectedSpaceAccessStatus: input.diagnostics.protectedSpaceAccessStatus,
 			failureStage: input.diagnostics.failureStage,
 			error: toErrorMessage(input.error),
+			status,
 		})
 	);
 }

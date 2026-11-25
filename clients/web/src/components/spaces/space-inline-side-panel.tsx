@@ -4,7 +4,13 @@ import {
 	SidebarRail,
 } from "@openmeld/ui/components/sidebar";
 import { cn } from "@openmeld/ui/lib/utils";
-import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import {
+	Activity,
+	type ReactNode,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import { widthToPx } from "#/lib/spaces/panel-width-storage";
 
 export function SpaceInlineSidePanelHeader(input: {
@@ -120,21 +126,19 @@ export function SpaceInlineSidePanel(input: {
 						: "var(--sidebar-width-icon)",
 				}}
 			>
-				{input.open ? (
-					<>
-						<div className="flex h-full min-h-0 min-w-0 flex-col">
-							{input.children}
-						</div>
-						{!isOverlay && (
-							<SidebarRail
-								className="transition-colors motion-reduce:transition-none"
-								enableToggle={false}
-								nested
-								separatorLabel={input.resizeHandleLabel}
-							/>
-						)}
-					</>
-				) : null}
+				<Activity mode={input.open ? "visible" : "hidden"}>
+					<div className="flex h-full min-h-0 min-w-0 flex-col">
+						{input.children}
+					</div>
+				</Activity>
+				{input.open && !isOverlay && (
+					<SidebarRail
+						className="transition-colors motion-reduce:transition-none"
+						enableToggle={false}
+						nested
+						separatorLabel={input.resizeHandleLabel}
+					/>
+				)}
 			</Sidebar>
 		</SidebarProvider>
 	);

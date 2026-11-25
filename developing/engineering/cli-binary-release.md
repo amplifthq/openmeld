@@ -171,7 +171,7 @@ node scripts/release/build-cli-binary.mjs --platform windows-x64 --background
 Artifacts are `cli/dist/openmeld-cli-windows-x64-<version>.exe` and
 `cli/dist/openmeld-service-windows-x64-<version>.exe`, with the shared
 `cli/dist/openmeld-windows-process.exe` next to them. The native helper is built
-with .NET SDK 10.0.401 / Native AOT on Windows; it needs no user-installed .NET
+with .NET SDK 10.0.403 / Native AOT on Windows; it needs no user-installed .NET
 runtime or compiler. Both the binary version bundle and npm's `dist/windows`
 must carry that helper. Signing and multi-platform publication assembly remain
 part of the installation/release gate; these development artifacts must not be
@@ -539,6 +539,8 @@ waiting for that refresh. Cold or expired policy reads wait only for required
 policy, never for the optional channels. A slow first R2 policy read can therefore
 still delay a cold request.
 
+RuntimeTransportHub route, batch-route and owner-Service reads use only the
+current snapshot so a cold R2 read cannot delay a liveness query.
 RuntimeTransportHub constructor and registration gates are snapshot consumers:
 they start background refresh before entering the gate and never await it there.
 They use only unexpired validated policy, or a missing-policy snapshot while R2

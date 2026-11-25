@@ -22,6 +22,7 @@ const IMAGE_UNDERSTANDING_COMPACT_OUTPUT_TOKENS = 4096;
 const IMAGE_UNDERSTANDING_DENSE_OUTPUT_TOKENS = 8192;
 const IMAGE_UNDERSTANDING_TIMEOUT_MS = 120_000;
 const IMAGE_UNDERSTANDING_PROVIDER_ERROR_MAX_CHARS = 500;
+export class RemoteAgentImageTransformQuotaError extends Error {}
 export const REMOTE_AGENT_CONTEXT_IMAGE_MAX_DIMENSION = 2560;
 export const REMOTE_AGENT_CONTEXT_IMAGE_MIN_DIMENSION = 1600;
 export const REMOTE_AGENT_CONTEXT_IMAGE_MAX_BYTES = 4 * 1024 * 1024;
@@ -390,7 +391,16 @@ export async function transformRemoteAgentImageForContext(input: {
       ? JSON.stringify(input.image.filename)
       : "an image";
     const failureReason = resolveImagePreparationFailureReason(error);
-    throw new Error(
+    const quotaExceeded =
+      error !== null &&
+      typeof error === "object" &&
+      (("code" in error && error.code === 9422) ||
+        (error instanceof Error &&
+          error.message.startsWith("IMAGES_TRANSFORM_ERROR 9422:")));
+    const ImagePreparationError = quotaExceeded
+      ? RemoteAgentImageTransformQuotaError
+      : Error;
+    throw new ImagePreparationError(
       `Remote Agent could not prepare ${sourceLabel} for model context.${failureReason ? ` Cause: ${failureReason}` : ""}`,
       {
         cause: error,

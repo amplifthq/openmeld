@@ -149,7 +149,7 @@ describe("space-mesh", () => {
         "- What this space is: A shared collaboration surface.",
         "- You are: Reviewer, Profile ID: agt_reviewer",
         '- This space: "Launch Room" — Coordinate the launch',
-        "- Space guide (maintained by this space's steward):",
+        "- Space guide (standing rules set by this Space's owners; follow them for all work in this Space, with OpenMeld rules and safety boundaries taking precedence):",
         "First line.",
         "Second line.",
         "- Need more: read the live board",

@@ -113,16 +113,23 @@ describe("Gateway connector connection routes", () => {
       expiresAtMs: 2,
       sourceSignalId: "source-message",
       continuation: null,
+      issuePreview: {
+        title: "Private issue title",
+        description: "Private issue body",
+        targets: [],
+        additionalFieldCount: 0,
+      },
     }));
     const environment = makeEnv({ pluginActionRequest });
     const invoke = (
       body: unknown,
       contentType = "application/json",
-      includeMessageContext = false
+      includeMessageContext = false,
+      includeIssuePreview = false
     ) =>
       app.fetch(
         new Request(
-          `http://local/v1/organizations/current/plugins/action-requests?expectedOrganizationId=org-1${includeMessageContext ? "&includeMessageContext=true" : ""}`,
+          `http://local/v1/organizations/current/plugins/action-requests?expectedOrganizationId=org-1${includeMessageContext ? "&includeMessageContext=true" : ""}${includeIssuePreview ? "&includeIssuePreview=true" : ""}`,
           {
             method: "POST",
             headers: { "content-type": contentType },
@@ -134,16 +141,30 @@ describe("Gateway connector connection routes", () => {
       );
     expect((await invoke({ operation: "read", requestId })).status).toBe(200);
     const legacy = await invoke({ operation: "read", requestId });
-    expect(await legacy.json()).not.toHaveProperty("sourceSignalId");
+    const legacyBody = await legacy.json();
+    expect(legacyBody).not.toHaveProperty("sourceSignalId");
+    expect(legacyBody).not.toHaveProperty("issuePreview");
     const contextual = await invoke(
       { operation: "read", requestId },
       "application/json",
       true
     );
     expect(contextual.status).toBe(200);
-    expect(await contextual.json()).toHaveProperty(
-      "sourceSignalId",
-      "source-message"
+    const contextualBody = await contextual.json();
+    expect(contextualBody).not.toHaveProperty("issuePreview");
+    expect(contextualBody).toHaveProperty("sourceSignalId", "source-message");
+    const detail = await invoke(
+      { operation: "read", requestId },
+      "application/json",
+      true,
+      true
+    );
+    expect(await detail.json()).toHaveProperty(
+      "issuePreview.description",
+      "Private issue body"
+    );
+    expect(pluginActionRequest).toHaveBeenLastCalledWith(
+      expect.objectContaining({ includeIssuePreview: true })
     );
     expect(pluginActionRequest).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -41,17 +41,18 @@ describe("Inbox attention", () => {
 		});
 	});
 	it.each([
-		[0, 0, 0, null, null],
-		[127, 0, 0, "unread", "127 unread"],
-		[127, 0, 1, "warning", "Urgent updates (1)"],
-		[127, 2, 1, "warning", "Needs action (2)"],
-		[0, 1, 0, "warning", "Needs action (1)"],
-	] as const)("maps %i unread, %i actions, %i urgent updates to one indicator", (unread, actions, urgent, indicatorTone, tabLabel) => {
+		[127, 0, 0, 0, null, null],
+		[127, 1, 0, 0, "unread", "1 unread for you"],
+		[127, 1, 0, 1, "warning", "Urgent updates (1)"],
+		[127, 1, 2, 1, "warning", "Needs action (2)"],
+		[0, 0, 1, 0, "warning", "Needs action (1)"],
+	] as const)("maps %i unread, %i personal, %i actions, %i urgent updates to one indicator", (unread, personal, actions, urgent, indicatorTone, tabLabel) => {
 		expect(
 			resolveInboxAttention({
 				summary: {
 					organizationId: "org",
 					ordinaryUnreadCount: Math.max(0, unread - urgent),
+					personalUnreadCount: personal,
 					totalUnreadCount: unread,
 					unreadMentionCount: 0,
 					unresolvedActionCount: actions,

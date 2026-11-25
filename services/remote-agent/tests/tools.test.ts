@@ -11,6 +11,7 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   organizationDirectoryResponseSchema,
+  remoteAgentResolveReplyMentionsRequestSchema,
 } from "@openmeld/schemas";
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
 import {
@@ -556,6 +557,139 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
   });
 
+  it("offers bounded Feishu history with exact UTC times and rejects target IDs or a mismatched scope", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        space: { ...base.turnEnvelope.space, kind: "space" },
+        sender: {
+          kind: "member",
+          id: "ou_requester",
+          displayName: "Member",
+          verified: false,
+          messageChannelIdentity: {
+            provider: "feishu",
+            providerUserId: "ou_requester",
+            connectionId: "connection",
+          },
+        },
+        trigger: {
+          source: "message_channel",
+          provider: "feishu",
+          conversationId: "conversation",
+          connectionId: "connection",
+        },
+      },
+    });
+    const coreWorker = {
+      centerAgentAuthorizeAnonymousMemberTool: vi.fn().mockResolvedValue({
+        authorized: true,
+        sourceNativeDeliveryId: "native",
+      }),
+      readFeishuGroupHistory: vi.fn().mockResolvedValue({ status: "disabled" }),
+    };
+    const storage = await createStorageWithPendingContext(request);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker,
+      storage,
+      turnEnvelope: request.turnEnvelope,
+    });
+    await expect(
+      executeTool(tools, "openmeld_read_feishu_group_history", {
+        chatId: "other",
+      })
+    ).rejects.toThrow();
+    expect(coreWorker.readFeishuGroupHistory).not.toHaveBeenCalled();
+    await expect(
+      executeTool(tools, "openmeld_read_feishu_group_history", {})
+    ).resolves.toEqual({ status: "disabled" });
+    expect(coreWorker.readFeishuGroupHistory).toHaveBeenCalledWith({
+      includeCoverage: true,
+      context: expect.objectContaining({
+        agentControllerConversationId: ACK.submissionId,
+      }),
+      request: { lookbackMinutes: 30 },
+    });
+    const historyResult = {
+      status: "read",
+      scope: "requester_top_level_messages",
+      startMs: Date.parse("2026-11-05T03:09:00Z"),
+      endMs: Date.parse("2026-11-05T05:09:00Z"),
+      coverage: {
+        examinedFromMs: Date.parse("2026-11-05T03:09:00Z"),
+        gaps: [],
+      },
+      context: {
+        provider: "feishu",
+        conversationId: "conversation",
+        currentMessageId: "om_trigger",
+        sync: { mode: "snapshot", status: "complete" },
+        messages: [
+          {
+            id: "om_n1_a",
+            author: { kind: "human", id: "ou_requester" },
+            // Captured from the N1 source through Feishu's history API.
+            sentAtMs: 1_793_852_817_114,
+            text: "N1 source A",
+          },
+        ],
+      },
+    };
+    coreWorker.readFeishuGroupHistory.mockResolvedValue(historyResult);
+    await expect(
+      executeTool(tools, "openmeld_read_feishu_group_history", {})
+    ).resolves.toMatchObject({
+      startUtc: "2026-11-05T03:09:00.000Z",
+      endUtc: "2026-11-05T05:09:00.000Z",
+      coverage: { examinedFromUtc: "2026-11-05T03:09:00.000Z" },
+      context: {
+        messages: [
+          {
+            sentAtMs: 1_793_852_817_114,
+            sentAtUtc: "2026-11-05T04:26:57.114Z",
+          },
+        ],
+      },
+    });
+    // An older Core ignores the outer scope; never mislabel its own-root result.
+    await expect(
+      executeTool(tools, "openmeld_read_feishu_group_history", {
+        scope: "current_thread_messages",
+      })
+    ).resolves.toEqual({ status: "unavailable" });
+    coreWorker.readFeishuGroupHistory.mockResolvedValue({
+      ...historyResult,
+      scope: "current_thread_messages",
+    });
+    await expect(
+      executeTool(tools, "openmeld_read_feishu_group_history", {
+        scope: "current_thread_messages",
+      })
+    ).resolves.toMatchObject({
+      status: "read",
+      scope: "current_thread_messages",
+    });
+    expect(coreWorker.readFeishuGroupHistory).toHaveBeenLastCalledWith({
+      includeCoverage: true,
+      scope: "current_thread_messages",
+      context: expect.objectContaining({
+        agentControllerConversationId: ACK.submissionId,
+      }),
+      request: { lookbackMinutes: 30 },
+    });
+    const dm = {
+      ...request.turnEnvelope,
+      space: { ...request.turnEnvelope.space, kind: "dm" as const },
+    };
+    expect(
+      getRemoteAgentOpenMeldToolDefinitions({
+        coreWorker,
+        storage,
+        turnEnvelope: dm,
+      }).some((t) => t.name === "openmeld_read_feishu_group_history")
+    ).toBe(false);
+  });
   it("rechecks an anonymous member's exact provider delivery before every allowed tool", async () => {
     const base = createSubmitTurnRequest();
     const request = createSubmitTurnRequest({
@@ -5587,14 +5721,48 @@ describe("remote agent OpenMeld tool catalog", () => {
             },
           });
     const storage = await createStorageWithPendingContext(request);
+    const resolveRemoteAgentReplyMentions = vi.fn((payload: unknown) => {
+      const { mentionProfileIds } =
+        remoteAgentResolveReplyMentionsRequestSchema.parse(payload);
+      return Promise.resolve({
+        spaceId: SPACE_ID,
+        targets: [...new Set(mentionProfileIds)].map((profileId) => ({
+          profileId,
+          profileName: "Reporter",
+          scope:
+            kind === "routine" ? ("organization" as const) : ("space" as const),
+        })),
+      });
+    });
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: {},
+      coreWorker: { resolveRemoteAgentReplyMentions },
       storage,
       turnEnvelope: request.turnEnvelope,
     });
     await executeTool(tools, "openmeld_set_final_reply_mentions", {
       mentionProfileIds: [HUMAN_PROFILE_ID, HUMAN_PROFILE_ID],
     });
+    expect(
+      (await readRemoteAgentCallbackContext(storage, ACK.submissionId))
+        ?.mentionTargets
+    ).toEqual([HUMAN_PROFILE_ID]);
+    resolveRemoteAgentReplyMentions.mockResolvedValueOnce({
+      spaceId: SPACE_ID,
+      targets: [],
+    });
+    await expect(
+      executeTool(tools, "openmeld_set_final_reply_mentions", {
+        mentionProfileIds: [HUMAN_PROFILE_ID],
+      })
+    ).rejects.toThrow("different mention targets");
+    resolveRemoteAgentReplyMentions.mockRejectedValueOnce(
+      new Error("space.addressing.target_invalid")
+    );
+    await expect(
+      executeTool(tools, "openmeld_set_final_reply_mentions", {
+        mentionProfileIds: ["33333333-3333-4333-8333-333333333333"],
+      })
+    ).rejects.toThrow("space.addressing.target_invalid");
     expect(
       (await readRemoteAgentCallbackContext(storage, ACK.submissionId))
         ?.mentionTargets
@@ -7442,9 +7610,24 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     {
       expectedPayload: {
         fact: "The launch owner is Maya.",
+        includeStatus: true,
+        sourceRef: {
+          kind: "message",
+          spaceId: SPACE_ID,
+          sourceSignalId: "source-message",
+          version: `sha256:${"a".repeat(64)}`,
+        },
         speakerMember: { memberId: "member_123", userId: "user_1" },
       },
-      input: { fact: "The launch owner is Maya." },
+      input: {
+        fact: "The launch owner is Maya.",
+        sourceRef: {
+          kind: "message",
+          spaceId: SPACE_ID,
+          sourceSignalId: "source-message",
+          version: `sha256:${"a".repeat(64)}`,
+        },
+      },
       response: rememberForOrganizationResponse(),
       rpcName: "centerAgentRememberForOrganization",
       toolName: "openmeld_remember_for_organization",

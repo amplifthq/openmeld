@@ -1826,6 +1826,9 @@ describe("openmeld service commands", () => {
       expect(result.result).toBe("start_failed");
     });
 
+    expect(captureDaemonServiceEvidenceBestEffortMock).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: "after_failure" })
+    );
     expect(stdout).toContain("OpenMeld Service couldn't start");
     expect(stdout).not.toContain("OpenMeld Service Repaired");
     expect(stdout).not.toContain("service-evidence-start-failed");

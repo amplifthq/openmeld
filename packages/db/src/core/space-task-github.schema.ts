@@ -63,6 +63,50 @@ export const spaceTaskGitHubIssueLinks = applicationTable(
   ]
 );
 
+export const spaceTaskGitHubPullRequestLinks = applicationTable(
+  "space_task_github_pr_links",
+  {
+    spaceId: text("space_id").notNull(),
+    taskId: text("task_id").notNull(),
+    ownerLogin: text("owner_login").notNull(),
+    repo: text("repo").notNull(),
+    number: bigint("number", { mode: "number" }).notNull(),
+    url: text("url").notNull(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    attachedAtMs: bigint("attached_at_ms", { mode: "number" }).notNull(),
+    detachedAtMs: bigint("detached_at_ms", { mode: "number" }),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.spaceId,
+        table.taskId,
+        table.ownerLogin,
+        table.repo,
+        table.number,
+      ],
+    }),
+    index("space_task_github_pr_links_identity_idx").on(
+      table.ownerLogin,
+      table.repo,
+      table.number,
+      table.detachedAtMs
+    ),
+    check(
+      "space_task_github_pr_links_ids_check",
+      sql`length(trim("space_id")) > 0 and "task_id" ~ '^tsk_.*$' and length(trim("owner_login")) > 0 and length(trim("repo")) > 0 and "number" > 0`
+    ),
+    check("space_task_github_pr_links_url_check", sql`length(trim("url")) > 0`),
+    check(
+      "space_task_github_pr_links_time_check",
+      sql`"attached_at_ms" >= 0 and "updated_at_ms" >= "attached_at_ms" and ("detached_at_ms" is null or "detached_at_ms" >= "attached_at_ms")`
+    ),
+  ]
+);
+
 export const githubAppWebhookDeliveries = applicationTable(
   "github_app_webhook_deliveries",
   {
@@ -73,6 +117,9 @@ export const githubAppWebhookDeliveries = applicationTable(
     repo: text("repo"),
     number: bigint("number", { mode: "number" }),
     issueState: text("issue_state"),
+    prHeadSha: text("pr_head_sha"),
+    prBeforeSha: text("pr_before_sha"),
+    prObservedAtMs: bigint("pr_observed_at_ms", { mode: "number" }),
     gatewayRequestId: text("gateway_request_id").notNull(),
     state: text("state").notNull(),
     claimId: text("claim_id"),
@@ -92,6 +139,9 @@ export const githubAppWebhookDeliveries = applicationTable(
       table.state,
       table.updatedAtMs
     ),
+    index("github_app_webhook_deliveries_pr_time_idx")
+      .on(table.ownerLogin, table.repo, table.number, table.prObservedAtMs)
+      .where(sql`"pr_observed_at_ms" IS NOT NULL`),
     check(
       "github_app_webhook_deliveries_id_check",
       sql`length(trim("delivery_id")) > 0`

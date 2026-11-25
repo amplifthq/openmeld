@@ -55,7 +55,10 @@ const request = {
   soundEnabled: false,
 };
 
-function setup(window: BrowserWindow | null = null) {
+function setup(
+  window: BrowserWindow | null = null,
+  readLocalServiceAuthenticationRequired?: (userId: string) => Promise<boolean>
+) {
   const setInboxAttention = vi.fn();
   const setTrayContext = vi.fn();
   const setTrayPresentation = vi.fn();
@@ -97,6 +100,7 @@ function setup(window: BrowserWindow | null = null) {
     installed: true,
     ensureCompatible: async () => undefined,
     getWindow: () => window,
+    readLocalServiceAuthenticationRequired,
   });
   notifications.setContext({
     userId: request.userId,
@@ -449,6 +453,87 @@ it.each([
   expect(send).toHaveBeenCalledTimes(expectedSends);
   notifications.clear();
 });
+it("notifies once for confirmed local sign-in failure and rearms after reconnection", async () => {
+  const read = vi.fn().mockResolvedValue(true);
+  const send = vi.fn();
+  const window = {
+    isDestroyed: () => false,
+    isMinimized: () => false,
+    show: vi.fn(),
+    focus: vi.fn(),
+    webContents: { send },
+  } as unknown as BrowserWindow;
+  const { notifications } = setup(window, read);
+  const context = {
+    userId: "user-a",
+    organizationId: "org-a",
+    enabled: true,
+    visibleConversation: null,
+    computer: {
+      available: true,
+      statusLabel: "Disconnected",
+      statusTone: "offline",
+    },
+  };
+  await notifications.setContext(context);
+  await vi.waitFor(() => expect(native.created).toHaveBeenCalledOnce());
+  expect(native.created.mock.calls[0]?.[1]).toMatchObject({
+    title: "Reconnect this computer",
+    silent: true,
+  });
+  native.created.mock.calls[0]?.[0].emit("show");
+  native.created.mock.calls[0]?.[0].emit("click");
+  await vi.waitFor(() =>
+    expect(send).toHaveBeenCalledWith("window:navigate-destination", "computer")
+  );
+  await vi.advanceTimersByTimeAsync(60_000);
+  await notifications.setContext(context);
+  expect(read).toHaveBeenCalledOnce();
+  expect(native.created).toHaveBeenCalledOnce();
+  await notifications.setContext({
+    ...context,
+    computer: { ...context.computer, statusTone: "connected" },
+  });
+  expect(read).toHaveBeenCalledOnce();
+  await notifications.setContext(context);
+  await vi.waitFor(() => expect(native.created).toHaveBeenCalledTimes(2));
+  notifications.clear();
+});
+
+it.each([
+  "network failure",
+  "notifications disabled",
+  "account changed",
+])("does not announce sign-in failure for %s", async (scenario) => {
+  const held = Promise.withResolvers<boolean>();
+  const read = vi.fn().mockReturnValue(held.promise);
+  const { notifications, session } = setup(null, read);
+  await notifications.setContext({
+    userId: "user-a",
+    organizationId: "org-a",
+    enabled: scenario !== "notifications disabled",
+    visibleConversation: null,
+    computer: {
+      available: true,
+      statusLabel: "Disconnected",
+      statusTone: "offline",
+    },
+  });
+  if (scenario === "account changed") {
+    session.mockResolvedValue({
+      user: { id: "user-b", name: "B", email: "b@example.com" },
+    });
+    notifications.clear();
+  }
+  held.resolve(scenario !== "network failure");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(native.created).not.toHaveBeenCalled();
+  if (scenario === "notifications disabled") {
+    expect(read).not.toHaveBeenCalled();
+  }
+  notifications.clear();
+});
+
 afterEach(() => {
   vi.useRealTimers();
 });

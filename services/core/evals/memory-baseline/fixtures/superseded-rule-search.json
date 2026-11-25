@@ -1,0 +1,274 @@
+{
+  "provenance": "Captured from the authorized synthetic DEV evaluation on 2026-10-30; all graphs were deleted. No private transcript, real member, or credential data.",
+  "organizationId": "memory-baseline-559cc5b9-0309-4333-a45b-b5b576e16d15-1",
+  "searchRequest": {
+    "graphId": "org:memory-baseline-559cc5b9-0309-4333-a45b-b5b576e16d15-1:space:fixture-space:center-agent",
+    "query": "Cedar Issues 的 build 规则是什么？",
+    "limit": 6,
+    "scope": "edges"
+  },
+  "searchResult": {
+    "edges": [
+      {
+        "uuid": "58ffabc8-9c63-4558-99d6-2c9e49b9a70a",
+        "graph_id": "",
+        "sourceNodeUuid": "17e7548b-7bbe-4a9e-98fe-25bbbc6bf007",
+        "targetNodeUuid": "17e7548b-7bbe-4a9e-98fe-25bbbc6bf007",
+        "createdAt": "2026-10-30T12:41:08.899Z",
+        "score": 0.03226646,
+        "name": "HAS_BUILD_POLICY",
+        "fact": "In Cedar Issues, agents may build only when someone explicitly asks.",
+        "scope": "entity",
+        "episodes": ["045e392f-e594-40c1-a7f3-ee4736af5536"],
+        "validAt": "2026-10-01T12:01:00Z",
+        "attributes": {
+          "edge_type": "HAS_BUILD_POLICY",
+          "fact": "In Cedar Issues, agents may build only when someone explicitly asks.",
+          "reference_time": "2026-10-01 12:01:00+00:00"
+        },
+        "source_node_name": "Cedar Issues",
+        "target_node_name": "Cedar Issues"
+      },
+      {
+        "uuid": "491a4999-10d7-45f1-a386-e2d59d313547",
+        "graph_id": "",
+        "sourceNodeUuid": "17e7548b-7bbe-4a9e-98fe-25bbbc6bf007",
+        "targetNodeUuid": "dd865f50-d75d-4121-9675-359f14c90726",
+        "createdAt": "2026-10-30T12:41:08.899Z",
+        "score": 0.031778056,
+        "name": "REQUIRES",
+        "fact": "In Cedar Issues, PRs need human review.",
+        "scope": "entity",
+        "episodes": ["045e392f-e594-40c1-a7f3-ee4736af5536"],
+        "validAt": "2026-10-01T12:01:00Z",
+        "attributes": {
+          "edge_type": "REQUIRES",
+          "fact": "In Cedar Issues, PRs need human review.",
+          "reference_time": "2026-10-01 12:01:00+00:00"
+        },
+        "source_node_name": "Cedar Issues",
+        "target_node_name": "human review"
+      },
+      {
+        "uuid": "d85d9ee6-b2bb-458a-825f-29f26e6158de",
+        "graph_id": "",
+        "sourceNodeUuid": "f8aaaf12-a9d6-4492-9f99-c99c2bb21697",
+        "targetNodeUuid": "17e7548b-7bbe-4a9e-98fe-25bbbc6bf007",
+        "createdAt": "2026-10-30T12:41:00.773Z",
+        "score": 0.03175403,
+        "name": "IS_PHASE_OF",
+        "fact": "In Cedar Issues, Phase 1 is triage only.",
+        "scope": "entity",
+        "episodes": ["b787d001-578c-4a72-b5c3-09e2eda1c875"],
+        "validAt": "2026-10-01T12:00:00Z",
+        "attributes": {
+          "edge_type": "IS_PHASE_OF",
+          "fact": "In Cedar Issues, Phase 1 is triage only.",
+          "reference_time": "2026-10-01 12:00:00+00:00"
+        },
+        "source_node_name": "Phase 1",
+        "target_node_name": "Cedar Issues"
+      },
+      {
+        "uuid": "fafba0f3-39a9-4916-8dbc-dcc706870480",
+        "graph_id": "",
+        "sourceNodeUuid": "17e7548b-7bbe-4a9e-98fe-25bbbc6bf007",
+        "targetNodeUuid": "ce48ae3e-b066-4b28-95cb-3f9983b027ad",
+        "createdAt": "2026-10-30T12:41:08.899Z",
+        "score": 0.031513646,
+        "name": "REQUIRES_ISSUE_IN",
+        "fact": "In Cedar Issues, a Linear issue must be created first before the work is handed off.",
+        "scope": "entity",
+        "episodes": ["045e392f-e594-40c1-a7f3-ee4736af5536"],
+        "validAt": "2026-10-01T12:01:00Z",
+        "attributes": {
+          "edge_type": "REQUIRES_ISSUE_IN",
+          "fact": "In Cedar Issues, a Linear issue must be created first before the work is handed off.",
+          "reference_time": "2026-10-01 12:01:00+00:00"
+        },
+        "source_node_name": "Cedar Issues",
+        "target_node_name": "Linear"
+      },
+      {
+        "uuid": "a34a317c-4020-4f79-ac0e-f2974d0f82d9",
+        "graph_id": "",
+        "sourceNodeUuid": "17e7548b-7bbe-4a9e-98fe-25bbbc6bf007",
+        "targetNodeUuid": "17e7548b-7bbe-4a9e-98fe-25bbbc6bf007",
+        "createdAt": "2026-10-30T12:41:00.773Z",
+        "score": 0.031498015,
+        "name": "HAS_PENDING_DECISION",
+        "fact": "The decision on whether agents may build in Cedar Issues is still pending.",
+        "scope": "entity",
+        "episodes": [
+          "b787d001-578c-4a72-b5c3-09e2eda1c875",
+          "045e392f-e594-40c1-a7f3-ee4736af5536"
+        ],
+        "expiredAt": "2026-10-30T12:41:11.767Z",
+        "validAt": "2026-10-01T12:00:00Z",
+        "invalidAt": "2026-10-01T12:01:00Z",
+        "attributes": {
+          "edge_type": "HAS_PENDING_DECISION",
+          "fact": "The decision on whether agents may build in Cedar Issues is still pending.",
+          "reference_time": "2026-10-01 12:00:00+00:00"
+        },
+        "source_node_name": "Cedar Issues",
+        "target_node_name": "Cedar Issues"
+      },
+      {
+        "uuid": "641d3a1f-19c7-4e6a-9a87-d115bffe11b1",
+        "graph_id": "",
+        "sourceNodeUuid": "17e7548b-7bbe-4a9e-98fe-25bbbc6bf007",
+        "targetNodeUuid": "1d456059-6bb6-4fad-9d32-3af173b2b1d2",
+        "createdAt": "2026-10-30T12:41:08.899Z",
+        "score": 0.030303031,
+        "name": "HANDS_WORK_TO",
+        "fact": "In Cedar Issues, after the Linear issue is created, the work is handed to a developer Agent.",
+        "scope": "entity",
+        "episodes": [
+          "045e392f-e594-40c1-a7f3-ee4736af5536",
+          "20d90f78-8c7a-47ba-bdc9-79cbdbe1c100"
+        ],
+        "expiredAt": "2026-10-30T12:41:21.259Z",
+        "validAt": "2026-10-01T12:01:00Z",
+        "invalidAt": "2026-10-01T12:02:00Z",
+        "attributes": {
+          "edge_type": "HANDS_WORK_TO",
+          "fact": "In Cedar Issues, after the Linear issue is created, the work is handed to a developer Agent.",
+          "reference_time": "2026-10-01 12:01:00+00:00"
+        },
+        "source_node_name": "Cedar Issues",
+        "target_node_name": "developer Agent"
+      }
+    ],
+    "nodes": [],
+    "episodes": [],
+    "response": {
+      "serverLatencyMs": 38
+    }
+  },
+  "episodes": {
+    "045e392f-e594-40c1-a7f3-ee4736af5536": {
+      "content": "Human (original source excerpt): Update: build only when someone explicitly asks. Create the Linear issue first, then hand the work to a developer Agent. PRs need human review.",
+      "uuid": "045e392f-e594-40c1-a7f3-ee4736af5536",
+      "source": "message",
+      "sourceDescription": "OpenMeld Center Agent memory from shared Space",
+      "createdAt": "2026-10-01T12:01:00Z",
+      "processed": true,
+      "session_id": null,
+      "metadata": {
+        "openmeld_memory_capture_method": "automatic_turn",
+        "openmeld_memory_occurred_at_ms": 1790856060000,
+        "openmeld_memory_source": "space_conversation",
+        "openmeld_memory_source_author_kind": "human",
+        "openmeld_memory_source_conversation_id": "fixture-space",
+        "openmeld_memory_source_message_id": "fixture-1",
+        "openmeld_memory_source_version": "sha256:c98dd766c018f6505eb5e3ea2d41a6b065f7830e529290fb6b4edf45fceaa1f6",
+        "openmeld_memory_version": 1
+      }
+    },
+    "20d90f78-8c7a-47ba-bdc9-79cbdbe1c100": {
+      "content": "Human (original source excerpt): Replace that handoff step: when explicitly asked to build, create the Linear issue, assign it to yourself and build it yourself. PRs still need human review; never merge your own PR.",
+      "uuid": "20d90f78-8c7a-47ba-bdc9-79cbdbe1c100",
+      "source": "message",
+      "sourceDescription": "OpenMeld Center Agent memory from shared Space",
+      "createdAt": "2026-10-01T12:02:00Z",
+      "processed": true,
+      "session_id": null,
+      "metadata": {
+        "openmeld_memory_capture_method": "automatic_turn",
+        "openmeld_memory_occurred_at_ms": 1790856120000,
+        "openmeld_memory_source": "space_conversation",
+        "openmeld_memory_source_author_kind": "human",
+        "openmeld_memory_source_conversation_id": "fixture-space",
+        "openmeld_memory_source_message_id": "fixture-2",
+        "openmeld_memory_source_version": "sha256:771a3f7c9cdd6b44417fcdd2eb4ad3b0079c97231ca7cb63fd0f973127ca40e8",
+        "openmeld_memory_version": 1
+      }
+    },
+    "b787d001-578c-4a72-b5c3-09e2eda1c875": {
+      "content": "Human (original source excerpt): In Cedar Issues, Phase 1 is triage only. The decision on whether agents may build is still pending.",
+      "uuid": "b787d001-578c-4a72-b5c3-09e2eda1c875",
+      "source": "message",
+      "sourceDescription": "OpenMeld Center Agent memory from shared Space",
+      "createdAt": "2026-10-01T12:00:00Z",
+      "processed": true,
+      "session_id": null,
+      "metadata": {
+        "openmeld_memory_capture_method": "automatic_turn",
+        "openmeld_memory_occurred_at_ms": 1790856000000,
+        "openmeld_memory_source": "space_conversation",
+        "openmeld_memory_source_author_kind": "human",
+        "openmeld_memory_source_conversation_id": "fixture-space",
+        "openmeld_memory_source_message_id": "fixture-0",
+        "openmeld_memory_source_version": "sha256:3e44f59b7d2e228f7a685268ed3b6d34c436a70af47d9cb26471e4fad8bb7319",
+        "openmeld_memory_version": 1
+      }
+    }
+  },
+  "previousEnvelope": {
+    "sender": {
+      "kind": "member",
+      "id": "fixture-member",
+      "displayName": "Fixture member",
+      "ownerUserId": "fixture-user",
+      "role": "owner",
+      "verified": true
+    },
+    "space": {
+      "id": "fixture-space",
+      "name": "Cedar Issues",
+      "kind": "space",
+      "isCenterAgentDm": false
+    },
+    "organization": {
+      "id": "memory-baseline-559cc5b9-0309-4333-a45b-b5b576e16d15-1",
+      "name": "Cedar",
+      "personal": false,
+      "memberCount": 3
+    },
+    "centerAgent": {
+      "profileName": "Center Agent",
+      "profileHandle": "center-agent"
+    },
+    "trigger": {
+      "source": "space_wake"
+    },
+    "interactionEnvironment": "organization_shared",
+    "memory": {
+      "items": [
+        {
+          "source": "space_conversation",
+          "subject": "space",
+          "text": "[Recorded 2026-10-01T12:01:00.000Z] [Source authors: human] [Fact validity: from 2026-10-01T12:01:00.000Z] In Cedar Issues, agents may build only when someone explicitly asks."
+        },
+        {
+          "source": "space_conversation",
+          "subject": "space",
+          "text": "[Recorded 2026-10-01T12:01:00.000Z] [Source authors: human] [Fact validity: from 2026-10-01T12:01:00.000Z] In Cedar Issues, PRs need human review."
+        },
+        {
+          "source": "space_conversation",
+          "subject": "space",
+          "text": "[Recorded 2026-10-01T12:00:00.000Z] [Source authors: human] [Fact validity: from 2026-10-01T12:00:00.000Z] In Cedar Issues, Phase 1 is triage only."
+        },
+        {
+          "source": "space_conversation",
+          "subject": "space",
+          "text": "[Recorded 2026-10-01T12:01:00.000Z] [Source authors: human] [Fact validity: from 2026-10-01T12:01:00.000Z] In Cedar Issues, a Linear issue must be created first before the work is handed off."
+        },
+        {
+          "source": "space_conversation",
+          "subject": "space",
+          "text": "[Recorded 2026-10-01T12:00:00.000Z] [Source authors: human] [Fact validity: from 2026-10-01T12:00:00.000Z; until 2026-10-01T12:01:00.000Z; superseded 2026-10-30T12:41:11.767Z] The decision on whether agents may build in Cedar Issues is still pending."
+        },
+        {
+          "source": "space_conversation",
+          "subject": "space",
+          "text": "[Recorded 2026-10-01T12:01:00.000Z] [Source authors: human] [Fact validity: from 2026-10-01T12:01:00.000Z; until 2026-10-01T12:02:00.000Z; superseded 2026-10-30T12:41:21.259Z] In Cedar Issues, after the Linear issue is created, the work is handed to a developer Agent."
+        }
+      ],
+      "truncated": false
+    }
+  },
+  "previousAnswer": "{\n\"builder\": \"unknown\",\n\"needsBuildDecision\": false,\n\"createIssueFirst\": true,\n\"humanReview\": true\n}"
+}

@@ -24,6 +24,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { composeRefs } from "#lib/compose-refs";
 import { useShape } from "#lib/shape-context";
 import { springs as spring } from "#lib/springs";
 import { cn } from "#lib/utils";
@@ -36,18 +37,6 @@ type SlotProps = {
   style?: CSSProperties;
   children?: ReactNode;
 } & Record<string, unknown>;
-
-function composeRefs<T>(...refs: (Ref<T> | undefined)[]): Ref<T> {
-  return (node: T | null) => {
-    for (const r of refs) {
-      if (typeof r === "function") {
-        r(node);
-      } else if (r) {
-        (r as React.MutableRefObject<T | null>).current = node;
-      }
-    }
-  };
-}
 
 /** Resolves the element to clone: `render` wins, else `asChild`'s single
  *  element child. `content` is what should render inside it — for `asChild`

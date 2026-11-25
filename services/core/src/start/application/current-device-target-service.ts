@@ -878,12 +878,12 @@ function resolveExecutionHostReplyBlocker(
   const reason = observation.unavailableReason;
   let recovery = "Open Diagnostics for details before trying again.";
   if (reason.recoveryAction === "restart_computer") {
-    recovery =
-      "Restart this computer only if OpenMeld does not recover after the previous task ends.";
+    recovery = "Restart this computer, then check its connection again.";
   } else if (reason.recoveryAction === "update_openmeld_tools") {
     recovery = "Update OpenMeld Tools on this computer.";
   } else if (reason.recoveryAction === "wait_for_previous_work") {
-    recovery = "Wait for the previous local task to finish, then check again.";
+    recovery =
+      "This computer accepts new tasks automatically when the previous work ends.";
   }
   return {
     message: `${reason.message} ${recovery}`,

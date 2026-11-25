@@ -42,7 +42,9 @@ export type OpenMeldLegacyLockRepairReport = {
   removedOrphanedLegacyLocks: number;
 };
 type HeldLockReleaseContext = Record<string, unknown>;
-const MALFORMED_LOCK_RECOVERY_GRACE_MS = 30_000;
+// A lock without a readable owner younger than this may still be mid-publish
+// or mid-release; after it, the lock is treated as stale.
+export const MALFORMED_LOCK_RECOVERY_GRACE_MS = 30_000;
 const OPENMELD_ORPHANED_LOCK_SUMMARY =
   "OpenMeld found a local command lock left by an older version.";
 

@@ -1261,7 +1261,7 @@ the current Space filesystem. The MVP commands are:
 ```text
 openmeld space files list <space-id> [--folder <folder-id>] [--all] [--json]
 openmeld space files read <space-id> <file-id> [--revision <n>]
-openmeld space files upload <space-id> <local-path> [--name <name>] [--folder <folder-id>]
+openmeld space files upload <space-id> <local-path> [--name <name>] [--folder <folder-id>] [--client-mutation-id <uuid>] [--timeout-ms <ms>]
 openmeld space files write <space-id> <file-id> --base-revision <n> (--file <local-path> | --stdin)
 openmeld space files mkdir <space-id> <name> [--folder <folder-id>]
 openmeld space files rename <space-id> <entry-id> <name>
@@ -1276,6 +1276,17 @@ structured error codes. A local Agent uses the signed-in account and its exact
 active Agent Profile; CLI does not turn local filesystem access or a Space
 password into Space membership. File writes use the same revision fence as Web
 and Center Agent tools and never auto-overwrite a conflict.
+
+Space file uploads default to a two-minute timeout per request, including each
+multipart part. `--timeout-ms` overrides `OPENMELD_SPACE_REQUEST_TIMEOUT_MS`
+for this upload (1,000–600,000 ms). Multipart progress reports acknowledged
+parts; only the returned saved revision confirms delivery. Errors identify the
+direct upload or multipart stage that failed. Ctrl-C stops the client without
+undoing a write. Reuse the printed retry ID (or supply a UUID up front for
+`--json`) with the same Space, Profile, destination, name, media type and
+bytes. After a lost response, use the suggested file history command with the
+same connection options to check the exact file before retrying. The same
+mutation identifies the original direct write or resumable multipart session.
 
 Before a Space File command starts, one `session_token_unavailable` credential
 read is reread once. A recovered reread continues without login guidance. A

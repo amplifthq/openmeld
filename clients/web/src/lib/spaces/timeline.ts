@@ -10,6 +10,7 @@ import type {
 	ConversationCompactionMarker,
 	SignalEnvelope,
 	SpaceAgentActivity,
+	SpaceHumanMentionTarget,
 	SpaceMemberAgentSnapshot,
 	SpaceMemberHumanSnapshot,
 	SpaceMembersSnapshot,
@@ -102,6 +103,7 @@ export type SpaceTimelineItem = {
 	wakeClientMessageId: string | null;
 	referenceTargetProfileIds?: readonly string[];
 	mentionTargetProfileIds?: readonly string[];
+	humanMentions?: readonly SpaceHumanMentionTarget[];
 	wakeSourceSignalId: string | null;
 	wakeTargetProfileIds: readonly string[];
 	agentStreamState?: {
@@ -746,6 +748,7 @@ function readNewMessagesDuringComposition(
 function readSourceMessageAddressingDetails(
 	signal: SpaceTimelineVisibleEnvelope
 ): {
+	humanMentions?: readonly SpaceHumanMentionTarget[];
 	mentionTargetProfileIds: readonly string[];
 	referenceTargetProfileIds: readonly string[];
 	wakeClientMessageId: string | null;
@@ -777,6 +780,7 @@ function readSourceMessageAddressingDetails(
 	);
 	if (wakeTargetProfileIds.length === 0) {
 		return {
+			humanMentions: signal.data.meta?.humanMentions,
 			mentionTargetProfileIds,
 			referenceTargetProfileIds,
 			wakeClientMessageId: null,
@@ -786,6 +790,7 @@ function readSourceMessageAddressingDetails(
 	}
 
 	return {
+		humanMentions: signal.data.meta?.humanMentions,
 		mentionTargetProfileIds,
 		referenceTargetProfileIds,
 		wakeClientMessageId: clientMessageId,

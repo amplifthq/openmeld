@@ -243,13 +243,71 @@ work starts, a private process-incarnation receipt records non-quiescence. A cle
 local drain clears that fence. After an unconfirmed owner loss, PID disappearance
 alone does not prove that its children or side effects ended. The current receipt
 records the Host process identity and each provider-owned process tree before
-execution continues. A same-boot replacement is allowed only when that evidence
-is complete, the exact Host incarnation is gone, and every recorded provider
-process group or Windows job-backed root is gone. Missing process evidence,
-legacy receipts, and corrupt records remain blocked; trustworthy operating-system
-restart evidence is the fallback. This receipt contains no task results or
+execution continues. Evidence is held per started task and per provider
+invocation, and it is complete only while no control, adapter maintenance or
+workspace cleanup is running and every started task is in one of these states:
+
+- inside a provider invocation whose latest launch has been recorded; or
+- between invocations, after at least one has finished.
+
+Releasing an isolated workspace can launch Git or a container removal command.
+The Host persists incomplete evidence before cleanup starts and keeps it
+incomplete until cleanup settles. This also applies when an accepted Wake
+finishes during drain. If the start cannot be recorded, the Service retains the
+workspace for reconciliation and releases its execution lock.
+A failed receipt update after cleanup or drain is logged locally. The last
+durable receipt still governs takeover; the settled outcome and Host teardown
+are preserved.
+
+Each invocation, including a repair round or retry of the same task, is recorded
+as started before the adapter can launch anything, even a launch probe. A
+recorded process exit makes the running invocation unrecorded again until its
+next launch is recorded. Before its first invocation, a task's preparation can
+launch work it never records, so it is incomplete. One task's or invocation's
+record never vouches for another. A started task is recorded as running before
+any of its work begins; a queued task has started nothing. If the task or
+invocation start cannot be written, that work is refused before it begins: a
+refused task reports `host.execution_record_unavailable` through the existing
+dispatch result outbox, and a refused invocation fails through the task's own
+result. Idle execution slots do not clear the fence: the receipt stays
+non-quiescent while any recorded provider process group is alive.
+
+Non-quiescent receipts are `service-execution-host-owner-v3`, whose
+completeness is per task. A quiescent receipt carries no evidence and keeps the
+v2 shape, so an older Service can still start after a verified rollback. Older
+Services marked v2 completeness Host-wide, so a non-quiescent v2 receipt cannot
+authorize a same-boot takeover. A same-boot replacement is allowed only when v3
+evidence is complete, the exact Host incarnation is gone, and every recorded
+provider process group or Windows job-backed root is gone. While complete
+evidence still names a live Host incarnation or provider process tree, or a live
+Host holds the installation's owner lock, the replacement reports
+`host.previous_work_running` with the `wait_for_previous_work` recovery action.
+An owner lock without an owner entry counts as such a handoff while it is younger
+than the lock's own recovery grace, because publishing and releasing briefly
+leave it holderless. The Service stays connected with execution admission closed
+and rechecks the same rule every few seconds; the Host starts once that recorded
+work exits. It never signals, adopts, or replays that work.
+
+Missing process evidence and legacy receipts remain blocked as
+`host.previous_work_unconfirmed`; waiting cannot complete missing evidence, so
+that refusal is not rechecked and trustworthy operating-system restart evidence
+is the fallback. An unreadable or malformed receipt reports `host.owner_corrupt`
+with the underlying error in local diagnostics, and an owner lock that stays
+holderless past its recovery grace reports `host.owner_lock_unverified`. Both are
+preserved for diagnostics, never rechecked or replaced automatically, and direct
+the owner to diagnostics because restarting cannot repair or identify them. The
+Service log records each distinct refusal and a later recovery, including from
+the detached background Service. This receipt contains no task results or
 approvals and does not authorize replay. It is not a second execution ledger.
 There is no automatic hot adoption or restart of unknown work.
+
+Claude Agent SDK invocations use its public custom-spawn contract on every
+platform through the existing supervised process launcher. The adapter reports
+the actual process/group before returning its streams to the SDK and reports
+exit only after descendant cleanup. SDK-owned spawning without these receipts
+cannot establish complete Host process evidence. Cleanup allows stdin-EOF
+shutdown before bounded termination. Legacy incomplete receipts still require
+their existing safe recovery evidence, never an edited completeness flag.
 
 Cloud-result acknowledgment is separate from local quiescence. Stop and update
 readiness query the Host; they do not inspect another socket's private execution
@@ -652,6 +710,16 @@ controller task without a separate `--version` process. Version and capability
 probes remain in discovery/Prepare; a slow version probe must not be turned into
 an invalid execution contract. This does not bypass permission capability
 attestation or the actual controller startup and execution errors.
+
+OpenCode installation discovery coalesces concurrent version checks and reuses
+successful checks for up to 15 minutes while the launch arguments, environment,
+working directory, and installation fingerprint remain unchanged. Fingerprints
+cover resolved launch files, file identity and permissions, Node package metadata,
+and installed official platform payloads. Failed checks and files that change
+during a probe are not retained. Explicit launch checks remain fresh by default;
+this installation cache does not cache authentication or controller readiness.
+Executable contracts with prefix arguments always run fresh checks because those
+arguments can delegate to files outside the executable fingerprint.
 
 Concurrent controller cleanup shares an unfinished macOS process-table read,
 even after the short snapshot age has elapsed. Once the read settles, its
@@ -1446,7 +1514,7 @@ Cursor dispatch uses only the official Agent Client Protocol exposed by
 `cursor-agent acp`; OpenMeld does not maintain a second Cursor print-mode
 adapter. ACI detects the `cursor-agent` executable itself, never the generic
 `agent` command or the presence of Cursor IDE state. It reports the CLI build,
-`cursor-agent status --format json` authentication evidence, ACP as the native
+Cursor CLI sign-in evidence, ACP as the native
 interface, model selection, permission-mode selection, native event streaming,
 cancellation, interruption, permission requests, structured questions, and
 plan review. OpenMeld maps blocking ACP requests into the shared Agent
@@ -1560,6 +1628,31 @@ that the Service process can actually use. `AGENT_CLI_CREDENTIAL_STORE=file`
 may be offered only as an explicit diagnostic escape hatch for environments
 where macOS Keychain access is unavailable; it stores credentials outside the
 Keychain and must never become a silent automatic fallback.
+
+On macOS, the default-store sign-in check uses the Service's noninteractive
+Keychain reader for Cursor's access and refresh tokens. The Keychain stores the
+items separately. The Service reports signed in when it reads the same complete
+pair twice, and signed out when both reads of each item return missing. A
+partial pair, a difference the reads detect, or an inaccessible store leaves
+sign-in unknown. An explicit `CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN` takes
+precedence on macOS. The offline
+check reports that the environment credential is configured and its validity
+is unknown. Only sign-in evidence enters the snapshot. Other platforms, and
+macOS file or memory stores without an environment credential, use the native
+`cursor-agent status --format json` command. The Keychain pair supplies no
+stable account identifier for reusing older quota observations.
+
+Cursor's `--version` command can initialize credentials before parsing its
+arguments. Install and inventory version checks request the memory store. On
+macOS, those probe processes run offline with Keychain files and Mach services
+blocked, including for older builds that ignore the store setting. If macOS
+cannot start the isolated probe or the CLI returns no recognizable version,
+inventory records an incomplete check. The Service reaps owned probe descendants
+on exit and timeout. After stopping a POSIX process group, the supervisor scans
+for detached helpers even if the group leader has exited. Cleanup retries use
+fresh invocation markers until a scan confirms that the helpers have stopped.
+Login and ACP task execution use the selected installation and its normal
+credential store.
 
 ACI must distinguish a completed negative result from a check that did not
 complete. A completed check may prove that a controller needs repair or is not
@@ -2535,6 +2628,11 @@ They may reap local expired leases because that is part of route lookup
 semantics, but they must not synchronously run RuntimeCoordinator or other
 background housekeeping scans.
 
+The three HTTP lookups answer from Hub session and lease state. They use the
+source reader's currently valid release snapshot for compatibility projection.
+Constructor, registration and heartbeat refresh the policy in the background.
+New Wake admission checks it separately.
+
 Required local-component policy and optional binary-channel availability use
 independent R2 reads and pending refreshes. The source reader owns their bounded
 validity; RuntimeTransportHub must not retain an unchecked per-instance policy.
@@ -2593,6 +2691,9 @@ clears its timer. Late completion cannot settle a later attempt. When the
 remaining overall budget is shorter, the overall deadline takes precedence.
 Direct RPC reads do not use this per-attempt timeout because they cannot abort
 their transport; they retain retries only for the classified exceptions above.
+Other Runtime Transport HTTP calls make one attempt whose deadline likewise
+covers fetch and response-body consumption; a body that stalls past it is a
+timeout, not a late success.
 A replacement gap covering the entire total budget can still make the read fail.
 The member directory caps its batch prefetch at five seconds as well, so a
 single unavailable Hub cannot outlast the directory's client request budget.
@@ -3545,6 +3646,12 @@ not silently repair, reinstall, stop, start, or mutate runtime state.
 Setup and repair exist to restore local infrastructure for the current intended
 account, device, and lane.
 
+Before cleanup and after a failure, Service repair captures local logs, state,
+and process information. On macOS it also attempts to capture launchd
+diagnostics. Both phases leave the optional observed status snapshot null so a
+stalled cloud status request cannot block local recovery. An explicit
+`openmeld service snapshot` includes the full status observation or its error.
+
 An already-running repair may report healthy only after an authenticated local
 control response, a fresh Host control round trip, and the Core-owned current
 device projection agree on the device and lane. The Host must be responsive,
@@ -3789,14 +3896,42 @@ computer. Register and heartbeat triggers both pass that manifest explicitly;
 a missing manifest cannot infer an automatic target from local defaults. The
 request requires the Service's explicit `requestAutomaticUpdate` capability,
 obeys the Service-owned automatic update preference, and coalesces by computer
-daemon session, and release target while the request is in flight. It retains
-that marker only when the same Service session reports `current` at or above
-the release, or reports a `started` or `already_running` operation targeting at
-least that release. A replacement Service session or a newer release target
-can request immediately. An `unavailable` response clears the in-flight marker
-and records a hibernation-safe retry throttle in Durable Object storage: retry
+daemon session, and the selected CLI and Service target versions while the
+request is in flight. For a `current` result, the Hub checks the reported CLI
+version and the registered Service version against their respective targets.
+For `started` and `already_running`, it checks the operation's two targets
+(older operations use their single target version for both). A replacement Service session or a newer release target
+can request immediately. A reported `needs_help` or `restored` operation
+stays visible as failure history. Core can request a fresh check for an
+actionable release when its selected CLI and Service targets are both at least
+the failed targets and at least one is newer. Unknown versions, the same target,
+and active operations keep their existing guard. The Service's coordinator
+still checks the preference and serializes the actual request.
+
+For an update that stays in `updating`, the production Hub decision logs
+include `operationRequestedAt`, `operationUpdatedAt`, the reported CLI and
+installed Service bundle versions, and the running `serviceVersion`. A retained
+npm carrier can report its own CLI version. Treat these versions as observations.
+Updated workers also expose `operationStep`, the last entered checkpoint. The
+tools attempt covers worker pickup, CLI download, verification, installation
+and handoff. For npm, the single `npm_install` step covers the package manager's
+fetch and install. The Service job covers the safe-switch wait and individual
+lifecycle phases, including stopping, installing the bundle and verifying startup.
+
+Each owner atomically replaces one bounded local diagnostic record. The
+reporter matches its operation ID, request timestamp and both component targets
+to the selected job or attempt before projecting the step. It carries one
+allowlisted `cli.update.step.*` code in the existing CLI reason codes. Core logs
+the decoded step on registration and when an observed step changes on heartbeat.
+Older senders omit it. Short steps can finish between observations, and the
+next live Service can report a retained checkpoint after a disconnect. A
+checkpoint never acknowledges an update or authorizes a retry or replacement.
+
+An `unavailable` response clears the in-flight marker and records a
+hibernation-safe retry throttle in Durable Object storage: retry
 after 5 minutes, then 15 minutes, then 60 minutes, capped at 60 minutes while
-the same computer, daemon session, and release target remain current. `disabled`,
+the same computer, daemon session, and both component targets remain current.
+Existing single-target retry records apply to that version of both components. `disabled`,
 an invalid response, or a reported current or operation target below the
 release clears the marker so the next register or heartbeat can retry. A
 disconnected request is failed immediately so a
@@ -3829,6 +3964,40 @@ durable result still awaits Core's acceptance receipt; process exit alone is
 not sufficient evidence. Each accepted Wake stays on the Service version that
 accepted it, and an update must never retry or silently replay it.
 
+For an ordinary automatic update (`requestSource=automatic`, `urgency=available`),
+the readiness read is only a scheduling hint. The authenticated
+`shutdown_if_idle` command asks the Host's `beginDrain` with `onlyIfIdle=true`.
+The Host checks local execution slots, active controls,
+startup replay, and unacknowledged results synchronously with closing its existing
+admission fence. Work admitted first makes the switch return `accepted=false`
+without beginning a drain. The worker restores autostart, releases its lifecycle
+lock, and keeps the same prepared operation waiting without consuming a failure
+attempt. A raced switch waits the existing readiness polling interval before
+trying again, so short tasks cannot turn deferral into a busy loop. It reports
+`updating` only after switch admission succeeds. Transient
+or unsupported pre-admission requests cannot enter replacement/rollback teardown.
+Required updates and explicit user maintenance retain their controlled-drain
+behavior, without force-killing accepted work. Startup-policy maintenance also
+identifies itself as automatic.
+
+The existing stop coordinator owns an admitted idle shutdown across connector
+replacement or loss. Overlapping idle requests share the first in-flight Host
+admission result when a later request reports `host.draining`; that error alone
+does not prove acceptance, and a failed first admission remains a failure.
+No updater-owned task counter, second drain, or execution
+ledger is introduced. Older receivers reject the unknown `shutdown_if_idle` command; the
+automatic operation then reports that manual update is needed while preserving
+the running Service. It must not retry through the ordinary shutdown fallback.
+
+Ordinary installation replacement retains runtime data in place. It must not
+recursively copy and restore task workspaces as part of an upgrade. Only legacy
+shared-root removal retains the backup step. If that backup fails before
+replacement, preserve the old installation and data and report the failure;
+restore its previously enabled autostart and requested running state, retaining
+any restoration errors alongside the backup failure. Previously disabled
+autostart stays disabled. Do not uninstall it in recovery or attempt an
+unprepared replacement.
+
 Waiting for that safe-switch fact must not hold the Service lifecycle lock.
 The worker uses one short lock transaction to normalize the pending job before
 waiting, then re-reads that job under the lock before the switch and
@@ -3838,6 +4007,13 @@ This allows a newer request to replace an older prepared target or a required
 request to escalate an available one without a stale worker restoring the old
 state. Requests coalesce into the existing operation; they never create
 parallel Service update lifecycles.
+
+A safe-switch read that explicitly reports `host.previous_work_unconfirmed`,
+`host.owner_corrupt`, or `host.owner_lock_unverified` ends the same waiting
+operation as `needs_help`, retaining its original error and leaving installation
+state untouched. A transient transport/read failure, including
+`host.previous_work_running` while recorded work exits, still waits for positive
+readiness; elapsed time never clears the Host fence.
 
 After the safe switch begins, RuntimeCoordinator remains the in-flight Wake
 authority. New Wake work may wait for the replacement route and resume after
@@ -3993,9 +4169,10 @@ live. Once active work has drained, result-receipt and WebSocket-close waits are
 bounded: an unacknowledged durable result remains available for replay, and a
 half-open socket is terminated after its close deadline. The calling lifecycle
 also bounds the control request so a new CLI cannot wait forever on an older
-Service. That timeout is a compatibility fallback only during an actual version
-upgrade; the existing OpenMeld-owned-process and long-stalled-heartbeat checks
-remain mandatory before any automatic force kill.
+Service. That timeout aborts the update and restores the old Service's autostart
+setting; a newer target version never proves that accepted work has drained.
+An explicit forced stop retains the existing owned-process safety checks and
+must not be presented as a successful controlled drain.
 
 The final stopping heartbeat must receive a successful Core acknowledgement.
 A rejected or timed-out heartbeat cannot be reported as a completed controlled
@@ -4032,13 +4209,31 @@ days on load/write. Repeated adjacent observations are aggregated; truncation
 is explicit. Pending event writes are capped at 128 so a stalled filesystem
 cannot accumulate unbounded work. Writes and uploads never block registration
 or heartbeat.
-Completed incidents upload after registration, and an interrupted incident from
+Only the current connection's acknowledgement enables incident uploads. A close
+or the next connection attempt pauses uploads, including those still preparing
+the journal. Recheck this condition before sending. Completed incidents upload
+after registration, and an interrupted incident from
 a previous Service process uploads on its next connection. Receipt replay is
 idempotent. Upload retries have their own bounded backoff, retry promptly on
 reconnection, and cannot reconnect the carrier; an account change prevents uploading old evidence with new account
 credentials. Safe native network codes and observed phase are retained when
 available. Unknown runtime errors remain unknown. Retry scheduling delay does
 not prove OS sleep, a DNS problem, or a provider outage.
+
+For a Service process that has received a heartbeat acknowledgement, later
+handshakes carry its last acknowledged connection ID in the optional
+`x-openmeld-previous-connection-id` header. Failed attempts keep that same
+reference. A new process starts without one. Gateway observes daemon WebSocket
+requests with a valid current `connectionId` before authentication and records
+their HTTP result. Find `gateway.daemon_stream.handshake` events whose
+`previousConnectionDiagnosticId` equals the closed socket's
+`connectionDiagnosticId`, then follow the new attempt's
+`connectionDiagnosticId` through Core's `register_received`, `register_rejected`,
+`socket_connected` and `socket_closed` events. Core close observations include
+the age of the last heartbeat and whether the socket was current. Older
+Services can supply the current ID alone. These IDs are client-provided
+diagnostics and grant no authority. Attempts that never reach Gateway are
+observable only from the device.
 
 Reply reconsideration retains its existing exact-conversation behavior. Its
 existing dispatch journal additionally records the relevant signal IDs/count,
@@ -4049,7 +4244,13 @@ Registration and heartbeat never await optional local-component inspection.
 One Service-lifetime observation coalesces that inspection across reconnects
 and may reuse a result for at most 30 seconds; absent or expired observations are omitted rather than
 renewed as fresh component evidence. A completed observation can schedule a
-heartbeat after registration. Missing component evidence does not grant
+heartbeat after registration. If a heartbeat is already awaiting its response,
+the Service coalesces that notification with pending admission changes and
+publishes fresh evidence after the heartbeat settles. The local registration
+log distinguishes cold, expired, pending, empty and failed inspections. Hub
+update decisions record the observation timestamp and the allowlisted failure
+code when available, including a skipped decision on the first heartbeat
+that restores missing component evidence. Missing component evidence does not grant
 component readiness or bypass the Core-owned update projection.
 
 `agentReplyContextReview: true` is an additive Runtime Transport capability.
@@ -4157,7 +4358,14 @@ follow-ups to the current task within existing permissions and execution mode.
 This guidance creates no Wake, queue entry, automatic rerun, or guarantee of
 model behavior. A final-action review cannot perform new implementation work;
 its reply should identify unfinished requests without implying that an
-acknowledgement started or queued them.
+acknowledgement started or queued them. Claude concurrent reply review uses the existing
+delivery-only tool scope, including bounded context reads and the final Space
+action. It must not expose business shell tools or planning transitions that
+create a new plan-approval wait; repair and delivery-only turns deny
+`ExitPlanMode` directly without opening a `plan_review` interaction. The selected
+native permission intent and its deny/ask rules remain authoritative. Other
+controllers retain their existing review isolation policy; this Claude
+correction does not require a new delivery-only capability from them.
 
 Every local adapter repair turn must preserve the validated canonical
 conversation identity and the Binding's controller-native permission intent.
@@ -4170,8 +4378,9 @@ saved Binding permission mode or OpenCode permission JSON.
 
 Codex exact-controller recovery copies the canonical conversation into an
 ephemeral App Server fork and applies the conservative repair approval and
-sandbox policy only to that fork. Claude Code repair resumes through an Agent
-SDK or CLI fork and applies its temporary Plan mode only there. OpenCode 1 repair
+sandbox policy only to that fork. Claude Code delivery-only recovery uses an Agent
+SDK or CLI fork and retains the Binding's native permission mode within its
+restricted tool scope, rather than forcing Plan mode. OpenCode 1 repair
 uses the official Server session fork and passes the Binding's unchanged
 `OPENCODE_PERMISSION` JSON to the child. Each adapter continues to report the
 validated canonical conversation identity. If the installed controller cannot
@@ -4387,11 +4596,27 @@ This capability does not change Wake execution ownership or readiness.
 
 Computer power settings belong to the local Service execution host. The
 `computer-power.json` file in the Service data root is the only saved preference.
-It defaults off. The Desktop Personal > Desktop page and the selected Local
-Computer page use the same owner-authorized, explicit device/lane API and UI.
+It defaults on when no preference has been saved; an explicit saved off choice
+survives restarts and upgrades. Unreadable preferences do not acquire sleep
+prevention and remain a visible error. The Desktop Personal > Desktop page and
+the selected Local Computer page use the same owner-authorized, explicit
+device/lane API and UI.
 They never save another preference in Desktop, the browser, or an Agent Profile.
 Writes carry the last observed revision; stale writes fail rather than overwrite.
 Disconnected and unsupported Services are unavailable, not unchecked.
+
+Power-control waiter failures retain the shared rejected-result envelope:
+timeouts use `computer.power.timeout` / HTTP 504, a disconnected Service uses
+`computer.power.offline` / HTTP 503, and invalid replies use
+`computer.power.invalid_response` / HTTP 502. Core maps a missing transport
+response to `computer.power.unavailable` / HTTP 503 rather than parsing it as a
+successful power state. Other Service rejections retain HTTP 409. A timeout or
+lost reply does not prove that an update was never applied; no layer replays
+the update, and the user must check the current preference before retrying.
+When registration replaces a socket, the Hub immediately rejects pending
+current-device controls on that socket as disconnected. It must not wait for a
+close callback that may never arrive. A catalog refresh on the same socket
+preserves its pending controls; replacement never replays them on the new socket.
 
 The execution host reconciles the preference with the canonical active execution
 slot count after ownership changes, including release. Queued tasks, observed

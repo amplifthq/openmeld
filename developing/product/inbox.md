@@ -354,6 +354,16 @@ data.
 A structured Human Mention produces one `space_mention` update for that person.
 It replaces the ordinary Space-message update for the same source and recipient,
 so one message never creates duplicate Inbox or browser notifications.
+An explicitly resolved Organization-only Human Mention has a source-owned
+`organizationMentionProfileId` receipt in its stored source facts. This permits
+only the minimal Inbox item and that recipient's own conversation notification
+settings; it never permits reading the Space. It contains no Space name, message
+body, file preview, or thread preview. Current active Organization membership,
+Human Profile ownership/status, source Space status, and history deletion are
+checked on reads. Ordinary historical mentions without this receipt still require
+their existing Space access. The internal receipt is removed from public item
+responses, preserving strict older clients. Muting and browser permission still
+apply; a mention is not proof of notification delivery or reading.
 During the bounded receiver-first rollout, readers may still encounter the
 retired wire discriminator `space_reference`. They normalize it to
 `space_mention` before product behavior or UI rendering. This is transport and
@@ -686,11 +696,12 @@ independently of list pagination. Web caps only the displayed sum at `99+`.
 
 Open actions and unread priority updates make the badge yellow. Pending work
 does not imply an error or grant urgent-email eligibility.
-Ordinary unread updates show a blue dot on the Inbox entry without contributing
-to the numeric attention count. The bottom-right launcher also shows the same
-highest-priority dot. Browser tabs reuse this exact Inbox summary and priority:
-yellow for pending work or priority updates, blue for other unread,
-and the original favicon when none remain. The title includes the highest
+Personal unread updates, including direct messages, Human mentions and replies
+directed to the recipient, show a blue dot on the Inbox entry. Ordinary Space
+activity and Routine reports for observers stay available in Inbox history and
+on their conversation rows. The Web launcher and browser tab use the same
+priority: yellow for pending work or priority updates, blue for personal unread,
+and the original favicon otherwise. The title includes the highest
 priority category and its count, retaining the current route title. Reading an
 action never clears its yellow indicator; source resolution or recipient Dismiss
 does. Opening the tab or Inbox alone does not clear any indicator.
@@ -830,8 +841,10 @@ owning navigation surface instead of reappearing in the Spaces sidebar; each
 unread Direct Message shows the same static blue indicator on its exact
 conversation row so the member can identify what needs attention.
 The Spaces destination in the outer app rail shows yellow while any accessible
-Space or Direct Message has pending attention, then blue for ordinary unread
-messages. Its accessible label reports the complete unread message count. Core
+Space or Direct Message has pending attention. Ordinary unread messages show a
+blue rail dot when the conversation list is out of view. When the list is
+visible, its conversation rows identify where to go. The rail's accessible
+label reports the complete unread message count. Core
 derives the ordinary Space aggregate before the grouped summary's 500-Space
 presentation limit and excludes current Direct Messages and legacy welcoming
 Spaces through the Space Index classification; converted Direct Messages count
@@ -875,14 +888,17 @@ read ledger or historical replay is introduced. Navigation anchors are separate
 from source identity: an anchored failure is read only when its outcome is visible,
 and reaction reads cannot advance beyond the rendered reaction revision.
 
-The blue unread pill stays available until the complete Space unread count is zero.
-Its left side always navigates to the earliest remaining target across main and
-Thread messages, opening the exact Thread reply when necessary. Sidebar and Space
+The main unread shortcut identifies its destination (the main conversation or
+unread Thread replies). The open Thread presents its own unread replies and
+its preview in the main conversation uses the neutral **Open thread** link. The
+main shortcut excludes that panel's replies and directs readers to the earliest
+remaining target outside it. Following new messages at the live end suppresses
+redundant navigation there. Sidebar and Space
 list unread dots use the same ordered targets; ordinary row links keep their normal
 navigation. Navigation itself never marks unrelated messages read. The bottom
 history arrow only returns to the latest message.
 
-The pill's X has the accessible name and tooltip **Mark all as read**. It opens a
+The Space menu offers **Mark all as read**. It opens a
 confirmation dialog that explicitly includes thread replies. Preparation freezes
 canonical Inbox membership on the server using the existing expiring feed snapshot
 storage. Confirming rechecks recipient, Organization, Space and current source
@@ -893,8 +909,9 @@ the user to reopen the dialog. Clearing does not affect other Spaces or open wor
 The main and each Thread keep a stable **New messages** anchor while their scope
 has unread updates, then remove it when that scope reaches zero. **Open thread**
 remains available with neutral styling after its unread count reaches zero. Full
-scope counts and the bounded navigation page come from the same canonical rows;
-counts are not inferred from only the currently loaded page. New clients opt into
+scope counts and the bounded navigation page come from the same canonical rows.
+If one Thread fills the scoped page and other scopes have unread messages,
+the final slot carries the earliest target outside that Thread. New clients opt into
 item IDs and scope counts with `includeItemIds=true`, and source event identities
 with `includeSourceKeys=true`, preserving strict legacy
 response shapes. Exact visible reads update shared query projections optimistically,
@@ -961,16 +978,23 @@ The source inventory and extension contract are in [Inbox actions](inbox-actions
 
 ### Message notification preferences
 
-Human replies in an existing thread carry a recipient-specific
+Replies in a Space can carry a recipient-specific
 `replyToRecipient: true` Space source-target marker for the current Human owner
-of the thread's root message. The Space resolves that owner from its retained
-root Signal and active membership; the marker never comes from a title, quoted
-text, or a client-selected recipient. Self replies (including another Profile
+of the message being answered. For a reply to another reply, Space resolves
+the addressed author's identity from the retained parent Signal in that Thread.
+An explicit reply in the main conversation likewise addresses the parent author.
+A reply to the Thread itself addresses the root author. An unavailable or
+recalled explicit parent does not redirect attention to the root. Current
+membership is required. Self replies (including another Profile
 owned by the same account), ordinary thread participants, and nonparticipants
 do not acquire this marker. Existing thread-recipient restrictions remain
 unchanged. Explicit mentions retain Human Mention semantics.
 
-Mentions and replies admits these marked updates without making them urgent or
+Under **Mentions and replies**, an ordinary Agent reply, Routine report, or Wake
+outcome addressed to someone else stays in conversation history without a
+message notification for observers. **All new messages** continues to deliver
+eligible conversation updates to members who chose it.
+Mentions and replies admits directly addressed updates without making them urgent or
 creating email deliveries. Conversation mute, read state, source access, and
 visible-conversation suppression still apply. Older unmarked Inbox rows are not
 backfilled or inferred from their title.
@@ -1182,8 +1206,9 @@ adapters without changing Inbox truth.
   grouped feed, with source navigation, read-on-open, group read actions and
   continuous pagination. **Open full Inbox** remains visible below the scroll
   area and opens the canonical page.
-- Unread Center Agent replies show the rail dot in every rail tier and clear
-  only through the visible-message read-through contract.
+- Unread Center Agent replies appear on their conversation row. The aggregate
+  ordinary rail dot appears when the conversation list is out of view. Reads
+  acknowledge the displayed message or the member's explicit selection.
 - Explicit Center Agent response requests classify normal versus urgent from
   the model-visible impact enum, and the member's next reply resolves the open
   source request.

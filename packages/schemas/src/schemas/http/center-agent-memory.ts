@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { spaceEvidenceReferenceSchema } from "../../space-evidence";
 
 const boundedIdentifierSchema = z.string().trim().min(1).max(256);
 export const CENTER_AGENT_ORGANIZATION_MEMORY_FACT_MAX_CHARS = 1200;
@@ -40,6 +41,7 @@ export const centerAgentRememberForOrganizationBodySchema = z.strictObject({
     .trim()
     .min(1)
     .max(CENTER_AGENT_ORGANIZATION_MEMORY_FACT_MAX_CHARS),
+  sourceRef: spaceEvidenceReferenceSchema.options[0].optional(),
 });
 
 export const centerAgentRememberForOrganizationResponseSchema = z.strictObject({

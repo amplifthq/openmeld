@@ -20,13 +20,13 @@ jobs:
       CANDIDATE_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
       CANDIDATE_REPOSITORY: ${{ github.repository }}
     steps:
-      - name: Checkout current-main control from the exact merge-group base
+      - name: Checkout protected main for the merge-group decision
         uses: actions/checkout@v5
         with:
           fetch-depth: 1
           path: current-main-control
           persist-credentials: false
-          ref: ${{ env.CANDIDATE_BASE_SHA }}
+          ref: refs/heads/main
 
       - name: Checkout the exact merge-group candidate
         uses: actions/checkout@v5
@@ -57,6 +57,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$(git -C current-main-control rev-parse HEAD)" != "$CANDIDATE_BASE_SHA" ]]; then
+            echo "::error::Merge group base differs from the protected main checkout. Requeue against current main."
+            exit 1
+          fi
           node current-main-control/scripts/ci/final-candidate-merge-group-control.mjs \
             --repo-root "$GITHUB_WORKSPACE/untrusted-candidate" \
             --repository "$CANDIDATE_REPOSITORY" \

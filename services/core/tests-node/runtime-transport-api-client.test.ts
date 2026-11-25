@@ -88,6 +88,19 @@ describe("Runtime Transport HTTP retry boundary", () => {
     expect(namespace.get).toHaveBeenCalledTimes(2);
     expect(second.mock.calls[0]?.[0]).toBe(first.mock.calls[0]?.[0]);
     expect(second.mock.calls[0]?.[1].body).toBe(first.mock.calls[0]?.[1].body);
+    if (path === "/lookup-owner-service") {
+      const firstHeaders = new Headers(first.mock.calls[0]?.[1].headers);
+      const secondHeaders = new Headers(second.mock.calls[0]?.[1].headers);
+      const readId = firstHeaders.get("x-openmeld-runtime-read-id");
+      expect(readId).toBeTruthy();
+      expect(secondHeaders.get("x-openmeld-runtime-read-id")).toBe(readId);
+      expect(firstHeaders.get("x-openmeld-runtime-read-attempt")).toBe("1");
+      expect(secondHeaders.get("x-openmeld-runtime-read-attempt")).toBe("2");
+      expect(console.warn).toHaveBeenCalledWith(
+        "[core.runtime_transport.read_attempt_failed]",
+        expect.objectContaining({ readId, attempt: 1 })
+      );
+    }
     expect(console.warn).toHaveBeenCalledWith(
       "[core.runtime_transport.read_attempt_failed]",
       expect.objectContaining({

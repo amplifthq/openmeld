@@ -29,6 +29,11 @@ export const centerAgentMemorySourceReferenceSchema = z.strictObject({
   occurredAtMs: z.number().int().nonnegative(),
   captureMethod: z.enum(["automatic_turn", "explicit_save"]),
   availability: z.literal("readable"),
+  version: z
+    .string()
+    .regex(/^sha256:[0-9a-f]{64}$/u)
+    .optional(),
+  authorKind: z.enum(["human", "agent", "system"]).optional(),
 });
 export const centerAgentSearchMemoryResponseSchema = z.strictObject({
   organizationId: z.string().min(1),
@@ -42,7 +47,7 @@ export const centerAgentSearchMemoryResponseSchema = z.strictObject({
           .min(1)
           .max(CENTER_AGENT_RETAINED_MEMORY_MAX_TEXT_CHARS),
         textShortened: z.boolean(),
-        scope: z.enum(["member", "organization"]),
+        scope: z.enum(["member", "organization", "space"]),
         interpretation: z.literal("remembered_summary_not_quote"),
         currentness: z.literal("not_verified"),
         sources: z

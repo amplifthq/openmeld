@@ -9,6 +9,7 @@ import type {
 import type { RemoteAgentNativeDeliveryRecord } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import type { RequestChainBasis } from "../../request-chain/dispatch-request-chain";
 import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
+import type { ResolvedHumanMentionTarget } from "./human-mention-targets";
 
 export type PasswordAuthorizationResult =
   | { ok: true; meta: SpaceMetaRecord; organizationPreview?: boolean }
@@ -29,6 +30,8 @@ export type FinalOutcomeWriteAuthority =
   | "approved_compatibility";
 
 export type SignalPublishContext = {
+  // Resolved inside the Space publication boundary, never accepted from a client.
+  resolvedHumanMentions?: readonly ResolvedHumanMentionTarget[];
   // Core-owned authorization context; never read from a signal payload.
   verifiedRequestContext?: OpenMeldRequestContext | null;
   requestTimeContext?: UserRequestTimeContext;

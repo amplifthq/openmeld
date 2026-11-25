@@ -3,7 +3,7 @@ import type { SignalEnvelope } from "@openmeld/protocol";
 import { activateAgentDelegationChildren } from "../../agent-task-coordination/infrastructure/postgresql/agent-delegation-repo";
 import { recordAgentTaskTerminalOutcome } from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import { readCoreRpcHttpStatus } from "../../rpc/errors";
-import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "../center-agent-repository";
+import { recordCenterAgentWakeAudit } from "../center-agent-repository";
 import {
   CenterAgentWakePublicationClaimLostError,
   type CenterAgentWakePublicationCommand,
@@ -88,7 +88,7 @@ async function prepareCenterAgentWakePublicationDelegation(input: {
   if (!root) {
     throw new Error("Wake delegation has no publication destinations");
   }
-  await prepareCenterAgentWakeDelegation({
+  const { sourceNativeDeliveryId } = await prepareCenterAgentWakeDelegation({
     actorProfileId: root.attribution.actorProfileId,
     childSpaceId: root.spaceId,
     clientMessageId: root.clientMessageId,
@@ -110,6 +110,16 @@ async function prepareCenterAgentWakePublicationDelegation(input: {
     parentSubmissionId: publication.command.parentSubmissionId,
     targetProfileIds: root.activationTargets,
     text: publication.command.text,
+  });
+  // The Space outbox can admit the Wake as soon as the signal is posted.
+  await recordCenterAgentWakeAudit({
+    attribution: publication.command.attribution,
+    db: input.db,
+    clientMessageId: publication.command.clientMessageId,
+    nowMs: input.nowMs,
+    organizationId: publication.command.organizationId,
+    spaceId: publication.command.spaceId,
+    sourceNativeDeliveryId,
   });
 }
 
@@ -575,21 +585,7 @@ async function finalizeAcceptedPublication(input: {
       (child) => child.task
     ),
   });
-  await input.db.query(
-    prepareCenterAgentAuditJournalEntryIfMissingStatement({
-      action: "wake_agent_profiles_in_space",
-      actorProfileId: input.publication.command.attribution.actorProfileId,
-      attribution: input.publication.command.attribution,
-      db: input.db,
-      id: buildAuditEntryId(input.publication.publicationId),
-      nowMs: input.nowMs,
-      organizationId: input.publication.command.organizationId,
-      resource: {
-        id: input.publication.command.spaceId,
-        type: "space",
-      },
-    })
-  );
+  // Audit provenance is already durable before the first Space post.
   await markCenterAgentWakePublicationCompleted({
     claimId: input.claimId,
     db: input.db,
@@ -758,9 +754,6 @@ function isDefinitePublicationRejection(error: unknown): boolean {
 function retryDelayMs(attemptCount: number): number {
   const exponent = Math.max(0, Math.min(8, attemptCount - 1));
   return Math.min(MAX_RETRY_DELAY_MS, BASE_RETRY_DELAY_MS * 2 ** exponent);
-}
-function buildAuditEntryId(publicationId: string): string {
-  return `center-agent-wake:${publicationId}`;
 }
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

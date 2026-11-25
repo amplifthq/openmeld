@@ -3348,6 +3348,71 @@ describe("Remote Agent Routine native delivery", () => {
       status: "failed",
     });
   });
+  it.each([
+    false,
+    true,
+  ])("does not replay an invalid Routine mention when failure notice retry is %s", async (retryFailureNotice) => {
+    const fixture = await seedRoutineDeliveryFixture();
+    const workerSubmit = vi.fn(async () => ({
+      accepted: true,
+      createdAt: fixture.nowMs,
+      idempotencyKey: fixture.runId,
+      status: "pending" as const,
+      submissionId: fixture.submissionId,
+    }));
+    const testEnv = buildEnv({ fixture, workerSubmit });
+    await submitRemoteAgentRoutineDelivery({
+      db: getPostgresDatabase(env),
+      env: testEnv,
+      nowMs: fixture.nowMs,
+      routine: fixture.routine,
+      run: fixture.run,
+    });
+    const publish = testEnv.__spaceStub.rpcPostSignalOnceByClientMessageId;
+    // Matches the captured Space RPC rejection, with a synthetic recipient.
+    publish.mockRejectedValueOnce(
+      new Error(
+        'HTTP 422: {"ok":false,"error":{"code":"space.addressing.target_invalid","message":"OpenMeld could not send this message because former-member is not an active member of this Space. Choose a current Space member and try again."}}'
+      )
+    );
+    if (retryFailureNotice) {
+      publish.mockRejectedValueOnce(new Error("Space temporarily unavailable"));
+    }
+    vi.spyOn(Date, "now").mockReturnValue(fixture.nowMs + 1000);
+    const callback = buildCompletedCallback(fixture);
+    const first = await completeRemoteAgentNativeDelivery(testEnv, callback);
+    expect(first.status).toBe(retryFailureNotice ? "retryable" : "accepted");
+    if (retryFailureNotice) {
+      await expect(
+        completeRemoteAgentNativeDelivery(testEnv, callback)
+      ).resolves.toMatchObject({ status: "accepted" });
+    }
+    await expect(
+      completeRemoteAgentNativeDelivery(testEnv, callback)
+    ).resolves.toMatchObject({ status: "duplicate_rejected" });
+    const publications = publish.mock.calls.map(([request]) => request);
+    expect(
+      publications.filter(
+        (request) => request.meta?.purpose === "agent_reply_final"
+      )
+    ).toHaveLength(1);
+    expect(publications.at(-1)?.text).toContain("mention target");
+    expect(publications.at(-1)?.messageEnvelope?.mentionTargets ?? []).toEqual(
+      []
+    );
+    await expect(
+      readRoutineRunRecord({
+        db: getPostgresDatabase(env),
+        runId: fixture.runId,
+      })
+    ).resolves.toMatchObject({
+      status: "failed",
+      failureCode: "space.addressing.target_invalid",
+      failureDetail: expect.stringContaining("mention target"),
+      publishedSignalId: fixture.publishedSignalId,
+    });
+    expect(workerSubmit).toHaveBeenCalledOnce();
+  });
   it("keeps a Routine completion retryable after the former callback ceiling", async () => {
     const fixture = await seedRoutineDeliveryFixture();
     const workerSubmit = vi.fn(async () => ({
@@ -5574,6 +5639,7 @@ function retargetRoutineWorkerSubmitRequest(input: {
 }
 function createMemoryService(): CenterAgentMemoryService {
   return {
+    deleteSpaceMemory: vi.fn(async () => "deleted" as const),
     deleteMemberMemory: vi.fn(async () => "deleted" as const),
     deleteOrganizationMemory: vi.fn(async () => "deleted" as const),
     recallForOrganization: vi.fn(async () => ({ items: [], truncated: false })),

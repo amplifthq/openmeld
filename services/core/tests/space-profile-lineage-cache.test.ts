@@ -185,6 +185,7 @@ function createHarness(): {
     ownerCreatorProfileIdsByOwnerUserId,
     preloadOwnerCreatorProfileIdsByOwnerUserId,
     profileLineageCache: new SpaceProfileLineageCache({
+      activeGateId: () => undefined,
       authRpc: () => bindings.OPENMELD_AUTH_WORKER,
       onLoadError: () => undefined,
       resolvedByOwnerUserId: ownerCreatorProfileIdsByOwnerUserId,

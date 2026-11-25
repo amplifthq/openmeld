@@ -1,15 +1,24 @@
 import {
   DEFAULT_SPACE_CONVERSATION_VALIDATE_TIMEOUT_MS,
   DEFAULT_SPACE_REQUEST_TIMEOUT_MS,
+  DEFAULT_SPACE_UPLOAD_TIMEOUT_MS,
   MAX_SPACE_REQUEST_TIMEOUT_MS,
+  MAX_SPACE_UPLOAD_TIMEOUT_MS,
   MIN_SPACE_REQUEST_TIMEOUT_MS,
 } from "../strategy-constants";
 
 const SPACE_REQUEST_TIMEOUT_ENV_KEY = "OPENMELD_SPACE_REQUEST_TIMEOUT_MS";
 
-export function resolveSpaceRequestTimeoutMs(override?: number): number {
+export function resolveSpaceRequestTimeoutMs(
+  override?: number,
+  operation?: string
+): number {
+  const isUpload = operation?.startsWith("space.files.upload.");
+  const max = isUpload
+    ? MAX_SPACE_UPLOAD_TIMEOUT_MS
+    : MAX_SPACE_REQUEST_TIMEOUT_MS;
   if (isFinitePositiveNumber(override)) {
-    return clampSpaceRequestTimeoutMs(override);
+    return clampSpaceRequestTimeoutMs(override, max);
   }
 
   const fromEnv = Number.parseInt(
@@ -17,10 +26,12 @@ export function resolveSpaceRequestTimeoutMs(override?: number): number {
     10
   );
   if (isFinitePositiveNumber(fromEnv)) {
-    return clampSpaceRequestTimeoutMs(fromEnv);
+    return clampSpaceRequestTimeoutMs(fromEnv, max);
   }
 
-  return DEFAULT_SPACE_REQUEST_TIMEOUT_MS;
+  return isUpload
+    ? DEFAULT_SPACE_UPLOAD_TIMEOUT_MS
+    : DEFAULT_SPACE_REQUEST_TIMEOUT_MS;
 }
 
 export function resolveSpaceRequestTimeoutMsForDiagnostics(): number {
@@ -34,12 +45,9 @@ export function resolveSpaceConversationValidateTimeoutMs(): number {
   );
 }
 
-function clampSpaceRequestTimeoutMs(value: number): number {
+function clampSpaceRequestTimeoutMs(value: number, max: number): number {
   const normalized = Math.trunc(value);
-  return Math.max(
-    MIN_SPACE_REQUEST_TIMEOUT_MS,
-    Math.min(MAX_SPACE_REQUEST_TIMEOUT_MS, normalized)
-  );
+  return Math.max(MIN_SPACE_REQUEST_TIMEOUT_MS, Math.min(max, normalized));
 }
 
 function isFinitePositiveNumber(value: unknown): value is number {

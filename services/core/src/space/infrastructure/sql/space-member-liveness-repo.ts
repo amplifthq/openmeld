@@ -12,6 +12,16 @@ type SpaceMemberProfileLivenessRow = {
   observation_count: number;
 };
 
+export const MEMBER_PROFILE_LIVENESS_MIN_OBSERVATIONS = 2;
+
+const ELIGIBLE_MEMBER_LIVENESS_EVIDENCE = `
+  FROM space_member_profile_liveness
+  JOIN space_members USING (profile_id)
+  WHERE space_members.status = 'active'
+    AND space_members.profile_kind_snapshot = 'agent'
+    AND observation_count >= ?
+`;
+
 // Evidence ledger for "the auth owner authoritatively reported this agent
 // member's profile as deleted". Read paths only record observations here;
 // membership state changes happen in the Space background alarm after the
@@ -22,24 +32,28 @@ export function recordMemberProfileNotFoundObservation(
     nowMs: number;
     profileId: string;
   }
-): void {
-  sql.exec(
-    `
+): number {
+  const rows = sql
+    .exec<{ observation_count: number }>(
+      `
       INSERT INTO space_member_profile_liveness (
         profile_id,
         first_not_found_at_ms,
         last_not_found_at_ms,
         observation_count
       )
-      VALUES (?, ?, ?, 1)
+      SELECT profile_id, ?2, ?2, 1 FROM space_members
+      WHERE profile_id = ?1 AND status = 'active' AND profile_kind_snapshot = 'agent'
       ON CONFLICT(profile_id) DO UPDATE SET
         last_not_found_at_ms = excluded.last_not_found_at_ms,
         observation_count = observation_count + 1
+      RETURNING observation_count
     `,
-    input.profileId,
-    input.nowMs,
-    input.nowMs
-  );
+      input.profileId,
+      input.nowMs
+    )
+    .toArray();
+  return rows[0]?.observation_count ?? 0;
 }
 
 export function recordConfirmedMemberProfileDeletionObservation(
@@ -101,14 +115,13 @@ export function listDueMemberProfileLivenessEvidence(
     .exec<SpaceMemberProfileLivenessRow>(
       `
         SELECT profile_id, first_not_found_at_ms, last_not_found_at_ms, observation_count
-        FROM space_member_profile_liveness
-        WHERE first_not_found_at_ms <= ?
-          AND observation_count >= ?
+        ${ELIGIBLE_MEMBER_LIVENESS_EVIDENCE}
+          AND first_not_found_at_ms <= ?
         ORDER BY first_not_found_at_ms ASC
         LIMIT 25
       `,
-      input.nowMs - input.minAgeMs,
-      input.minObservations
+      input.minObservations,
+      input.nowMs - input.minAgeMs
     )
     .toArray();
   return rows.map((row) => ({
@@ -123,14 +136,16 @@ export function readNextMemberProfileLivenessAlarmAtMs(
   sql: SqlStorage,
   input: {
     minAgeMs: number;
+    minObservations: number;
   }
 ): number | null {
   const rows = sql
     .exec<{ first_not_found_at_ms: number | null }>(
       `
         SELECT MIN(first_not_found_at_ms) AS first_not_found_at_ms
-        FROM space_member_profile_liveness
-      `
+        ${ELIGIBLE_MEMBER_LIVENESS_EVIDENCE}
+      `,
+      input.minObservations
     )
     .toArray();
   const earliest = rows[0]?.first_not_found_at_ms;

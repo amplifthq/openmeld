@@ -191,7 +191,6 @@ staging-only resource:
 | --- | --- |
 | Workers | `openmeld-website-stg`, `openmeld-docs-stg`, `openmeld-web-stg`, `openmeld-auth-stg`, `openmeld-gateway-stg`, `openmeld-core-stg`, `openmeld-remote-agent-stg` |
 | PostgreSQL / Hyperdrive | `amplift/openmeld-postgresql-stg` / `6af2d43ec8d8498b9607c653ca231e73` |
-| KV | `openmeld-auth-kv-stg` |
 | Queues | `openmeld-daemon-dispatch-stg`, `openmeld-message-channel-events-stg` |
 | R2 | `openmeld-space-attachments-stg`, `openmeld-organization-skills-stg`, `openmeld-organization-logos-stg`, `openmeld-desktop-downloads-stg` |
 | AI Gateway | Shared operator gateway `openmeld-remote-agent-prod`; request metadata retains the Staging environment and Organization |
@@ -431,7 +430,6 @@ This matrix records Cloudflare resource ownership. Keep it in sync with
 | --- | --- | --- | --- | --- |
 | Hyperdrive | `OPENMELD_POSTGRESQL` | Auth identity and Core relational business owners | `services/auth/wrangler.jsonc`, `services/core/wrangler.jsonc` | Production and staging use separate registered cache-disabled PlanetScale PostgreSQL 18 targets. Each environment's guarded release owns migrations and deployment. |
 | D1 | No current Auth/Core binding | Historical shared relational databases | Immutable history under `packages/db/drizzle` | Production D1 remains frozen recovery evidence; staging D1 remains available for historical test-data inspection. Neither is a runtime fallback. |
-| KV | `OPENMELD_AUTH_KV` | Auth | `services/auth/wrangler.jsonc` | Auth worker runtime storage. |
 | Queue | `OPENMELD_DAEMON_DISPATCH_QUEUE` | Core Dispatch | `services/core/wrangler.jsonc` | Production Queue `openmeld-daemon-dispatch-prod`; four-day retention. |
 | Queue | `OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE` | Gateway producer and Core consumer | `services/gateway/wrangler.jsonc`, `services/core/wrangler.jsonc`, generated Worker types | Production Queue `openmeld-message-channel-events-prod`; four-day retention. Gateway acknowledges Lark/Feishu only after enqueue; Core owns retry, redrive, ingress claims, and Center Agent admission. |
 | Workflow | `OPENMELD_ROUTINE_RUN_WORKFLOW` | Core Center Agent Routine execution | `services/core/wrangler.jsonc`, `services/core/worker-configuration.d.ts` | Production Workflow `openmeld-routine-run-prod` binds `RoutineRunWorkflow`; the shared relational owner retains Routine and Run product truth. Wrangler creates it with the first Core deployment. |
@@ -535,7 +533,6 @@ The manifest owns these resources:
 - Hyperdrive: production Auth/Core use the registered `OPENMELD_POSTGRESQL`
   binding. PlanetScale target ownership is in
   [physical-db-split.md](../developing/architecture/physical-db-split.md).
-- KV: `openmeld-auth-kv-prod`
 - R2 production: `openmeld-space-attachments-prod`,
   `openmeld-organization-skills-prod`, `openmeld-organization-logos-prod`,
   `openmeld-desktop-downloads-prod`,

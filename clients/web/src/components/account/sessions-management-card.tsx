@@ -22,7 +22,15 @@ import {
 	useRevokeAllOtherSessions,
 	useRevokeSession,
 } from "#/hooks/account.hooks";
-import { getAuthErrorMessage } from "#/lib/auth-errors";
+import {
+	getAuthErrorMessage,
+	isFreshSessionRequiredError,
+} from "#/lib/auth-errors";
+import { ADD_ACCOUNT_AUTH_INTENT } from "#/lib/auth-intent";
+import {
+	buildLoginRedirectUrl,
+	isSessionExpiredError,
+} from "#/lib/session-expired";
 import { SessionsManagementCardSkeleton } from "./account-skeletons";
 
 function formatDate(value: unknown): string {
@@ -107,8 +115,13 @@ function sessionActionLabel({
 export function SessionsManagementCard() {
 	const { data: currentSessionData, isPending: isCurrentSessionPending } =
 		useAccountSession();
-	const { data: sessions = [], isPending: isSessionsPending } =
-		useAccountSessions();
+	const {
+		data: sessions,
+		error: sessionsError,
+		isFetching: isSessionsFetching,
+		isPending: isSessionsPending,
+		refetch: refetchSessions,
+	} = useAccountSessions();
 	const revokeSession = useRevokeSession();
 	const revokeOtherSessions = useRevokeAllOtherSessions();
 
@@ -122,7 +135,10 @@ export function SessionsManagementCard() {
 	}
 
 	const currentSession = currentSessionData?.session;
-	if (!currentSession) {
+	if (!currentSession || sessionsError || !sessions) {
+		const needsFreshSignIn = isFreshSessionRequiredError(sessionsError);
+		const needsSignIn =
+			needsFreshSignIn || isSessionExpiredError(sessionsError);
 		return (
 			<Card>
 				<CardHeader>
@@ -130,8 +146,37 @@ export function SessionsManagementCard() {
 						<WifiHighIcon className="size-5" />
 						Sessions
 					</CardTitle>
-					<CardDescription>Unable to load session information.</CardDescription>
+					<CardDescription>
+						{needsSignIn
+							? "Sign in again with this account to view and manage your sessions."
+							: "We couldn't load your sessions. Try again."}
+					</CardDescription>
 				</CardHeader>
+				<CardContent>
+					{needsSignIn ? (
+						<a
+							className={buttonVariants({ size: "sm", variant: "outline" })}
+							href={
+								needsFreshSignIn
+									? `${buildLoginRedirectUrl()}&intent=${ADD_ACCOUNT_AUTH_INTENT}`
+									: buildLoginRedirectUrl()
+							}
+						>
+							Sign in again
+						</a>
+					) : (
+						<Button
+							disabled={isSessionsFetching}
+							onClick={() => {
+								refetchSessions().catch(() => undefined);
+							}}
+							size="sm"
+							variant="outline"
+						>
+							{isSessionsFetching ? "Retrying..." : "Try again"}
+						</Button>
+					)}
+				</CardContent>
 			</Card>
 		);
 	}

@@ -5122,6 +5122,7 @@ describe("space signal service", () => {
     const space = Object.create(Space.prototype) as unknown as {
       bindings: CoreBindings;
       requestPreAgentWakeStop: (input: {
+        beforeDeliveryOwner?: import("@openmeld/schemas/types").OpenMeldRequestContext;
         body: PostSpaceWakeStopBody;
         lookupMatch: SpaceDispatchLookupMatch;
       }) => Promise<PostSpaceWakeStopResponse>;
@@ -5171,7 +5172,7 @@ describe("space signal service", () => {
       spaceId: { value: "space-1" },
     });
 
-    const response = await space.requestPreAgentWakeStop({
+    const stopInput: Parameters<typeof space.requestPreAgentWakeStop>[0] = {
       body: {
         target:
           by === "client_message"
@@ -5191,7 +5192,8 @@ describe("space signal service", () => {
         sourceSignalId: "signal-1",
         targetProfileId,
       } as SpaceDispatchLookupMatch,
-    });
+    };
+    const response = await space.requestPreAgentWakeStop(stopInput);
     expect(response).toMatchObject({
       ok: true,
       runtimeCoordinatorExecutionId,
@@ -5208,6 +5210,27 @@ describe("space signal service", () => {
     ).toEqual([
       "/runtime-coordinator/head/pre-agent-stop",
       "/runtime-coordinator/wake-stop",
+    ]);
+
+    fetch.mockClear();
+    Object.defineProperties(space, {
+      ctx: { value: { storage: { sql: createFinalOutcomeSql().sql } } },
+      isJoinedOrganizationOwner: { value: () => true },
+    });
+    await expect(
+      space.requestPreAgentWakeStop({
+        ...stopInput,
+        beforeDeliveryOwner: {
+          actorContext: {
+            openMeldProfileId: "owner",
+            profileKind: "human",
+            requestId: "race",
+          },
+        },
+      })
+    ).resolves.toMatchObject({ ok: false, status: "not_stoppable" });
+    expect(fetch.mock.calls.map(([url]) => new URL(url).pathname)).toEqual([
+      "/runtime-coordinator/head/pre-agent-stop",
     ]);
   });
 

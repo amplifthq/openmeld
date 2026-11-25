@@ -31,8 +31,12 @@ import {
   readRuntimeRegistryRecord,
   registerRuntimeRegistryRecord,
 } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
+import { withPermissionModeAuditAttribution } from "../src/sensitive-operations/application/permission-mode-audit-context";
 import { PUBLISHED_LOCAL_COMPONENTS_MANIFEST } from "../test-support/published-local-components-release";
-import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
+import {
+  createPostgresHarness,
+  installPostgresWriteFailure,
+} from "./helpers/postgresql-harness.test-support";
 
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const OTHER_AGENT_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
@@ -740,6 +744,122 @@ describe("Agent Profile Binding repo write-side", () => {
       await harness.close();
     }
   });
+  it.each([
+    { reconnect: false, failAudit: false },
+    { reconnect: false, failAudit: true },
+    { reconnect: true, failAudit: false },
+    { reconnect: true, failAudit: true },
+  ])("commits permission changes with their audit or rolls both back: %j", async ({
+    reconnect,
+    failAudit,
+  }) => {
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
+    const record = {
+      ...createBindingRecord({
+        bindingId: "audited-old",
+        agentControllerRef: "builtin:codex",
+        openMeldServiceRuntimeId: "audited-runtime",
+      }),
+      agentControllerPermissionMode: "codex:askForApproval",
+    };
+    try {
+      await ensurePrimaryAgentProfileBindingRecord({ db: harness.db, record });
+      if (failAudit) {
+        await installPostgresWriteFailure({
+          harness,
+          table: "sensitive_operation_audit_events",
+          operation: "INSERT",
+          message: "audit unavailable",
+        });
+      }
+      const mutation = withPermissionModeAuditAttribution<unknown>(
+        {
+          actorUserId: OWNER.id,
+          organizationId: "org-1",
+          requestId: "permission-request",
+          sourceKind: "web_session",
+          chainRootProfileId: null,
+          taskExecutionId: null,
+          confirmationId: null,
+        },
+        () =>
+          reconnect
+            ? reconnectPrimaryAgentProfileBindingRecord({
+                db: harness.db,
+                acquireExecutionTargetMutationAdmission: async () => undefined,
+                record: {
+                  ...record,
+                  bindingId: "audited-new",
+                  openMeldServiceRuntimeId: "new-runtime",
+                  updatedAtMs: 3000,
+                },
+                agentControllerPermissionModePatch: {
+                  agentControllerPermissionMode: "codex:fullAccess",
+                },
+              })
+            : updatePrimaryAgentProfileBindingAgentControllerPermissionModeRecord(
+                {
+                  db: harness.db,
+                  agentProfileId: AGENT_PROFILE_ID,
+                  owner: OWNER,
+                  updatedAtMs: 3000,
+                  agentControllerPermissionModePatch: {
+                    agentControllerPermissionMode: "codex:fullAccess",
+                  },
+                }
+              )
+      );
+      if (failAudit) {
+        await expect(mutation).rejects.toThrow("audit unavailable");
+      } else {
+        await mutation;
+      }
+      const saved = await readPrimaryAgentProfileBindingRecord({
+        db: harness.db,
+        agentProfileId: AGENT_PROFILE_ID,
+        owner: OWNER,
+      });
+      expect(saved).toMatchObject({
+        agentControllerPermissionMode: failAudit
+          ? "codex:askForApproval"
+          : "codex:fullAccess",
+        bindingId: !failAudit && reconnect ? "audited-new" : "audited-old",
+      });
+      const events = await harness.queryAll<{
+        actor_user_id: string;
+        source_kind: string;
+        permission_mode_change_json: string;
+      }>({
+        text: 'SELECT actor_user_id, source_kind, permission_mode_change_json FROM "openmeld"."sensitive_operation_audit_events"',
+      });
+      expect(events).toHaveLength(failAudit ? 0 : 1);
+      if (!failAudit) {
+        expect(events[0]).toMatchObject({
+          actor_user_id: OWNER.id,
+          source_kind: "web_session",
+        });
+        const event = events[0];
+        if (!event) {
+          throw new Error("Expected committed permission audit");
+        }
+        expect(JSON.parse(event.permission_mode_change_json)).toEqual({
+          bindingId: reconnect ? "audited-new" : "audited-old",
+          previousMode: "codex:askForApproval",
+          mode: "codex:fullAccess",
+          previousRevision: 1,
+          revision: reconnect ? 1 : 2,
+          requestId: "permission-request",
+        });
+      }
+    } finally {
+      await harness.close();
+    }
+  });
+
   it("updates only Agent Controller Permission Mode on the enabled primary Binding", async () => {
     const harness = await createPostgresHarness();
     await applyMigrationForTable(

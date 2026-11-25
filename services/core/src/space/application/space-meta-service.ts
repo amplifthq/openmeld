@@ -1,6 +1,7 @@
 import type { SpaceMeta } from "@openmeld/protocol";
 import {
   MAX_SPACE_GUIDE_LENGTH,
+  patchSpaceMetaBodySchema,
   resolveInitialSpaceAccessMode,
 } from "@openmeld/schemas";
 import {
@@ -37,14 +38,25 @@ export async function handlePatchMetaUseCase(input: {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const metaUpdate = parseSpaceMetaUpdatePatch(input.body, {
-    allowAccessMode: input.initializeIfAbsent === true,
-    allowOrganizationFields: input.initializeIfAbsent === true,
-    ...(input.initializeIfAbsent
-      ? {}
-      : { guideMaxLength: MAX_SPACE_GUIDE_LENGTH }),
-    requireOrganizationFields: input.initializeIfAbsent === true,
-  });
+  const editRequest =
+    !input.initializeIfAbsent && "guideEdit" in input.body
+      ? patchSpaceMetaBodySchema.safeParse(input.body)
+      : null;
+  if (editRequest && !editRequest.success) {
+    return new Response("Invalid guide edit", { status: 400 });
+  }
+  const guideEdit = editRequest?.data?.guideEdit;
+  const metaUpdate = parseSpaceMetaUpdatePatch(
+    guideEdit ? { guide: guideEdit.text } : input.body,
+    {
+      allowAccessMode: input.initializeIfAbsent === true,
+      allowOrganizationFields: input.initializeIfAbsent === true,
+      ...(input.initializeIfAbsent
+        ? {}
+        : { guideMaxLength: MAX_SPACE_GUIDE_LENGTH }),
+      requireOrganizationFields: input.initializeIfAbsent === true,
+    }
+  );
   if (!metaUpdate.ok) {
     return new Response(metaUpdate.message, { status: 400 });
   }
@@ -76,6 +88,17 @@ export async function handlePatchMetaUseCase(input: {
     );
   }
 
+  // Compare and write in the same synchronous Space storage turn.
+  if (guideEdit && guideEdit.previous !== (existing.guide ?? "")) {
+    return Response.json(
+      {
+        code: "space.guide_conflict",
+        message:
+          "The guide changed since you opened it. Review the latest guide before saving your changes.",
+      },
+      { status: 409 }
+    );
+  }
   const next = buildNextSpaceMetaRecord({
     existing,
     metaUpdate,

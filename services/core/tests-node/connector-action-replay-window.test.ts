@@ -148,10 +148,10 @@ describe("durable connector execution admission", () => {
   };
 
   it.each([
-    ["completed", false, "done"],
-    ["completed", true, "in_review"],
-    ["not_planned", false, "canceled"],
-  ] as const)("repairs GitHub %s completion after a Task sync failure, with reviewer=%s", async (stateReason, reviewer, phase) => {
+    ["completed", false],
+    ["completed", true],
+    ["not_planned", false],
+  ] as const)("repairs the GitHub %s observation after a Task sync failure without completing the Task, with reviewer=%s", async (stateReason, reviewer) => {
     const harness = await storage();
     try {
       const observation = {
@@ -244,7 +244,7 @@ describe("durable connector execution admission", () => {
                 observedState: observation.state,
                 observedStateReason: observation.stateReason,
               });
-              settledTask = (result.settle ?? result.observe)?.task ?? task;
+              settledTask = result.observe?.task ?? task;
               return Promise.resolve({ task: settledTask });
             },
           }),
@@ -288,12 +288,10 @@ describe("durable connector execution admission", () => {
         })
       ).toEqual({
         status: "settled",
-        closedTaskIds: phase === "in_review" ? [] : [task.taskId],
+        closedTaskIds: [],
       });
-      expect(settledTask.phase).toBe(phase);
-      if (stateReason === "completed") {
-        expect(settledTask.result?.submittedBy).toEqual({ provider: "github" });
-      }
+      expect(settledTask.phase).toBe(task.phase);
+      expect(settledTask.result).toBeNull();
       await expect(
         recordCenterAgentConnectorActionOperation({
           ...operation,

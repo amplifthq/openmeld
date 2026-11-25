@@ -15,7 +15,7 @@ import {
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
 import type { Icon } from "@phosphor-icons/react";
-import { DotsThreeIcon, InfoIcon } from "@phosphor-icons/react";
+import { CheckIcon, DotsThreeIcon, InfoIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
@@ -28,6 +28,8 @@ export type SpaceHeaderNavigationMenuItem = {
 export function SpaceHeaderNavigationMenu(input: {
 	ariaLabel: string;
 	children?: ReactNode;
+	settingsLabel?: string;
+	onMarkAllRead?: () => void;
 	items: readonly SpaceHeaderNavigationMenuItem[];
 	onOpenConversationInformation?: () => void;
 }) {
@@ -75,13 +77,22 @@ export function SpaceHeaderNavigationMenu(input: {
 						</FluidDropdownMenuItem>
 					);
 				})}
-				{input.onOpenConversationInformation ? (
+				{input.onMarkAllRead && (
 					<FluidDropdownMenuItem
 						index={input.items.length}
+						onClick={input.onMarkAllRead}
+					>
+						<CheckIcon aria-hidden="true" />
+						Mark all as read
+					</FluidDropdownMenuItem>
+				)}
+				{input.onOpenConversationInformation ? (
+					<FluidDropdownMenuItem
+						index={input.items.length + (input.onMarkAllRead ? 1 : 0)}
 						onClick={input.onOpenConversationInformation}
 					>
 						<InfoIcon aria-hidden="true" />
-						Chat settings
+						{input.settingsLabel ?? "Chat settings"}
 					</FluidDropdownMenuItem>
 				) : null}
 				{input.children}

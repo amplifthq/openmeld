@@ -110,6 +110,7 @@ import {
   inboxSpaceThreadReadWatermarks,
 } from "./inbox.schema.ts";
 import {
+  feishuGroupHistorySettings,
   openMeldRemoteAgentLarkPlatformChannelConnections,
   openMeldRemoteAgentLarkPlatformChannelCredentials,
   openMeldRemoteAgentLarkPlatformContextCursors,
@@ -175,6 +176,7 @@ import { spaceInvitations } from "./space-invitation.schema.ts";
 import {
   githubAppWebhookDeliveries,
   spaceTaskGitHubIssueLinks,
+  spaceTaskGitHubPullRequestLinks,
 } from "./space-task-github.schema.ts";
 import {
   spaceTaskProjectLinks,
@@ -1896,6 +1898,7 @@ export const coreSchema = {
   openMeldRemoteAgentDailyAdmissions,
   openMeldRemoteAgentConversationGenerations,
   organizationMessageChannelSetupRequests,
+  feishuGroupHistorySettings,
   openMeldRemoteAgentLarkPlatformChannelConnections,
   openMeldRemoteAgentLarkPlatformChannelCredentials,
   openMeldRemoteAgentLarkPlatformContextCursors,
@@ -1941,6 +1944,7 @@ export const coreSchema = {
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
   spaceTaskGitHubIssueLinks,
+  spaceTaskGitHubPullRequestLinks,
   spaceTaskProjectLinks,
   spaceTaskProjectProjectionStates,
   githubAppWebhookDeliveries,

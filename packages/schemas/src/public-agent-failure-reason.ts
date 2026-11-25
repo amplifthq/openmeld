@@ -31,6 +31,8 @@ export const CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY =
   "Center Agent couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.";
 export const CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY =
   "Center Agent couldn't generate a reply. Your message is saved.";
+export const SPACE_REPLY_MENTION_INVALID_PUBLIC_COPY =
+  "OpenMeld could not publish the reply because a mention target is not valid for this Space. Correct the mention targets before retrying publication. The original work was not restarted.";
 export const CENTER_AGENT_OUTPUT_LIMIT_EXCEEDED_PUBLIC_COPY =
   "Center Agent reached the model's response limit before it could reply. Completed actions were not undone. Check the results, then send a shorter follow-up asking it to continue.";
 export const CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY =
@@ -185,6 +187,24 @@ export function formatPublicAgentFailureFacts(
       [
         "任务尚未开始",
         "这次任务没有开始，也不会自动恢复。如果仍需要这项工作，请重新发起。",
+      ]
+    );
+  }
+  if (
+    facts.stage === "publication" &&
+    facts.result.status === "unknown" &&
+    facts.reasonCode === "space.addressing.target_invalid"
+  ) {
+    return renderFailureFactsCopy(
+      facts.languageTag,
+      "error",
+      [
+        "Reply mention needs correction",
+        SPACE_REPLY_MENTION_INVALID_PUBLIC_COPY,
+      ],
+      [
+        "回复的提及对象需要修正",
+        "回复包含对此 Space 无效的提及对象，未能发布。请修正提及对象后再尝试发布。原任务没有重新执行。",
       ]
     );
   }
@@ -444,6 +464,8 @@ export const REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE =
   "remote_agent.conversation_history_limit_exceeded";
 export const REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY =
   "Center Agent could not continue this conversation automatically. Try again or open diagnostics.";
+export const REMOTE_AGENT_IMAGE_TRANSFORM_QUOTA_EXCEEDED_PUBLIC_COPY =
+  "OpenMeld couldn't process the attached images because its Cloudflare Images transformation quota is exhausted. This request did not start and won't retry automatically. Contact your OpenMeld administrator to restore image processing capacity, then send a new request.";
 export const REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE =
   "remote_agent.work_loop_continuation_limit_exceeded";
 export const REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY =
@@ -595,6 +617,8 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
       return `OpenMeld stopped this request because it could not confirm that the reply came from ${agentLabel}. Open Diagnostics in OpenMeld for details.`;
     case "remote_agent.callback_publish_failed":
       return `${agentLabel} finished your request, but OpenMeld could not show the reply here. Try again. If it keeps happening, open Diagnostics in OpenMeld.`;
+    case "space.addressing.target_invalid":
+      return SPACE_REPLY_MENTION_INVALID_PUBLIC_COPY;
     case "remote_agent.turn.timeout":
       return `${agentLabel} took too long to finish this request. Try again. If it keeps happening, open Diagnostics in OpenMeld.`;
     case REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE:
@@ -1193,6 +1217,12 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       patterns: [
         `=${REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE}`,
       ],
+      recoveryTarget: null,
+    },
+    {
+      body: REMOTE_AGENT_IMAGE_TRANSFORM_QUOTA_EXCEEDED_PUBLIC_COPY,
+      kind: "request_ended",
+      patterns: ["=remote_agent.image_transform_quota_exceeded"],
       recoveryTarget: null,
     },
     {

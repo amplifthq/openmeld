@@ -36,7 +36,6 @@ export const OPENMELD_RESOURCES = [
   ),
   d1("openmeld-db-prod", "shared"),
   d1("openmeld-open-connector-db-prod", "open-connector"),
-  kv("openmeld-auth-kv-prod", "auth"),
   r2("openmeld-space-attachments-prod", "shared", "confidential"),
   r2("openmeld-organization-skills-prod", "shared", "private"),
   r2("openmeld-organization-logos-prod", "shared", "public"),
@@ -90,7 +89,6 @@ export const OPENMELD_STAGING_RESOURCES = [
     "private",
     "staging"
   ),
-  kv("openmeld-auth-kv-stg", "auth", "staging"),
   r2("openmeld-space-attachments-stg", "shared", "confidential", "staging"),
   r2("openmeld-organization-skills-stg", "shared", "private", "staging"),
   r2("openmeld-organization-logos-stg", "shared", "public", "staging"),
@@ -373,22 +371,6 @@ function d1(name, component, environment = "production") {
     nameField: "name",
     postPath: "/d1/database",
     resourceType: "d1_database",
-    environment,
-  });
-}
-
-function kv(name, component, environment = "production") {
-  return resource({
-    component,
-    createBody: { title: name },
-    dataClass: "confidential",
-    idField: "id",
-    kind: "KV",
-    listPath: "/storage/kv/namespaces?per_page=100",
-    name,
-    nameField: "title",
-    postPath: "/storage/kv/namespaces",
-    resourceType: "kv_namespace",
     environment,
   });
 }

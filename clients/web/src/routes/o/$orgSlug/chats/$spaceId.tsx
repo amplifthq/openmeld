@@ -80,6 +80,7 @@ function DirectMessageConversationPendingRoute() {
 	const membersPanel = useSpacePanelWidth({ panel: "members", spaceId });
 	return (
 		<SpaceWindowShell
+			conversationList="conversation"
 			initialOuterSidebarState={APP_SIDEBAR_DEFAULT_STATES.outer}
 			initialSidebarState={APP_SIDEBAR_DEFAULT_STATES.inner}
 			sidebar={<ConversationsSidebar />}

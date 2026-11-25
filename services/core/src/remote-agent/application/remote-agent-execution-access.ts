@@ -28,6 +28,14 @@ export async function authorizeRemoteAgentExecutionAccess(
   env: CoreBindings,
   value: unknown
 ) {
+  return (await prepareRemoteAgentExecutionAccess(env, value)).projection;
+}
+
+/** Internal callers can use the same checked source without a second ledger read. */
+export async function prepareRemoteAgentExecutionAccess(
+  env: CoreBindings,
+  value: unknown
+) {
   const parsed = remoteAgentExecutionAccessRequestSchema.parse(value);
   const { context, submissionId, sources } = parsed;
   const { caller, delivery, request, db } = await requireActiveExecution(
@@ -95,7 +103,7 @@ export async function authorizeRemoteAgentExecutionAccess(
     delegatedRequester,
     pluginDelegations
   );
-  return remoteAgentExecutionAccessResponseSchema.parse({
+  const projection = remoteAgentExecutionAccessResponseSchema.parse({
     scope,
     submissionId,
     ...(await readExecutionComputer(
@@ -113,6 +121,7 @@ export async function authorizeRemoteAgentExecutionAccess(
       ? { delegatedRequester }
       : {}),
   });
+  return { projection, caller, delivery, request };
 }
 
 async function readExecutionComputer(

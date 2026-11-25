@@ -188,6 +188,7 @@ export async function requestLocalSetLocalAgentEnabled(input: {
 
 export async function requestLocalDaemonShutdown(input: {
   endpoint?: string;
+  onlyIfIdle?: true;
   payload: OpenMeldDaemonShutdownRequestPayload;
   timeoutMs?: number;
 }): Promise<
@@ -197,15 +198,30 @@ export async function requestLocalDaemonShutdown(input: {
   >["payload"]
 > {
   let response: OpenMeldDaemonControlPlaneResponse;
+  if (
+    input.onlyIfIdle &&
+    (input.payload.mode !== "graceful" || input.payload.accountAdmissionId)
+  ) {
+    throw new LocalDaemonControlPlaneClientError(
+      "daemon.control.invalid_request",
+      "An idle update cannot force shutdown or change account ownership."
+    );
+  }
   try {
     response = await sendLocalDaemonControlPlaneRequest({
       endpoint: input.endpoint,
       timeoutMs: input.timeoutMs,
-      request: {
-        v: OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
-        command: "shutdown",
-        payload: input.payload,
-      },
+      request: input.onlyIfIdle
+        ? {
+            v: OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
+            command: "shutdown_if_idle",
+            payload: { gracePeriodMs: input.payload.gracePeriodMs },
+          }
+        : {
+            v: OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
+            command: "shutdown",
+            payload: input.payload,
+          },
     });
   } catch (error) {
     throw rewriteDaemonControlPlaneContractMismatch(error);

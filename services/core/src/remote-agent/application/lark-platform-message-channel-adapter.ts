@@ -20,6 +20,7 @@ import {
   publishLarkPlatformIdentityLinkCard,
   publishLarkPlatformNavigationActionCard,
   publishLarkPlatformReply,
+  readFeishuHistory,
   readLarkPlatformChannelContext,
   readLarkPlatformPluginSourceProof,
   updateLarkPlatformStreamingCardContent,
@@ -336,6 +337,28 @@ export function createLarkPlatformMessageChannelAdapter(input: {
         replyInThread: locator.threadId !== null,
       });
     },
+
+    async readFeishuHistory({ connection, locator, ...request }) {
+      if (
+        input.provider !== "feishu" ||
+        !requireMatchingLocator({ connection, locator, provider: "feishu" })
+      ) {
+        return { status: "forbidden" };
+      }
+      const appSecret = await readAppSecret(connection);
+      if (!appSecret) {
+        return { status: "unavailable" };
+      }
+      return readFeishuHistory({
+        ...request,
+        appId: connection.appId,
+        appSecret,
+        chatId: locator.chatId,
+        rootMessageId: locator.rootMessageId,
+        threadId: locator.threadId,
+        fetchImpl: input.fetchImpl,
+      });
+    },
     async readChannelContext(contextInput): Promise<ChannelContext> {
       if (contextInput.event.kind !== "message") {
         throw new Error(
@@ -352,6 +375,7 @@ export function createLarkPlatformMessageChannelAdapter(input: {
           `${input.provider} Message Channel context target does not match its connection`
         );
       }
+
       const appSecret = await readAppSecret(contextInput.connection);
       if (!appSecret) {
         throw new Error(

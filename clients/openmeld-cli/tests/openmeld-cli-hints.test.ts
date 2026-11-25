@@ -60,23 +60,31 @@ describe("OpenMeld CLI hints", () => {
     expect(plainStdout).not.toMatch(UNRELATED_SPACE_WRITE_HINT_RE);
   });
 
-  it("keeps a malformed Space history query on the same read command", async () => {
+  it.each([
+    {
+      command: "history",
+      args: ["history", "space-123", "--around-signal", "signal-123"],
+      message: "aroundSignalId cannot be combined with limit.",
+      hint: "openmeld space history --profile <profile-id> <space-id-or-url> --kind text --brief --limit 20",
+    },
+    {
+      command: "files upload",
+      args: ["files", "upload", "space-123", "evidence.zip"],
+      message:
+        "Upload not confirmed (space.files.upload.direct). Details: space.files.upload.direct request timed out after 120000ms",
+      hint: "openmeld space files --profile <profile-id> upload --help",
+    },
+  ])("keeps a failed Space $command on the same command", async ({
+    args,
+    message,
+    hint,
+  }) => {
     const { plainStdout } = await withCapturedStdio(() =>
       Promise.resolve(
         emitHelpfulHints({
-          argv: [
-            "node",
-            "openmeld",
-            "--view",
-            "agent",
-            "space",
-            "history",
-            "space-123",
-            "--around-signal",
-            "signal-123",
-          ],
+          argv: ["node", "openmeld", "--view", "agent", "space", ...args],
           effectiveView: "agent",
-          message: "aroundSignalId cannot be combined with limit.",
+          message,
         })
       )
     );
@@ -88,9 +96,7 @@ describe("OpenMeld CLI hints", () => {
     expect(payload).toEqual({
       type: "hints",
       code: "cli.hints",
-      hints: [
-        "openmeld space history --profile <profile-id> <space-id-or-url> --kind text --brief --limit 20",
-      ],
+      hints: [hint],
     });
     expect(plainStdout).not.toMatch(UNRELATED_SPACE_WRITE_HINT_RE);
   });

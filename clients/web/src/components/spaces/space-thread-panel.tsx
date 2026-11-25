@@ -1309,7 +1309,6 @@ function ThreadTimeline(input: {
 							count={unreadCount}
 							firstUnreadSignalId={input.firstUnreadSignalId}
 							onNavigate={navigateUnread}
-							scope="thread"
 							targets={input.unreadTargets}
 							threadRootSignalId={panel.activeThread?.rootSignalId}
 						/>

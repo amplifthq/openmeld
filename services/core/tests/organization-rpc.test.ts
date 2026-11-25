@@ -796,6 +796,8 @@ describe("organization Core RPC", () => {
       env,
       ownerUserId: "user-a",
       profileIds: [AGENT_PROFILE_ID, SECOND_AGENT_PROFILE_ID],
+      readTimeoutMs: 5000,
+      requestId: "request-org-rpc-test",
     });
     expect(lookupOwnerService).toHaveBeenCalledOnce();
     expect(resolveProfileById).not.toHaveBeenCalled();
@@ -906,7 +908,11 @@ describe("organization Core RPC", () => {
     expect(readUsage).toHaveBeenCalledOnce();
   });
 
-  it("does not reload the runtime catalog to check Organization Agent readiness", async () => {
+  it.each([
+    "available",
+    "unavailable",
+    "mixed owners",
+  ])("keeps Organization Agent readiness bounded when batch lookups are %s", async (scenario) => {
     const profiles = [
       {
         organizationId: "org-a",
@@ -918,7 +924,7 @@ describe("organization Core RPC", () => {
       },
       {
         organizationId: "org-a",
-        ownerUserId: "user-a",
+        ownerUserId: scenario === "mixed owners" ? "user-b" : "user-a",
         profileHandle: "reviewer",
         profileId: SECOND_AGENT_PROFILE_ID,
         profileName: "Reviewer",
@@ -927,20 +933,45 @@ describe("organization Core RPC", () => {
     ];
     const db = await createOrganizationRpcDb({
       agentProfiles: profiles,
-      members: [memberRow("member-a", "org-a", "user-a")],
+      members: [
+        memberRow("member-a", "org-a", "user-a"),
+        memberRow("member-b", "org-a", "user-b"),
+      ],
     });
     for (const profile of profiles) {
       await db.bindingRows.set(
-        bindingKey("owner_account", "user-a", profile.profileId),
+        bindingKey("owner_account", profile.ownerUserId, profile.profileId),
         agentProfileBindingTestRow({
           agentProfileId: profile.profileId,
           bindingId: `binding-${profile.profileId}`,
-          openMeldServiceRuntimeId: "runtime-user-a",
-          ownerId: "user-a",
+          openMeldServiceRuntimeId: `runtime-${profile.ownerUserId}`,
+          ownerId: profile.ownerUserId,
         })
       );
     }
-    const env = await buildEnv({ db });
+    const env = await buildEnv({
+      db,
+      authWorker: {
+        resolveProfileById: vi.fn(),
+        resolveProfilesByIds: vi.fn(async () => ({
+          ok: true,
+          profiles: Object.fromEntries(
+            profiles.map((profile) => [
+              profile.profileId,
+              {
+                ownerUserId: profile.ownerUserId,
+                profileKind: "agent",
+                profileId: profile.profileId,
+                profileName: profile.profileName,
+                profileHandle: profile.profileHandle,
+                status: "active",
+                defaultProjectId: null,
+              },
+            ])
+          ),
+        })),
+      },
+    });
     const localWakeRouteReport = {
       daemonSessionId: "daemon-session-1",
       deviceId: "device-1",
@@ -961,41 +992,63 @@ describe("organization Core RPC", () => {
         status: "ready" as const,
       })),
     };
-    vi.spyOn(
+    const lookupRoutes = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportRoutesBatch")
+      .mockImplementation(({ ownerUserId }) => {
+        if (scenario !== "available" && ownerUserId === "user-a") {
+          return Promise.reject(
+            new Error(
+              "Runtime Transport read /lookup-routes-batch exceeded its 38000ms budget."
+            )
+          );
+        }
+        return Promise.resolve({
+          routes: Object.fromEntries(
+            profiles
+              .filter((profile) => profile.ownerUserId === ownerUserId)
+              .map((profile) => [
+                profile.profileId,
+                {
+                  capabilities: {},
+                  connectionGeneration: 1,
+                  daemonSessionId: "daemon-session-1",
+                  deviceId: "device-1",
+                  executionCompatibility: {
+                    expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+                    observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+                    reasonCode: "daemon.runtime_contract.compatible" as const,
+                    status: "compatible" as const,
+                  },
+                  lane: "dev-local" as const,
+                  lastHeartbeatMs: Date.parse("2026-07-08T00:00:00.000Z"),
+                  leaseEpoch: 1,
+                  localWakeRouteReport,
+                  online: true as const,
+                  serviceVersion: "999.0.0",
+                },
+              ])
+          ),
+        });
+      });
+    const lookupOwnerService = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportOwnerService")
+      .mockImplementation(({ ownerUserId }) => {
+        if (scenario !== "available" && ownerUserId === "user-a") {
+          return Promise.reject(
+            new Error(
+              "Runtime Transport read /lookup-owner-service exceeded its 5000ms budget."
+            )
+          );
+        }
+        return Promise.resolve({
+          online: false as const,
+          reasonCode: "daemon.session.not_found" as const,
+        });
+      });
+    const lookupRoute = vi.spyOn(
       runtimeTransportClient,
-      "lookupRuntimeTransportRoutesBatch"
-    ).mockResolvedValue({
-      routes: Object.fromEntries(
-        profiles.map((profile) => [
-          profile.profileId,
-          {
-            capabilities: {},
-            connectionGeneration: 1,
-            daemonSessionId: "daemon-session-1",
-            deviceId: "device-1",
-            executionCompatibility: {
-              expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-              observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-              reasonCode: "daemon.runtime_contract.compatible" as const,
-              status: "compatible" as const,
-            },
-            lane: "dev-local" as const,
-            lastHeartbeatMs: Date.parse("2026-07-08T00:00:00.000Z"),
-            leaseEpoch: 1,
-            localWakeRouteReport,
-            online: true as const,
-            serviceVersion: "999.0.0",
-          },
-        ])
-      ),
-    });
-    vi.spyOn(
-      runtimeTransportClient,
-      "lookupRuntimeTransportOwnerService"
-    ).mockResolvedValue({
-      online: false,
-      reasonCode: "daemon.session.not_found",
-    });
+      "lookupRuntimeTransportRoute"
+    );
     vi.spyOn(
       runtimeTransportClient,
       "readRuntimeTransportAgentProfileOperationalContexts"
@@ -1008,11 +1061,39 @@ describe("organization Core RPC", () => {
     const response = await rpcGetCurrentOrganizationAgentRuntimeOverview(env, {
       context: buildContext({
         activeOrganizationId: "org-a",
-        userId: "user-a",
+        userId: scenario === "mixed owners" ? "user-b" : "user-a",
       }),
     });
 
     expect(response.agentProfiles).toHaveLength(2);
+    if (scenario === "unavailable") {
+      for (const profile of response.agentProfiles) {
+        expect(profile.readiness.agentWakeAvailability.category).toBe(
+          "unavailable"
+        );
+      }
+    }
+    if (scenario === "mixed owners") {
+      const failed = response.agentProfiles.find(
+        (profile) => profile.profileId === AGENT_PROFILE_ID
+      );
+      const healthy = response.agentProfiles.find(
+        (profile) => profile.profileId === SECOND_AGENT_PROFILE_ID
+      );
+      expect(failed?.readiness.agentWakeAvailability.category).toBe(
+        "unavailable"
+      );
+      expect(
+        healthy?.readiness.agentExecutionReadiness.facts.route.online
+      ).toBe(true);
+    }
+    expect(lookupRoutes).toHaveBeenCalledTimes(
+      scenario === "mixed owners" ? 2 : 1
+    );
+    expect(lookupOwnerService).toHaveBeenCalledTimes(
+      scenario === "mixed owners" ? 2 : 1
+    );
+    expect(lookupRoute).not.toHaveBeenCalled();
     expect(readExpectedRoutes).not.toHaveBeenCalled();
   });
 
@@ -9741,7 +9822,7 @@ describe("organization Core RPC", () => {
     });
   });
 
-  it("lets only the owner add their MemberAgent, still with the owner, once MemberAgents are on", async () => {
+  it("lets Organization members add a teammate's MemberAgent and its owner", async () => {
     const spaceId =
       "aeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeae";
     const db = await createOrganizationRpcDb({
@@ -9795,25 +9876,43 @@ describe("organization Core RPC", () => {
           members: [agent],
           spaceId,
         })
-      ).rejects.toMatchObject({
-        code: "agent_access.request_required",
-        status: 409,
+      ).resolves.toMatchObject({
+        addedMemberIds: [AGENT_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
       });
-      expect(spaceStub.rpcPostMembers).not.toHaveBeenCalled();
+      expect(spaceStub.rpcPostMembers).toHaveBeenLastCalledWith(
+        expect.objectContaining({ requireActorMembership: true })
+      );
 
       await expect(
         rpcAddSpaceMembers(env, {
           context: buildContext({
             activeOrganizationId: "org-a",
+            userId: "outside-user",
+          }),
+          members: [agent],
+          spaceId,
+        })
+      ).rejects.toMatchObject({
+        code: "organization.membership_required",
+        status: 403,
+      });
+      expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
+
+      await expect(
+        rpcAddSpaceMembers(env, {
+          context: buildContext({
+            activeOrganizationId: "org-a",
+            profileId: SECOND_HUMAN_PROFILE_ID,
             userId: "user-b",
           }),
           members: [agent],
           spaceId,
         })
       ).resolves.toMatchObject({
-        addedMemberIds: [AGENT_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
+        addedMemberIds: [],
+        alreadyMemberIds: [AGENT_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
       });
-      expect(spaceStub.rpcPostMembers).toHaveBeenCalledWith(
+      expect(spaceStub.rpcPostMembers).toHaveBeenLastCalledWith(
         expect.objectContaining({
           members: [
             expect.objectContaining({ profileId: AGENT_PROFILE_ID }),
@@ -10569,7 +10668,7 @@ describe("organization Core RPC", () => {
     });
   });
 
-  it("adds an existing Agent's owner when another member converts the Direct Message", async () => {
+  it("adds a teammate's Agent and its owner when converting a Direct Message", async () => {
     const spaceId =
       "7878787878787878787878787878787878787878787878787878787878787878";
     const db = await createOrganizationRpcDb({
@@ -10584,7 +10683,7 @@ describe("organization Core RPC", () => {
         },
         {
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: "user-b",
           profileHandle: "new-agent",
           profileId: SECOND_AGENT_PROFILE_ID,
           profileName: "New Agent",
@@ -10621,16 +10720,21 @@ describe("organization Core RPC", () => {
       userId: "user-a",
     });
 
-    await expect(
-      rpcConvertDirectMessageToSpace(env, {
-        context,
-        name: "Ava and the Agents",
-        profileIds: [SECOND_AGENT_PROFILE_ID],
-        spaceId,
-      })
-    ).resolves.toMatchObject({
-      addedMemberIds: [SECOND_AGENT_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
-    });
+    memberAgentsFeature.enabled = true;
+    try {
+      await expect(
+        rpcConvertDirectMessageToSpace(env, {
+          context,
+          name: "Ava and the Agents",
+          profileIds: [SECOND_AGENT_PROFILE_ID],
+          spaceId,
+        })
+      ).resolves.toMatchObject({
+        addedMemberIds: [SECOND_AGENT_PROFILE_ID, SECOND_HUMAN_PROFILE_ID],
+      });
+    } finally {
+      memberAgentsFeature.enabled = false;
+    }
     expect(spaceStub.rpcConvertDirectMessageToSpace).toHaveBeenCalledWith({
       context,
       members: [

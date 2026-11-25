@@ -334,8 +334,11 @@ Separate Fluid hover groups own account identity, Search, actions, and sign-out.
 A compact Light/Dark/System selector follows Download Desktop App without a divider and keeps the menu
 open when changed. Settings > Appearance uses three full-size theme cards with
 labels and descriptions. Both controls share the theme choices and icon set;
-the existing theme provider owns persistence and system appearance. Spaces and its contextual sidebar heading always open
-`/o/{orgSlug}/spaces`. This home displays the shared conversation list, with
+the existing theme provider owns persistence and system appearance. The Spaces
+rail entry opens `/o/{orgSlug}/spaces` from another section. Reselecting it in a
+desktop conversation reveals the list if collapsed and keeps the current
+conversation and reading position. The contextual **Spaces** heading still opens
+home. This home displays the shared conversation list, with
 Spaces, Direct Messages, and Agent conversations interleaved in the default
 Recent view. Existing explicit Grouped, pin-layout, and preview preferences
 remain honored. The home list is primary content: it remains visible even if
@@ -1019,6 +1022,13 @@ existing Sessions remain saved. Logging out of the current account revokes only
 that account's saved Session when available; **Log out of all accounts** keeps
 the existing full-sign-out behavior. Every successful account identity change
 clears account-private client caches and notifies other tabs before navigation.
+Account → Sessions shows a count and management controls only after its list
+query succeeds. A failed or invalid response is never an empty list. Auth's
+fresh-sign-in requirement remains enforced through the existing add-account
+verification flow. Expired sign-ins use the login path; other read failures
+offer **Try again**. Fresh-sign-in failures retain their error code and do not
+retry without new credentials. A failed refresh hides stale session-management
+controls until a successful read.
 Organization selection remains URL-owned per tab after the newly active account
 loads; account switching must not add Better Auth active-Organization state.
 
@@ -2251,8 +2261,19 @@ statistics remain separate from provider account Usage Limits and do not
 present Local usage as free or as spending the organization allowance.
 Owner and teammate views read the same organization-scoped consumption query.
 
-Computer details place a compact Local Agent token usage card directly below Computer
-Connection. It combines recorded Local Agent tokens on that enrolled Computer
+Owned Computer Connection cards keep the current status, actions, and any last
+update failure visible. Update records, software versions, connection history,
+and saved connection reports share one default-collapsed **Technical details**
+disclosure, with matching typography for the nested section controls. Saved
+reports stay accessible while live status is loading or refreshing. Connection
+history is available only for a resolved device and lane. A newer
+connection report does not erase a failed update or confirm installation.
+Sleep prevention is one setting row without a separate Power heading; its
+saved preference and default remain owned by the local Service.
+
+Owned and teammate Computer details place Local agents before the compact Local
+Agent token usage card, prioritizing agent availability and controls over usage
+statistics. The usage card combines recorded Local Agent tokens on that enrolled Computer
 in the current Organization. The default seven-day area chart uses calendar
 days in the viewer's time zone, including today so far. Details contains the
 7/30-day selector, refresh, and an accessible daily input/output/total table.
@@ -2676,6 +2697,8 @@ both snapshots independently, so this fallback can present stale Slack state and
 violates the single-status contract above. Do not extend this compatibility
 input to another surface or provider; remove it once every Channel consumer
 reads the canonical projection.
+
+Manage Feishu has no group list or history switch. History is used when needed and permitted by Feishu. New setup proceeds directly to official Feishu consent with the history scope requested by default. Existing attempts retain their saved permission choice for compatible resume. Organization owners and admins can use **Update permissions** for the same connected app. This action opens official same-app consent and leaves the healthy connection active. A granted history permission is used on the next read without a separate OpenMeld setting.
 
 Lark and Feishu use an in-page Personal Agent wizard:
 
@@ -4599,9 +4622,11 @@ sources and decoding in the application; there is no artificial completion or
 reveal delay. The stable frame remains observed after loading and failure.
 Offscreen/background, reduced-motion, unavailable-WebGL, initialization-failure,
 and context-loss states retain the static frame without an active renderer.
-The small pinned package patch surfaces shared-context loss and avoids creating
-WebGL before checking the required 2D output context. Normal package cleanup
-owns GPU disposal; the application does not implement a second shader renderer.
+The pinned package checks the required 2D output before requesting WebGL2 on
+the shared renderer's own canvas. If the browser declines that context, cold
+images use the static frame for the rest of the page without retrying or
+throwing a React error. A successful context is reused by the renderer.
+The patch also surfaces later context loss; package cleanup owns GPU disposal.
 
 The effect is an explicitly emitted, content-addressed module loaded by native
 `import()` through a small failure-isolated adapter. A failed effect download
@@ -5778,6 +5803,16 @@ Human Mention remains structured after the optimistic message is replaced,
 after refresh, and on live delivery; compatibility projection for an old client
 must never run on these current paths.
 
+The Space live proxy preserves Auth profile-resolution rejections as HTTP 401
+or 403 using the existing Gateway error envelope (`auth.unauthenticated` or
+`space.forbidden`). These responses are private and non-cacheable and forward
+Auth's separate `Set-Cookie` headers, including session-deletion cookies. The
+proxy stops before opening the Gateway stream and records the existing
+`web.space_stream_proxy` diagnostic at warning level with the status and
+`resolve_stream_profile` stage. Transport, service, and malformed profile
+responses remain upstream failures. Auth still owns identity and access;
+the browser reconnect policy and successful WebSocket protocol are unchanged.
+
 Browser Composer drafts that can contain Human Mention use the version 2 draft
 record and storage key. Current Web reads both version 2 and historical version
 1 records, chooses the newest valid record, and migrates a selected version 1
@@ -5809,6 +5844,20 @@ separate Replies section, a detached `Why this failed` summary, or an extra
 `replied` event for the same final reply. Transient live progress can enrich
 that presentation model but cannot become a second status source or final
 outcome.
+
+Message details requests the `timingVersion: 1` projection and renders a
+**Timing** section after Activity for each Wake target that has timing. Each
+target shows its end-to-end time (`Total`, `so far`, or `Ended after`), the
+last platform update while open, a proportional bar, and grouped totals:
+Agent run, Waiting for input, Queued and starting, OpenMeld routing and
+delivery, and Not recorded. A collapsed timeline lists each segment with its
+start time, duration, and a plain-language wait reason when one is recorded.
+Web renders only Core's segments and totals; it does not recompute, extend, or
+sum timing across targets, and the open segment refreshes only through the
+existing Message Details polling. The section states that OpenMeld measured
+the times and that Agent run includes tool use and unreported waits. **Copy
+timing** copies the viewer-authorized timing JSON for structured export.
+Targets without timing, such as hosted Agents, show no Timing entry.
 
 Visible originating Center Agent requests read the
 optional Message Details delegation projection for a compact progress summary.
@@ -5912,44 +5961,26 @@ preference starts expanded; obsolete intermediate-position preferences are not
 reused. Tasks and Files do not drive compaction, and programmatic message
 restoration does not count as user scroll input after rebinding.
 
-Message-header visibility observations update the read-through scheduler directly rather
-than publishing React state through the Space controller. Scrolling away cancels
-the pending read immediately without rerendering the transcript. Space/Profile
-changes require a fresh visible-message measurement; document visibility, access
-confirmation, loaded Core unread targets, and a brief 150 ms dwell gate persistence.
-Main conversations, Threads, and DMs share this observer. Unseen targets block
-advancing the read watermark past them, and temporary progress cannot advance it.
-After that dwell,
-the existing optimistic Inbox projection updates before the server write settles;
-failed writes retain the existing rollback and reconciliation path.
+Main conversations, Threads and DMs acknowledge visible messages using exact
+Inbox item or publication identities. The shared observer batches message
+beginnings seen in the focused viewport. Optimistic reads reconcile against
+Core and roll back on failure. See the [Space message unread
+contract](../product/inbox.md#space-message-unread-behavior).
 Web captures each main or Thread **New messages** divider from the first ready
 Core unread snapshot for that visit, including an empty snapshot. Arrivals during
 that visit never introduce a new divider. Clearing the entry batch removes its
 divider without establishing another. A new visit or explicit unread navigation
-identity captures a fresh boundary. The unread shortcut is hidden while a focused
-main view follows the live end and all outstanding targets belong to that main
-view. Older entry unread, scrolled-away updates, and Thread targets remain
-discoverable. This presentation rule does not acknowledge anything; the visible
-message observer and explicit user actions still own read receipts.
+identity captures a fresh boundary. A visible Thread owns its unread shortcut.
+The main shortcut identifies the earliest unread destination outside that Thread
+and hides while the reader follows new arrivals in the current view. Older
+unseen updates remain reachable. Navigation alone never writes a read receipt.
 Thread targets open the exact reply instead of treating the root message as the
 destination. One-to-one DMs omit redundant reply quotations; ordinary Spaces and
 multi-participant conversations retain them.
 
-When the main conversation has unread targets, the existing latest-message
-control is also the explicit catch-up action. Web first reads a fresh Core Space
-Inbox summary to freeze the accepted main-timeline cutoff, then mounts the live
-tail and settles its scroll position before writing the main watermark through
-that exact occurrence time. The activation reserves its history-navigation
-revision before the summary read begins. A newer accepted history navigation,
-unmounted view, or changed Organization/Space identity abandons the activation
-before it can switch to the live tail or start the write, and discards its
-unused cutoff. The same activation never advances a Thread watermark or
-includes messages arriving after its cutoff; only an actual failed write keeps
-the original cutoff for retry. Visible-message and explicit writes share one per-scope
-serializer that coalesces queued higher watermarks, so an older invalidation
-cannot replace a newer optimistic projection. Failures retain the cutoff for
-retry and state that the user reached the latest messages but marking them read
-failed.
+Jump to latest restores the live tail. The Space menu's **Mark all as read**
+action prepares a frozen selection and asks for confirmation before reading
+unseen messages across the main conversation and its Threads.
 Scroll events only check distance from the latest messages. Layout and preference
 writes happen at the endpoint change, never per animation frame. The viewport
 height changes once with a matching scroll offset to preserve the reading anchor.
@@ -6304,6 +6335,15 @@ request-backed card for context and decision history. Approving or declining
 invalidates the pending projection. Main messages that have a reply Thread stay
 in the main tray; only actual Thread replies belong to that Thread's tray.
 
+Issue-creation cards opt into recipient-only original-content previews. They
+show the frozen account, verified destination names with exact IDs, and the
+saved title and description as inert, wrapping text inside the shared scroll
+area. Missing names or old requests without retained content are explicit;
+the UI never reconstructs content from the conversation. Approval is still a
+permission decision, not proof of an issue or a running execution. Recoverable
+issue continuations show a short approval acknowledgement; the private binding
+and original operation remain responsible for execution.
+
 Agent access requests in a Space use two presentations of one Core request
 state. For the Agent owner, a pending request appears at the end of the
 conversation as a request preview: it reads like a message from the requested
@@ -6316,7 +6356,9 @@ requester and leaves the request pending. The preview uses the Agent message
 avatar and the message bubble radius with a dashed border. A one-line Agent
 requests bar above the Composer repeats the summary and the same actions; while the latest messages are shown, its text
 scrolls to the preview. The requester
-sees only the bar, with `Withdraw` while the request is pending. Composer trays
+sees only the bar, with `Withdraw` while the request is pending. A completed
+Space join request does not override the sidebar's latest-message preview;
+its outcome remains available in the request details. Composer trays
 stack top to bottom as Agent requests, pending Agent actions, then queued
 messages, each tucked under the next with the same inset, and an answer from
 either presentation disables both.
@@ -6373,9 +6415,10 @@ reply and spinner, shows that OpenMeld could not confirm whether the final reply
 was posted, and asks the user to inspect the Space before trying again.
 
 Web opts in to `wakeStopEligibility` when reading Wake progress and active Wake
-progress. This is a viewer-scoped Core projection: only the Wake requester's
-account or the target Agent Profile's owner, with writable Space access, may
-receive Stop eligibility. Null or missing eligibility hides Stop in the timeline,
+progress. Core projects Stop eligibility for the Wake requester and target
+Agent's owner, and for a joined Organization owner only before delivery in
+an ordinary Space. Web uses the same control for all three. Null or missing
+eligibility hides Stop in the timeline,
 details, and multi-target controls. A sent message, its age, a previous Stop
 response, and other accounts signed in on the same computer never grant Stop
 authority. Progress caches remain scoped to the current acting Profile.
@@ -6384,8 +6427,8 @@ pre-agent, controller, or native-delivery cancellation. Web must not infer
 stopped, cancelled, or controller support from local browser state or labels.
 
 The Wake Stop request path is `POST /v1/spaces/:spaceId/wake-stop`. Web sends
-only `sourceSignalId` or `clientMessageId + targetProfileId`, never
-`dispatchId`, task ids, or RuntimeCoordinator execution ids. A typed
+the source signal or client message ID with the target Profile and, when
+available, its exact dispatch ID. A typed
 `unsupported`, `not_stoppable`, `not_found`, or `retry_later` response is product
 state. HTTP 403 with `space.wake_stop.forbidden` means the current account is
 neither the requester nor the Agent owner. A raw HTTP 404 is a route/deployment/proxy

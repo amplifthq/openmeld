@@ -48,4 +48,37 @@ describe("SpaceViewTabs", () => {
 		expect(screen.queryByRole("tab", { name: "Tasks" })).toBeNull();
 		expect(screen.getByRole("tab", { name: "Files" })).toBeDefined();
 	});
+
+	it("shows Guide after Files only where it is enabled", () => {
+		const onViewChange = vi.fn();
+		const { rerender } = render(
+			<SpaceViewTabs
+				activeView="messages"
+				idPrefix="space-view-test"
+				onViewChange={onViewChange}
+			/>
+		);
+		expect(screen.queryByRole("tab", { name: "Guide" })).toBeNull();
+
+		rerender(
+			<SpaceViewTabs
+				activeView="guide"
+				guideEnabled
+				idPrefix="space-view-test"
+				onViewChange={onViewChange}
+			/>
+		);
+
+		const tabs = screen.getAllByRole("tab");
+		const guideTab = screen.getByRole("tab", { name: "Guide" });
+		expect(tabs.at(-1)).toBe(guideTab);
+		expect(tabs.indexOf(guideTab)).toBe(
+			tabs.indexOf(screen.getByRole("tab", { name: "Files" })) + 1
+		);
+		expect(guideTab.getAttribute("aria-selected")).toBe("true");
+		fireEvent.click(screen.getByRole("tab", { name: "Files" }));
+		expect(onViewChange).toHaveBeenLastCalledWith("files");
+		fireEvent.click(guideTab);
+		expect(onViewChange).toHaveBeenLastCalledWith("guide");
+	});
 });

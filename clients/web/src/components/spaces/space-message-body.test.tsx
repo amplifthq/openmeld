@@ -192,6 +192,27 @@ describe("SpaceMessageBody", () => {
 		fireEvent.click(token);
 		expect(onOpenProfile).toHaveBeenCalledWith(profileId);
 	});
+	it.each([
+		false,
+		true,
+	])("labels an Organization-only Human Mention from sealed message identity (Markdown: %s)", (isAgentFinalReply) => {
+		const profileId = "22222222-2222-4222-8222-222222222222";
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply,
+					text: "@Colleague please review",
+					mentionTargetProfileIds: [profileId],
+					humanMentions: [
+						{ profileId, profileName: "Colleague", scope: "organization" },
+					],
+				}}
+			/>
+		);
+		expect(screen.getByText("Colleague")).toBeTruthy();
+		expect(screen.getByText("Organization · not in this Space")).toBeTruthy();
+		expect(screen.queryByText("Wake")).toBeNull();
+	});
 	it("shows the explicit Wake recipient when Agent prose omits its name", () => {
 		render(
 			<SpaceMessageBody

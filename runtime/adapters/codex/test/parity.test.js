@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import childProcess from "node:child_process";
 import {
   chmod,
   mkdir,
@@ -8,6 +9,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { mock } from "node:test";
@@ -2861,6 +2863,49 @@ test("codex app-server keeps the complete fallback prompt for legacy resumed thr
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("codex quota probing contains synchronous writes to a closed controller pipe", async () => {
+  const { probeCodexAppServerAccount } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-quota-write-"));
+  const fixturePath = join(fixtureDir, "app-server.mjs");
+  await writeFakeCodexAppServerFixture(fixturePath);
+  const spawn = childProcess.spawn;
+  let quotaWriteFailed = false;
+  const spawnMock = mock.method(childProcess, "spawn", (...args) => {
+    if (args[1]?.includes(fixturePath)) {
+      args[2] = {
+        ...args[2],
+        env: { ...args[2]?.env, OPENMELD_FAKE_CODEX_USAGE_TIMEOUT: "1" },
+      };
+    }
+    const child = spawn(...args);
+    if (args[1]?.includes(fixturePath)) {
+      const write = child.stdin.write;
+      child.stdin.write = function (chunk, ...rest) {
+        if (JSON.parse(String(chunk)).method === "account/rateLimits/read") {
+          quotaWriteFailed = true;
+          throw new Error("controller input pipe closed");
+        }
+        return write.call(this, chunk, ...rest);
+      };
+    }
+    return child;
+  });
+  syncBuiltinESMExports();
+  try {
+    await probeCodexAppServerAccount({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+    });
+    assert.equal(quotaWriteFailed, true);
+    // Let Node's unhandled-rejection detection observe the settled request.
+    // The test runner fails if the auxiliary request leaked a rejected promise.
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    spawnMock.mock.restore();
+    syncBuiltinESMExports();
+    await rm(fixtureDir, { force: true, recursive: true });
   }
 });
 

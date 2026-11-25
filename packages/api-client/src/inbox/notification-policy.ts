@@ -62,12 +62,6 @@ export function inboxMessageNotificationSpaceId(
   return item.sourceTarget.spaceId;
 }
 
-function isDirectMessageRecipient(item: InboxItem): boolean {
-  return item.sourceFacts
-    ? item.sourceFacts.recipientReasons.includes("direct_message")
-    : item.sourceTarget.kind === "center_agent";
-}
-
 function isLegacyOwnerObservation(item: InboxItem): boolean {
   return (
     !item.sourceFacts &&
@@ -108,14 +102,12 @@ export function isInboxNotificationEligible(
   ) {
     return false;
   }
-  if (inboxMessageNotificationSpaceId(item)) {
+  const messageSpace = inboxMessageNotificationSpaceId(item);
+  if (messageSpace) {
     if (mode === "muted") {
       return false;
     }
     if (mode === "all_messages") {
-      return true;
-    }
-    if (isDirectMessageRecipient(item)) {
       return true;
     }
   }
@@ -133,11 +125,32 @@ export function isInboxNotificationEligible(
   }
   return (
     item.kind === "space_mention" ||
+    (!!messageSpace && isAddressedReplyOrDirectMessage(item))
+  );
+}
+
+function isAddressedReplyOrDirectMessage(item: InboxItem): boolean {
+  if (
+    item.sourceTarget.kind === "space" &&
+    item.sourceTarget.replyToRecipient
+  ) {
+    return true;
+  }
+  if (item.sourceFacts) {
+    return item.sourceFacts.recipientReasons.some(
+      (reason) =>
+        reason === "direct_message" ||
+        reason === "human_mention" ||
+        reason === "thread_reply" ||
+        reason === "requester"
+    );
+  }
+  // Pre-facts writers used these kinds for directed Agent updates.
+  return (
     item.kind === "agent_reply" ||
     item.kind === "wake_outcome" ||
-    (item.kind === "space_message" &&
-      item.sourceTarget.kind === "space" &&
-      (item.sourceTarget.directMessage === true ||
-        item.sourceTarget.replyToRecipient === true))
+    item.sourceTarget.kind === "center_agent" ||
+    (item.sourceTarget.kind === "space" &&
+      item.sourceTarget.directMessage === true)
   );
 }

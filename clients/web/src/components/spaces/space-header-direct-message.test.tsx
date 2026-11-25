@@ -37,20 +37,24 @@ describe("SpaceHeader Direct Message identity", () => {
 		expect(
 			container.querySelector('[data-space-header-icon="direct-message"]')
 		).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Chat menu" })).toBeTruthy();
 
 		rerender(
 			createSpaceHeader({
 				memberCount: 3,
+				directMessageConvertedAt: "2026-04-11T00:00:00Z",
 				spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
 			})
 		);
 
 		expect(screen.queryByText("Local Agent")).toBeNull();
 		expect(container.querySelector("[data-space-header-icon]")).toBeNull();
+		expect(screen.getByRole("button", { name: "Space menu" })).toBeTruthy();
 	});
 });
 
 function createSpaceHeader(input: {
+	directMessageConvertedAt?: string;
 	memberCount: number;
 	spacePurpose?: string;
 }) {
@@ -79,6 +83,7 @@ function createSpaceHeader(input: {
 }
 
 function createStatus(input: {
+	directMessageConvertedAt?: string;
 	memberCount: number;
 	spacePurpose?: string;
 }): GetSpaceStatusResponse {
@@ -107,5 +112,6 @@ function createStatus(input: {
 		},
 		spaceId: "space-1",
 		spacePurpose: input.spacePurpose,
+		directMessageConvertedAt: input.directMessageConvertedAt,
 	};
 }

@@ -187,10 +187,6 @@ export function SelectedComputerPanel(input: {
 				storageScope={input.recovery.storageScope}
 				target={target}
 			/>
-			<ComputerTokenUsage
-				computerId={input.computer.connectedComputerId}
-				organizationId={input.organizationId}
-			/>
 			<LocalAgentsCard
 				computer={input.computer}
 				controlCapabilities={
@@ -214,6 +210,10 @@ export function SelectedComputerPanel(input: {
 					input.organizationId,
 					input.computer.connectedComputerId
 				)}
+			/>
+			<ComputerTokenUsage
+				computerId={input.computer.connectedComputerId}
+				organizationId={input.organizationId}
 			/>
 			{target && canManageComputerFileAccess ? (
 				<ComputerFileAccessCard

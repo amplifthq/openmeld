@@ -13,16 +13,24 @@ That continuation still needs to inspect the child's report. For example, a Loca
 
 Use [Tasks](/docs/work/tasks) for deliverable ownership and review. Use [Run status](/docs/reference/run-status) for Routine execution states. Neither replaces reading the actual output.
 
+For a Local Agent, **Working** means the request is running. Open **Message details → Timing**, when available, to see routing and delivery, recorded waits, Agent run time, and the last update from the computer. Time without evidence stays **Not recorded**. Agent run time includes tool use and waits the Agent did not report; it does not measure model thinking alone.
+
+The Agent can deliberately share a verified milestone or blocker with the Space even in final-only mode. Its private session notes are not posted. A successful check, a saved evidence file, and a published conclusion are separate results; elapsed time and computer activity alone do not establish any of them.
+
 ## Recover evidence before repeating actions
 
 A large output may be only partly visible even though the operation ran. Supported hosted tools can recover temporarily retained result portions. Long hosted conversations can also recover retained conversation text after summarization. These mechanisms help the Agent use evidence it already collected.
 
 They do not make every external action safe to repeat. If a connection fails after a tool may have changed something, inspect the current state first. Creating another issue, sending another message, or rerunning a command can duplicate effects.
 
+If a CLI Space file upload is not confirmed, follow the error's file-history command to check whether the file was saved. If it is missing, retry the same content and destination with the reported `--client-mutation-id`. For a slow connection, `--timeout-ms` adjusts the time allowed for each upload request. Received parts show transfer progress; the saved file revision confirms delivery.
+
 ## Resume depends on the execution path
 
 Recorded coordination and conversation checkpoints support specific continuation and recovery paths. They are not a promise that every interrupted local process or cloud command resumes automatically. Local tool behavior, Computer availability, current permissions, and retained evidence all matter.
 
 If work stops, check the latest report, execution state, and resulting artifacts. Resume with the remaining objective and relevant evidence instead of asking the Agent to repeat the entire task. See [Agent not replying](/docs/help/agent-not-replying) and [Computer help](/docs/help/computer).
+
+For an independent review on a local Codex Agent, open the Agent's mention menu and choose **Session → Start new**, or send the request with one explicit `--wake` target and `--new-task`. Include the new review's scope, permissions and evidence requirements. Select the earlier session under **Continue previous** when the work needs that conversation. Starting a new session separates conversation history; it does not expand permissions. Investigate slow execution separately using timing and task evidence.
 
 A Stop request requests cancellation; it does not roll back changes. If the outcome remains uncertain, keep that uncertainty visible until the affected system confirms what happened.

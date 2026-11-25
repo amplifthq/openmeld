@@ -9,10 +9,6 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-	isAgentRequestCandidate,
-	resolveEffectiveAddMemberProfileIds,
-} from "#/components/spaces/people-agent-picker-model";
-import {
 	MessageScroller,
 	MessageScrollerContent,
 	MessageScrollerProvider,
@@ -367,74 +363,17 @@ describe("Requester copy", () => {
 		).toBeNull();
 	});
 
-	it("labels the requester's Space list row with the request state", () => {
+	it("clears completed joins from the requester's Space list preview", () => {
 		const join = request({ kind: "space_join", viewerRole: "requester" });
 		expect(resolveAgentRequestSpaceLabel(join)).toBe(
 			"Requested Felix · PR Reviewer"
 		);
-		expect(resolveAgentRequestSpaceLabel({ ...join, status: "joined" })).toBe(
-			"PR Reviewer joined"
-		);
+		expect(
+			resolveAgentRequestSpaceLabel({ ...join, status: "joined" })
+		).toBeNull();
 		expect(resolveAgentRequestSpaceLabel({ ...join, status: "ignored" })).toBe(
 			"Felix didn't add PR Reviewer"
 		);
-	});
-});
-
-describe("Add members with MemberAgents", () => {
-	const felixHuman = {
-		profileId: "felix-human",
-		profileKind: "human" as const,
-		profileName: "Felix",
-		searchText: "felix",
-		ownerUserId: "felix",
-	};
-	const felixAgent = {
-		profileId: "agt_1",
-		profileKind: "agent" as const,
-		profileName: "PR Reviewer",
-		searchText: "pr reviewer",
-		ownerUserId: "felix",
-		ownerHumanProfileId: "felix-human",
-	};
-	const groups = {
-		personGroups: [
-			{
-				agentCandidates: [felixAgent],
-				humanAlreadyMember: false,
-				humanCandidate: felixHuman,
-				id: "felix",
-				lastActiveAt: null,
-				name: "Felix",
-				searchText: "felix",
-			},
-		],
-	} as unknown as Parameters<
-		typeof resolveEffectiveAddMemberProfileIds
-	>[0]["candidateGroups"];
-
-	it("asks for another member's Agent without adding its owner", () => {
-		expect(isAgentRequestCandidate(felixAgent, "tali")).toBe(true);
-		expect([
-			...resolveEffectiveAddMemberProfileIds({
-				agentRequestsFor: "tali",
-				candidateGroups: groups,
-				selectedProfileIds: new Set(["agt_1"]),
-			}),
-		]).toEqual(["agt_1"]);
-	});
-
-	it("keeps the owner's own Agent selection with the owner", () => {
-		expect(isAgentRequestCandidate(felixAgent, "felix")).toBe(false);
-		expect(
-			[
-				...resolveEffectiveAddMemberProfileIds({
-					agentRequestsFor: "felix",
-					candidateGroups: groups,
-					selectedProfileIds: new Set(["agt_1"]),
-				}),
-			].sort()
-		).toEqual(["agt_1", "felix-human"]);
 	});
 });
 

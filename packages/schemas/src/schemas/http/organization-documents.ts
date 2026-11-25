@@ -540,9 +540,17 @@ export const centerAgentManageOrganizationDocumentsResponseSchema =
     }),
   ]);
 
+export const organizationDocumentSourceReferenceSchema = z.strictObject({
+  kind: z.literal("organization_document"),
+  documentId: identifierSchema,
+  state: z.literal("current"),
+  version: z.string().regex(/^[a-f0-9]{64}$/u),
+});
+
 export const organizationDocumentPromptContextRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
   includeOrganizationProtectedInformation: z.literal(true).optional(),
+  includeSourceReferences: z.literal(true).optional(),
 });
 export const organizationDocumentPromptContextResponseSchema = z.strictObject({
   briefContent: contentSchema.nullable(),
@@ -551,6 +559,7 @@ export const organizationDocumentPromptContextResponseSchema = z.strictObject({
     .nullable()
     .optional(),
   organizationId: identifierSchema,
+  briefSource: organizationDocumentSourceReferenceSchema.nullable().optional(),
 });
 
 function validateCreateDocumentShape(

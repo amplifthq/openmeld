@@ -79,6 +79,11 @@ export type {
   SpaceHistoryNavigation,
   SpaceHistoryNavigationQuery,
 } from "./http/space-history-navigation";
+export type {
+  RemoteAgentResolveReplyMentionsRequest,
+  RemoteAgentResolveReplyMentionsResponse,
+  SpaceHumanMentionTarget,
+} from "./http/space-human-mentions";
 
 // Type-query import keeps this entrypoint type-only while locking the version type to the schema export.
 export type OpenMeldSchemaVersion =

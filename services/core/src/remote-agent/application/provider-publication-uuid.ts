@@ -10,6 +10,7 @@ export async function buildMessageChannelProviderPublicationUuid(input: {
     | "identity_link"
     | "private_navigation"
     | "working"
+    | "group-history-notice"
     | `file:${string}`
     | `card-revision:${string}`
     | `rollover:${number}:create`

@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { basename } from "node:path";
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import {
+  buildSpaceFileEntryIdForMutation,
   isSpaceFileTextReadable,
   readSpaceFileTextStream,
   resolveSpaceFileMimeType,
@@ -196,10 +198,12 @@ export async function runSpaceFilesHistory(
 
 export async function runSpaceFilesUpload(
   input: SpaceFilesCommandInput & {
+    clientMutationId?: string;
     file: string;
     folder?: string;
     mimeType?: string;
     name?: string;
+    timeoutMs?: number;
   }
 ): Promise<void> {
   const context = await prepareSpaceFilesContext(
@@ -210,6 +214,14 @@ export async function runSpaceFilesUpload(
     return;
   }
   const bytes = await readLocalFile(input.file);
+  const clientMutationId = input.clientMutationId ?? randomUUID();
+  if (!input.json) {
+    context.presenter.line({
+      code: "space.files.upload.started",
+      text: `Uploading ${bytes.size} bytes. Retry ID: ${clientMutationId}`,
+      data: { clientMutationId, totalBytes: bytes.size },
+    });
+  }
   const write = await runSpaceWriteWithPasswordRetry({
     initialPassword: input.password,
     interactive: isInteractiveHumanOutput(context, input.json),
@@ -222,10 +234,64 @@ export async function runSpaceFilesUpload(
         parentId: normalizeFolderId(input.folder),
         mimeType: resolveMimeType(input.mimeType, input.file),
         bytes,
-        clientMutationId: randomUUID(),
+        clientMutationId,
+        timeoutMs: input.timeoutMs,
+        onProgress: (uploadedBytes, totalBytes) => {
+          if (input.json || uploadedBytes === 0) {
+            return;
+          }
+          context.presenter.line({
+            code: "space.files.upload.progress",
+            text:
+              uploadedBytes === totalBytes
+                ? "All parts received. Waiting for the saved file."
+                : `Received ${uploadedBytes} of ${totalBytes} bytes.`,
+            data: { uploadedBytes, totalBytes },
+          });
+        },
         origin: "artifact",
         ...(spacePassword === undefined ? {} : { spacePassword }),
       }),
+  }).catch(async (error: unknown) => {
+    if (
+      !(
+        error instanceof Error &&
+        "operation" in error &&
+        typeof error.operation === "string" &&
+        error.operation.startsWith("space.files.upload.")
+      )
+    ) {
+      throw error;
+    }
+    const failure = toStructuredApiClientFailure(error);
+    const outcomeUnknown =
+      failure.code === "network.timeout" ||
+      failure.code === "network.request_failed" ||
+      failure.code === "gateway.invalid_response" ||
+      failure.status === 408 ||
+      (failure.status !== null && failure.status >= 500);
+    if (!outcomeUnknown) {
+      // Keep typed authorization, conflict and validation failures intact.
+      if (failure.status !== null) {
+        error.message = `Upload rejected (${error.operation}): ${failure.message}`;
+      }
+      throw error;
+    }
+    const fileId = await buildSpaceFileEntryIdForMutation(clientMutationId);
+    const check = `openmeld space files history ${input.space} ${fileId} --profile ${context.requestContext.actorContext.openMeldProfileId}`;
+    const nextStep = `Run \`${check}\` with the same connection options to check for the saved file; if it is missing, retry the original upload with unchanged content and --client-mutation-id ${clientMutationId}.`;
+    throw Object.assign(
+      new Error(
+        `Upload not confirmed (${error.operation}). ${nextStep} Details: ${failure.message}`,
+        { cause: error }
+      ),
+      {
+        code: failure.code ?? "gateway.http_error",
+        requestId: failure.requestId,
+        status: failure.status,
+        upstreamCode: failure.upstreamCode,
+      }
+    );
   });
   if (write.status === "cancelled") {
     return;

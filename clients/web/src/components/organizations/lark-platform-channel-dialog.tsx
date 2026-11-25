@@ -50,6 +50,7 @@ export function LarkPlatformChannelDialog(input: {
 }) {
 	const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
 	const providerLabel = resolveProviderLabel(input.provider);
+	const canManage = input.canManage && !input.cleanupOnly;
 	const connection = input.registration?.connection ?? input.connection ?? null;
 	const connected = connection?.status === "connected";
 	const needsRepair =
@@ -74,8 +75,7 @@ export function LarkPlatformChannelDialog(input: {
 	const showAuthorizationAction =
 		!(input.registration || input.cleanupOnly) &&
 		input.canManage &&
-		connection?.reasonCode ===
-			`${connection?.provider}.authorization_update_required`;
+		offersPermissionUpdate(connection);
 	const registrationInProgress =
 		input.registration !== null &&
 		(input.registration.attempt.status === "pending_registration" ||
@@ -116,7 +116,7 @@ export function LarkPlatformChannelDialog(input: {
 						/>
 					) : (
 						<ConnectionSummary
-							canManage={input.canManage && !input.cleanupOnly}
+							canManage={canManage}
 							connection={connection}
 							errorMessage={input.errorMessage}
 							onRepair={input.onRepair}
@@ -131,6 +131,7 @@ export function LarkPlatformChannelDialog(input: {
 							startOverPending={input.startOverPending}
 						/>
 					)}
+
 					<DialogFooter className="items-stretch border-t pt-4 empty:hidden sm:items-center sm:justify-between">
 						{canDisconnect && input.canManage ? (
 							<DisconnectControl
@@ -172,6 +173,15 @@ export function LarkPlatformChannelDialog(input: {
 	);
 }
 
+function offersPermissionUpdate(
+	connection: MessageChannelConnectionProjection | null
+) {
+	return (
+		connection?.reasonCode ===
+			`${connection?.provider}.authorization_update_required` ||
+		(connection?.provider === "feishu" && connection.status === "connected")
+	);
+}
 function resolveDialogTitle(input: {
 	connected: boolean;
 	needsRepair: boolean;

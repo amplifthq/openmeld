@@ -2,7 +2,8 @@
 
 // Adapted from Fluid Functionalism's Base UI ScrollArea (MIT).
 import { ScrollArea as Primitive } from "@base-ui/react/scroll-area";
-import type { ComponentProps, Ref } from "react";
+import { type ComponentProps, type Ref, useMemo } from "react";
+import { composeRefs } from "#lib/compose-refs";
 import { cn } from "#lib/utils";
 
 type ScrollAreaProps = Omit<
@@ -29,6 +30,13 @@ function ScrollArea({
   scrollFade = true,
   ...props
 }: ScrollAreaProps) {
+  // Consumers such as virtualized grids receive their own viewport ref through
+  // viewportProps; keep it alongside the caller's viewportRef.
+  const viewportPropsRef = viewportProps?.ref;
+  const composedViewportRef = useMemo(
+    () => composeRefs(viewportPropsRef, viewportRef),
+    [viewportPropsRef, viewportRef]
+  );
   return (
     <Primitive.Root
       data-slot="scroll-area"
@@ -44,7 +52,7 @@ function ScrollArea({
         data-fade={scrollFade || undefined}
         data-orientation={orientation}
         data-slot="scroll-area-viewport"
-        ref={viewportRef}
+        ref={composedViewportRef}
         style={{
           overflowX: orientation === "vertical" ? "hidden" : undefined,
           overflowY: orientation === "horizontal" ? "hidden" : undefined,

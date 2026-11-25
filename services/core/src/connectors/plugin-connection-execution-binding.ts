@@ -110,6 +110,36 @@ export async function readSpacePluginConnectionBinding(
   }
   throw unavailable();
 }
+// Keep goal recovery on authenticated continuation ancestry, even when a
+// connection continuation was followed by a separate action approval.
+export async function readSpacePluginConnectionOriginalSource(
+  env: CoreBindings,
+  input: Parameters<typeof rpcReadPluginConnectionContinuationBinding>[1]
+) {
+  let signalId = input.signalId;
+  let original: { signalId: string; requesterProfileId: string } | null = null;
+  const seen = new Set<string>();
+  for (let hop = 0; hop < 32; hop += 1) {
+    if (seen.has(signalId)) {
+      throw unavailable();
+    }
+    seen.add(signalId);
+    const binding = await rpcReadPluginConnectionContinuationBinding(env, {
+      ...input,
+      signalId,
+    });
+    if (!binding) {
+      return original;
+    }
+    original = {
+      signalId: binding.source.signalId,
+      requesterProfileId: binding.requesterProfileId,
+    };
+    signalId = binding.source.signalId;
+  }
+  throw unavailable();
+}
+
 async function readChannelBindingChain(
   db: PostgresDatabase,
   current: RemoteAgentNativeDeliveryRecord,

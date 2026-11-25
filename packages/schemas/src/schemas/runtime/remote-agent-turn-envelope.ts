@@ -259,6 +259,7 @@ export const remoteAgentTurnEnvelopeMemorySourceSchema = z.enum([
 export const remoteAgentTurnEnvelopeMemorySubjectSchema = z.enum([
   "member",
   "organization",
+  "space",
 ]);
 
 const remoteAgentTurnEnvelopeMemoryItemTextSchema = nonEmptyStringSchema.max(

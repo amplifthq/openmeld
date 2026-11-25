@@ -1,15 +1,11 @@
 {
-  "version": "0.3.276",
+  "version": "0.3.297",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Releases the existing CLI with consistent published component identities. Existing command contracts and the 0.3.273 required floor remain supported."
+    "reason": "Checks the selected Cursor CLI on macOS without opening Keychain authorization dialogs."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Reconciles the published Service bundle identity without changing its runtime contract. Existing 0.3.273 Services remain compatible."
-  },
-  "skills": {
-    "updatePolicy": "available",
-    "reason": "Guidance clarifies existing command prefixes, addressing, and Computer operations without adding runtime authority."
+    "reason": "Keeps background Cursor sign-in and installation checks noninteractive and cleans up their child processes."
   }
 }

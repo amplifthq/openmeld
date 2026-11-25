@@ -1,0 +1,1 @@
+ALTER TABLE "openmeld"."sensitive_operation_audit_events" ADD COLUMN "permission_mode_change_json" text;

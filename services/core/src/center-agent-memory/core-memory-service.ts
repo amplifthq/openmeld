@@ -1,3 +1,4 @@
+import { waitUntil } from "cloudflare:workers";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { CoreBindings } from "../lib/bindings";
 
@@ -16,6 +17,7 @@ import {
   type RetainedMemoryRead,
   searchRetainedCenterAgentMemory,
 } from "./retained-memory-search";
+import { createCenterAgentMemorySpaceAccess } from "./space-memory-access";
 import { createZepCenterAgentMemoryAdapter } from "./zep-memory-adapter";
 
 export async function readCoreOrganizationMemoryAvailability(
@@ -79,6 +81,8 @@ export function createCoreCenterAgentMemoryService(
   }
 
   return createCenterAgentMemoryService({
+    spaceAccess: createCenterAgentMemorySpaceAccess(env),
+    waitUntil,
     adapter: createZepCenterAgentMemoryAdapter({ apiKey }),
     nativeDeliveryLedger: {
       clearTriggerTextForMember: (ledgerInput) =>
@@ -103,6 +107,7 @@ export async function readCoreCenterAgentRetainedMemory(
     speakerMember: { memberId: string; userId: string };
     query: string;
     limit: number;
+    spaceId?: string;
   }
 ): Promise<RetainedMemoryRead> {
   const db = getPostgresDatabase(env);
@@ -115,6 +120,28 @@ export async function readCoreCenterAgentRetainedMemory(
     adapter: createZepCenterAgentMemoryAdapter({ apiKey }),
     repository: createPostgresCenterAgentMemoryRepository(db),
   });
+}
+
+export async function deleteCoreCenterAgentSpaceMemory(
+  env: CoreBindings,
+  input: { organizationId: string; spaceId: string }
+) {
+  const db = getPostgresDatabase(env);
+  const existing = await db.query({
+    text: `SELECT 1 FROM "openmeld"."center_agent_memory_subjects" WHERE organization_id = $1 AND subject_kind = 'space' AND space_id = $2 AND status <> 'deleted' LIMIT 1`,
+    values: [input.organizationId, input.spaceId],
+  });
+  const service = createCoreCenterAgentMemoryService(env);
+  if (!service) {
+    if (existing.rows.length) {
+      throw new Error("center_agent_memory.space_deletion_unavailable");
+    }
+    const repository = createPostgresCenterAgentMemoryRepository(db);
+    await repository.beginSpaceDeletion({ ...input, nowMs: Date.now() });
+    await repository.markSpaceDeleted({ ...input, deletedAtMs: Date.now() });
+    return;
+  }
+  await service.deleteSpaceMemory(input);
 }
 
 export async function clearCoreCenterAgentOrganizationNativeDeliveryData(

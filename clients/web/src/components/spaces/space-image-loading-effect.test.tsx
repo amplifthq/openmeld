@@ -13,6 +13,37 @@ vi.mock("img-fx", () => ({
 afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
+});
+
+it("keeps both placeholders static after one denied WebGL allocation", async () => {
+	// Exercise the pinned renderer: the browser can provide 2D output while
+	// declining WebGL on the shared canvas, even with the WebGL2 API present.
+	const { ImageGeneration } =
+		await vi.importActual<typeof import("img-fx")>("img-fx");
+	vi.stubGlobal("WebGL2RenderingContext", class {});
+	const getContext = vi
+		.spyOn(HTMLCanvasElement.prototype, "getContext")
+		.mockImplementation(function (this: HTMLCanvasElement, kind: string) {
+			return kind === "2d"
+				? ({ canvas: this } as CanvasRenderingContext2D)
+				: null;
+		});
+	const { container } = render(
+		<>
+			<ImageGeneration images={[]} theme="light">
+				First placeholder
+			</ImageGeneration>
+			<ImageGeneration images={[]} theme="light">
+				Second placeholder
+			</ImageGeneration>
+		</>
+	);
+	expect(container.textContent).toBe("First placeholderSecond placeholder");
+	expect(container.querySelector("canvas")).toBeNull();
+	expect(
+		getContext.mock.calls.filter(([kind]) => kind === "webgl2")
+	).toHaveLength(1);
 });
 
 it("uses ImageGeneration without private sources or reveal cycles, and releases every renderer on context loss", () => {

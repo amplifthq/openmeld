@@ -42,9 +42,36 @@ export function buildCurrentInboxSourceAccessSql(
             )
           )
           OR ${inboxSpaceAccessSql(itemAlias)}
+          OR ${inboxOrganizationMentionAccessSql(itemAlias)}
       )
     )
   `;
+}
+
+/** This receipt permits only its already-redacted Inbox item, never a Space read. */
+export function inboxOrganizationMentionAccessSql(
+  alias: InboxItemSqlAlias
+): string {
+  return `(${alias}.kind = 'space_mention' AND ${alias}.source_kind = 'space_signal'
+    AND ${alias}.source_facts_json::jsonb -> 'recipientReasons' ? 'human_mention'
+    AND EXISTS (
+      SELECT 1 FROM "openmeld"."openmeld_profiles" AS mentioned_profile
+      INNER JOIN "openmeld"."members" AS mentioned_member
+        ON mentioned_member.user_id = mentioned_profile.owner_user_id
+        AND mentioned_member.organization_id = ${alias}.organization_id
+      INNER JOIN "openmeld"."space_index_spaces" AS mentioned_space
+        ON mentioned_space.space_id = ${alias}.source_target_json::jsonb ->> 'spaceId'
+        AND mentioned_space.organization_id = ${alias}.organization_id
+        AND mentioned_space.status = 'active'
+      WHERE mentioned_profile.profile_id = ${alias}.source_facts_json::jsonb ->> 'organizationMentionProfileId'
+        AND mentioned_profile.profile_kind = 'human' AND mentioned_profile.status = 'active'
+        AND mentioned_profile.owner_user_id = ${alias}.recipient_user_id
+    ) AND NOT EXISTS (
+      SELECT 1 FROM "openmeld"."conversation_history_deletions" AS mention_history_deletion
+      WHERE mention_history_deletion.user_id = ${alias}.recipient_user_id
+        AND mention_history_deletion.space_id = ${alias}.source_target_json::jsonb ->> 'spaceId'
+        AND ${alias}.occurred_at_ms <= mention_history_deletion.deleted_at_ms
+    ))`;
 }
 
 /** Presentation association does not replace the request owner's authorization. */

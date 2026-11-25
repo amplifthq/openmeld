@@ -39,6 +39,9 @@ export function registerMessageDetailsRoutes(app: Hono<HonoBindings>): void {
               c.req.query("executionContextVersion")
             ),
           }),
+      ...(c.req.query("timingVersion") === undefined
+        ? {}
+        : { timingVersion: Number(c.req.query("timingVersion")) }),
     });
     if (!parsed.success) {
       return respondBadRequest({
@@ -67,6 +70,9 @@ export function registerMessageDetailsRoutes(app: Hono<HonoBindings>): void {
           delegationCursor: parsed.data.delegationCursor,
           ...(parsed.data.executionContextVersion
             ? { executionContextVersion: parsed.data.executionContextVersion }
+            : {}),
+          ...(parsed.data.timingVersion
+            ? { timingVersion: parsed.data.timingVersion }
             : {}),
           ...(password === undefined ? {} : { password }),
           context: buildCoreRpcContext(c),

@@ -168,6 +168,46 @@ export function InboxInfiniteScrollTrigger(input: {
 	);
 }
 
+export function inboxSavedViewNotice(input: {
+	hasData: boolean;
+	isFetchNextPageError: boolean;
+	isRefetchError: boolean;
+	snapshotExpired: boolean;
+}): "expired" | "failed" | null {
+	if (input.isRefetchError && input.hasData && !input.isFetchNextPageError) {
+		return "failed";
+	}
+	if (input.snapshotExpired) {
+		return "expired";
+	}
+	return null;
+}
+
+export function InboxSavedViewNotice(input: {
+	kind: "expired" | "failed" | null;
+	onRefresh: () => Promise<unknown>;
+}) {
+	if (input.kind === "expired") {
+		return (
+			<output
+				className={cn(
+					"flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm",
+					resolveStatusToneSurfaceClassName("warning", "subtle")
+				)}
+			>
+				<p>This Inbox view has expired.</p>
+				<Button onClick={() => input.onRefresh()} size="sm" variant="outline">
+					Refresh
+				</Button>
+			</output>
+		);
+	}
+	if (input.kind === "failed") {
+		return <InboxRefreshWarning onRetry={input.onRefresh} />;
+	}
+	return null;
+}
+
 export function InboxRefreshWarning(input: {
 	onRetry: () => Promise<unknown>;
 }) {
@@ -181,6 +221,24 @@ export function InboxRefreshWarning(input: {
 			<p>Couldn’t refresh. Showing the latest Inbox view available.</p>
 			<Button onClick={() => input.onRetry()} size="sm" variant="outline">
 				Retry
+			</Button>
+		</output>
+	);
+}
+
+export function InboxGroupLoadWarning(input: {
+	onRetry: () => Promise<unknown>;
+}) {
+	return (
+		<output
+			className={cn(
+				"flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm",
+				resolveStatusToneSurfaceClassName("warning", "subtle")
+			)}
+		>
+			<p>Couldn’t load the updates in this group.</p>
+			<Button onClick={() => input.onRetry()} size="sm" variant="outline">
+				Try again
 			</Button>
 		</output>
 	);

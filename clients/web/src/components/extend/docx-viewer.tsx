@@ -15,6 +15,8 @@ import {
   type ViewerZoomLevel,
   type ViewerZoomState,
 } from "@extend-ai/react-docx"
+
+import "./docx-viewer.css"
 import { useVirtualizer } from "@tanstack/react-virtual"
 
 import { cn } from "@openmeld/ui/lib/utils"

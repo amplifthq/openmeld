@@ -43,6 +43,7 @@ export class LarkPlatformRegistrationError extends Error {
 
 export async function beginLarkPlatformRegistration(input: {
   appId?: string;
+  includeGroupHistory?: boolean;
   appDescription: string;
   appName: string;
   expectedProvider: RemoteAgentLarkPlatformProvider;
@@ -109,7 +110,8 @@ export async function beginLarkPlatformRegistration(input: {
   registrationUrl.searchParams.set(
     "addons",
     await encodeLarkPlatformRegistrationAddons(
-      LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE
+      LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE,
+      input.expectedProvider === "feishu" && input.includeGroupHistory === true
     )
   );
   if (input.appId) {

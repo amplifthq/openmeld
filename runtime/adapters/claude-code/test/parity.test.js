@@ -291,6 +291,66 @@ test("claude adapter applies a saved permission mode to an active Agent SDK quer
   }
 });
 
+test("Claude SDK dispatch reports its actual process tree through cleanup", async () => {
+  const { createClaudeCodeAdapter } = await import("../dist/index.js");
+  const directory = await mkdtemp(join(tmpdir(), "claude-sdk-owned-process-"));
+  const scriptPath = join(directory, "controller.mjs");
+  const events = [];
+  await writeFile(scriptPath, "process.stdin.resume();\n");
+  try {
+    const adapter = createClaudeCodeAdapter({
+      launchContract: {
+        kind: "node_script",
+        nodePath: process.execPath,
+        scriptPath,
+      },
+      registerRuntimeProcess: (event) => events.push(event),
+      createAgentSdkQuery: createFakeClaudeAgentQueryFactory({
+        captured: {},
+        onBeforeMessages: async ({ options }) => {
+          const child = options.spawnClaudeCodeProcess({
+            command: options.pathToClaudeCodeExecutable,
+            args: [],
+            cwd: directory,
+            env: process.env,
+            signal: options.abortController.signal,
+          });
+          assert.equal(events[0]?.phase, "process_spawned");
+          assert.equal(events[0]?.taskId, "sdk-owned-process");
+          const exited = new Promise((resolve, reject) => {
+            child.once("exit", resolve);
+            child.once("error", reject);
+          });
+          child.stdin.end();
+          await exited;
+        },
+        messages: [
+          {
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            result: "Done",
+            session_id: "owned-session",
+          },
+        ],
+      }),
+    });
+    await adapter.dispatch({
+      agentId: "owned-agent",
+      prompt: "Complete the task",
+      runtimeContext: createRuntimeContext(directory),
+      sourceEventId: "owned-source",
+      spaceId: "owned-space",
+      taskId: "sdk-owned-process",
+    });
+    assert.equal(events.length, 2);
+    assert.equal(typeof events[0].processId, "number");
+    assert.deepEqual(events[1], { ...events[0], phase: "process_exit" });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("claude adapter keeps temporary Plan mode for an active repair query", async () => {
   const { createClaudeCodeAdapter } = await import("../dist/index.js");
   const dispatchDir = await mkdtemp(join(tmpdir(), "claude-sdk-dispatch-"));

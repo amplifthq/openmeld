@@ -16,6 +16,9 @@ import {
 	createDaemonRouteObservationSummary,
 	DISPATCH_ACTIVITY_DISPATCHING_PURPOSE,
 	DISPATCH_ACTIVITY_FAILED_PURPOSE,
+	listMemberAgentsResponseSchema,
+	listPermissionModeSuggestionsResponseSchema,
+	listPluginActionRequestsResponseSchema,
 } from "@openmeld/schemas";
 import { createSpaceMemberAgentExecutionReadiness } from "@openmeld/schemas/testing";
 import type {
@@ -24,6 +27,7 @@ import type {
 	CreateAgentProfileCreationRequestResponse,
 	CreateSpaceThreadResponse,
 	GetSpaceStatusResponse,
+	ListSpaceFilesResponse,
 	ListSpaceTasksResponse,
 	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
@@ -292,7 +296,9 @@ const {
 	useAccountAvatarMock: vi.fn(),
 	clearSpaceConversationCacheMock: vi.fn(async () => undefined),
 	toastMock: Object.assign(vi.fn(), {
+		dismiss: vi.fn(),
 		error: vi.fn(),
+		loading: vi.fn(),
 		success: vi.fn(),
 		warning: vi.fn(),
 	}),
@@ -336,6 +342,9 @@ vi.mock("@tanstack/react-query", async () => {
 		(Array.isArray(queryKey) &&
 			queryKey[0] === "spaces" &&
 			(queryKey[1] === "pending-outgoing" ||
+				queryKey[1] === "composer-tray-display" ||
+				queryKey[1] === "header-title-display" ||
+				queryKey[1] === "viewer-membership-display" ||
 				queryKey.includes("member-directory-display"))) ||
 		(Array.isArray(queryKey) && queryKey[0] === "space-message-reactions") ||
 		(Array.isArray(queryKey) &&
@@ -986,7 +995,9 @@ describe("SpaceLanding", () => {
 		threadProgrammaticSendHarness.enabled = false;
 		threadProgrammaticSendHarness.text = "Programmatic thread message";
 		toastMock.mockReset();
+		toastMock.dismiss.mockReset();
 		toastMock.error.mockReset();
+		toastMock.loading.mockReset();
 		toastMock.success.mockReset();
 		toastMock.warning.mockReset();
 		window.localStorage.clear();
@@ -1680,13 +1691,17 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 	});
 
-	it("adds selected Organization Directory profiles through one Space request", async () => {
+	it("adds a teammate's Agent and its owner through one Space request", async () => {
 		const humanProfileId = "22222222-2222-4222-8222-222222222222";
-		const centerAgentProfileId = "agt_44444444-4444-4444-8444-444444444444";
+		const agentProfileId = "agt_44444444-4444-4444-8444-444444444444";
+		const directory = createOrganizationDirectoryFixture({
+			centerAgentProfileId: agentProfileId,
+			humanProfileId,
+		});
 		const addOrganizationDirectoryProfilesToSpaceMock = vi
 			.fn()
 			.mockResolvedValue({
-				addedMemberIds: [humanProfileId, centerAgentProfileId],
+				addedMemberIds: [humanProfileId, agentProfileId],
 				alreadyMemberIds: [],
 				items: [],
 			});
@@ -1722,10 +1737,17 @@ describe("SpaceLanding", () => {
 				data: createMembersSnapshot({ defaultAgentOwnerUserId: "user-mira" }),
 				isSuccess: true,
 			}),
-			organizationDirectory: createOrganizationDirectoryFixture({
-				centerAgentProfileId,
-				humanProfileId,
-			}),
+			organizationDirectory: {
+				...directory,
+				agentProfiles: directory.agentProfiles.map((agent) => ({
+					...agent,
+					isCenterAgent: false,
+					ownerName: "Alex",
+					ownerUserId: "user-alex",
+					profileHandle: "research-agent",
+					profileName: "Research Agent",
+				})),
+			},
 			status: createQueryResult({
 				data: createSpaceStatus(),
 				isSuccess: true,
@@ -1749,8 +1771,7 @@ describe("SpaceLanding", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
-		fireEvent.click(screen.getByRole("checkbox", { name: "Alex" }));
-		fireEvent.click(screen.getByRole("checkbox", { name: "Center Agent" }));
+		fireEvent.click(screen.getByRole("checkbox", { name: "Research Agent" }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 2 members" }));
 
 		await waitFor(() => {
@@ -1758,9 +1779,10 @@ describe("SpaceLanding", () => {
 				organizationId: "org-acme",
 				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
 			});
-			expect(addOrganizationDirectoryProfilesToSpaceMock).toHaveBeenCalledWith({
-				directoryProfileIds: [humanProfileId, centerAgentProfileId],
-				expectedCenterAgentProfileId: centerAgentProfileId,
+			expect(
+				addOrganizationDirectoryProfilesToSpaceMock
+			).toHaveBeenCalledExactlyOnceWith({
+				directoryProfileIds: [humanProfileId, agentProfileId],
 				spaceId: "space-123",
 			});
 		});
@@ -2694,7 +2716,8 @@ describe("SpaceLanding", () => {
 			)
 		).toBeNull();
 		expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		expect(screen.queryByRole("button", { name: "Leave space" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Delete space" })).toBeNull();
@@ -3189,7 +3212,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Leave space" }));
 		fireEvent.click(screen.getByRole("button", { name: "Confirm leave" }));
@@ -3268,7 +3292,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Leave space" }));
 		fireEvent.click(screen.getByRole("button", { name: "Confirm leave" }));
@@ -3339,7 +3364,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Delete space" }));
 		fireEvent.change(screen.getByLabelText(DELETE_CONFIRMATION_LABEL_TEXT), {
@@ -3414,7 +3440,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Delete space" }));
 		fireEvent.change(screen.getByLabelText(DELETE_CONFIRMATION_LABEL_TEXT), {
@@ -3489,7 +3516,8 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 
 		expect(screen.getByRole("button", { name: "Leave space" })).toBeTruthy();
@@ -17241,7 +17269,11 @@ describe("SpaceLanding", () => {
 				"Third reply that should stay inside the thread."
 			)
 		).toBeTruthy();
-		expect(screen.queryByText("I'll check it.")).toBeNull();
+		expect(
+			within(screen.getByRole("tabpanel", { name: "Messages" })).queryByText(
+				"I'll check it."
+			)
+		).toBeNull();
 		expect(
 			screen.getByRole("button", { name: "Open thread (3 replies)" })
 		).toBeTruthy();
@@ -17266,7 +17298,7 @@ describe("SpaceLanding", () => {
 		focus.mockRestore();
 	});
 
-	it("restores the active Thread panel across a reload until the user closes it", async () => {
+	it("restores the active Thread across reload and tab navigation until the user closes it", async () => {
 		const rootSignal = createTextSignal({
 			id: "sig-persisted-thread-root",
 			text: "Keep this Thread open after reload.",
@@ -17341,6 +17373,29 @@ describe("SpaceLanding", () => {
 			);
 		});
 		expect(screen.getByRole("complementary", { name: "Thread" })).toBeTruthy();
+
+		await setComposerValue(
+			within(restoredPanel).getByRole("textbox", { name: "Reply in thread" }),
+			"Keep this draft while browsing the Space."
+		);
+		for (const tab of ["Tasks", "Files"]) {
+			fireEvent.click(screen.getByRole("tab", { name: tab }));
+			await waitFor(() => {
+				expect(
+					screen.queryByRole("complementary", { name: "Thread" })
+				).toBeNull();
+			});
+			expect(screen.getByRole("tabpanel", { name: tab })).toBeTruthy();
+			fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
+			const thread = await screen.findByRole("complementary", {
+				name: "Thread",
+			});
+			expect(
+				readComposerValue(
+					within(thread).getByRole("textbox", { name: "Reply in thread" })
+				)
+			).toBe("Keep this draft while browsing the Space.");
+		}
 
 		fireEvent.click(
 			within(restoredPanel).getByRole("button", { name: "Close thread" })
@@ -19541,6 +19596,12 @@ function mockSpaceQueries(input: {
 }) {
 	const profileId = input.profileId ?? DEFAULT_SPACE_PROFILE_ID;
 	const spaceIds = new Set(input.spaceIds ?? ["space-123"]);
+	const emptyOrganizationDirectory = {
+		agentProfiles: [],
+		generatedAt: "2026-07-16T00:00:00.000Z",
+		members: [],
+		organizationId: "org-acme",
+	} satisfies OrganizationDirectoryResponse;
 	const threads =
 		input.threads ??
 		createQueryResult({
@@ -19574,6 +19635,44 @@ function mockSpaceQueries(input: {
 			select?: unknown;
 		}) => {
 			const queryKey = JSON.stringify(options.queryKey);
+			if (options.queryKey[0] === "pending-permission-mode-suggestions") {
+				return createQueryResult({
+					isSuccess: true,
+					data: listPermissionModeSuggestionsResponseSchema.parse({
+						suggestions: [],
+					}),
+				});
+			}
+			if (
+				options.queryKey[0] === "member-agents" &&
+				options.queryKey.length === 2
+			) {
+				return createQueryResult({
+					isSuccess: true,
+					data: listMemberAgentsResponseSchema.parse({
+						ok: true,
+						organizationId: "org-acme",
+						memberAgents: [],
+						unassignedProfiles: [],
+					}),
+				});
+			}
+			if (
+				options.queryKey[0] === "agent-access" &&
+				(options.queryKey[2] === "list" ||
+					options.queryKey[2] === "viewer-grants")
+			) {
+				return createQueryResult({ isSuccess: true, data: [] });
+			}
+			if (
+				options.queryKey[0] === "pending-plugin-action-requests" ||
+				options.queryKey[0] === "message-plugin-action-requests"
+			) {
+				return createQueryResult({
+					isSuccess: true,
+					data: listPluginActionRequestsResponseSchema.parse({ requests: [] }),
+				});
+			}
 			if (options.queryKey[0] === "space-tasks") {
 				return createQueryResult({ isPending: true });
 			}
@@ -19857,22 +19956,18 @@ function mockSpaceQueries(input: {
 				(options.queryKey[2] === "directory" ||
 					options.queryKey[2] === "profile-directory")
 			) {
-				if (!options.select && input.organizationDirectoryResponse) {
+				if (!options.select) {
 					return createQueryResult({
 						isSuccess: true,
-						data: input.organizationDirectoryResponse,
+						data:
+							input.organizationDirectoryResponse ?? emptyOrganizationDirectory,
 					});
 				}
 				return (
 					input.organizationDirectoryQuery ??
 					createQueryResult({
 						isSuccess: true,
-						data: input.organizationDirectory ?? {
-							agentProfiles: [],
-							generatedAt: "2026-07-16T00:00:00.000Z",
-							members: [],
-							organizationId: "org-acme",
-						},
+						data: input.organizationDirectory ?? emptyOrganizationDirectory,
 					})
 				);
 			}
@@ -19973,6 +20068,26 @@ function mockSpaceQueries(input: {
 						truncated: false,
 					} satisfies ListSpaceTasksResponse,
 				});
+			}
+			if (
+				options.queryKey[0] === "space-files" &&
+				options.queryKey[2] === "folder"
+			) {
+				return createQueryResult({
+					isSuccess: true,
+					data: {
+						spaceId: "space-123",
+						parentId: null,
+						view: "active",
+						origin: "all",
+						breadcrumbs: [],
+						entries: [],
+						capabilities: { canRead: true, canWrite: true },
+					} satisfies ListSpaceFilesResponse,
+				});
+			}
+			if (options.enabled === false) {
+				return createQueryResult({ isPending: true });
 			}
 			throw new Error(`Unexpected query key: ${queryKey}`);
 		}

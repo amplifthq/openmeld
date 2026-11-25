@@ -96,12 +96,6 @@
       "id": "dba7d43fe644409c8e1cc24c5260f289"
     }
   ],
-  "kv_namespaces": [
-    {
-      "binding": "OPENMELD_AUTH_KV",
-      "id": "89407cf3ca6c4df9928b2e7c4c001aba"
-    }
-  ],
   "services": [
     {
       "binding": "OPENMELD_CORE_WORKER",
@@ -173,12 +167,6 @@
         {
           "binding": "OPENMELD_POSTGRESQL",
           "id": "6af2d43ec8d8498b9607c653ca231e73"
-        }
-      ],
-      "kv_namespaces": [
-        {
-          "binding": "OPENMELD_AUTH_KV",
-          "id": "ce0678aff60e4d5b864ad0591ea5e88a"
         }
       ],
       "services": [
@@ -255,12 +243,6 @@
         {
           "binding": "OPENMELD_POSTGRESQL",
           "id": "dba7d43fe644409c8e1cc24c5260f289"
-        }
-      ],
-      "kv_namespaces": [
-        {
-          "binding": "OPENMELD_AUTH_KV",
-          "id": "89407cf3ca6c4df9928b2e7c4c001aba"
         }
       ],
       "services": [

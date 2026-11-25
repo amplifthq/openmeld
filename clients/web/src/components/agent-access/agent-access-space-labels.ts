@@ -11,8 +11,6 @@ export function resolveAgentRequestSpaceLabel(
 		switch (request.status) {
 			case "pending":
 				return `Requested ${owner} · ${agent}`;
-			case "joined":
-				return `${agent} joined`;
 			case "ignored":
 				return `${owner} didn't add ${agent}`;
 			default:

@@ -365,6 +365,48 @@
       "when": 1793180501876,
       "tag": "0051_organization_owner_retention",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1793351721847,
+      "tag": "0052_permission_mode_change_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1793511994700,
+      "tag": "0053_center_agent_space_memory",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1793586862153,
+      "tag": "0054_auth_rate_limits_and_device_codes",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1793790646935,
+      "tag": "0055_feishu_group_history_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1795122957853,
+      "tag": "0056_space_task_github_pr_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1795412598755,
+      "tag": "0057_github_pr_observation_evidence",
+      "breakpoints": true
     }
   ]
 }

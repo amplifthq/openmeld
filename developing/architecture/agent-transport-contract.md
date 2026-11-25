@@ -626,10 +626,12 @@ auto-relay limits described in that policy.
 
 Sensitive operations check the root requester, not the immediate actor: the
 root requester must own the Agent Profile to change its settings, folders,
-permission mode, or concurrency limit; answer its approvals; delete it; add it
-to a Space; grant or revoke access to it; or archive it. Existing owner-of-actor
+permission mode, or concurrency limit; answer its approvals; delete it; grant
+or revoke access to it; or archive it. Existing owner-of-actor
 checks, such as Binding owner validation (`agent_profile_binding.owner_mismatch`)
 and execution-target mutation admission, become root-requester checks.
+Direct additions of a teammate's Agent use the Organization and Space
+membership checks in [Agent Owner Participation](../product/space-collaboration.md#agent-owner-participation).
 Everything else is prompt guidance: each task prompt states the chain, the root
 requester, where results go, and who can see them.
 
@@ -930,12 +932,21 @@ Important execution rules:
 - Caller authority, owner evidence, Binding evidence, and execution truth come
   from verified Gateway/Core context, not request-body trust.
 - Space owns user-requested Wake Stop authorization. For ordinary Stop, after
-  writable Space access, only the authenticated source-message account or target
+  writable Space access, the authenticated source-message account or target
   Agent Profile owner may stop the exact target Wake. Resolve the source from
   the Space's persisted Signal and account ownership from Auth; caller selectors,
   member names, and other signed-in accounts are not ownership evidence. Use
   this ordinary policy for viewer-scoped progress eligibility and the ordinary
   Stop mutation, before native or workstation cancellation side effects.
+- A direct Human account request has one additional pre-delivery Stop path in
+  an ordinary Space: the actor must be an active Human member of that Space
+  and an owner in its current Organization. Gateway-authenticated calls carry
+  the direct principal to Space; delegated, Task and older callers confer no
+  additional authority. Space projects and rechecks eligibility for the exact
+  persisted source, target and dispatch. RuntimeCoordinator's pre-agent Stop
+  must never escalate this permission into controller Stop if linking wins a
+  race. For hosted Wakes, Space must prove the exact outbox is unexposed at
+  the cancellation write; missing or legacy exposure cannot authorize Stop.
 - Progress may carry an exact `dispatchId` within the source/Profile selector.
   Space verifies that dispatch against the same source, Space and target before
   invoking its existing execution owner. This lets a resumed parent stop its
@@ -1396,6 +1407,12 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   target still passes its own identity, revision, and freshness checks. A
   failed target read fails closed for that target and the next request reads
   fresh facts. Readiness does not grant an execution lease or publish a reply.
+  Organization directory and runtime-overview route preloads use the existing
+  five-second lookup budget. An exhausted owner read is passed explicitly to
+  the Core readiness owner as unavailable, preserving the other directory
+  entries without issuing a fresh lookup for every Profile. An unavailable
+  owner-service preload is likewise retained for this request, not retried per
+  Profile or interpreted as a confirmed disconnection.
 - Controller target changes, Controller unbinding, and local working-folder
   changes use an owner-sharded RuntimeCoordinator execution-state read that
   spans every Space. Web may use that read to disable disruptive actions
@@ -1966,6 +1983,14 @@ The success fact is the Space final signal and its `space_final_reply_claims`
 row. `dispatch_results` is an archive/query projection only. A Wake may choose
 not to archive a result, but it must still close through the Space final signal
 claim when a visible outcome is published.
+
+Gated text publications reserve their live queue positions when the Signal is
+persisted. The outermost input gate protects the write and its idempotency
+decision. It releases before waiting for the live send or its Inbox projection.
+A session may already be draining an access check started by an earlier input,
+and that check must be able to resume. New session drains start after release
+and verify current access. The publishing request still awaits delivery and
+projection, and recovery reads honor the same per-Signal receipt.
 
 Space queues authorized live delivery of a persisted final Signal before its
 Inbox projection can expose the corresponding notification. Outbox drains and

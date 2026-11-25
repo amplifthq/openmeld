@@ -17,7 +17,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import { SpaceHeader, SpaceWindowHeader } from "./space-header";
@@ -87,6 +87,39 @@ describe("SpaceHeader", () => {
 		vi.unstubAllGlobals();
 	});
 
+	it("requires confirmation, allows cancel, and retries the frozen selection after failure", async () => {
+		const commit = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("Connection lost. Try again."))
+			.mockResolvedValue(undefined);
+		const prepare = vi.fn().mockResolvedValue({ unreadCount: 2, commit });
+		render(createSpaceHeader({ onPrepareMarkAllRead: prepare }));
+		const open = () => {
+			fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+			fireEvent.click(
+				screen.getByRole("menuitem", { name: "Mark all as read" })
+			);
+		};
+		open();
+		await screen.findByRole("dialog", { name: "Mark all updates as read?" });
+		expect(commit).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		open();
+		const dialog = await screen.findByRole("dialog");
+		const confirm = () =>
+			within(dialog).getByRole("button", { name: "Mark all as read" });
+		await waitFor(() => expect(confirm()).toBeDefined());
+		fireEvent.click(confirm());
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"Connection lost"
+		);
+		fireEvent.click(confirm());
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		expect(prepare).toHaveBeenCalledTimes(2);
+		expect(commit).toHaveBeenCalledTimes(2);
+	});
+
 	it("keeps setup commands out of the main header", () => {
 		const { container } = render(createSpaceHeader());
 
@@ -98,7 +131,7 @@ describe("SpaceHeader", () => {
 				.querySelector("header")
 				?.classList.contains("h-[var(--space-conversation-header-height)]")
 		).toBe(true);
-		expect(screen.getByRole("button", { name: "Space settings" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Space menu" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Members" })).toBeTruthy();
 		expect(
 			screen.getByRole("heading", { level: 1, name: "Design Room" })
@@ -179,7 +212,7 @@ describe("SpaceHeader", () => {
 		const shareButton = screen.getByRole("button", { name: "Share space" });
 		const membersButton = screen.getByRole("button", { name: "Members" });
 		const spaceInformationButton = screen.getByRole("button", {
-			name: "Space settings",
+			name: "Space menu",
 		});
 		const primaryActions = membersButton.closest(
 			'[data-slot="space-header-primary-actions"]'
@@ -333,7 +366,7 @@ describe("SpaceHeader", () => {
 	it("opens space information with the space id and CLI join command", () => {
 		render(createSpaceHeader());
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 
 		const dialog = screen.getByRole("dialog");
 		expect(dialog).toBeTruthy();
@@ -344,7 +377,7 @@ describe("SpaceHeader", () => {
 				.getByTestId("space-info-dialog-scroll-area")
 				.querySelector('[data-slot="scroll-area-viewport"]')
 		).toBeTruthy();
-		expect(screen.getByText("Space settings")).toBeTruthy();
+		expect(within(dialog).getByText("Space settings")).toBeTruthy();
 		expect(screen.queryByText("Space ID")).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		expect(screen.getByText("Space ID")).toBeTruthy();
@@ -370,7 +403,7 @@ describe("SpaceHeader", () => {
 	it("manages members from their own settings page and reuses invitations", () => {
 		render(createSpaceHeader());
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Members" }));
 
 		const settingsDialog = screen.getByRole("dialog", {
@@ -408,7 +441,6 @@ describe("SpaceHeader", () => {
 		render(
 			createSpaceHeader({
 				isCenterAgentDirectMessage: true,
-				showChatSettingsMenu: true,
 			})
 		);
 
@@ -630,7 +662,7 @@ describe("SpaceHeader", () => {
 		const onSetAccessMode = vi.fn(async () => undefined);
 		render(createSpaceHeader({ onSetAccessMode }));
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Share & Access" }));
 		const dialog = screen.getByRole("dialog");
 		fireEvent.click(
@@ -704,7 +736,7 @@ describe("SpaceHeader", () => {
 			})
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Share & Access" }));
 		const spaceInfoDialog = screen.getByRole("dialog", {
 			name: "Space settings",
@@ -757,7 +789,7 @@ describe("SpaceHeader", () => {
 			})
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Share & Access" }));
 		const dialog = screen.getByRole("dialog");
 		fireEvent.click(
@@ -796,7 +828,7 @@ describe("SpaceHeader", () => {
 			})
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Share & Access" }));
 		const dialog = screen.getByRole("dialog");
 		fireEvent.click(
@@ -834,7 +866,7 @@ describe("SpaceHeader", () => {
 	it("shows Space access as read-only in Space settings for non-owners", () => {
 		render(createSpaceHeader({ showDeleteSpaceAction: false }));
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Share & Access" }));
 		const dialog = screen.getByRole("dialog");
 
@@ -853,7 +885,7 @@ describe("SpaceHeader", () => {
 		const onUpdateSpaceName = vi.fn(async () => undefined);
 		render(createSpaceHeader({ onUpdateSpaceName }));
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		const dialog = screen.getByRole("dialog");
 		fireEvent.change(within(dialog).getByLabelText("Space name"), {
 			target: { value: "  Launch Room  " },
@@ -868,7 +900,7 @@ describe("SpaceHeader", () => {
 	it("keeps the Space name read-only for people who cannot manage the Space", () => {
 		render(createSpaceHeader({ showDeleteSpaceAction: false }));
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		const dialog = screen.getByRole("dialog");
 
 		fireEvent.click(screen.getByRole("button", { name: "General" }));
@@ -883,7 +915,7 @@ describe("SpaceHeader", () => {
 		const onUpdateSpaceName = vi.fn(async () => undefined);
 		render(createSpaceHeader({ onUpdateSpaceName }));
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		const dialog = screen.getByRole("dialog");
 		fireEvent.change(within(dialog).getByLabelText("Space name"), {
 			target: { value: "   " },
@@ -902,7 +934,7 @@ describe("SpaceHeader", () => {
 	it("clears an unsaved password draft when the owner discards changes", () => {
 		render(createSpaceHeader());
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Share & Access" }));
 		const dialog = screen.getByRole("dialog");
 		fireEvent.click(
@@ -942,7 +974,7 @@ describe("SpaceHeader", () => {
 			createSpaceHeader({ spaceId: longSpaceId, spaceName: longSpaceName })
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		const dialog = screen.getByRole("dialog");
 
 		const spaceNameInput = within(dialog).getByLabelText(
@@ -963,7 +995,7 @@ describe("SpaceHeader", () => {
 		const onLeaveSpace = vi.fn();
 		render(createSpaceHeader({ onLeaveSpace }));
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Leave space" }));
 
@@ -976,7 +1008,7 @@ describe("SpaceHeader", () => {
 		const onDeleteSpace = vi.fn();
 		render(createSpaceHeader({ onDeleteSpace }));
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Delete space" }));
 
@@ -998,7 +1030,7 @@ describe("SpaceHeader", () => {
 		vi.stubGlobal("matchMedia", createMatchMediaMock(false));
 		render(createSpaceHeader());
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Delete space" }));
 
@@ -1016,7 +1048,7 @@ describe("SpaceHeader", () => {
 		vi.stubGlobal("matchMedia", createMatchMediaMock(true));
 		render(createSpaceHeader());
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Delete space" }));
 
@@ -1029,7 +1061,7 @@ describe("SpaceHeader", () => {
 	it("hides delete space when the current profile cannot delete the space", () => {
 		render(createSpaceHeader({ showDeleteSpaceAction: false }));
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 
 		expect(screen.getByRole("button", { name: "Leave space" })).toBeTruthy();
@@ -1040,7 +1072,7 @@ describe("SpaceHeader", () => {
 	it("copies the space id from the information dialog", async () => {
 		render(createSpaceHeader());
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Copy Space ID" }));
 
@@ -1053,7 +1085,7 @@ describe("SpaceHeader", () => {
 	it("copies the CLI join command from the information dialog", async () => {
 		render(createSpaceHeader());
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(
 			screen.getByRole("button", { name: "Copy CLI join command" })
@@ -1073,7 +1105,7 @@ describe("SpaceHeader", () => {
 		);
 		render(createSpaceHeader());
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Copy Space ID" }));
 
@@ -1097,7 +1129,7 @@ describe("SpaceHeader", () => {
 		});
 		render(createSpaceHeader());
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		openSpaceSettings();
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		fireEvent.click(screen.getByRole("button", { name: "Copy Space ID" }));
 
@@ -1110,6 +1142,11 @@ describe("SpaceHeader", () => {
 	});
 });
 
+function openSpaceSettings() {
+	fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+	fireEvent.click(screen.getByRole("menuitem", { name: "Space settings" }));
+}
+
 function createSpaceHeader(
 	input: {
 		accessMode?: SpaceAccessMode;
@@ -1120,12 +1157,14 @@ function createSpaceHeader(
 			linkJoinPolicy?: SpaceLinkJoinPolicy;
 			password?: string;
 		}) => Promise<void>;
+		onPrepareMarkAllRead?: ComponentProps<
+			typeof SpaceHeader
+		>["onPrepareMarkAllRead"];
 		onUpdateSpaceName?: (name: string) => Promise<void>;
 		onDeleteSpace?: () => void;
 		onLeaveSpace?: () => void;
 		isCenterAgentDirectMessage?: boolean;
 		memberCount?: number;
-		showChatSettingsMenu?: boolean;
 		membersControl?: ReactNode;
 		passwordProtected?: boolean;
 		linkJoinPolicy?: SpaceLinkJoinPolicy;
@@ -1167,6 +1206,7 @@ function createSpaceHeader(
 					notificationControl={<button type="button">Notifications</button>}
 					onDeleteSpace={input.onDeleteSpace ?? vi.fn()}
 					onLeaveSpace={input.onLeaveSpace ?? vi.fn()}
+					onPrepareMarkAllRead={input.onPrepareMarkAllRead}
 					onSetAccessMode={
 						input.onSetAccessMode ?? vi.fn(async () => undefined)
 					}
@@ -1175,7 +1215,6 @@ function createSpaceHeader(
 					}
 					renderFrame={input.renderFrame}
 					setupRecallAction={input.setupRecallAction}
-					showChatSettingsMenu={input.showChatSettingsMenu}
 					showDeleteSpaceAction={input.showDeleteSpaceAction ?? true}
 					spaceNameErrorMessage={null}
 					status={createSpaceStatus({

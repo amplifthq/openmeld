@@ -673,10 +673,37 @@ describe("AppOuterRail", () => {
 	});
 	it("keeps an ordinary Space approval visible when all messages are read", async () => {
 		ordinarySpaceActionCount = 1;
-		renderRail();
+		renderRail({ conversationList: "conversation" });
+		const spaces = await screen.findByRole("link", {
+			name: "Spaces, Priority attention",
+		});
 		expect(
-			await screen.findByRole("link", { name: "Spaces, Priority attention" })
+			spaces.querySelector("[data-app-rail-status-indicator]")
 		).toBeTruthy();
+	});
+
+	it("reveals a collapsed conversation list in place, then leaves ordinary unread on the list", async () => {
+		routerLocation = {
+			pathname: "/o/acme/spaces/product-review",
+			searchStr: "?focusThreadRootSignalId=review-thread",
+		};
+		ordinarySpaceUnreadCount = 1;
+		rememberClientSidebarState("outer", { tier: "hidden", width: "19rem" });
+		renderRail({ conversationList: "conversation", tier: "hidden" });
+		const draft = screen.getByRole("textbox", { name: "Draft" });
+		const spaces = await screen.findByRole("link", {
+			name: "Spaces, 1 unread update",
+		});
+		expect(
+			spaces.querySelector("[data-app-rail-status-indicator]")
+		).toBeTruthy();
+		expect(fireEvent.click(spaces)).toBe(false);
+		expect(
+			screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+		).toBe("expanded");
+		expect(spaces.querySelector("[data-app-rail-status-indicator]")).toBeNull();
+		expect(fireEvent.click(spaces)).toBe(false);
+		expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);
 	});
 
 	it.each([
@@ -1951,6 +1978,7 @@ describe("AppOuterRail", () => {
 function renderRail(
 	input: {
 		account?: typeof TEST_ACCOUNT;
+		conversationList?: "conversation" | "home";
 		collapsedGroupIds?: readonly string[];
 		tier?: SidebarTier;
 		width?: string;
@@ -1962,6 +1990,7 @@ function renderRail(
 function buildRailElement(
 	input: {
 		account?: typeof TEST_ACCOUNT;
+		conversationList?: "conversation" | "home";
 		collapsedGroupIds?: readonly string[];
 		tier?: SidebarTier;
 		width?: string;
@@ -1983,7 +2012,12 @@ function buildRailElement(
 							<a href="/o/acme/spaces/sample">Existing conversation</a>
 						</nav>
 					}
-					outerRail={<AppOuterRail account={input.account ?? TEST_ACCOUNT} />}
+					outerRail={
+						<AppOuterRail
+							account={input.account ?? TEST_ACCOUNT}
+							conversationList={input.conversationList}
+						/>
+					}
 				>
 					<main>
 						<AppModuleSidebarToggle />

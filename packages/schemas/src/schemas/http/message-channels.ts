@@ -20,6 +20,7 @@ export const MESSAGE_CHANNEL_CONNECTION_STATUSES = [
 ] as const;
 export const MESSAGE_CHANNEL_ERROR_CODES = [
   "message_channel.actor_required",
+  "message_channel.history_settings_removed",
   "message_channel.already_connected",
   "message_channel.connection_changed",
   "message_channel.identity_already_linked",
@@ -67,6 +68,8 @@ export const messageChannelIdentityLinkIdSchema = nonEmptyStringSchema
   .regex(/^channel_identity_[0-9a-f]{64}$/u);
 export const larkPlatformProviderSchema = z.enum(["lark", "feishu"]);
 export const larkPlatformRegistrationBeginModeSchema = z.enum([
+  "setup_feishu_with_history",
+  "setup_feishu_basic",
   "resume",
   "restart",
   "repair",

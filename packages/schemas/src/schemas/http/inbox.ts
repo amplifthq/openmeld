@@ -56,9 +56,21 @@ export const inboxSourceFactsSchema = z
     mentionedAgentProfileIds: inboxAgentProfileIdsSchema.optional(),
     firstContactAgentProfileIds: inboxAgentProfileIdsSchema.optional(),
     recipientReasons: z.array(inboxRecipientReasonSchema).min(1).max(7),
+    // Internal receipt for a minimal, content-free mention sent outside Space membership.
+    organizationMentionProfileId: identifierSchema.optional(),
     requestCategory: z.enum(["action", "review"]).optional(),
   })
   .superRefine((facts, context) => {
+    if (
+      facts.organizationMentionProfileId &&
+      !facts.recipientReasons.includes("human_mention")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Organization mentions require an explicit Human Mention.",
+        path: ["organizationMentionProfileId"],
+      });
+    }
     const agents = new Set(facts.agentProfileIds ?? []);
     const personalAgents = new Set(facts.personalAgentProfileIds ?? []);
     for (const field of [
@@ -372,6 +384,8 @@ export const listInboxItemsWireResponseSchema = z.strictObject({
 });
 
 export const inboxSummaryResponseSchema = z.strictObject({
+  // Only summary-v4 recipients request the count of messages addressed to them.
+  personalUnreadCount: z.number().int().nonnegative().optional(),
   // Opt-in version-9 source facts: priority is not synonymous with open work.
   priorityCount: z.number().int().nonnegative().optional(),
   needsActionCount: z.number().int().nonnegative().optional(),
@@ -697,6 +711,7 @@ export const listInboxItemsRpcInputSchema = listInboxItemsQuerySchema.extend({
 export const getInboxSummaryRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
   includeAccountItems: z.boolean().optional(),
+  includePersonalUnreadCount: z.literal(true).optional(),
   presentation: inboxPresentationSchema.optional(),
 });
 export const getCenterAgentInboxSummaryRpcInputSchema = z.strictObject({

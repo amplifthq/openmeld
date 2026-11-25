@@ -40,6 +40,7 @@ import {
 import { useInboxAvatar } from "./inbox-avatars";
 import { InboxItemRow, InboxTimestamp } from "./inbox-list";
 import {
+	InboxGroupLoadWarning,
 	InboxListSkeleton,
 	InboxRefreshWarning,
 } from "./inbox-page-presentation";
@@ -60,6 +61,10 @@ type FeedViewProps = {
 	onDismiss?: (item: InboxItem) => void;
 	onSelection: (selection: MutateInboxFeedBody) => void;
 	isMutating: boolean;
+	/** The page already shows the Inbox refresh warning, so groups stay quiet. */
+	refreshWarningShown?: boolean;
+	/** An expired snapshot is recovered by refreshing the parent list. */
+	snapshotExpired?: boolean;
 };
 
 export function InboxFeedView(input: FeedViewProps) {
@@ -320,6 +325,7 @@ function InboxCollectionContents(
 		snapshotId: input.snapshotId,
 		groupKey: input.row.groupKey,
 		limit: 8,
+		enabled: !input.snapshotExpired,
 	});
 	const rows = members.data?.pages.flatMap((page) => page.rows) ?? [];
 	let moreLabel = "Show more";
@@ -331,8 +337,15 @@ function InboxCollectionContents(
 	}
 	return (
 		<div className="border-border/50 border-t" id={input.panelId}>
-			{members.isPending ? <InboxListSkeleton /> : null}
-			{members.isError ? (
+			{!input.snapshotExpired && members.isPending ? (
+				<InboxListSkeleton />
+			) : null}
+			{!input.snapshotExpired && members.isError && !members.data ? (
+				<InboxGroupLoadWarning onRetry={() => members.refetch()} />
+			) : null}
+			{members.isRefetchError &&
+			!input.refreshWarningShown &&
+			!input.snapshotExpired ? (
 				<InboxRefreshWarning onRetry={() => members.refetch()} />
 			) : null}
 			<ul
@@ -343,7 +356,8 @@ function InboxCollectionContents(
 					<InboxFeedItem {...input} key={row.groupKey} row={row} />
 				))}
 			</ul>
-			{members.hasNextPage || members.isFetchNextPageError ? (
+			{!input.snapshotExpired &&
+			(members.hasNextPage || members.isFetchNextPageError) ? (
 				<Button
 					className="my-2 ms-4"
 					disabled={members.isFetchingNextPage}

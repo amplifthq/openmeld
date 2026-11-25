@@ -1137,15 +1137,13 @@ export function createAuthConfig(
         }
       : {}),
     rateLimit: AUTHENTICATION_RATE_LIMIT_CONFIG,
-    experimental: {
-      joins: true,
-    },
     advanced: {
       ...(validated.AUTH_COOKIE_PREFIX
         ? { cookiePrefix: validated.AUTH_COOKIE_PREFIX }
         : {}),
       database: {
         generateId: "uuid",
+        joins: true,
       },
       useSecureCookies: validated.AUTH_WORKER_NODE_ENV === "production",
       ...(cookieDomain && validated.AUTH_WORKER_NODE_ENV === "production"

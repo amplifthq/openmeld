@@ -10,6 +10,7 @@ import {
 import { spaceThreadContextSchema } from "../space-mesh/space-thread";
 import { postNormalMessageBodySchema } from "./space-signals";
 import { wakeProgressItemSchema } from "./space-wake-progress";
+import { wakeTimingSchema } from "./space-wake-timing";
 import {
   wakeTargetExecutionContextSchema,
   wakeTraceWaterfallStepNameSchema,
@@ -109,6 +110,8 @@ export const spaceMessageDetailsWakeTargetSchema = z.strictObject({
   originalError: openMeldDaemonOriginalErrorSchema.optional(),
   agentContext: spaceMessageDetailsAgentContextSchema.optional(),
   steps: z.array(wakeTraceWaterfallStepSchema).optional(),
+  // Only `timingVersion: 1` responses include this; hosted Agents omit it.
+  timing: wakeTimingSchema.optional(),
 });
 
 export const spaceMessageDetailsWakeContextSchema = z.strictObject({
@@ -191,6 +194,7 @@ export const getSpaceMessageDetailsInputSchema = z.strictObject({
   delegationVersion: z.literal(1).optional(),
   delegationCursor: z.string().trim().min(1).max(512).optional(),
   executionContextVersion: z.literal(1).optional(),
+  timingVersion: z.literal(1).optional(),
   spaceId: nonEmptyTrimmedStringFromUnknown,
   signalId: nonEmptyTrimmedStringFromUnknown,
 });

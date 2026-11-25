@@ -349,6 +349,7 @@ export async function rpcGetInboxSummary(
     await runService(() =>
       prepared.service.summary({
         organizationId: prepared.organizationId,
+        includePersonalUnreadCount: request.includePersonalUnreadCount,
         ...(request.presentation === undefined
           ? {}
           : { presentation: request.presentation }),

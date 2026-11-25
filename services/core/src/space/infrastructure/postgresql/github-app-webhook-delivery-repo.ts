@@ -14,6 +14,7 @@ export async function claimGitHubAppWebhookDelivery(input: {
   event: string;
   gatewayRequestId: string;
   issueState: "closed" | "open" | null;
+  pullRequest?: { headSha: string; beforeSha?: string; observedAt: string };
   nowMs: number;
   number: number | null;
   ownerLogin: string | null;
@@ -36,9 +37,10 @@ export async function claimGitHubAppWebhookDelivery(input: {
           claim_expires_at_ms,
           first_received_at_ms,
           last_received_at_ms,
-          updated_at_ms
+          updated_at_ms,
+          pr_head_sha, pr_before_sha, pr_observed_at_ms
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued', NULL, NULL, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'queued', NULL, NULL, $9, $10, $11, $12, $13, $14)
         ON CONFLICT(delivery_id) DO UPDATE SET
           last_received_at_ms = excluded.last_received_at_ms,
           gateway_request_id = excluded.gateway_request_id,
@@ -56,6 +58,9 @@ export async function claimGitHubAppWebhookDelivery(input: {
       input.receivedAtMs,
       input.receivedAtMs,
       input.nowMs,
+      input.pullRequest?.headSha ?? null,
+      input.pullRequest?.beforeSha ?? null,
+      input.pullRequest ? Date.parse(input.pullRequest.observedAt) : null,
     ],
   });
   const claimed = await input.db.query({
@@ -83,6 +88,49 @@ export async function claimGitHubAppWebhookDelivery(input: {
     ],
   });
   return (claimed.rowCount ?? 0) > 0 ? "claimed" : "duplicate";
+}
+
+export type GitHubPullRequestIdentity = {
+  owner: string;
+  repo: string;
+  number: number;
+};
+export type GitHubPullRequestHeadEvidence = {
+  headSha: string;
+  beforeSha: string | null;
+};
+
+export async function readGitHubPullRequestObservations(
+  db: PostgresDatabase,
+  identity: GitHubPullRequestIdentity
+): Promise<Map<number, GitHubPullRequestHeadEvidence[]>> {
+  const { rows } = await db.query<{
+    pr_head_sha: string;
+    pr_before_sha: string | null;
+    pr_observed_at_ms: string;
+  }>({
+    text: `SELECT pr_head_sha, pr_before_sha, pr_observed_at_ms
+           FROM openmeld.github_app_webhook_deliveries
+           WHERE owner_login = $1 AND repo = $2 AND number = $3 AND pr_observed_at_ms IS NOT NULL
+           ORDER BY pr_observed_at_ms`,
+    values: [
+      identity.owner.toLowerCase(),
+      identity.repo.toLowerCase(),
+      identity.number,
+    ],
+  });
+  const groups = new Map<number, GitHubPullRequestHeadEvidence[]>();
+  for (const row of rows) {
+    const time = Number(row.pr_observed_at_ms);
+    const head = { headSha: row.pr_head_sha, beforeSha: row.pr_before_sha };
+    const group = groups.get(time);
+    if (group) {
+      group.push(head);
+    } else {
+      groups.set(time, [head]);
+    }
+  }
+  return groups;
 }
 export async function completeGitHubAppWebhookDelivery(input: {
   db: PostgresDatabase;

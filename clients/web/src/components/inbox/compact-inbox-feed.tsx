@@ -17,7 +17,8 @@ import {
 	InboxInfiniteScrollTrigger,
 	InboxInitialError,
 	InboxListSkeleton,
-	InboxRefreshWarning,
+	InboxSavedViewNotice,
+	inboxSavedViewNotice,
 } from "./inbox-page-presentation";
 import { useInboxExpansion } from "./use-inbox-expansion";
 import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
@@ -60,6 +61,12 @@ export function CompactInboxFeed(input: { onOpenItem: () => void }) {
 		}
 	);
 	const loadMoreState = resolveInboxFeedLoadMoreState(feed, snapshotExpired);
+	const savedViewNotice = inboxSavedViewNotice({
+		hasData: Boolean(feed.data),
+		isFetchNextPageError: feed.isFetchNextPageError,
+		isRefetchError: feed.isRefetchError,
+		snapshotExpired,
+	});
 	const markSelectionRead = (body: MutateInboxFeedBody) => {
 		selection.mutate(body, {
 			onSuccess: (response) =>
@@ -83,10 +90,10 @@ export function CompactInboxFeed(input: { onOpenItem: () => void }) {
 			<span aria-live="polite" className="sr-only">
 				{announcement}
 			</span>
-			{(feed.isRefetchError && !feed.isFetchNextPageError) ||
-			snapshotExpired ? (
-				<InboxRefreshWarning onRetry={() => feed.refetch()} />
-			) : null}
+			<InboxSavedViewNotice
+				kind={savedViewNotice}
+				onRefresh={() => feed.refetch()}
+			/>
 			{firstPage && rows.length > 0 ? (
 				<InboxFeedView
 					accountId={currentUserId}
@@ -102,8 +109,10 @@ export function CompactInboxFeed(input: { onOpenItem: () => void }) {
 					onSetRead={setRead}
 					organizationId={currentOrganization.id}
 					organizationSlug={currentOrganization.slug}
+					refreshWarningShown={savedViewNotice === "failed"}
 					rows={rows}
 					sectionAction={null}
+					snapshotExpired={snapshotExpired}
 					snapshotId={firstPage.snapshotId}
 				/>
 			) : null}

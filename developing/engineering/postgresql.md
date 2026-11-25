@@ -142,7 +142,7 @@ migrations and runtime grants through `pnpm staging:deploy`. Isolated developmen
 probe remain validation paths; an implemented command is not production authorization.
 
 `pnpm --filter @openmeld/db auth:generate` runs the official CLI at the installed
-Better Auth 1.6 patch version after building the actual Auth config. Generation
+Better Auth 1.7 patch version after building the actual Auth config. Generation
 uses a temporary file and an unreachable codegen-only connection; it needs no
 database or runtime secrets. The existing bounded customization owner retains
 the `openmeld` namespace, text IDs, epoch milliseconds, integer booleans and
@@ -150,6 +150,18 @@ personal Organization uniqueness. Unsupported output fails before replacing
 the canonical schema. Review the resulting Git diff, then run `db:generate` and
 review the migration. `auth:generate --check` checks reproducibility without
 replacing the file. Neither command applies a database migration.
+
+Migration `0054` creates Better Auth's rate-limit table and adds unique indexes
+for device and user codes. Before the Auth upgrade, check each column of
+`openmeld.device_codes` for duplicates and apply the migration through the database gate.
+An index build fails on duplicates. Investigate collisions without logging
+the codes or automatically deleting pending authorizations. Upgrade Auth
+instances sharing verification storage together. Existing sessions already have
+PostgreSQL rows. Pending one-time flows previously stored only in KV must be
+restarted, including magic links, password resets and OAuth sign-ins. Rate-limit
+windows start fresh. Rolling back to an older Worker after serving traffic can
+reintroduce stale KV session entries, including revoked sessions. Roll forward
+or verify revocation before restoring any KV-backed reader.
 
 Drizzle Kit generates SQL and its journal in the PostgreSQL migrations directory.
 The official Drizzle migrator executes that journal and owns the only PostgreSQL

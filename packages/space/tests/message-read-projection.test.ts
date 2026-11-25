@@ -200,6 +200,38 @@ function createTextSignal(input: {
 }
 
 describe("space message read projection", () => {
+  it("reads an Organization mention identity without inventing Space membership", () => {
+    const profileId = "77777777-7777-4777-8777-777777777777";
+    const signal = createTextSignal({
+      id: "organization-mention",
+      text: "@Colleague please review",
+      messageEnvelope: {
+        text: "@Colleague please review",
+        activationTargets: [],
+        referenceTargets: [],
+        mentionTargets: [profileId],
+      },
+      meta: {
+        humanMentions: [
+          { profileId, profileName: "Colleague", scope: "organization" },
+        ],
+      },
+    });
+    expect(
+      buildSignalMessageReadProjection({
+        signal,
+        membersSnapshot: MEMBERS_SNAPSHOT,
+      }).mentionTargets
+    ).toEqual([
+      {
+        profileId,
+        profileKind: "human",
+        displayName: "Colleague",
+        displaySource: "signal_history",
+        membershipScope: "organization",
+      },
+    ]);
+  });
   it("projects canonical targets from messageEnvelope using member display names", () => {
     const signal = createTextSignal({
       id: "sig-1",

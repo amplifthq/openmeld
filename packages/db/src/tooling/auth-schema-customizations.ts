@@ -1,6 +1,8 @@
 const POSTGRESQL_IMPORT = /import\s*\{[^}]+\}\s*from "drizzle-orm\/pg-core";/u;
 const ORGANIZATION_TABLE =
   /export const organizations = applicationTable\("organizations", \{([\s\S]*?)\n\}\);/u;
+const USER_TABLE =
+  /export const users = applicationTable\("users", \{([\s\S]*?)\n\}\);/u;
 const SUPPORTED_PRIMITIVES = new Set([
   "pgTable",
   "text",
@@ -9,6 +11,7 @@ const SUPPORTED_PRIMITIVES = new Set([
   "integer",
   "uuid",
   "index",
+  "uniqueIndex",
   "bigint",
 ]);
 
@@ -57,19 +60,28 @@ import { epochMilliseconds, integerBoolean } from "../postgresql/schema-types.ts
       /id: text\("id"\)\s*\.default\(sql`gen_random_uuid\(\)::text`\)\s*\.primaryKey\(\)/gu,
       'id: text("id").primaryKey().default(sql`gen_random_uuid()::text`)'
     );
-  if (!ORGANIZATION_TABLE.test(native)) {
+  if (!(USER_TABLE.test(native) && ORGANIZATION_TABLE.test(native))) {
     throw new Error(
-      "Generated Better Auth Organization schema did not match the supported contract."
+      "Generated Better Auth tables did not match the supported storage contract."
     );
   }
-  return native.replace(
-    ORGANIZATION_TABLE,
-    `export const organizations = applicationTable("organizations", {$1
+  return native
+    .replace(
+      USER_TABLE,
+      `export const users = applicationTable("users", {$1
+  // Retain a non-login reference for shared work; credentials and PII are erased.
+  deletedAt: epochMilliseconds("deleted_at"),
+});`
+    )
+    .replace(
+      ORGANIZATION_TABLE,
+      `export const organizations = applicationTable("organizations", {$1
+  deletionRequestedAt: epochMilliseconds("deletion_requested_at"),
 }, (table) => [
   uniqueIndex("organizations_slug_uidx").on(table.slug),
   uniqueIndex("organizations_personal_created_by_user_uidx")
     .on(table.createdByUserId)
     .where(sql\`\${table.createdByUserId} is not null and case when (\${table.metadata} is json) then (\${table.metadata})::jsonb -> 'personal' in ('true'::jsonb, '1'::jsonb) else false end\`),
 ]);`
-  );
+    );
 }

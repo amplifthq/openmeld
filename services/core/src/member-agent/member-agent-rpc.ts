@@ -666,9 +666,14 @@ export async function setLocalAgentEnabledWithMemberAgents<
  */
 export async function rpcSubmitRuntimeAgentControllerReportsWithMemberAgents(
   env: CoreBindings,
-  input: SubmitRuntimeAgentControllerReportsInput
+  input: SubmitRuntimeAgentControllerReportsInput,
+  markStage?: (stage: string) => void
 ): Promise<SubmitRuntimeAgentControllerReportsResponse> {
-  const response = await rpcSubmitRuntimeAgentControllerReports(env, input);
+  const response = await rpcSubmitRuntimeAgentControllerReports(
+    env,
+    input,
+    markStage
+  );
   const runtimeId = response.openMeldServiceRuntimeId?.value;
   const context = openMeldRequestContextSchema.safeParse(input.context);
   const ownerUserId = context.success
@@ -686,6 +691,7 @@ export async function rpcSubmitRuntimeAgentControllerReportsWithMemberAgents(
   ) {
     return response;
   }
+  markStage?.("member_agent_catalog");
   await recordMemberAgentCatalogReports(env, {
     context: context.data,
     db,

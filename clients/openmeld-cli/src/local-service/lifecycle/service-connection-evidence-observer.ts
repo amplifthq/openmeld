@@ -14,6 +14,7 @@ export function createServiceConnectionEvidenceObserver(
 ) {
   const recorder = createServiceConnectionEvidenceRecorder(input);
   let connectionId = randomUUID();
+  let lastAcknowledgedConnectionId: string | undefined;
   let phase: ServiceConnectionEvidenceEvent["phase"] = "credentials";
   let lastHeartbeatAckAtMs: number | undefined;
   let attemptStartedAtMs = Date.now();
@@ -42,7 +43,11 @@ export function createServiceConnectionEvidenceObserver(
     get connectionDiagnosticId() {
       return connectionId;
     },
+    get lastAcknowledgedConnectionId() {
+      return lastAcknowledgedConnectionId;
+    },
     beginAttempt() {
+      recorder.setOnline(false);
       connectionId = randomUUID();
       phase = "credentials";
       attemptStartedAtMs = Date.now();
@@ -56,30 +61,44 @@ export function createServiceConnectionEvidenceObserver(
             }),
       });
       retryDueAtMs = undefined;
+      return connectionId;
     },
     opening() {
       phase = "opening";
     },
-    opened(socket: WsClient) {
+    opened(socket: Pick<WsClient, "onClose">) {
       phase = "registering";
       record({ kind: "transport_open", reason: "unknown" });
       const openedId = connectionId;
       socket.onClose((closeCode) => {
         if (openedId === connectionId) {
+          recorder.setOnline(false);
           record({
             kind: "disconnected",
             reason: input.isStopping() ? "stopped" : "socket_closed",
             closeCode,
           });
+          phase = "waiting";
         }
       });
     },
-    acknowledged(heartbeatAt: string, transitioned: boolean) {
+    acknowledged(
+      heartbeatAt: string,
+      transitioned: boolean,
+      acknowledgedId: string
+    ) {
+      if (
+        acknowledgedId !== connectionId ||
+        (phase !== "registering" && phase !== "online")
+      ) {
+        return;
+      }
       const timestamp = Date.parse(heartbeatAt);
       if (Number.isFinite(timestamp)) {
         lastHeartbeatAckAtMs = timestamp;
       }
       phase = "online";
+      lastAcknowledgedConnectionId = acknowledgedId;
       if (transitioned) {
         record({
           kind: "registered",

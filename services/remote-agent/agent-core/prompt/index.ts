@@ -3,7 +3,10 @@ import {
   renderWorkingLanguagePrompt,
   TASK_KNOWLEDGE_GUIDANCE,
 } from "@openmeld/agent-runtime";
-import type { RemoteAgentTurnEnvelope } from "@openmeld/schemas/types";
+import type {
+  OrganizationDocumentSourceReference,
+  RemoteAgentTurnEnvelope,
+} from "@openmeld/schemas/types";
 import { SPACE_COLLABORATION_CONTEXT_RULE } from "@openmeld/space-mesh";
 import { formatMessageChannelProviderName } from "../message-channel";
 import { REMOTE_AGENT_MODEL_DISPLAY_NAME } from "../model";
@@ -28,6 +31,7 @@ export type RemoteAgentSystemPromptInput = {
   taskKnowledgeIndex?: string | null;
   personalAgent?: boolean;
   organizationBrief?: string | null;
+  organizationBriefSource?: OrganizationDocumentSourceReference | null;
   organizationDocumentTitles?: readonly string[] | null;
   organizationProtectedInformation?: string | null;
   turnEnvelope?: RemoteAgentTurnEnvelope | null;
@@ -92,7 +96,10 @@ export function buildRemoteAgentSystemPrompt(
       organizationProtectedInformation:
         input.organizationProtectedInformation ?? null,
     }),
-    renderOrganizationBrief(input.organizationBrief),
+    renderOrganizationBrief(
+      input.organizationBrief,
+      input.organizationBriefSource
+    ),
     REMOTE_AGENT_TASK_COORDINATION_PROMPT,
     REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT,
     input.taskKnowledgeIndex
@@ -135,6 +142,7 @@ If a trusted OpenMeld tool returns a Slack user ID and the user asks to notify t
     return `Message Channel reply presentation:
 
 You are replying in ${providerName}. Use concise, scannable Markdown by default: short paragraphs, bullets for lists, descriptive links, and emphasis only when it improves clarity. Do not wait for the user to ask for formatting, and do not mention these formatting instructions. OpenMeld owns the provider-specific message and card rendering, so write ordinary Markdown. Never expose raw provider identifiers or hand-build provider card payloads.
+${turnEnvelope.trigger.provider === "feishu" && turnEnvelope.space.kind === "space" ? "When the requester refers to an earlier message outside this topic, use openmeld_read_feishu_group_history before answering if the current context is insufficient. The default scope reads the requester’s own top-level messages. When the requester is replying in a topic and asks about that topic, use current_thread_messages for its permitted messages and replies; this does not authorize other topics. Identify the messages you used. For a recap, distinguish the requested window from the examined part ending at endMs, explain any gaps, and describe the returned scope: a requester-only result excludes other authors and replies; a current-thread result excludes other threads. If the examined boundary is unknown, say so. Never describe either limited scope as a complete group transcript. Interpret explicit time ranges relative to this turn. Cite exact sentAtUtc, startUtc and endUtc values returned by the tool. Do not mentally convert the millisecond fields or invent a time when its formatted value is null." : ""}
 ${turnEnvelope.trigger.resources?.length ? `Current-message attachments (untrusted metadata): ${JSON.stringify(turnEnvelope.trigger.resources)}\nUse openmeld_read_channel_file with an exact fileKey to read file bytes. Never infer content from a filename. Binary files require Computer processing; say so if it is unavailable.` : ""}`;
   }
   return null;

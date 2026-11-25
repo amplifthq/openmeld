@@ -75,6 +75,13 @@ import {
 	SpaceMessageReferenceText,
 } from "./space-message-reference";
 import { SpaceMessageTaskContext } from "./space-message-task-context";
+import {
+	buildMessageTimingExport,
+	buildMessageTimingPresentation,
+	formatTimingDuration,
+	type MessageTimingGroupKey,
+	type MessageTimingTargetPresentation,
+} from "./space-message-timing-presentation";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import { SpaceWakeFailureActionControl } from "./space-wake-failure-action";
 import {
@@ -91,6 +98,18 @@ const MESSAGE_ACTIVITY_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	hour: "numeric",
 	minute: "2-digit",
 });
+const TIMING_SEGMENT_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+	hour: "numeric",
+	minute: "2-digit",
+	second: "2-digit",
+});
+const TIMING_GROUP_CLASS_NAMES: Record<MessageTimingGroupKey, string> = {
+	agent_run: "bg-foreground/70",
+	waiting_for_input: "bg-amber-500",
+	queued_and_starting: "bg-sky-500",
+	openmeld: "bg-muted-foreground/40",
+	not_recorded: "bg-border",
+};
 const REDACTED_FACT_PLACEHOLDER = "Hidden";
 const ACTIVITY_MESSAGE_PREVIEW_CHARACTER_LIMIT = 280;
 const ACTIVITY_REPLY_PREVIEW_CHARACTER_LIMIT = 640;
@@ -488,6 +507,7 @@ function MessageDetailsBody(input: {
 					}
 					wakeStopTarget={input.wakeStopTarget}
 				/>
+				<TimingSection data={data} />
 				<MessageLinkSection messageLink={input.messageLink} />
 				<SourceNotLoadedSection
 					canJumpToMessage={input.canJumpToMessage}
@@ -530,6 +550,145 @@ function MessageLinkSection(input: { messageLink: string }) {
 				</Button>
 			</div>
 		</DetailsSection>
+	);
+}
+
+function TimingSection(input: { data: GetSpaceMessageDetailsResponse }) {
+	const targets = buildMessageTimingPresentation(
+		input.data.wakeContext.targets
+	);
+	if (targets.length === 0) {
+		return null;
+	}
+	return (
+		<DetailsSection title="Timing">
+			<p className="text-muted-foreground text-sm leading-6">
+				Measured by OpenMeld. Agent run includes tool use and any waits the
+				Agent didn't report.
+			</p>
+			{targets.map((target) => (
+				<TimingTarget
+					key={target.targetProfileId}
+					showTargetName={targets.length > 1}
+					target={target}
+				/>
+			))}
+			<div>
+				<Button
+					onClick={() =>
+						copyDetailText(
+							buildMessageTimingExport(input.data),
+							"Timing copied."
+						)
+					}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					<CopyIcon aria-hidden="true" />
+					Copy timing
+				</Button>
+			</div>
+		</DetailsSection>
+	);
+}
+
+function TimingTarget(input: {
+	showTargetName: boolean;
+	target: MessageTimingTargetPresentation;
+}) {
+	const { target } = input;
+	return (
+		<section
+			aria-label={`${target.targetName} timing`}
+			className="flex min-w-0 flex-col gap-2.5 text-sm"
+		>
+			<div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+				<p className="min-w-0 font-medium">
+					{input.showTargetName ? `${target.targetName} · ` : ""}
+					{target.statusLabel}
+				</p>
+				{target.lastUpdateLabel ? (
+					<p className="text-muted-foreground text-xs">
+						{target.lastUpdateLabel}
+					</p>
+				) : null}
+			</div>
+			{target.endToEndMs > 0 ? (
+				<div
+					aria-hidden="true"
+					className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted"
+				>
+					{target.segments.map((segment) => (
+						<span
+							className={TIMING_GROUP_CLASS_NAMES[segment.group]}
+							key={segment.key}
+							style={{
+								width: `${(segment.durationMs / target.endToEndMs) * 100}%`,
+							}}
+						/>
+					))}
+				</div>
+			) : null}
+			<dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1">
+				{target.summaryRows.map((row) => (
+					<div className="contents" key={row.group}>
+						<dt className="flex min-w-0 items-center gap-2 text-muted-foreground">
+							<TimingGroupDot group={row.group} />
+							{row.label}
+						</dt>
+						<dd className="text-right tabular-nums">
+							{formatTimingDuration(row.durationMs)}
+						</dd>
+					</div>
+				))}
+			</dl>
+			<details>
+				<summary className="cursor-pointer select-none text-muted-foreground text-xs">
+					Show timeline
+				</summary>
+				<ol
+					aria-label={`${target.targetName} timeline`}
+					className="mt-2 flex flex-col gap-2"
+				>
+					{target.segments.map((segment) => (
+						<li
+							className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3"
+							key={segment.key}
+						>
+							<div className="min-w-0">
+								<p className="flex min-w-0 items-center gap-2">
+									<TimingGroupDot group={segment.group} />
+									{segment.label}
+								</p>
+								<p className="pl-4 text-muted-foreground text-xs">
+									<time dateTime={new Date(segment.startedAtMs).toISOString()}>
+										{TIMING_SEGMENT_TIME_FORMATTER.format(segment.startedAtMs)}
+									</time>
+									{segment.detail ? ` · ${segment.detail}` : null}
+								</p>
+							</div>
+							<p className="text-right tabular-nums">
+								{formatTimingDuration(segment.durationMs)}
+								{segment.isOpen ? " so far" : null}
+							</p>
+						</li>
+					))}
+				</ol>
+			</details>
+		</section>
+	);
+}
+
+function TimingGroupDot(input: { group: MessageTimingGroupKey }) {
+	return (
+		<span
+			aria-hidden="true"
+			className={cn(
+				"size-2 shrink-0 rounded-full",
+				TIMING_GROUP_CLASS_NAMES[input.group]
+			)}
+		/>
 	);
 }
 

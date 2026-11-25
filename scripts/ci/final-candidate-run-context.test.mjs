@@ -153,17 +153,38 @@ test(
       "old-attempt",
       "failed-verifier",
       "missing-evidence",
+      "newer-request",
+      "equal-second-request",
+      "different-confidence",
+      "matching-request",
+      "masked-full-request",
+      "fulfilled-full-request",
+      "legacy-fulfilled-full-request",
+      "racing-request",
+      "later-terminal",
+      "deleted-legacy-source",
+      "forbidden-legacy-source",
+      "transient-post-read",
+      "retry-masked-request",
+      "fulfilled-foreign-request",
+      "outstanding-foreign-request",
+      "foreign-request-with-own-marker",
+      "local-repair-race",
+      "local-repair-race-new-request",
+      "resume-local-repair",
+      "completed-local-before-retry",
     ]) {
       const root = mkdtempSync(path.join(tmpdir(), "candidate-status-writer-"));
       try {
         const input = candidateRun();
         const latest = structuredClone(input.run);
         latest.created_at = "2026-10-15T00:01:00Z";
-        if (scenario === "old-run") {
+        if (["old-run", "retry-masked-request"].includes(scenario)) {
           latest.id += 1;
         }
         const run = structuredClone(input.run);
         run.created_at = "2026-10-15T00:00:00Z";
+        const marker = writerMarker(scenario, input, run);
         if (scenario === "old-attempt") {
           run.run_attempt += 1;
         }
@@ -173,10 +194,11 @@ test(
             ...input,
             latest,
             run,
-            runs:
-              scenario === "old-run"
-                ? [run, latest]
-                : [latest, { ...run, id: run.id - 1 }],
+            marker,
+            scenario,
+            runs: ["old-run", "retry-masked-request"].includes(scenario)
+              ? [run, latest]
+              : [latest, { ...run, id: run.id - 1 }],
           })
         );
         const bin = path.join(root, "bin");
@@ -188,11 +210,53 @@ test(
 const fs = require('node:fs');
 const a = process.argv.slice(2);
 const facts = JSON.parse(fs.readFileSync(process.env.FACTS));
-if (a.includes('--method')) { fs.appendFileSync(process.env.POSTS, JSON.stringify(a)); process.exit(0); }
+const prior = fs.existsSync(process.env.POSTS) ? fs.readFileSync(process.env.POSTS,'utf8').trim().split('\\n').map(s=>JSON.parse(s)) : [];
+if (a.includes('--method')) { fs.appendFileSync(process.env.POSTS, JSON.stringify(a) + '\\n'); console.log(301+prior.length); process.exit(0); }
 const endpoint = a[1];
-if (endpoint.includes('/pulls/')) console.log(JSON.stringify(facts.pr));
+if (a.some(s => s.endsWith('/statuses?per_page=100'))) {
+  const shared = 'OpenMeld Final Candidate';
+  const writes = prior.map((args,i)=>Object.assign({id:301+i},Object.fromEntries(['context','state','description','target_url'].map(key=>[key,args.find(x=>x.startsWith(key+'=')).slice(key.length+1)]))));
+  const wrote = writes.some(w=>w.context===shared);
+  const visible = ['newer-request','equal-second-request','different-confidence','matching-request','masked-full-request','fulfilled-full-request','legacy-fulfilled-full-request','deleted-legacy-source','forbidden-legacy-source','retry-masked-request','fulfilled-foreign-request','outstanding-foreign-request','foreign-request-with-own-marker','resume-local-repair'].includes(facts.scenario);
+  const duringWrite = wrote && ['racing-request','later-terminal','transient-post-read','local-repair-race','local-repair-race-new-request'].includes(facts.scenario);
+  if (wrote && facts.scenario==='transient-post-read' && !fs.existsSync(process.env.POSTS+'.failed-read')) {
+    fs.writeFileSync(process.env.POSTS+'.failed-read','1'); process.exit(1);
+  }
+  const rows = visible || duringWrite ? [facts.marker] : [];
+  const prUrl='https://github.com/'+facts.pr.base.repo.full_name+'/pull/'+facts.pr.number;
+  const runUrl='https://github.com/'+facts.pr.base.repo.full_name+'/actions/runs/'+facts.run.id+'/attempts/'+facts.run.run_attempt;
+  const identity=' @ '+facts.pr.head.sha.slice(0,12)+' on '+facts.main.sha.slice(0,12);
+  const localRun={id:280,context:shared,state:'pending',description:'Running tooling'+identity,target_url:prUrl,created_at:'2026-10-15T00:05:00Z'};
+  const localResult={id:281,context:shared,state:'success',description:'Passed tooling'+identity,target_url:prUrl,created_at:'2026-10-15T00:06:00Z'};
+  if (facts.scenario==='completed-local-before-retry') rows.unshift(localResult,localRun);
+  if (facts.scenario==='foreign-request-with-own-marker') rows.push({...facts.marker,id:199,created_at:'2026-10-14T23:59:55Z',target_url:prUrl,description:facts.marker.description.replace('full','standard')});
+  if (['legacy-fulfilled-full-request','deleted-legacy-source','forbidden-legacy-source'].includes(facts.scenario)) {
+    rows.unshift({context: facts.marker.context, id:249, state:'success', created_at:'2026-10-15T00:05:00Z',
+      target_url: 'https://github.com/'+facts.pr.base.repo.full_name+'/actions/runs/42',
+      description:'Passed full @ '+facts.pr.head.sha.slice(0,12)+' on '+facts.main.sha.slice(0,12)});
+  }
+  if (['deleted-legacy-source','forbidden-legacy-source'].includes(facts.scenario)) {
+    rows.unshift({...rows[0],id:250,target_url:'https://github.com/'+facts.pr.base.repo.full_name+'/actions/runs/43'});
+  }
+  if (['masked-full-request','fulfilled-full-request','fulfilled-foreign-request'].includes(facts.scenario)) {
+    rows.unshift({context: facts.marker.context, id:250, state:'success',
+      target_url: 'https://github.com/'+facts.pr.base.repo.full_name+'/actions/runs/'+(facts.run.id-1)+'/attempts/1',
+      description: 'Passed '+(facts.scenario==='masked-full-request'?'standard':'full')+' @ '+facts.pr.head.sha.slice(0,12)+' on '+facts.main.sha.slice(0,12)+(facts.scenario==='masked-full-request'?'':'; request 201')});
+  }
+  if (['retry-masked-request','resume-local-repair'].includes(facts.scenario)) rows.unshift({context:shared,id:299,state:'success',description:'Verified',target_url:runUrl});
+  if (facts.scenario==='resume-local-repair') rows.unshift({id:300,context:shared,state:'pending',description:'Waiting for the current Final Candidate request; repair 299',target_url:prUrl},localResult,localRun);
+  for (const [i,w] of writes.entries()) {
+    if (i===1 && ['local-repair-race','local-repair-race-new-request'].includes(facts.scenario)) rows.unshift(localResult, localRun);
+    if (i===2 && facts.scenario==='local-repair-race-new-request') rows.unshift({...facts.marker,id:290,created_at:'2026-10-16T00:00:00Z'});
+    rows.unshift(w);
+  }
+  if (wrote && facts.scenario === 'later-terminal') rows.unshift({context: facts.marker.context, id:302, state:'success'});
+  console.log(JSON.stringify([rows]));
+} else if (endpoint.includes('/pulls/')) console.log(JSON.stringify(facts.pr));
 else if (endpoint.endsWith('/commits/main')) console.log(facts.main.sha);
 else if (endpoint.includes('/actions/workflows/')) console.log(JSON.stringify({workflow_runs: facts.runs}));
+else if (endpoint.endsWith('/actions/runs/43')) { console.log('HTTP/2.0 '+(facts.scenario==='forbidden-legacy-source'?'403 Forbidden':'404 Not Found')+'\\r\\n\\r\\n{}'); process.exit(1); }
+else if (endpoint.endsWith('/actions/runs/42')) console.log('HTTP/2.0 200 OK\\r\\nContent-Type: application/json\\r\\n\\r\\n'+JSON.stringify({...facts.run, id:42, run_attempt:2, run_started_at:'2026-10-15T00:02:00Z', display_title:facts.run.display_title.replace('[standard]','[full]')}));
 else if (endpoint.includes('/actions/runs/')) console.log(JSON.stringify(facts.run));
 else process.exit(1);
 `
@@ -201,6 +265,7 @@ else process.exit(1);
         const posts = path.join(root, "posts");
         const result = spawnSync("bash", ["-c", script], {
           encoding: "utf8",
+          timeout: 30_000,
           env: {
             ...process.env,
             PATH: `${bin}${path.delimiter}${process.env.PATH}`,
@@ -210,28 +275,160 @@ else process.exit(1);
             CANDIDATE_REPOSITORY: input.pr.base.repo.full_name,
             CANDIDATE_HEAD_SHA: input.pr.head.sha,
             CANDIDATE_PR_NUMBER: String(input.pr.number),
+            CANDIDATE_CONFIDENCE: "standard",
             CANDIDATE_RUN_ID: String(input.run.id),
             CANDIDATE_RUN_ATTEMPT: String(input.run.run_attempt),
             CANDIDATE_SERVER_URL: "https://github.com",
-            VERIFIED_DESCRIPTION: "Verified",
+            VERIFIED_DESCRIPTION:
+              scenario === "matching-request" ? "X".repeat(140) : "Verified",
             VERIFIED_STATE: scenario === "missing-evidence" ? "" : "success",
             VERIFIER_RESULT:
               scenario === "failed-verifier" ? "failure" : "success",
           },
         });
-        assert.equal(result.status, 0, result.stderr);
-        if (scenario.startsWith("old-")) {
-          assert.equal(existsSync(posts), false);
-        } else {
-          assert.ok(
-            JSON.parse(readFileSync(posts, "utf8")).includes(
-              `state=${scenario === "success" ? "success" : "failure"}`
-            )
-          );
-        }
+        assert.equal(
+          result.status,
+          scenario === "forbidden-legacy-source" ? 1 : 0,
+          result.stderr
+        );
+        assert.deepEqual(
+          recordedWriterPosts(posts),
+          expectedWriterPosts(scenario, input),
+          scenario
+        );
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
     }
   }
 );
+function writerMarker(scenario, input, run) {
+  let createdAt = "2026-10-15T00:00:01Z";
+  if (scenario === "equal-second-request") {
+    createdAt = run.created_at;
+  } else if (
+    [
+      "different-confidence",
+      "matching-request",
+      "masked-full-request",
+      "fulfilled-full-request",
+      "legacy-fulfilled-full-request",
+      "deleted-legacy-source",
+      "forbidden-legacy-source",
+    ].includes(scenario)
+  ) {
+    createdAt = "2026-10-14T23:59:59Z";
+  }
+  return {
+    context: "OpenMeld Final Candidate",
+    state: "pending",
+    id: 201,
+    created_at: createdAt,
+    description: `Requested ${["different-confidence", "masked-full-request", "fulfilled-full-request", "legacy-fulfilled-full-request", "deleted-legacy-source", "forbidden-legacy-source", "fulfilled-foreign-request", "outstanding-foreign-request", "foreign-request-with-own-marker"].includes(scenario) ? "full" : "standard"} Final Candidate @ ${input.pr.head.sha.slice(0, 12)}; waiting for its result`,
+    target_url: `https://github.com/${input.pr.base.repo.full_name}/pull/${scenario.endsWith("foreign-request") || scenario === "foreign-request-with-own-marker" ? input.pr.number + 1 : input.pr.number}`,
+  };
+}
+
+function expectedWriterPosts(scenario, input) {
+  if (
+    [
+      "old-run",
+      "old-attempt",
+      "newer-request",
+      "equal-second-request",
+      "different-confidence",
+      "masked-full-request",
+      "forbidden-legacy-source",
+      "outstanding-foreign-request",
+      "completed-local-before-retry",
+    ].includes(scenario)
+  ) {
+    return [];
+  }
+  const failure = ["failed-verifier", "missing-evidence"].includes(scenario);
+  let description = failure
+    ? "Final Candidate result validation failed"
+    : "Verified";
+  if (scenario === "matching-request") {
+    const suffix = "; request 201";
+    description = "X".repeat(140 - suffix.length) + suffix;
+  }
+  const baseUrl = `https://github.com/${input.pr.base.repo.full_name}`;
+  const posts = [
+    {
+      context: "OpenMeld Final Candidate",
+      state: failure ? "failure" : "success",
+      description,
+      target_url: `${baseUrl}/actions/runs/${input.run.id}/attempts/${input.run.run_attempt}`,
+    },
+  ];
+  if (scenario === "matching-request") {
+    posts.unshift({
+      ...posts[0],
+      context: `OpenMeld Final Candidate PR #${input.pr.number}`,
+    });
+  }
+  if (scenario === "foreign-request-with-own-marker") {
+    return [
+      {
+        ...posts[0],
+        context: `OpenMeld Final Candidate PR #${input.pr.number}`,
+        description: "Verified; request 199",
+      },
+    ];
+  }
+  if (["retry-masked-request", "resume-local-repair"].includes(scenario)) {
+    posts.pop();
+  }
+  if (
+    [
+      "racing-request",
+      "transient-post-read",
+      "retry-masked-request",
+      "local-repair-race",
+      "local-repair-race-new-request",
+    ].includes(scenario)
+  ) {
+    posts.push({
+      context: "OpenMeld Final Candidate",
+      state: "pending",
+      description: `Waiting for the current Final Candidate request; repair ${scenario === "retry-masked-request" ? 299 : 301}`,
+      target_url: `${baseUrl}/pull/${input.pr.number}`,
+    });
+  }
+  if (
+    [
+      "local-repair-race",
+      "local-repair-race-new-request",
+      "resume-local-repair",
+    ].includes(scenario)
+  ) {
+    posts.push({
+      context: "OpenMeld Final Candidate",
+      state: "success",
+      description: `Passed tooling @ ${input.pr.head.sha.slice(0, 12)} on ${input.main.sha.slice(0, 12)}; repair ${scenario === "resume-local-repair" ? 299 : 301}`,
+      target_url: `${baseUrl}/pull/${input.pr.number}`,
+    });
+  }
+  if (scenario === "local-repair-race-new-request") {
+    posts.push(posts[1]);
+  }
+  return posts;
+}
+function recordedWriterPosts(path) {
+  if (!existsSync(path)) {
+    return [];
+  }
+  return readFileSync(path, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => {
+      const args = JSON.parse(line);
+      return Object.fromEntries(
+        ["context", "state", "description", "target_url"].map((key) => {
+          const field = args.find((arg) => arg.startsWith(`${key}=`));
+          return [key, field?.slice(key.length + 1)];
+        })
+      );
+    });
+}

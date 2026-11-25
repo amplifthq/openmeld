@@ -234,8 +234,12 @@ export function registerConnectorConnectionRoutes(
             context: buildCoreRpcContext(c),
             expectedOrganizationId: organization.expectedOrganizationId,
             command: command.data,
+            ...(c.req.query("includeIssuePreview") === "true"
+              ? { includeIssuePreview: true as const }
+              : {}),
           }),
-          c.req.query("includeMessageContext") === "true"
+          c.req.query("includeMessageContext") === "true",
+          c.req.query("includeIssuePreview") === "true"
         ),
     });
   });

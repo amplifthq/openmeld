@@ -9,8 +9,9 @@ import {
   resolveInstalledNodeScriptLaunchCandidates,
   resolveInstalledNodeScriptLaunchContract,
   resolveLaunchCandidatesAfterVerification,
-  verifyCliLaunchContract,
+  verifyLaunchContractFiles,
 } from "@openmeld/adapter-core";
+import { runCursorCliProbe } from "./cursor-cli-probe.js";
 
 const DEFAULT_CURSOR_COMMAND = "cursor-agent";
 const PATH_SEGMENT_SPLIT_RE = /[/\\]/u;
@@ -167,13 +168,17 @@ export async function verifyCursorLaunchContract(input: {
   cwd?: string;
   timeoutMs?: number | null;
 }): Promise<LaunchContractVerificationResult> {
-  return await verifyCliLaunchContract({
+  const files = await verifyLaunchContractFiles(input);
+  if (!files.ok) {
+    return files;
+  }
+  const probe = await runCursorCliProbe({
+    command: "version",
     cwd: input.cwd ?? process.cwd(),
-    displayName: "Cursor CLI",
     launchContract: input.launchContract,
-    probeArgs: ["--version"],
     timeoutMs: input.timeoutMs ?? 15_000,
   });
+  return probe.ok ? files : probe;
 }
 
 export function resolveCursorTimeoutMs(): number | null {

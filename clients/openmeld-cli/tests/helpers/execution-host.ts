@@ -25,12 +25,16 @@ export async function createInProcessExecutionHost(input: {
   ownerUserId: string;
   profileOwnerName: string | null;
   resources: ExecutionHostResources;
+  onWorkStateChange?: Parameters<
+    typeof createExecutionHostRuntime
+  >[0]["onWorkStateChange"];
   presenter: Presenter;
   serviceBundleId?: string | null;
 }) {
   const listeners = new Set<(event: ExecutionHostEvent) => void>();
   const runtime = await createExecutionHostRuntime({
     resources: input.resources,
+    onWorkStateChange: input.onWorkStateChange,
     hostInstanceId: randomUUID(),
     identity: {
       ownerUserId: input.ownerUserId,

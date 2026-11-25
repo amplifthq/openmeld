@@ -538,6 +538,71 @@ describe("agents registry resolve target state", () => {
     });
   });
 
+  it.each([
+    "missing",
+    "disabled",
+    "replaced",
+  ] as const)("repairs an enabled agent's missing launch contract only while still missing (%s)", async (currentChoice) => {
+    await withTempHome(async () => {
+      const observed = {
+        agentId: "codex",
+        displayName: "Codex",
+        enabled: true,
+        registeredAt: "2026-07-01T00:00:00.000Z",
+        updatedAt: "2026-07-01T00:00:00.000Z",
+      };
+      const verified = {
+        commandPath: "/usr/local/bin/codex",
+        kind: "executable" as const,
+      };
+      const replacement = { ...verified, commandPath: "/opt/custom/codex" };
+      await setConfiguredDeviceRuntimeState({
+        controllers: [
+          {
+            ...observed,
+            enabled: currentChoice !== "disabled",
+            ...(currentChoice === "replaced"
+              ? { launchContract: replacement }
+              : {}),
+          },
+        ],
+      });
+      const resolution = vi
+        .spyOn(
+          await import("../src/agents/local-controller-install"),
+          "resolveBuiltinControllerInstallResolution"
+        )
+        .mockResolvedValue({
+          status: "ready",
+          detail: null,
+          installChoices: [],
+          launchContract: verified,
+        });
+      try {
+        await reconcileNewRunnableBuiltinAgentsForSetup({
+          states: [
+            {
+              ...buildBuiltinState({ ...observed, registered: true }),
+              launchStatus: "needs_repair",
+              launchContract: null,
+              registration: observed,
+            },
+          ],
+        });
+        const [saved] =
+          (await getConfiguredDeviceRuntimeState())?.controllers ?? [];
+        expect(saved?.enabled).toBe(currentChoice !== "disabled");
+        expect(saved?.launchContract ?? null).toEqual(
+          { disabled: null, replaced: replacement, missing: verified }[
+            currentChoice
+          ]
+        );
+      } finally {
+        resolution.mockRestore();
+      }
+    });
+  });
+
   it("registers unselected detected agents turned off and reports the unselected ones still on", async () => {
     // Smoke: setup chose three of six detected agents, the others stayed
     // on, and each became an Agent.

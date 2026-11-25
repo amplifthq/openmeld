@@ -10,7 +10,10 @@ export const SPACE_TASK_RESULT_SUMMARY_MAX_CHARS = 8000;
 export const SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS = 8000;
 export const SPACE_TASK_OPERATION_ID_MAX_CHARS = 512;
 export const SPACE_TASK_LIST_MAX_ITEMS = 500;
-export const SPACE_TASK_WORKFLOW_CONTRACT_VERSION = 3;
+export const SPACE_TASK_WORKFLOW_CONTRACT_VERSION = 4;
+const taskContractVersionSchema = z
+  .literal([2, 3, SPACE_TASK_WORKFLOW_CONTRACT_VERSION])
+  .optional();
 export const SPACE_TASK_PROJECT_MAX_ITEMS = 12;
 
 const spaceTaskProjectIdsSchema = z
@@ -65,6 +68,31 @@ const spaceTaskAttributionSchema = z.union([
   z.strictObject({ provider: z.literal("github") }),
 ]);
 
+/** Private Core-to-Space attribution, recomputed from live native admission. */
+export const spaceTaskRequesterRepresentationSchema = z.strictObject({
+  representedRequester: spaceTaskActorSchema.optional(),
+});
+
+/**
+ * Linked Pull Request metadata for commit-bound review/verification.
+ * Minimal fields carried for task routing and staleness checks.
+ */
+// Full lowercase SHA only: GitHub webhooks deliver full SHAs and Core compares
+// them with strict equality, so an abbreviated SHA would never match.
+const spaceTaskPullRequestHeadShaSchema = z
+  .string()
+  .trim()
+  .regex(/^[0-9a-f]{40}$/);
+
+export const spaceTaskPullRequestSchema = z.strictObject({
+  number: z.number().int().positive(),
+  owner: z.string().trim().min(1).max(100),
+  repo: z.string().trim().min(1).max(100),
+  url: z.url().max(2048),
+  headRef: z.string().trim().min(1).max(200).optional(),
+  headSha: spaceTaskPullRequestHeadShaSchema,
+});
+
 export const spaceTaskResultSchema = z.strictObject({
   resultRevision: z.number().int().min(1),
   summary: z.string().trim().min(1).max(SPACE_TASK_RESULT_SUMMARY_MAX_CHARS),
@@ -78,6 +106,9 @@ export const spaceTaskReviewSchema = z.strictObject({
   resultRevision: z.number().int().min(1),
   reviewedAt: z.string().datetime(),
   reviewedBy: spaceTaskActorSchema,
+  // When the Task is linked to a GitHub pull request, reviews are bound
+  // to the exact head commit SHA observed at review time.
+  pullRequestHeadSha: spaceTaskPullRequestHeadShaSchema.nullable().optional(),
 });
 
 export const spaceTaskEventTypeSchema = z.enum([
@@ -96,6 +127,7 @@ export const spaceTaskEventTypeSchema = z.enum([
   "external_work_item_detached",
   "external_work_item_observed",
   "projects_set",
+  "pull_request_head_changed",
 ]);
 
 export const spaceTaskExternalWorkItemProviderSchema = z.enum([
@@ -239,6 +271,9 @@ export const spaceTaskSchema = z.strictObject({
   phase: spaceTaskPhaseSchema,
   result: z.union([spaceTaskResultSchema, z.null()]),
   review: z.union([spaceTaskReviewSchema, z.null()]),
+  // Optional link to a GitHub pull request; when present, review/verification
+  // is bound to the recorded headSha.
+  pullRequest: spaceTaskPullRequestSchema.nullable().optional(),
   automaticReworkRounds: z.number().int().min(0).max(2),
   needsHumanDecision: z.boolean(),
   externalWorkItems: z
@@ -268,10 +303,22 @@ export const createSpaceTaskBodySchema = z
     threadId: spaceTaskSchema.shape.threadId.optional(),
     assigneeProfileId: openMeldRuntimeProfileIdSchema.nullable().optional(),
     reviewerProfileId: openMeldRuntimeProfileIdSchema.nullable().optional(),
+    wakeAssignee: z.boolean().optional(),
     externalWorkItems: spaceTaskSchema.shape.externalWorkItems.optional(),
     projectIds: spaceTaskProjectIdsSchema.optional(),
   })
   .superRefine((value, ctx) => {
+    if (
+      value.wakeAssignee &&
+      (!value.assigneeProfileId || value.reviewerProfileId === undefined)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["wakeAssignee"],
+        message:
+          "Delegation requires an assignee and an explicit Reviewer decision",
+      });
+    }
     if (
       value.assigneeProfileId &&
       value.reviewerProfileId === value.assigneeProfileId
@@ -336,6 +383,9 @@ export const mutateSpaceTaskBodySchema = z.discriminatedUnion("action", [
     ...taskMutationBase,
     action: z.literal("submit_result"),
     summary: spaceTaskResultSchema.shape.summary,
+    // Optionally attach a linked pull request and the exact head SHA
+    // at the time of result submission.
+    pullRequest: spaceTaskPullRequestSchema.optional(),
   }),
   z.strictObject({
     ...taskMutationBase,
@@ -343,6 +393,9 @@ export const mutateSpaceTaskBodySchema = z.discriminatedUnion("action", [
     expectedResultRevision: z.number().int().min(1),
     decision: spaceTaskReviewSchema.shape.decision,
     feedback: spaceTaskReviewSchema.shape.feedback.optional(),
+    // When a pull request is linked, reviewers should supply the expected
+    // head commit SHA. Core enforces a match against the recorded headSha.
+    expectedPullRequestHeadSha: spaceTaskPullRequestHeadShaSchema.optional(),
   }),
   z.strictObject({
     ...taskMutationBase,
@@ -401,6 +454,7 @@ export const spaceTaskResponseSchema = z.strictObject({
           "completion",
           "stop",
           "github_projection",
+          "github_pr_projection",
           "project_projection",
         ]),
         state: z.enum(["pending", "failed"]),
@@ -413,16 +467,12 @@ export const spaceTaskResponseSchema = z.strictObject({
 
 export const listSpaceTasksQuerySchema = z.strictObject({
   phase: spaceTaskPhaseSchema.optional(),
-  taskContractVersion: z
-    .union([z.literal(2), z.literal(SPACE_TASK_WORKFLOW_CONTRACT_VERSION)])
-    .optional(),
+  taskContractVersion: taskContractVersionSchema,
 });
 
 export const spaceTaskDetailOptionsSchema = z.strictObject({
   includeAffordances: z.boolean().optional(),
-  taskContractVersion: z
-    .union([z.literal(2), z.literal(SPACE_TASK_WORKFLOW_CONTRACT_VERSION)])
-    .optional(),
+  taskContractVersion: taskContractVersionSchema,
 });
 
 export const listSpaceTasksResponseSchema = z.strictObject({

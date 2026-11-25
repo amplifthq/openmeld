@@ -133,7 +133,6 @@ async function createTestContext() {
       "1234567890123456789012345678901234567890123456789012345678901234",
     BETTER_AUTH_URL: AUTH_BASE_URL,
     PASSKEY_RP_ID: "localhost",
-    OPENMELD_AUTH_KV: {},
     OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
     WEB_APP_URL,
   } as unknown as AuthBindings;

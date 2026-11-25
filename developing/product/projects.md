@@ -78,8 +78,10 @@ before its repository association list can be changed.
 
 One optional Project default names an exact GitHub repository or Linear team
 and optional Linear project. A verified interactive member's explicit request
-to create GitHub issues in a fully specified `owner/repo` can proceed through
-the named, catalog, or batch GitHub tool without a Project or repository link.
+to create GitHub issues in a fully specified `owner/repo`, or Linear issues in
+an exact team and optional Linear project, can proceed without a Project or
+repository link. GitHub uses its named, catalog, or batch tools; Linear uses
+the generic App action tool after resolving the target through provider discovery.
 The Agent interprets the complete conversation and declares explicit destination
 authority; Core verifies the active delivery's Human requester, current Binding,
 source Space membership, and connection/write permission. Provider repository
@@ -101,6 +103,13 @@ New direct/default claims recheck request absence when claiming execution.
 A later chat message is not that confirmation. Approval reuses the original
 request continuation. A batch retry retains its original destination authority
 as part of the immutable input.
+Linear returns `awaiting_confirmation` with the original operation ID and no
+provider submission. The Agent can use `openmeld_get_app_action_status` to read
+the same operation's confirmation and continuation state without executing it.
+An approved request is not proof that an issue exists; the operation receipt
+and continuation state distinguish execution from permission. An unavailable
+continuation is reported as such. Exact retries preserve the original authority
+declaration, including its omission.
 Users do not need to type Linear UUIDs into their request. The Agent discovers
 the target and the requester reviews the concrete account and identifiers.
 No Task is required merely to create an issue: the same confirmation path works

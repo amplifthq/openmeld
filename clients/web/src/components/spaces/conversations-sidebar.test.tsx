@@ -145,6 +145,7 @@ function mount(home = false) {
 
 it("opens the home list with Spaces and direct messages together, searchable without opening a menu", () => {
 	mount(true);
+	expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
 	expect(
 		screen.getByRole("heading", { name: "Pick a conversation" })
 	).toBeTruthy();

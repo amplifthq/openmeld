@@ -2,7 +2,7 @@ import {
   createDispatchContinuationSpaceAccessContext,
   type SpaceAccessContext,
 } from "@openmeld/space";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
 import type { CoreBindings } from "../lib/bindings";
 import {
@@ -11,6 +11,8 @@ import {
   rpcGetSpaceBoard,
   rpcGetSpaceDispatchLookup,
   rpcGetSpaceDispatchTrace,
+  rpcGetSpaceMemberDirectory,
+  rpcGetSpaceMembers,
   rpcGetSpaceMessageDetails,
   rpcGetSpaceWakeProgress,
   rpcGetSpaceWakeTraceWaterfall,
@@ -37,6 +39,135 @@ const requestContext = {
     requestId: "req-1",
   },
 };
+
+describe("Space reads across an instance change", () => {
+  const inactive =
+    "Connection closed: this Durable Object instance is no longer active. Reconnect or retry the request.";
+  const updated = "Durable Object reset because its code was updated.";
+  const input = {
+    context: requestContext,
+    spaceId: SPACE_ID,
+    password: "space password",
+  };
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    {
+      method: "rpcGetMembers",
+      run: (env: CoreBindings) => rpcGetSpaceMembers(env, input),
+      error: updated,
+    },
+    {
+      method: "rpcGetMemberDirectory",
+      run: (env: CoreBindings) => rpcGetSpaceMemberDirectory(env, input),
+      error: inactive,
+    },
+    {
+      method: "rpcGetWakeProgress",
+      run: (env: CoreBindings) =>
+        rpcGetSpaceWakeProgress(
+          env,
+          { ...input, clientMessageId: CLIENT_MESSAGE_ID, includeTiming: true },
+          "direct-account"
+        ),
+      error: inactive,
+    },
+  ])("repeats $method on a fresh stub with the same access and query", async ({
+    method,
+    run,
+    error,
+  }) => {
+    vi.useFakeTimers();
+    const first = vi.fn().mockRejectedValue(new Error(error));
+    const snapshot = { marker: "fresh result" };
+    const second = vi.fn().mockResolvedValue(snapshot);
+    const get = vi
+      .fn()
+      .mockReturnValueOnce({ [method]: first })
+      .mockReturnValueOnce({ [method]: second });
+    const env = createEnvWithSpaceStub(get);
+    await Promise.all([
+      expect(run(env)).resolves.toBe(snapshot),
+      vi.runAllTimersAsync(),
+    ]);
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(get.mock.calls[0]).toEqual(get.mock.calls[1]);
+    expect(second.mock.calls).toEqual(first.mock.calls);
+    expect(second.mock.calls[0]?.[0]).toMatchObject({
+      spaceId: SPACE_ID,
+      context: requestContext,
+      password: input.password,
+    });
+  });
+
+  it.each([
+    Object.assign(new Error(inactive), { overloaded: true }),
+    Object.assign(new Error(updated), { retryable: false }),
+    Object.assign(new Error("access denied"), { retryable: true }),
+    new Error(
+      "A call to blockConcurrencyWhile() in a Durable Object waited for too long."
+    ),
+  ])("propagates excluded failures without a second read", async (error) => {
+    const env = createEnvWithSpaceStub({
+      rpcGetMembers: vi.fn().mockRejectedValue(error),
+    });
+    const get = vi.spyOn(env.OPENMELD_SPACES, "get");
+    await expect(rpcGetSpaceMembers(env, input)).rejects.toBe(error);
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds a stalled replacement attempt and preserves the original transport error", async () => {
+    vi.useFakeTimers();
+    const error = new Error(updated);
+    const read = vi
+      .fn()
+      .mockRejectedValueOnce(error)
+      .mockReturnValue(Promise.withResolvers<unknown>().promise);
+    const env = createEnvWithSpaceStub({ rpcGetMembers: read });
+    const result = expect(rpcGetSpaceMembers(env, input)).rejects.toBe(error);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await result;
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("surfaces a denied replacement read without another attempt", async () => {
+    vi.useFakeTimers();
+    const denied = new Error("HTTP 403: access denied");
+    const read = vi
+      .fn()
+      .mockRejectedValueOnce(new Error(inactive))
+      .mockRejectedValue(denied);
+    const result = expect(
+      rpcGetSpaceMembers(createEnvWithSpaceStub({ rpcGetMembers: read }), input)
+    ).rejects.toBe(denied);
+    await Promise.all([result, vi.runAllTimersAsync()]);
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows a slow first read to finish but does not replay a late failure", async () => {
+    vi.useFakeTimers();
+    const error = new Error(inactive);
+    const success = Promise.withResolvers<unknown>();
+    const failure = Promise.withResolvers<unknown>();
+    const read = vi
+      .fn()
+      .mockReturnValueOnce(success.promise)
+      .mockReturnValueOnce(failure.promise);
+    const env = createEnvWithSpaceStub({ rpcGetMembers: read });
+    const first = expect(rpcGetSpaceMembers(env, input)).resolves.toEqual({
+      members: [],
+    });
+    const second = expect(rpcGetSpaceMembers(env, input)).rejects.toBe(error);
+    await vi.advanceTimersByTimeAsync(12_000);
+    success.resolve({ members: [] });
+    failure.reject(error);
+    await Promise.all([first, second]);
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe("Space RPC access context propagation", () => {
   it("routes client-authored message identities through the idempotent Space writer", async () => {
@@ -156,6 +287,7 @@ describe("Space RPC access context propagation", () => {
     } = {};
     const space = Object.create(Space.prototype) as DirectMetaHarness;
     space.spaceId = SPACE_ID;
+    space.readViewerDeletedThroughPosition = async () => undefined;
     Object.defineProperty(space, "bindings", {
       value: { OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []) },
     });
@@ -598,6 +730,7 @@ type DirectWakeStopHarness = {
 };
 
 type DirectMetaHarness = {
+  readViewerDeletedThroughPosition: () => Promise<number | undefined>;
   applySpaceRef: (spaceId: string) => void;
   authorizeSpaceAccess: (
     spaceAccess: SpaceAccessContext
@@ -614,10 +747,12 @@ type DirectMetaHarness = {
   spaceId: string;
 };
 
-function createEnvWithSpaceStub(stub: Record<string, unknown>): CoreBindings {
+function createEnvWithSpaceStub(
+  stub: Record<string, unknown> | (() => Record<string, unknown>)
+): CoreBindings {
   return {
     OPENMELD_SPACES: {
-      get: () => stub,
+      get: typeof stub === "function" ? stub : () => stub,
       idFromString: (spaceId: string) => spaceId,
     },
   } as unknown as CoreBindings;

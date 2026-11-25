@@ -15,9 +15,10 @@ import type { ExecutionHostEvent, ExecutionHostPort } from "./port";
 import { childExecutionHostChannel } from "./process-channel";
 
 const HOST_HEALTH_TIMEOUT_MS = 2000;
+const PREVIOUS_WORK_RECHECK_MS = 5000;
 const EXECUTION_HOST_REASON_CODE_PATTERN = /^host\.[a-z0-9_.-]{1,80}$/u;
 
-function projectExecutionHostUnavailableReason(error: unknown): {
+export type ExecutionHostUnavailableReason = {
   code: string;
   message: string;
   recoveryAction:
@@ -25,15 +26,54 @@ function projectExecutionHostUnavailableReason(error: unknown): {
     | "restart_computer"
     | "update_openmeld_tools"
     | "open_diagnostics";
-} {
+};
+
+export type ExecutionHostInitializationOutcome =
+  | { status: "ready" }
+  | {
+      status: "refused";
+      reason: ExecutionHostUnavailableReason;
+      // The Host's own error, which may name local paths; local logs only.
+      detail: string;
+      retrying: boolean;
+    };
+
+function projectExecutionHostUnavailableReason(
+  error: unknown
+): ExecutionHostUnavailableReason {
   const code =
     error instanceof ExecutionHostError ? error.code : "host.operation_failed";
+  if (code === "host.previous_work_running") {
+    return {
+      code,
+      message:
+        "Local agent work from the previous OpenMeld Service session is still finishing on this computer.",
+      recoveryAction: "wait_for_previous_work",
+    };
+  }
   if (code === "host.previous_work_unconfirmed") {
     return {
       code,
       message:
         "OpenMeld cannot confirm that work from the previous local execution host has ended.",
       recoveryAction: "restart_computer",
+    };
+  }
+  // Restarting cannot repair or identify these records; they need inspection.
+  if (code === "host.owner_corrupt") {
+    return {
+      code,
+      message:
+        "OpenMeld cannot read the local execution ownership record on this computer.",
+      recoveryAction: "open_diagnostics",
+    };
+  }
+  if (code === "host.owner_lock_unverified") {
+    return {
+      code,
+      message:
+        "OpenMeld cannot identify which process holds local execution on this computer.",
+      recoveryAction: "open_diagnostics",
     };
   }
   if (code === "host.entry_unavailable") {
@@ -76,6 +116,7 @@ export function executionHostLaunchArguments(input: {
 export function launchExecutionHost(input: {
   identity: ServiceExecutionHostIdentity;
   onFailure(error: Error): void;
+  onInitialization?(outcome: ExecutionHostInitializationOutcome): void;
 }): ExecutionHostPort & {
   hostInstanceId: string;
   initialized: Promise<ServiceExecutionHostSnapshot>;
@@ -122,6 +163,9 @@ export function launchExecutionHost(input: {
     typeof projectExecutionHostUnavailableReason
   > | null = null;
   let closing = false;
+  let initialized: Promise<ServiceExecutionHostSnapshot>;
+  let initializationRecheck: ReturnType<typeof setTimeout> | null = null;
+  let refusedReasonCode: string | null = null;
   const eventListeners = new Set<(event: ExecutionHostEvent) => void>();
   const availabilityListeners = new Set<() => void>();
   const setResponsive = (next: boolean) => {
@@ -195,13 +239,52 @@ export function launchExecutionHost(input: {
     }
   }
 
-  const initialized = call("initialize", input.identity);
   // The connector starts independently. Callers may await initialization for
-  // execution commands; retaining this handler prevents an unobserved rejection.
-  initialized.catch(() => undefined);
+  // execution commands; each attempt's outcome is observed here.
+  const initialize = () => {
+    const attempt = call("initialize", input.identity);
+    initialized = attempt;
+    attempt.then(
+      () => {
+        if (refusedReasonCode !== null) {
+          refusedReasonCode = null;
+          input.onInitialization?.({ status: "ready" });
+        }
+      },
+      (error: unknown) => {
+        const reason = projectExecutionHostUnavailableReason(error);
+        // Only recorded work that is still alive can clear by waiting. Elapsed
+        // time never clears an unconfirmed fence, so that refusal is final here.
+        const retrying =
+          reason.recoveryAction === "wait_for_previous_work" &&
+          !(closing || failed);
+        if (reason.code !== refusedReasonCode) {
+          refusedReasonCode = reason.code;
+          input.onInitialization?.({
+            status: "refused",
+            reason,
+            detail: error instanceof Error ? error.message : String(error),
+            retrying,
+          });
+        }
+        if (retrying) {
+          initializationRecheck = setTimeout(() => {
+            initializationRecheck = null;
+            if (!(closing || failed)) {
+              initialize();
+            }
+          }, PREVIOUS_WORK_RECHECK_MS);
+          initializationRecheck.unref?.();
+        }
+      }
+    );
+  };
+  initialize();
   return {
     hostInstanceId,
-    initialized,
+    get initialized() {
+      return initialized;
+    },
     call,
     available: () => responsive && !failed,
     snapshot: () => lastSnapshot,
@@ -231,6 +314,10 @@ export function launchExecutionHost(input: {
     },
     async close() {
       closing = true;
+      if (initializationRecheck) {
+        clearTimeout(initializationRecheck);
+        initializationRecheck = null;
+      }
       try {
         // No total task timeout: this joins the Host's accepted drain. A dead
         // Host rejects; its last snapshot is never treated as a successful stop.

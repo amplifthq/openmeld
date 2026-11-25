@@ -15,11 +15,12 @@ export function ConversationsHome(input: {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	return (
 		<SpaceWindowShell
+			conversationList="home"
 			defaultModuleSidebarOpen={false}
 			initialOuterSidebarState={input.initialSidebarStates?.outer}
 			sidebarPreferenceKey="spaces"
 		>
-			<main aria-label="Chats" className="flex min-h-0 min-w-0 flex-1">
+			<main aria-label="Spaces" className="flex min-h-0 min-w-0 flex-1">
 				<div className="min-h-0 min-w-0 flex-1 lg:w-88 lg:flex-none">
 					<AppModuleSidebar
 						label="Conversations"

@@ -1,18 +1,24 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { serviceExecutionHostOwnerSchema } from "@openmeld/schemas";
 import { z } from "zod/v4";
-import { acquireLock, releaseLock } from "../../config/lock";
+import {
+  acquireLock,
+  isOpenMeldLockError,
+  MALFORMED_LOCK_RECOVERY_GRACE_MS,
+  releaseLock,
+} from "../../config/lock";
 import { systemDir } from "../../config/paths";
 import {
   CURRENT_PROCESS_START_IDENTITY,
   isProcessIdentityAlive,
   readProcessStartIdentity,
 } from "../../system/process-identity";
+import { toErrorMessage, warnDaemonEvent } from "../core/logger";
 import { ExecutionHostError } from "./channel";
 
 const run = promisify(execFile);
@@ -23,7 +29,45 @@ type OwnedProcessEvent = {
   phase: "process_exit" | "process_spawned";
   processId: number | null;
   signalTarget: "process" | "process_group";
+  taskId: string;
 };
+
+type HostOwnerReceipt = Extract<
+  z.infer<typeof serviceExecutionHostOwnerSchema>,
+  {
+    schema:
+      | "service-execution-host-owner-v2"
+      | "service-execution-host-owner-v3";
+  }
+>;
+
+export type ExecutionHostWorkState = {
+  localQuiescent: boolean;
+  // Controls, adapter maintenance and workspace cleanup launch unrecorded processes.
+  unattributedWork: boolean;
+  runningTaskIds: readonly string[];
+};
+
+export type ProviderInvocationEvent = {
+  phase: "ended" | "started";
+  taskId: string;
+};
+
+type TaskEvidence = {
+  activeInvocations: number;
+  // Points where a running invocation may launch a process it has not yet
+  // recorded: its start, and each recorded exit before it ends.
+  unrecordedLaunches: number;
+  completedInvocation: boolean;
+};
+
+// Preparation before the first invocation can launch work it never records.
+// Workspace cleanup after an invocation is tracked as unattributed work.
+function isTaskEvidenceComplete(task: TaskEvidence): boolean {
+  return task.activeInvocations > 0
+    ? task.unrecordedLaunches === 0
+    : task.completedInvocation;
+}
 
 export async function readExecutionHostBootIdentity(): Promise<string | null> {
   try {
@@ -119,15 +163,7 @@ export async function acquireExecutionHostOwnership(input: {
   stateRoot: string;
   bootIdentity: string | null;
 }) {
-  const lock = await acquireLock({
-    openMeldProfileId: "service-execution-host",
-    key: "process-owner",
-    pathResolution: { env: { ...process.env, OPENMELD_HOME: input.stateRoot } },
-    meta: {
-      hostInstanceId: input.hostInstanceId,
-      ownerUserId: input.ownerUserId,
-    },
-  });
+  const lock = await acquireProcessOwnerLock(input);
   const path = join(
     systemDir({ env: { OPENMELD_HOME: input.stateRoot } }),
     "execution-host-owner.json"
@@ -137,15 +173,11 @@ export async function acquireExecutionHostOwnership(input: {
     if (
       previous &&
       !previous.localQuiescent &&
-      !confirmsNewBoot(previous.bootIdentity, input.bootIdentity) &&
-      !canRecoverPreviousOwnerOnSameBoot(previous)
+      !confirmsNewBoot(previous.bootIdentity, input.bootIdentity)
     ) {
-      throw new ExecutionHostError(
-        "host.previous_work_unconfirmed",
-        "The previous execution host ended before its local work was confirmed stopped. Restart this Computer, then check its connection. If restart evidence is unavailable, inspect the retained Host diagnostics before recovery. Existing results remain saved; no task will be restarted automatically."
-      );
+      assertPreviousOwnerReplaceableOnSameBoot(previous);
     }
-    let owner = serviceExecutionHostOwnerSchema.parse({
+    let owner: HostOwnerReceipt = {
       schema: "service-execution-host-owner-v2",
       hostInstanceId: input.hostInstanceId,
       ownerUserId: input.ownerUserId,
@@ -157,54 +189,126 @@ export async function acquireExecutionHostOwnership(input: {
       localQuiescent: true,
       processEvidenceComplete: true,
       ownedProcessTrees: [],
-    });
+    };
+    serviceExecutionHostOwnerSchema.parse(owner);
     persist(owner);
-    function persist(next: typeof owner) {
-      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-      const temporary = `${path}.${randomUUID()}.tmp`;
-      writeFileSync(temporary, JSON.stringify(next), {
-        mode: 0o600,
-        flag: "wx",
-      });
-      renameSync(temporary, path);
+    function persist(next: HostOwnerReceipt) {
+      try {
+        mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+        const temporary = `${path}.${randomUUID()}.tmp`;
+        writeFileSync(temporary, JSON.stringify(next), {
+          mode: 0o600,
+          flag: "wx",
+        });
+        renameSync(temporary, path);
+      } catch (error) {
+        warnDaemonEvent("[openmeld.execution_host.receipt_write_failed]", {
+          event: "cli.execution_host.receipt_write_failed",
+          detail: toErrorMessage(error),
+        });
+        throw new ExecutionHostError(
+          "host.execution_record_unavailable",
+          "The local execution host could not write its ownership record."
+        );
+      }
     }
+    // A failed write throws to the caller, which refuses the operation rather
+    // than weakening the fence.
+    function update(changes: Partial<Omit<HostOwnerReceipt, "schema">>) {
+      const merged = { ...owner, ...changes };
+      const next: HostOwnerReceipt = {
+        ...merged,
+        // A quiescent receipt carries no evidence, so it keeps the shape an
+        // older Service reads after a verified rollback.
+        schema: merged.localQuiescent
+          ? "service-execution-host-owner-v2"
+          : "service-execution-host-owner-v3",
+      };
+      if (JSON.stringify(next) === JSON.stringify(owner)) {
+        return;
+      }
+      persist(next);
+      owner = next;
+    }
+    // Evidence is per running task and per provider invocation. One task's
+    // record never vouches for another task, and one invocation's record never
+    // vouches for the next invocation of the same task.
+    const tasks = new Map<string, TaskEvidence>();
+    let unattributedWork = false;
+    const evidenceComplete = () =>
+      !unattributedWork && [...tasks.values()].every(isTaskEvidenceComplete);
     return {
-      observeLocalQuiescence(quiescent: boolean) {
-        if (owner.localQuiescent === quiescent) {
+      observeWork(state: ExecutionHostWorkState) {
+        if (state.localQuiescent) {
+          tasks.clear();
+          unattributedWork = false;
+          // Idle slots do not prove a recorded process group has exited; the
+          // receipt stays non-quiescent until every recorded tree is gone.
+          const liveTrees = owner.ownedProcessTrees.filter(
+            isOwnedProcessTreeAlive
+          );
+          update({
+            localQuiescent: liveTrees.length === 0,
+            processEvidenceComplete: true,
+            ownedProcessTrees: liveTrees,
+          });
           return;
         }
-        const next = {
-          ...owner,
-          localQuiescent: quiescent,
-          ...(owner.schema === "service-execution-host-owner-v2"
-            ? {
-                processEvidenceComplete: quiescent,
-                ...(quiescent ? { ownedProcessTrees: [] } : {}),
-              }
-            : {}),
-        };
-        // The unsafe transition is durable before any provider operation. A
-        // failed write refuses that operation rather than weakening the fence.
-        persist(next);
-        owner = next;
+        const running = new Set(state.runningTaskIds);
+        for (const taskId of tasks.keys()) {
+          if (!running.has(taskId)) {
+            tasks.delete(taskId);
+          }
+        }
+        for (const taskId of running) {
+          if (!tasks.has(taskId)) {
+            tasks.set(taskId, {
+              activeInvocations: 0,
+              unrecordedLaunches: 0,
+              completedInvocation: false,
+            });
+          }
+        }
+        unattributedWork = state.unattributedWork;
+        update({
+          localQuiescent: false,
+          processEvidenceComplete: evidenceComplete(),
+        });
+      },
+      // Called before a provider invocation can launch anything, so the
+      // durable receipt is incomplete first; a failed write refuses it.
+      observeProviderInvocation(event: ProviderInvocationEvent) {
+        const task = tasks.get(event.taskId);
+        if (!task) {
+          return;
+        }
+        if (event.phase === "started") {
+          task.activeInvocations += 1;
+          task.unrecordedLaunches += 1;
+        } else {
+          task.activeInvocations = Math.max(0, task.activeInvocations - 1);
+          if (task.activeInvocations === 0) {
+            task.unrecordedLaunches = 0;
+            task.completedInvocation = true;
+          }
+        }
+        update({ processEvidenceComplete: evidenceComplete() });
       },
       observeOwnedProcess(event: OwnedProcessEvent) {
-        if (owner.schema !== "service-execution-host-owner-v2") {
-          return;
-        }
+        const task = tasks.get(event.taskId);
         if (event.phase === "process_spawned") {
           if (event.processId === null) {
-            const next = { ...owner, processEvidenceComplete: false };
-            persist(next);
-            owner = next;
             return;
           }
           const processStartedAt =
             readProcessStartIdentity(event.processId) ??
             `fallback:${event.processId}:unknown`;
-          const next = {
-            ...owner,
-            processEvidenceComplete: true,
+          if (task && task.activeInvocations > 0) {
+            task.unrecordedLaunches = Math.max(0, task.unrecordedLaunches - 1);
+          }
+          update({
+            localQuiescent: false,
+            processEvidenceComplete: evidenceComplete(),
             ownedProcessTrees: [
               ...owner.ownedProcessTrees.filter(
                 (process) => process.pid !== event.processId
@@ -215,24 +319,25 @@ export async function acquireExecutionHostOwnership(input: {
                 signalTarget: event.signalTarget,
               },
             ],
-          };
-          persist(next);
-          owner = next;
+          });
           return;
         }
         if (event.processId === null) {
           return;
         }
-        const next = {
-          ...owner,
+        // A running invocation may launch again after a recorded process
+        // exits, such as a context-heal retry.
+        if (task && task.activeInvocations > 0) {
+          task.unrecordedLaunches += 1;
+        }
+        update({
+          processEvidenceComplete: evidenceComplete(),
           ownedProcessTrees: owner.ownedProcessTrees.filter(
             (process) =>
               process.pid !== event.processId ||
               isOwnedProcessTreeAlive(process)
           ),
-        };
-        persist(next);
-        owner = next;
+        });
       },
       release: () => releaseLock(lock),
     };
@@ -242,23 +347,84 @@ export async function acquireExecutionHostOwnership(input: {
   }
 }
 
-function canRecoverPreviousOwnerOnSameBoot(
-  previous: ReturnType<typeof readOwner>
-): boolean {
+async function acquireProcessOwnerLock(input: {
+  hostInstanceId: string;
+  ownerUserId: string;
+  stateRoot: string;
+}) {
+  try {
+    return await acquireLock({
+      openMeldProfileId: "service-execution-host",
+      key: "process-owner",
+      pathResolution: {
+        env: { ...process.env, OPENMELD_HOME: input.stateRoot },
+      },
+      meta: {
+        hostInstanceId: input.hostInstanceId,
+        ownerUserId: input.ownerUserId,
+      },
+    });
+  } catch (error) {
+    if (!(isOpenMeldLockError(error) && error.contentionState === "active")) {
+      throw error;
+    }
+    if (typeof error.meta?.pid === "number") {
+      throw new ExecutionHostError(
+        "host.previous_work_running",
+        "Another execution host for this installation is still running. This Host starts after it exits; no task will be restarted automatically."
+      );
+    }
+    // A lock briefly has no owner entry while it is published or released.
+    // Past the lock's own recovery grace, there is no process to wait for.
+    if (await isOwnerLockHandoffPossible(error.lockPath)) {
+      throw new ExecutionHostError(
+        "host.previous_work_running",
+        "Another execution host for this installation is starting or stopping. This Host checks again shortly; no task will be restarted automatically."
+      );
+    }
+    throw new ExecutionHostError(
+      "host.owner_lock_unverified",
+      "The execution host lock for this installation has no identifiable owner. Preserve it for diagnostics; automatic replacement is refused."
+    );
+  }
+}
+
+async function isOwnerLockHandoffPossible(lockPath: string): Promise<boolean> {
+  try {
+    const stats = await lstat(lockPath);
+    return Date.now() - stats.mtimeMs < MALFORMED_LOCK_RECOVERY_GRACE_MS;
+  } catch (error) {
+    return isNodeError(error, "ENOENT");
+  }
+}
+
+// Waiting can clear only a fence whose recorded processes are still alive.
+// Incomplete or legacy evidence, including a non-quiescent V2 receipt whose
+// completeness was Host-wide, stays unconfirmed however long it is retried.
+function assertPreviousOwnerReplaceableOnSameBoot(
+  previous: NonNullable<ReturnType<typeof readOwner>>
+): void {
   if (
-    !previous ||
-    previous.schema !== "service-execution-host-owner-v2" ||
-    !previous.processEvidenceComplete ||
+    previous.schema !== "service-execution-host-owner-v3" ||
+    !previous.processEvidenceComplete
+  ) {
+    throw new ExecutionHostError(
+      "host.previous_work_unconfirmed",
+      "The previous execution host ended before its local work was confirmed stopped. Restart this Computer, then check its connection. If restart evidence is unavailable, inspect the retained Host diagnostics before recovery. Existing results remain saved; no task will be restarted automatically."
+    );
+  }
+  if (
     isProcessIdentityAlive({
       ownerPid: previous.pid,
       ownerProcessStartedAt: previous.processStartedAt,
-    })
+    }) ||
+    previous.ownedProcessTrees.some(isOwnedProcessTreeAlive)
   ) {
-    return false;
+    throw new ExecutionHostError(
+      "host.previous_work_running",
+      "Local agent work recorded by the previous execution host is still running. This Host starts after that work exits; no task will be restarted automatically."
+    );
   }
-  return previous.ownedProcessTrees.every(
-    (process) => !isOwnedProcessTreeAlive(process)
-  );
 }
 
 function isOwnedProcessTreeAlive(input: {
@@ -291,17 +457,24 @@ function readOwner(path: string) {
   try {
     raw = readFileSync(path, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (isNodeError(error, "ENOENT")) {
       return null;
     }
-    throw error;
-  }
-  const parsed = serviceExecutionHostOwnerSchema.safeParse(JSON.parse(raw));
-  if (!parsed.success) {
     throw new ExecutionHostError(
       "host.owner_corrupt",
-      "The Host ownership record cannot be verified. Preserve it for diagnostics; automatic replacement is refused."
+      `The Host ownership record cannot be read (${error instanceof Error ? error.message : String(error)}). Preserve it for diagnostics; automatic replacement is refused.`
     );
   }
-  return parsed.data;
+  try {
+    const parsed = serviceExecutionHostOwnerSchema.safeParse(JSON.parse(raw));
+    if (parsed.success) {
+      return parsed.data;
+    }
+  } catch {
+    // Unreadable JSON is as unverifiable as a record with the wrong shape.
+  }
+  throw new ExecutionHostError(
+    "host.owner_corrupt",
+    "The Host ownership record cannot be verified. Preserve it for diagnostics; automatic replacement is refused."
+  );
 }

@@ -11,6 +11,102 @@ import { createProjectionPostgresDatabase } from "../test-support/postgresql-que
 import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Inbox service", () => {
+  it("reads only the minimal Organization mention receipt without Space membership and revokes it with Organization access", async () => {
+    const harness = await createInboxHarness();
+    try {
+      const profileId = "33333333-3333-4333-8333-333333333333";
+      await harness.query(
+        `DELETE FROM "openmeld"."space_index_memberships" WHERE owner_user_id_snapshot = 'user_two'`
+      );
+      await harness.query({
+        text: `INSERT INTO "openmeld"."openmeld_profiles"
+          (profile_id, profile_name, profile_handle, profile_kind, owner_user_id, source)
+          VALUES ($1, 'Colleague', 'mention-colleague', 'human', 'user_two', 'migration')`,
+        values: [profileId],
+      });
+      await harness.query(`INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at)
+        VALUES ('org-mention-member', 'org_one', 'user_two', 'member', 1000)`);
+      await seedSpaceItem(harness.db, {
+        kind: "space_mention",
+        recipientUserId: "user_two",
+        sourceKey: "private-existing-mention",
+        spaceId: "space_one",
+      });
+      const saved = await ensureInboxItem({
+        db: harness.db,
+        nowMs: 2000,
+        candidate: {
+          attention: "update",
+          importance: "normal",
+          kind: "space_mention",
+          contextLabel: "Organization mention",
+          title: "Reporter mentioned you",
+          preview: "Open the Space to check access.",
+          occurredAtMs: 1000,
+          organizationId: "org_one",
+          recipientUserId: "user_two",
+          sourceKind: "space_signal",
+          sourceKey: "organization-mention",
+          sourceTarget: {
+            kind: "space",
+            spaceId: "space_one",
+            signalId: "organization-mention",
+          },
+          sourceFacts: {
+            version: 1,
+            recipientReasons: ["human_mention"],
+            organizationMentionProfileId: profileId,
+          },
+        },
+      });
+      const service = createInboxService({ db: harness.db });
+      const query = {
+        organizationId: "org_one",
+        recipientUserId: "user_two",
+        view: "all" as const,
+      };
+      const page = await service.list(query);
+      expect(page.items).toHaveLength(1);
+      expect(page.items[0]).toMatchObject({
+        id: saved.itemId,
+        preview: "Open the Space to check access.",
+        sourceFacts: { version: 1, recipientReasons: ["human_mention"] },
+      });
+      expect(JSON.stringify(page)).not.toContain(
+        "organizationMentionProfileId"
+      );
+      expect(JSON.stringify(page)).not.toContain("A private Space update.");
+      const preferences = createInboxMessageNotificationPreferencesService(
+        harness.db
+      );
+      const preferenceIdentity = {
+        organizationId: "org_one",
+        userId: "user_two",
+      };
+      await expect(
+        preferences.get({ ...preferenceIdentity, spaceId: "space_one" })
+      ).resolves.toMatchObject({ effectiveMode: "mentions_and_replies" });
+      await expect(
+        preferences.update({
+          ...preferenceIdentity,
+          preference: {
+            scope: "conversation",
+            spaceId: "space_one",
+            mode: "muted",
+          },
+        })
+      ).resolves.toMatchObject({ effectiveMode: "muted" });
+      await harness.query(
+        `DELETE FROM "openmeld"."members" WHERE id = 'org-mention-member'`
+      );
+      expect((await service.list(query)).items).toEqual([]);
+      await expect(
+        preferences.get({ ...preferenceIdentity, spaceId: "space_one" })
+      ).rejects.toMatchObject({ code: "inbox.conversation_not_found" });
+    } finally {
+      await harness.close();
+    }
+  });
   it("opens and dismisses a historical continuation reminder without replaying or resolving the task", async () => {
     const harness = await createInboxHarness();
     try {

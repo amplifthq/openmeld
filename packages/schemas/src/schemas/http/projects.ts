@@ -106,11 +106,15 @@ const githubRepositoryPartSchema = z
   .max(100)
   .regex(/^[A-Za-z0-9_.-]+$/u);
 
+export const githubRepositoryTargetSchema = z.strictObject({
+  owner: githubRepositoryPartSchema,
+  repo: githubRepositoryPartSchema,
+});
+
 export const projectIssueDestinationSchema = z.discriminatedUnion("provider", [
   z.strictObject({
     provider: z.literal("github"),
-    owner: githubRepositoryPartSchema,
-    repo: githubRepositoryPartSchema,
+    ...githubRepositoryTargetSchema.shape,
   }),
   z.strictObject({
     provider: z.literal("linear"),

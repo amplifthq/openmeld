@@ -3,22 +3,22 @@
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
+	type CenterAgentSpaceView,
 	getSpaceViewIndex,
 	resolveSpaceView,
 	type SpaceView,
+	toCenterAgentSpaceView,
 } from "#/components/spaces/space-view";
-
-type CenterAgentConversationView = SpaceView;
 
 import type { CenterAgentSectionId } from "#/lib/organizations/center-agent-navigation";
 import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
 
 export function CenterAgentHeaderTabs(input: {
 	activeSectionId: CenterAgentSectionId;
-	activeSpaceView?: CenterAgentConversationView;
+	activeSpaceView?: SpaceView;
 	className?: string;
 	idPrefix: string;
-	onSpaceViewChange?: (view: CenterAgentConversationView) => void;
+	onSpaceViewChange?: (view: CenterAgentSpaceView) => void;
 	organizationSlug: string;
 }) {
 	const navigate = useNavigate();
@@ -45,7 +45,7 @@ export function CenterAgentHeaderTabs(input: {
 			indicatorLayoutId={`center-agent-header-${input.organizationSlug}`}
 			onSelect={(index) => {
 				if (index < 4) {
-					const view = resolveSpaceView(index);
+					const view = toCenterAgentSpaceView(resolveSpaceView(index));
 					if (input.onSpaceViewChange) {
 						input.onSpaceViewChange(view);
 						return;
@@ -77,10 +77,12 @@ export function CenterAgentHeaderTabs(input: {
 
 function resolveCenterAgentHeaderTabIndex(input: {
 	activeSectionId: CenterAgentSectionId;
-	activeSpaceView?: CenterAgentConversationView;
+	activeSpaceView?: SpaceView;
 }): number {
 	if (input.activeSectionId === "chat") {
-		return getSpaceViewIndex(input.activeSpaceView ?? "messages");
+		return getSpaceViewIndex(
+			toCenterAgentSpaceView(input.activeSpaceView ?? "messages")
+		);
 	}
 	return -1;
 }

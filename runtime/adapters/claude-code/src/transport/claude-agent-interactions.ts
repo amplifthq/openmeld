@@ -18,6 +18,7 @@ type QuestionRequest = Extract<
 >["questions"][number];
 
 export function createClaudeCanUseTool(input: {
+  allowPlanReview?: boolean;
   getPlanReviewText: () => Promise<string> | string;
   onInteractionRequest: AdapterInteractionCallback;
 }): CanUseTool {
@@ -37,6 +38,7 @@ export function createClaudeCanUseTool(input: {
       signal: context.signal,
       start: () =>
         resolveClaudeToolInteraction({
+          allowPlanReview: input.allowPlanReview,
           context,
           getPlanReviewText: input.getPlanReviewText,
           onInteractionRequest: input.onInteractionRequest,
@@ -124,6 +126,7 @@ function waitForClaudeInteractionOrAbort<T>(input: {
 }
 
 async function resolveClaudeToolInteraction(input: {
+  allowPlanReview?: boolean;
   context: ClaudePermissionContext;
   getPlanReviewText: () => Promise<string> | string;
   onInteractionRequest: AdapterInteractionCallback;
@@ -134,6 +137,15 @@ async function resolveClaudeToolInteraction(input: {
     return await resolveAskUserQuestion(input);
   }
   if (input.toolName === "ExitPlanMode") {
+    if (input.allowPlanReview === false) {
+      return {
+        behavior: "deny",
+        interrupt: false,
+        message:
+          "Plan review is not available during Space outcome delivery. Do not enter or exit plan mode; use only the supplied Space delivery tools to record the final action.",
+        toolUseID: input.context.toolUseID,
+      };
+    }
     return await resolveExitPlanMode(input);
   }
   return await resolveToolPermission(input);

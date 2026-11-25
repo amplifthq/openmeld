@@ -13,6 +13,7 @@ import {
   organizationAgentRuntimeOverviewResponseSchema,
   organizationDirectoryResponseSchema,
   organizationProfileDirectoryResponseSchema,
+  remoteAgentWorkerRuntimeDiagnosticsResponseSchema,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
 } from "@openmeld/schemas";
@@ -29,6 +30,7 @@ type CoreRpcMock = {
   inspectDbState: ReturnType<typeof vi.fn>;
   inspectDispatchStorageReadiness: ReturnType<typeof vi.fn>;
   createSpace: ReturnType<typeof vi.fn>;
+  createSpaceTask: ReturnType<typeof vi.fn>;
   centerAgentGetOrganizationDirectory: ReturnType<typeof vi.fn>;
   getCurrentOrganizationAgentRuntimeOverview: ReturnType<typeof vi.fn>;
   getCurrentOrganizationDirectory: ReturnType<typeof vi.fn>;
@@ -447,6 +449,15 @@ function makeEnv(input?: {
       checkedAt: "2026-04-07T00:00:00.000Z",
     })),
     createSpace: vi.fn(async () => ({ spaceId: "from-core-space-id" })),
+    createSpaceTask: vi.fn(() =>
+      Promise.reject(
+        createCoreRpcHttpError({
+          code: "space_task.forbidden",
+          reason: "Task creation denied by its owner.",
+          status: 403,
+        })
+      )
+    ),
     centerAgentGetOrganizationDirectory: vi.fn(),
     getCurrentOrganizationAgentRuntimeOverview: vi.fn(async () => ({
       organizationId: "org-1",
@@ -1096,6 +1107,7 @@ function makeEnv(input?: {
       inspectDbState: rpc.inspectDbState,
       inspectDispatchStorageReadiness: rpc.inspectDispatchStorageReadiness,
       createSpace: rpc.createSpace,
+      createSpaceTask: rpc.createSpaceTask,
       centerAgentGetOrganizationDirectory:
         rpc.centerAgentGetOrganizationDirectory,
       getCurrentOrganizationAgentRuntimeOverview:
@@ -1611,6 +1623,53 @@ describe("gateway http forwarding", () => {
     );
     expect(payload.error?.requestId).toBe("req-test");
     expect(rpc.createSpace).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { extra: {}, status: 403, version: 3 },
+    {
+      extra: { wakeAssignee: true, reviewerProfileId: null },
+      status: 403,
+      version: 4,
+    },
+    { extra: { wakeAssignee: true }, status: 400, version: 4 },
+  ])("preserves Task creation intent and owner denial, with $extra", async ({
+    extra,
+    status,
+    version,
+  }) => {
+    const { env, rpc } = makeEnv();
+    const spaceId = "a".repeat(64);
+    const body = {
+      operationId: "task-create-intent",
+      title: "Deliver the requested Guide feature",
+      assigneeProfileId: "agt_22222222-2222-4222-8222-222222222222",
+      ...extra,
+    };
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${spaceId}/tasks?taskContractVersion=${version}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(status);
+    if (status === 400) {
+      expect(rpc.createSpaceTask).not.toHaveBeenCalled();
+    } else {
+      expect(rpc.createSpaceTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          spaceId,
+          body: { ...body, externalWorkItems: [] },
+          taskContractVersion: version,
+        })
+      );
+    }
   });
 
   it("forwards POST /v1/spaces to core RPC", async () => {
@@ -2779,6 +2838,37 @@ describe("gateway http forwarding", () => {
     );
   });
 
+  it.each([
+    undefined,
+    "1",
+    "2",
+  ])("forwards only the supported Message Details timing opt-in %s", async (value) => {
+    const { env, rpc } = makeEnv();
+    rpc.getSpaceMessageDetails.mockRejectedValue(
+      createCoreRpcHttpError({
+        code: "space.access_denied",
+        reason: "Access denied",
+        status: 403,
+      })
+    );
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/demo/message-details?signalId=message-1${value === undefined ? "" : `&timingVersion=${value}`}`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    if (value === "2") {
+      expect(response.status).toBe(400);
+      expect(rpc.getSpaceMessageDetails).not.toHaveBeenCalled();
+      return;
+    }
+    expect(response.status).toBe(403);
+    const [input] = rpc.getSpaceMessageDetails.mock.calls[0] ?? [];
+    expect(input).toMatchObject({ spaceId: "demo", signalId: "message-1" });
+    expect(input?.timingVersion).toBe(value === "1" ? 1 : undefined);
+  });
+
   it("asks Core to resolve exact Remote Agent runtime diagnostics for detailed traces", async () => {
     const { env, rpc } = makeEnv();
     const response = await app.fetch(
@@ -2806,6 +2896,7 @@ describe("gateway http forwarding", () => {
     "4",
     "5",
     "6",
+    "7",
     String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
   ])("negotiates dispatch trace response version %s without changing the public route", async (version) => {
     const { env, rpc } = makeEnv();
@@ -2852,6 +2943,59 @@ describe("gateway http forwarding", () => {
       "Update OpenMeld CLI, or run the trace without --details."
     );
     expect(rpc.getSpaceDispatchTrace).not.toHaveBeenCalled();
+  });
+
+  it("requires the new trace contract only when runtime diagnostics use version 3", async () => {
+    const { env, rpc } = makeEnv();
+    const originalResponse = await app.fetch(
+      new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace"),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    const original = (await originalResponse.json()) as Record<string, unknown>;
+    const diagnostics = remoteAgentWorkerRuntimeDiagnosticsResponseSchema.parse(
+      {
+        activeRuns: [],
+        callbackContexts: [],
+        collectedAt: "2026-10-28T00:00:00.000Z",
+        durableObjectAlarmAtMs: null,
+        fibers: [],
+        schedules: [
+          {
+            id: "schedule-1",
+            callback: "retryCallback",
+            delayInSeconds: 5,
+            timeMs: 9000,
+            type: "delayed",
+          },
+        ],
+        spaceId: "demo",
+        submissions: [],
+        v: 3,
+      }
+    );
+    rpc.getSpaceDispatchTrace.mockResolvedValue({
+      ...original,
+      remoteAgentRuntimeDiagnostics: diagnostics,
+    });
+    for (const version of ["7", "8"]) {
+      const response = await app.fetch(
+        new Request(
+          "http://local/v1/spaces/demo/dispatches/dispatch-1/trace?includeRemoteAgentRuntimeDiagnostics=true",
+          {
+            headers: {
+              "x-openmeld-space-dispatch-trace-response-version": version,
+            },
+          }
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(version === "7" ? 400 : 200);
+      if (version === "7") {
+        expect(await response.text()).toContain("Update OpenMeld CLI");
+      }
+    }
   });
 
   it("rejects unsupported dispatch trace response versions before Core RPC", async () => {

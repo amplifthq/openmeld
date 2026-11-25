@@ -9,7 +9,7 @@ import {
 import { getRepoRootDirectoryPath } from "../auth/paths.ts";
 import { applyAuthSchemaCustomizations } from "./auth-schema-customizations.ts";
 
-const SUPPORTED_BETTER_AUTH_VERSION = /^1\.6\.\d+$/u;
+const SUPPORTED_BETTER_AUTH_VERSION = /^1\.7\.\d+$/u;
 
 export function runAuthCodegen(options: { check?: boolean } = {}): void {
   const root = getRepoRootDirectoryPath();

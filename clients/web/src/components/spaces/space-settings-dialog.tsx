@@ -5,16 +5,11 @@ import type {
 	SpaceLinkJoinPolicy,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import { Dialog, DialogTrigger } from "@openmeld/ui/components/dialog";
+import { Dialog } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { SettingsDialogContent } from "@openmeld/ui/components/settings-dialog-content";
 import { SettingsNav } from "@openmeld/ui/components/settings-nav";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@openmeld/ui/components/tooltip";
-import { CopyIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import { CopyIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { formatWebCliCommand } from "#/lib/cli-entry-command";
@@ -63,16 +58,14 @@ export function SpaceSettingsDialog(input: {
 		onSave: (name: string) => Promise<void>;
 		value: string;
 	};
-	onOpenChange?: (open: boolean) => void;
+	onOpenChange: (open: boolean) => void;
 	onOpenInvitations?: () => void;
 	onOpenShare?: () => void;
-	open?: boolean;
+	open: boolean;
 	initialSection?: "access" | "advanced" | "general" | "members";
-	showTrigger?: boolean;
 	spaceId: string;
 	visibility?: "public" | "private";
 }) {
-	const [internalOpen, setInternalOpen] = useState(false);
 	const [section, setSection] = useState("general");
 	const [isConfirmingLeave, setIsConfirmingLeave] = useState(false);
 	const cliJoinCommand = buildSpaceCliJoinCommand(input.spaceId);
@@ -85,8 +78,7 @@ export function SpaceSettingsDialog(input: {
 	});
 	const showSpaceAccessControls = !isDirectConversation;
 	const conversationLabel = isDirectConversation ? "Chat" : "Space";
-	const open = input.open ?? internalOpen;
-	const handleOpenChange = input.onOpenChange ?? setInternalOpen;
+	const { open, onOpenChange } = input;
 
 	useEffect(() => {
 		if (open && input.initialSection) {
@@ -95,28 +87,7 @@ export function SpaceSettingsDialog(input: {
 	}, [input.initialSection, open]);
 
 	return (
-		<Dialog onOpenChange={handleOpenChange} open={open}>
-			{input.showTrigger === false ? null : (
-				<Tooltip>
-					<TooltipTrigger
-						render={
-							<DialogTrigger
-								render={
-									<Button
-										aria-label="Space settings"
-										size="icon-sm"
-										type="button"
-										variant="ghost"
-									>
-										<DotsThreeIcon />
-									</Button>
-								}
-							/>
-						}
-					/>
-					<TooltipContent side="bottom">Space settings</TooltipContent>
-				</Tooltip>
-			)}
+		<Dialog onOpenChange={onOpenChange} open={open}>
 			<SettingsDialogContent
 				contentScrollable={section !== "access"}
 				description="Manage this conversation."
@@ -248,7 +219,7 @@ export function SpaceSettingsDialog(input: {
 						isDeleteSpacePending={input.deleteAction.isPending}
 						isSpaceMutationPending={isSpaceMutationPending}
 						onDeleteSpace={() => {
-							handleOpenChange(false);
+							onOpenChange(false);
 							return input.deleteAction.onDelete();
 						}}
 						onStartDeleteConfirmation={() => setIsConfirmingLeave(false)}
@@ -420,6 +391,10 @@ function SpaceInfoDeleteSection(input: {
 						<p className="text-muted-foreground text-xs">
 							Members can still read and search past messages. No one can send
 							new messages or wake Agents in this Space.
+						</p>
+						<p className="text-muted-foreground text-xs">
+							This Space will remain in members’ lists as Deleted. Members can
+							remove it from their own list afterward.
 						</p>
 					</div>
 					<label

@@ -13,8 +13,22 @@ const CLIENT_DISPOSAL_TIMEOUT_MS = 2000;
 const TRANSACTION_CLEANUP_GRACE_MS = 1000;
 
 export type PostgreSQLBinding = { connectionString: string };
+export type PostgresTransactionPhase =
+  | "checkout"
+  | "begin"
+  | "callback"
+  | "commit"
+  | "rollback"
+  | "server_close"
+  | "client_disposal";
+export type ObservePostgresTransactionPhase = <T>(
+  phase: PostgresTransactionPhase,
+  work: () => Promise<T>
+) => Promise<T>;
+const runWithoutObservation: ObservePostgresTransactionPhase = (_phase, work) =>
+  work();
 export type PostgresTransactionRunner = <T>(
-  run: () => Promise<T>
+  run: (observe?: ObservePostgresTransactionPhase) => Promise<T>
 ) => Promise<T>;
 type RequestConnection = {
   binding: PostgreSQLBinding;
@@ -204,7 +218,7 @@ export class PostgresDatabase {
       );
     }
     return withPostgresRequest(this.binding, () => {
-      const execute = async () => {
+      const execute = async (observe = runWithoutObservation) => {
         const connection = requirePostgresRequestConnection();
         const timeoutMs = connection.transactionTimeoutMs;
         const startedAt = Date.now();
@@ -254,14 +268,14 @@ export class PostgresDatabase {
             // Wait for its close before release: sending ROLLBACK or Terminate
             // into a closing socket can produce a second transport failure.
             interrupted = error;
-            await ended.promise;
+            await observe("server_close", () => ended.promise);
             throw error;
           }
           if (released) {
             throw error;
           }
           try {
-            await acquired.query("ROLLBACK");
+            await observe("rollback", () => acquired.query("ROLLBACK"));
           } catch (rollbackError) {
             release(true);
             console.warn("[postgresql.rollback_failed]", {
@@ -275,7 +289,9 @@ export class PostgresDatabase {
           throw error;
         };
         const operation = async () => {
-          const acquired = await connection.pool.connect();
+          const acquired = await observe("checkout", () =>
+            connection.pool.connect()
+          );
           client = acquired;
           acquired.once("end", ended.resolve);
           if (interrupted) {
@@ -288,15 +304,17 @@ export class PostgresDatabase {
           try {
             // The validated integer is sent with BEGIN in one protocol message:
             // origin protection does not depend on a later client round trip.
-            await acquired.query(
-              timeoutMs === undefined
-                ? "BEGIN"
-                : `BEGIN; SET LOCAL transaction_timeout = '${Math.max(1, timeoutMs - (Date.now() - startedAt))}ms'`
+            await observe("begin", () =>
+              acquired.query(
+                timeoutMs === undefined
+                  ? "BEGIN"
+                  : `BEGIN; SET LOCAL transaction_timeout = '${Math.max(1, timeoutMs - (Date.now() - startedAt))}ms'`
+              )
             );
-            const result = await transactionActive.run(true, () =>
-              callback(acquired)
+            const result = await observe("callback", () =>
+              transactionActive.run(true, () => callback(acquired))
             );
-            await acquired.query("COMMIT");
+            await observe("commit", () => acquired.query("COMMIT"));
             return result;
           } catch (error) {
             return await rollbackAfterFailure(error, acquired);
@@ -311,7 +329,9 @@ export class PostgresDatabase {
         );
         clearTimeout(timer);
         release(timeoutMs !== undefined);
-        const disposed = await disposal;
+        const removal = disposal;
+        const disposed =
+          removal && (await observe("client_disposal", () => removal));
         if (disposed === false) {
           if ("value" in outcome) {
             // COMMIT was acknowledged. Report the transport cleanup failure

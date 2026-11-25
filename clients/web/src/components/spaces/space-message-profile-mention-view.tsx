@@ -57,12 +57,23 @@ export function SpaceMessageProfileMention(input: {
 		} else {
 			relationLabel = "Mention only";
 		}
+	} else if (input.profile.membershipScope === "organization") {
+		relationLabel = "Organization · not in this Space";
+	} else if (input.profile.membershipScope === "space") {
+		relationLabel = "Space member";
 	}
 	const content = (
 		<>
 			<SpaceProfileMentionIdentity profile={input.profile} />
 			{relationLabel && (
-				<span className={SPACE_PROFILE_MENTION_RELATION_CLASS_NAME}>
+				<span
+					className={SPACE_PROFILE_MENTION_RELATION_CLASS_NAME}
+					title={
+						input.profile.membershipScope
+							? "Membership when this message was sent. A mention does not grant Space access."
+							: undefined
+					}
+				>
 					{relationLabel}
 				</span>
 			)}

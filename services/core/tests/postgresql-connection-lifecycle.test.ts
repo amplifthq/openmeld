@@ -88,6 +88,7 @@ describe("PostgreSQL runtime connection lifecycle", () => {
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
     let restoreEvents: (() => void) | undefined;
+    const phases: string[] = [];
     try {
       const result = await withPostgresRequest(
         env.OPENMELD_POSTGRESQL,
@@ -110,9 +111,23 @@ describe("PostgreSQL runtime connection lifecycle", () => {
             )
           );
         },
-        { transactionTimeoutMs: 1000 }
+        {
+          transactionTimeoutMs: 1000,
+          runTransaction: (run) =>
+            run((phase, work) => {
+              phases.push(phase);
+              return work();
+            }),
+        }
       );
       expect(result.rows).toEqual([{ value: 42 }]);
+      expect(phases).toEqual([
+        "checkout",
+        "begin",
+        "callback",
+        "commit",
+        "client_disposal",
+      ]);
       expect(
         (await operator.query(`SELECT value FROM public.${table}`)).rows
       ).toEqual([{ value: 42 }]);

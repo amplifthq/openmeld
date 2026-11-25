@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { MAX_TEXT_LENGTH } from "../protocol/constants";
 import {
   agentProfileIdSchema,
   openMeldRuntimeProfileIdSchema,
@@ -14,7 +15,9 @@ import { spaceNameSchema } from "./space-name";
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 const isoDateTimeSchema = z.iso.datetime({ offset: true });
 
-export const MAX_SPACE_GUIDE_LENGTH = 4000 as const;
+// The guide holds room rules a steward writes by hand, so it gets the same cap
+// as other Space text instead of a short-summary limit.
+export const MAX_SPACE_GUIDE_LENGTH = MAX_TEXT_LENGTH;
 
 export const spaceOrganizationVisibilitySchema = z.enum(["public", "private"]);
 
@@ -108,8 +111,23 @@ export const patchSpaceMetaBodySchema = z
     name: spaceNameSchema.optional(),
     purpose: z.string().optional(),
     guide: z.string().max(MAX_SPACE_GUIDE_LENGTH).optional(),
+    guideEdit: z
+      .strictObject({
+        previous: z.string().max(MAX_SPACE_GUIDE_LENGTH),
+        text: z.string().trim().max(MAX_SPACE_GUIDE_LENGTH),
+      })
+      .optional(),
   })
   .superRefine((value, ctx) => {
+    if (value.guideEdit !== undefined) {
+      if (Object.keys(value).length !== 1) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Save the guide edit separately.",
+        });
+      }
+      return;
+    }
     if (
       value.ownership !== undefined ||
       value.allowGuests !== undefined ||
@@ -134,4 +152,5 @@ export const patchSpaceMetaBodySchema = z
     ...(value.name === undefined ? {} : { name: value.name }),
     ...(value.purpose === undefined ? {} : { purpose: value.purpose }),
     ...(value.guide === undefined ? {} : { guide: value.guide }),
+    ...(value.guideEdit === undefined ? {} : { guideEdit: value.guideEdit }),
   }));

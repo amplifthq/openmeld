@@ -237,7 +237,7 @@ vi.mock("#/lib/organizations/organization-directory", () => ({
 import { AppSpacesIndexContent } from "./index";
 
 vi.mock("#/components/spaces/conversations-home", () => ({
-	ConversationsHome: () => <main aria-label="Chats">Conversation home</main>,
+	ConversationsHome: () => <main aria-label="Spaces">Conversation home</main>,
 }));
 
 describe("app spaces index route", () => {
@@ -301,7 +301,7 @@ describe("app spaces index route", () => {
 	it("opens the combined conversation home by default without waiting for the Space directory", () => {
 		listOrganizationSpacesMock.mockRejectedValue(createGenericFailure());
 		renderSpacesIndex({ initialView: "conversations" });
-		expect(screen.getByRole("main", { name: "Chats" })).toBeTruthy();
+		expect(screen.getByRole("main", { name: "Spaces" })).toBeTruthy();
 		expect(screen.queryByRole("tab", { name: "Your Spaces" })).toBeNull();
 		expect(listOrganizationSpacesMock).not.toHaveBeenCalled();
 	});

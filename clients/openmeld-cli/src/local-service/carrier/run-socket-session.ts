@@ -30,7 +30,6 @@ import {
   runtimeTransportRouteCatalogChangedFramePayloadSchema,
 } from "@openmeld/schemas";
 import type {
-  LocalComponentsStatus,
   OpenMeldDaemonSetProfileWorkspacePayload,
   OpenMeldDaemonSyncRouteCatalogPayload,
   RuntimeTransportAdmissionEvidence,
@@ -61,6 +60,7 @@ import {
 } from "../core/constants";
 import {
   emitRunLine,
+  logComputerControlStage,
   normalizeHeartbeatIntervalMs,
   normalizeText,
   nowIsoString,
@@ -154,6 +154,10 @@ type CatalogSyncForceReason =
   | "local_state_changed"
   | "register_conflict"
   | "stale_leases";
+
+type HeartbeatPublicationReason =
+  | "execution_host_admission_changed"
+  | "local_components_refreshed";
 
 type CatalogSyncInput = {
   forceReason?: CatalogSyncForceReason;
@@ -470,9 +474,9 @@ export async function runDaemonSocketSession(input: {
   let closeReason = "closed";
   const socketConnectedAtMs = Date.now();
   let heartbeatInFlight = false;
-  // Admission may change again before the current heartbeat is acknowledged.
-  // Retain only the need to republish; the next send reads the current state.
-  let admissionHeartbeatPending = false;
+  // Coalesce observations made while another heartbeat awaits acknowledgement.
+  // The next send reads current admission and component evidence together.
+  let pendingHeartbeatPublication: HeartbeatPublicationReason | null = null;
   const heartbeatIdleWaiters: Array<() => void> = [];
   // A replacement session must replay every durable result that survived the
   // previous process before it can accept new work. The existing heartbeat
@@ -605,7 +609,7 @@ export async function runDaemonSocketSession(input: {
       return;
     }
     closed = true;
-    admissionHeartbeatPending = false;
+    pendingHeartbeatPublication = null;
     clearHeartbeatTimer();
     clearRuntimeAgentControllerReportSyncTimer();
     keepalive.stop();
@@ -852,7 +856,7 @@ export async function runDaemonSocketSession(input: {
   async function sendHeartbeat(
     options: {
       advanceIdleCadence?: boolean;
-      publishAdmissionAfterInFlight?: boolean;
+      publishAfterInFlight?: HeartbeatPublicationReason;
       requireAcknowledgement?: boolean;
     } = {}
   ): Promise<void> {
@@ -866,8 +870,8 @@ export async function runDaemonSocketSession(input: {
       return;
     }
     if (heartbeatInFlight) {
-      if (options.publishAdmissionAfterInFlight) {
-        admissionHeartbeatPending = true;
+      if (options.publishAfterInFlight) {
+        pendingHeartbeatPublication = options.publishAfterInFlight;
       }
       return;
     }
@@ -881,7 +885,9 @@ export async function runDaemonSocketSession(input: {
           leaseEpoch,
         }))
         .sort((left, right) => left.profileId.localeCompare(right.profileId));
-      const localComponentsStatus = readSessionLocalComponentsStatus();
+      const localComponentsStatus = input.localComponentsObservation.read(
+        onLocalComponentsRefreshed
+      );
       const heartbeatRequest = runtimeTransportHeartbeatRequestSchema.safeParse(
         {
           v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -1004,7 +1010,7 @@ export async function runDaemonSocketSession(input: {
       startSupplementalEvidenceSyncs();
     } catch (error) {
       if (recordHeartbeatFailure(error) && !options.requireAcknowledgement) {
-        admissionHeartbeatPending = false;
+        pendingHeartbeatPublication = null;
         terminateForReconnect("heartbeat_failed");
         return;
       }
@@ -1021,12 +1027,12 @@ export async function runDaemonSocketSession(input: {
       }
     } finally {
       heartbeatInFlight = false;
-      const publishPendingAdmission = admissionHeartbeatPending;
-      admissionHeartbeatPending = false;
-      if (!closed && publishPendingAdmission) {
+      const pendingPublication = pendingHeartbeatPublication;
+      pendingHeartbeatPublication = null;
+      if (!closed && pendingPublication) {
         scheduleHeartbeat({
           delayMs: 0,
-          reason: "execution_host_admission_changed",
+          reason: pendingPublication,
         });
       }
       resolveHeartbeatIdleWaiters(heartbeatIdleWaiters);
@@ -1051,11 +1057,13 @@ export async function runDaemonSocketSession(input: {
       return;
     }
     const normalizedDelayMs = Math.max(0, Math.trunc(inputSchedule.delayMs));
-    if (
-      heartbeatInFlight &&
-      inputSchedule.reason === "execution_host_admission_changed"
-    ) {
-      admissionHeartbeatPending = true;
+    const publication =
+      inputSchedule.reason === "execution_host_admission_changed" ||
+      inputSchedule.reason === "local_components_refreshed"
+        ? inputSchedule.reason
+        : undefined;
+    if (heartbeatInFlight && publication) {
+      pendingHeartbeatPublication = publication;
       return;
     }
     const dueAtMs = Date.now() + normalizedDelayMs;
@@ -1072,10 +1080,8 @@ export async function runDaemonSocketSession(input: {
       heartbeatTimer = null;
       heartbeatTimerDueAtMs = null;
       sendHeartbeat({
-        advanceIdleCadence:
-          inputSchedule.reason !== "execution_host_admission_changed",
-        publishAdmissionAfterInFlight:
-          inputSchedule.reason === "execution_host_admission_changed",
+        advanceIdleCadence: publication === undefined,
+        publishAfterInFlight: publication,
       }).catch((error) => {
         emitRunLine({
           presenter: input.presenter,
@@ -1184,18 +1190,27 @@ export async function runDaemonSocketSession(input: {
   let executionAdmissionSupported = false;
   let admissionEvidenceSupported = false;
 
-  const readSessionLocalComponentsStatus = (): LocalComponentsStatus | null =>
-    input.localComponentsObservation.read(() => {
-      if (lastHeartbeatSentAtMs !== null) {
-        scheduleHeartbeat({ delayMs: 0, reason: "local_components_refreshed" });
-      }
-    });
+  const onLocalComponentsRefreshed = () => {
+    if (heartbeatInFlight || lastHeartbeatSentAtMs !== null) {
+      scheduleHeartbeat({ delayMs: 0, reason: "local_components_refreshed" });
+    }
+  };
 
   const registerDaemonSession = async (
     routeCatalog: RouteCatalog
   ): Promise<RuntimeTransportRegisterSessionResponse> => {
     const connectionGeneration = activeConnectionGeneration;
-    const localComponentsStatus = readSessionLocalComponentsStatus();
+    const localComponentsStatus = input.localComponentsObservation.read(
+      onLocalComponentsRefreshed,
+      (detail) => {
+        warnDaemonEvent("[openmeld.registration_component_status_missing]", {
+          daemonSessionId: input.daemonSessionId,
+          deviceId: input.deviceId,
+          connectionGeneration,
+          ...detail,
+        });
+      }
+    );
     const registerPayload =
       runtimeTransportRegisterSessionRequestSchema.safeParse({
         v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -1748,11 +1763,19 @@ export async function runDaemonSocketSession(input: {
   const handleLocalAgentControlRefreshCatalogFrame = async (
     payload: Record<string, unknown>
   ): Promise<void> => {
+    const frame = {
+      code: "daemon.local_agent_control.refresh_catalog",
+      payload,
+    };
+    const context = { connectionGeneration: activeConnectionGeneration };
+    const record = (stage: string) =>
+      logComputerControlStage(frame, stage, context);
     const parsed =
       runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema.safeParse(
         payload
       );
     if (!parsed.success) {
+      record("invalid_request");
       emitRunLine({
         presenter: input.presenter,
         code: "daemon.run.local_agent_control_frame_invalid",
@@ -1762,8 +1785,13 @@ export async function runDaemonSocketSession(input: {
     }
 
     const responsePayload = await applyLocalAgentControlRefreshCatalog(
-      parsed.data.payload.reason
+      parsed.data.payload.reason,
+      record
     );
+    if (!responsePayload.accepted) {
+      record("catalog_refresh_failed");
+    }
+    record("result_send_started");
     sendDaemonFrame(input.socket, {
       code: "daemon.local_agent_control.result",
       payload: {
@@ -1771,6 +1799,7 @@ export async function runDaemonSocketSession(input: {
         payload: responsePayload,
       },
     });
+    record("result_send_returned");
   };
 
   const handleLocalAgentControlReadProfileWorkspaceFrame = async (
@@ -1923,12 +1952,34 @@ export async function runDaemonSocketSession(input: {
   };
 
   const applyLocalAgentControlRefreshCatalog = async (
-    reason: string
+    reason: string,
+    record: (stage: string) => void
   ): Promise<OpenMeldDaemonSyncRouteCatalogPayload> => {
+    const failStep = (
+      stage: "route_catalog_sync_failed" | "controller_report_sync_failed",
+      error: unknown
+    ): never => {
+      record(stage);
+      throw error;
+    };
     try {
+      record("catalog_refresh_started");
       const [result] = await Promise.all([
-        requestRouteCatalogSync(reason),
-        requestFreshRuntimeAgentControllerReportSync(),
+        requestRouteCatalogSync(reason).then(
+          (value) => {
+            record(
+              value.status === "failed"
+                ? "route_catalog_sync_failed"
+                : "route_catalog_sync_completed"
+            );
+            return value;
+          },
+          (error: unknown) => failStep("route_catalog_sync_failed", error)
+        ),
+        requestFreshRuntimeAgentControllerReportSync().then(
+          () => record("controller_report_sync_completed"),
+          (error: unknown) => failStep("controller_report_sync_failed", error)
+        ),
       ]);
       const payload = projectRouteCatalogSyncPayload({
         knownProfileIds: input.routeCatalogState.profileIds,
@@ -1936,8 +1987,12 @@ export async function runDaemonSocketSession(input: {
       });
       emitRunLine({
         presenter: input.presenter,
-        code: "daemon.run.local_agent_control_refresh_catalog",
-        text: `local agent catalog check completed (${payload.syncStatus}).`,
+        code: payload.accepted
+          ? "daemon.run.local_agent_control_refresh_catalog"
+          : "daemon.run.local_agent_control_refresh_catalog_failed",
+        text: payload.accepted
+          ? `local agent catalog check completed (${payload.syncStatus}).`
+          : "local agent catalog check failed.",
         payload: {
           profileCount: payload.profileIds.length,
           syncStatus: payload.syncStatus,
@@ -2070,6 +2125,9 @@ export async function runDaemonSocketSession(input: {
       });
       return;
     }
+    logComputerControlStage(parsedFrame, "socket_received", {
+      connectionGeneration: activeConnectionGeneration,
+    });
     if (parsedFrame.code === "daemon.route_catalog.changed") {
       const payload =
         runtimeTransportRouteCatalogChangedFramePayloadSchema.safeParse(

@@ -603,8 +603,9 @@ describe("local service alignment executor", () => {
     });
     expect(process.kill).not.toHaveBeenCalledWith(222, "SIGTERM");
     expect(process.kill).not.toHaveBeenCalledWith(333, "SIGTERM");
-    expect(restoreDaemonRuntimeDataForReinstallMock).toHaveBeenCalledTimes(1);
-    expect(cleanupDaemonRuntimeDataBackupMock).toHaveBeenCalledTimes(1);
+    expect(backupDaemonRuntimeDataForReinstallMock).not.toHaveBeenCalled();
+    expect(restoreDaemonRuntimeDataForReinstallMock).not.toHaveBeenCalled();
+    expect(cleanupDaemonRuntimeDataBackupMock).not.toHaveBeenCalled();
     expect(cleanupStaleDaemonRuntimeDataBackupsMock).toHaveBeenCalledTimes(1);
   });
 
@@ -1502,6 +1503,15 @@ describe("local service alignment executor", () => {
               "The active OpenMeld Service bundle still uses the legacy linked dependency layout.",
           },
         ],
+        legacySharedService: {
+          present: true,
+          pathInput: {},
+          installStatus: { installed: false, state: null },
+          runtimeStatus: createRuntimeStatus({ status: "not_running" }),
+          serviceManager,
+          serviceManagerStatus: null,
+          ownedProcesses: [],
+        },
       })
     );
 

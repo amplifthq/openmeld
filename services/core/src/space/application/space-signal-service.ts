@@ -446,6 +446,7 @@ export async function handlePostSignalUseCase(input: {
 export async function publishTextSignalUseCase(input: {
   signal: SignalEnvelope;
   signalContext?: SignalPublishContext;
+  inputGateId?: string;
   persistSignalWithOptionalOutbox: (
     signal: SignalEnvelope,
     createOutboxRecord: boolean,
@@ -470,6 +471,7 @@ export async function publishTextSignalUseCase(input: {
   }
   console.info("[core.openmeld.space.signal_persisted]", {
     event: "core.openmeld.space.signal_persisted",
+    ...(input.inputGateId ? { gateId: input.inputGateId } : {}),
     spaceId: input.signal.spaceId,
     signalId: input.signal.id,
     signalType: input.signal.type,

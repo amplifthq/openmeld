@@ -253,6 +253,8 @@ export const SpaceMessageRun = memo(function SpaceMessageRun(
 								data-history-signal-id={getSpaceConversationHistorySignalId(
 									item
 								)}
+								data-message-row-id={item.id}
+								data-message-source-at={spaceMessageReadSourceAt(item)}
 								data-signal-id={item.id}
 								ref={(element) =>
 									input.registerMessageElement(item.id, element)
@@ -1190,6 +1192,7 @@ export function resolveReplyPreviewText(
 	>
 ) {
 	const profiles = buildSpaceMessageProfileMentionProfiles({
+		humanMentions: sourceItem?.humanMentions,
 		profilePresentationsById,
 		mentionTargetProfileIds: sourceItem?.mentionTargetProfileIds ?? [],
 		wakeTargetProfileIds: sourceItem?.wakeTargetProfileIds ?? [],
@@ -1570,7 +1573,6 @@ function ThreadPreview(input: {
 					}}
 					onFocus={prefetch}
 					onPointerEnter={prefetch}
-					title="Only threads you start or reply to count as unread. Read the thread to clear its unread replies and reactions."
 					type={ThreadTarget === "button" ? "button" : undefined}
 				>
 					<ChatCircleIcon aria-hidden="true" className="size-3.5" />

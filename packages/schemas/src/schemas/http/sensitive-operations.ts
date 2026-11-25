@@ -184,6 +184,24 @@ export const decideCredentialConfirmationResponseSchema =
 export type DecideCredentialConfirmationResponse =
   GetCredentialConfirmationResponse;
 
+export const permissionModeAuditChangeSchema = z.strictObject({
+  bindingId: identifierSchema,
+  previousMode: z.string().max(200).nullable(),
+  mode: z.string().min(1).max(200).nullable(),
+  previousRevision: z.number().int().nonnegative(),
+  revision: z.number().int().positive(),
+  requestId: identifierSchema,
+});
+export const sensitiveOperationAuditQuerySchema = z.strictObject({
+  responseVersion: z.coerce
+    .number()
+    .pipe(z.union([z.literal(1), z.literal(2)]))
+    .optional(),
+});
+export type SensitiveOperationAuditQuery = z.infer<
+  typeof sensitiveOperationAuditQuerySchema
+>;
+
 export const sensitiveOperationAuditEventSchema = z.strictObject({
   id: identifierSchema,
   operation: sensitiveOperationSchema,
@@ -195,6 +213,7 @@ export const sensitiveOperationAuditEventSchema = z.strictObject({
   reasonCode: z.string().trim().min(1).max(160).nullable(),
   confirmationId: identifierSchema.nullable(),
   createdAtMs: z.number().int().nonnegative(),
+  permissionModeChange: permissionModeAuditChangeSchema.optional(),
 });
 export type SensitiveOperationAuditEvent = z.infer<
   typeof sensitiveOperationAuditEventSchema

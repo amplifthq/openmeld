@@ -316,7 +316,6 @@ async function createTestContext(
       (options.additionalHumanProfileCreationEnabled === true
         ? "true"
         : "false"),
-    OPENMELD_AUTH_KV: {},
     OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
     WEB_APP_URL,
   } as unknown as AuthBindings;

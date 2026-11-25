@@ -885,6 +885,15 @@ instructions, prompt bodies, credentials, or arbitrary worker payloads.
 
 ### Center Agent historical evidence reads
 
+Final reply mentions are resolved before the Agent records them and checked again
+at Space publication. A same-Organization Human Profile may be mentioned without
+joining the Space; its identity is marked as Organization-only and its notification
+contains no report content. A deterministic invalid-target rejection terminates
+with `space.addressing.target_invalid` and a public-safe `failureDetail`. The
+existing publication claim recovers a failed notice send without retrying the
+same invalid report or starting a second model turn. Other transient publication
+failures keep their existing retry contract.
+
 `openmeld_list_routine_runs` lists a bounded page of retained Center Agent Run
 history for an exact Routine. It reuses the existing historical owner, including
 retained Runs after definition deletion, and provides `nextBeforeScheduledFor`

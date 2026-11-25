@@ -366,6 +366,24 @@ describe("remote agent system prompt", () => {
     );
   });
 
+  it("reads the rest of a Space when a thread is not enough and raises the read limit to continue", () => {
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "A Wake inside a thread does not make that thread the whole Space."
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "read openmeld_read_space_context with scope=history, or openmeld_query_messages with this spaceId and no threadId"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Say when the result is truncated."
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "If the answer is still missing and coverage is not complete, continue that same read with its resumeId, the returned nextCursor, and a larger total limit."
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).not.toContain(
+      "openmeld_update_space_settings"
+    );
+  });
+
   it("teaches the Center Agent to resolve and reuse source-backed member identities", () => {
     const prompt = buildTestSystemPrompt({
       turnEnvelope: createSubmitTurnRequest().turnEnvelope,

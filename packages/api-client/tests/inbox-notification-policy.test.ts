@@ -37,6 +37,34 @@ const item: InboxItem & {
 
 describe("source-owned Inbox delivery eligibility", () => {
   it.each([
+    "agent_reply",
+    "wake_outcome",
+  ] as const)("sends a normal %s only to addressed recipients by default", (kind) => {
+    const update = {
+      ...item,
+      kind,
+      sourceTarget: {
+        kind: "space" as const,
+        spaceId: "space",
+        signalId: "signal",
+      },
+    };
+    const member: InboxItem = {
+      ...update,
+      sourceFacts: { version: 1, recipientReasons: ["space_member"] },
+    };
+    expect(isInboxNotificationEligible(member)).toBe(false);
+    expect(isInboxNotificationEligible(member, "all_messages")).toBe(true);
+    for (const reason of ["requester", "thread_reply"] as const) {
+      expect(
+        isInboxNotificationEligible({
+          ...update,
+          sourceFacts: { version: 1, recipientReasons: [reason] },
+        })
+      ).toBe(true);
+    }
+  });
+  it.each([
     "space",
     "center_agent",
   ] as const)("delivers an incoming %s DM without an explicit mention, but honors mute", (kind) => {

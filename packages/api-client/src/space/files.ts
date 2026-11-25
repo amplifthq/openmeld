@@ -66,6 +66,23 @@ function bodySize(body: ArrayBuffer | Blob): number {
   return body instanceof Blob ? body.size : body.byteLength;
 }
 
+// Retain the stage on HTTP and response-body errors as well as transport
+// failures. Keep the original error type, request ID and retry semantics.
+async function requestUploadStage<T>(
+  stage: string,
+  request: (operation: string) => Promise<T>
+): Promise<T> {
+  const operation = `space.files.upload.${stage}`;
+  try {
+    return await request(operation);
+  } catch (error) {
+    if (error instanceof Error) {
+      Object.assign(error, { operation });
+    }
+    throw error;
+  }
+}
+
 async function uploadMultipart(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput &
@@ -79,20 +96,26 @@ async function uploadMultipart(
     command: import("@openmeld/schemas/types").SpaceFileUploadCommand,
     part?: Blob
   ) => {
-    return await client.requestJson({
-      ...requestFields(input),
-      url:
-        command.action === "part" ? `${url}?part=${command.partNumber}` : url,
-      method: "POST",
-      operation: "space.files.upload",
-      headers: {
-        ...currentSpaceFileHeaders(),
-        "content-type": part ? "application/octet-stream" : "application/json",
-      },
-      body: part ?? JSON.stringify(command),
-      schema: spaceFileUploadResponseSchema,
-      invalidMessage: "Invalid file upload response.",
-    });
+    const stage =
+      command.action === "part" ? `part.${command.partNumber}` : command.action;
+    return await requestUploadStage(stage, (operation) =>
+      client.requestJson({
+        ...requestFields(input),
+        url:
+          command.action === "part" ? `${url}?part=${command.partNumber}` : url,
+        method: "POST",
+        operation,
+        headers: {
+          ...currentSpaceFileHeaders(),
+          "content-type": part
+            ? "application/octet-stream"
+            : "application/json",
+        },
+        body: part ?? JSON.stringify(command),
+        schema: spaceFileUploadResponseSchema,
+        invalidMessage: "Invalid file upload response.",
+      })
+    );
   };
   return await uploadMultipartTransport({
     bytes: body,
@@ -327,19 +350,21 @@ export async function uploadSpaceFile(
     }
     return response.file;
   }
-  const response = await client.requestJson({
-    ...requestFields(input),
-    url: buildSpaceFileUploadPath(input),
-    operation: "space.files.upload",
-    method: "POST",
-    headers: {
-      ...currentSpaceFileHeaders(),
-      "content-type": mimeType,
-    },
-    body,
-    schema: uploadSpaceFileResponseSchema,
-    invalidMessage: "invalid Space file upload response",
-  });
+  const response = await requestUploadStage("direct", (operation) =>
+    client.requestJson({
+      ...requestFields(input),
+      url: buildSpaceFileUploadPath(input),
+      operation,
+      method: "POST",
+      headers: {
+        ...currentSpaceFileHeaders(),
+        "content-type": mimeType,
+      },
+      body,
+      schema: uploadSpaceFileResponseSchema,
+      invalidMessage: "invalid Space file upload response",
+    })
+  );
   return response.file;
 }
 

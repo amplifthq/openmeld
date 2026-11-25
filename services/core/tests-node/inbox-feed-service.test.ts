@@ -483,12 +483,39 @@ describe("canonical Inbox attention feed", () => {
           })
         ).counts.mentions
       ).toBe(2);
+      await fixture.item("routine-report", {
+        kind: "agent_reply",
+        sourceFacts: { version: 1, recipientReasons: ["space_member"] },
+      });
+      await fixture.item("reply-to-my-thread", {
+        kind: "agent_reply",
+        sourceFacts: {
+          version: 1,
+          recipientReasons: ["thread_reply", "space_member"],
+        },
+      });
+      const inbox = createInboxService({ db: fixture.db });
       expect(
-        await createInboxService({ db: fixture.db }).summary({
+        await inbox.summary({
           ...fixture.identity,
           presentation: "attention",
+          includePersonalUnreadCount: true,
         })
-      ).toMatchObject({ unreadMentionCount: 2, ordinaryUnreadCount: 0 });
+      ).toMatchObject({
+        totalUnreadCount: 4,
+        personalUnreadCount: 2,
+        unreadMentionCount: 2,
+        ordinaryUnreadCount: 2,
+      });
+      const preview = await inbox.list({
+        ...fixture.identity,
+        notificationPreview: true,
+        view: "unread",
+      });
+      expect(preview.items.map((entry) => entry.title).sort()).toEqual([
+        "reply-to-my-thread",
+        "unmentioned-dm",
+      ]);
       expect(
         (
           await createInboxService({ db: fixture.db }).list({

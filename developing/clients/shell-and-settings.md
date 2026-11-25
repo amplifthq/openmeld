@@ -312,8 +312,8 @@ Settings and contains Search and theme selection. The workspace switcher contain
   Explicit expanded/hidden choices remain shared across the Spaces directory,
   conversation details, and Team tabs, including People and Agents, and survive
   reloads. Navigation never resets that choice; existing cookies remain valid.
-  The Spaces heading opens the combined conversation home, without a duplicate
-  aggregate status dot. On home the list is primary content, always visible at
+  The list heading is **Spaces** on home and inside conversations. The heading
+  opens the combined conversation home. On home the list is primary content, always visible at
   full width on narrow screens and beside a selection prompt on wide screens.
   This does not overwrite the contextual sidebar's explicit visibility choice.
   Direct messages remains a secondary directory tab after Your Spaces. The plus
@@ -373,8 +373,8 @@ Settings and contains Search and theme selection. The workspace switcher contain
   expands all targets and uses row-major insertion boundaries. Recent and named
   groups retain list rows and optional message previews.
   Unread and work indicators remain visible without hover.
-  When both are present, the active Wake indicator takes the trailing slot ahead
-  of the unread dot and timestamp; unread styling and accessible text remain.
+  A conversation with active work and unread messages offers both the work
+  indicator and the unread shortcut. Each opens its own target.
   People reuses the Web-owned section actions, drag mechanics, manual ordering
   and revision-checked preference hook. Starred and named People groups are
   personal to the account and Organization. Moving a person changes only this
@@ -562,7 +562,11 @@ Square.
 ## 6. Shared Sidebar family and resize behavior
 
 The outer rail's Spaces and Team resource popovers open on hover or Arrow Down/Space.
-Clicking Spaces opens the combined conversation home; clicking Team opens People.
+Clicking Spaces from another section opens the combined conversation home. In an
+open desktop conversation, selecting Spaces again reveals the conversation list
+if needed and preserves the current conversation, Thread, draft, and scroll
+position. While the list is visible, ordinary unread dots appear on conversation
+rows only. The rail still shows priority attention. Clicking Team opens People.
 Each popover starts with that primary destination: Chats or People, without
 a pin toggle. Spaces then offers Direct messages and Discover using the existing
 `view` search parameter.

@@ -47,7 +47,7 @@ import {
   getSpaceMessageReactions,
   setSpaceMessageReaction,
 } from "./message-reactions";
-import { updateSpaceMeta } from "./meta";
+import { getSpaceMeta, updateSpaceMeta } from "./meta";
 import { mutateSpaceMessage } from "./mutate-message";
 import { postSpaceNormalMessage } from "./post-normal-message";
 import { removeSpaceMembers } from "./remove-members";
@@ -120,6 +120,7 @@ export const createSpaceApi: CreateSpaceApi = (
       await streamSpaceFileContent(client, input),
     removeMembers: async (input) => await removeSpaceMembers(client, input),
     setAccessMode: async (input) => await setSpaceAccessMode(client, input),
+    getMeta: async (input) => await getSpaceMeta(client, input),
     updateMeta: async (input) => await updateSpaceMeta(client, input),
     leaveSpace: async (input) => await leaveSpace(client, input),
     getBootstrap: async (input) => await getSpaceBootstrap(client, input),

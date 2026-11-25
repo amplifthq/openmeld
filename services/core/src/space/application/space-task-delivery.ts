@@ -69,6 +69,16 @@ export function enqueueSpaceTaskDeliveries(input: {
   ) {
     enqueue("github_projection");
   }
+  const currentPr = task.pullRequest;
+  const previousPr = input.previous?.pullRequest;
+  if (
+    currentPr?.number !== previousPr?.number ||
+    currentPr?.owner.toLowerCase() !== previousPr?.owner.toLowerCase() ||
+    currentPr?.repo.toLowerCase() !== previousPr?.repo.toLowerCase() ||
+    currentPr?.url !== previousPr?.url
+  ) {
+    enqueue("github_pr_projection");
+  }
   if (
     task.projectIds.length > 0 ||
     (input.previous?.projectIds.length ?? 0) > 0
@@ -76,8 +86,13 @@ export function enqueueSpaceTaskDeliveries(input: {
     enqueue("project_projection");
   }
   if (
-    (event.type === "assigned" && input.wakeAssignee) ||
+    ((event.type === "created" || event.type === "assigned") &&
+      input.wakeAssignee) ||
     (event.type === "result_submitted" && task.phase === "in_review") ||
+    (event.type === "pull_request_head_changed" &&
+      task.phase === "in_review" &&
+      !task.needsHumanDecision &&
+      task.reviewer !== null) ||
     event.type === "changes_requested" ||
     event.type === "rework_continued"
   ) {
@@ -128,18 +143,24 @@ export function isSpaceTaskDeliveryCurrent(
   ) {
     return false;
   }
-  if (event.type === "result_submitted") {
+  if (
+    event.type === "pull_request_head_changed" ||
+    event.type === "result_submitted"
+  ) {
     return (
+      current.phase === "in_review" &&
       current.reviewer?.profileId === task.reviewer?.profileId &&
-      current.phase === "in_review"
+      current.pullRequest?.headSha === task.pullRequest?.headSha
     );
   }
-  if (event.type === "assigned") {
+  if (event.type === "created" || event.type === "assigned") {
     const latestAssignment = repository
       .listEvents(task.taskId)
       .findLast(
         (candidate) =>
-          candidate.type === "assigned" || candidate.type === "reopened"
+          candidate.type === "created" ||
+          candidate.type === "assigned" ||
+          candidate.type === "reopened"
       );
     return (
       latestAssignment?.eventId === event.eventId &&

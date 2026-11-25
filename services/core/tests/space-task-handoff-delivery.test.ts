@@ -43,8 +43,10 @@ describe("Space Task handoff delivery", () => {
     ["agent", false, false],
     ["agent", true, false],
     ["agent", true, true],
+    ["agent", true, "create-and-delegate"],
+    ["agent", true, "self-trigger"],
     ["agent", true, "retry-after-issue-update"],
-  ] as const)("publishes one Task handoff for %s (Thread=%s, assignment=%s)", async (profileKind, inThread, assignment) => {
+  ] as const)("accounts for a Task handoff for %s (Thread=%s, assignment=%s)", async (profileKind, inThread, assignment) => {
     const namespace = (
       env as unknown as { OPENMELD_SPACES: DurableObjectNamespace<Space> }
     ).OPENMELD_SPACES;
@@ -211,7 +213,7 @@ describe("Space Task handoff delivery", () => {
           lastObservedState: "open" as const,
         };
         const service = space.spaceTaskService;
-        const created = service.create(
+        let created = service.create(
           {
             operationId: "create-task",
             title: "Fix loading state",
@@ -233,17 +235,23 @@ describe("Space Task handoff delivery", () => {
         );
         if (assignment) {
           const bindings = Reflect.get(instance, "bindings") as CoreBindings;
-          const resolveProfileById = vi.fn(async () => ({
-            ok: true,
-            profile: {
-              profileId: requester.profileId,
-              profileKind: "human",
-              profileName: requester.profileName,
-              profileHandle: "avery",
-              ownerUserId: requester.ownerUserId,
-              status: "active",
-            },
-          }));
+          const resolveProfileById = vi.fn(
+            ({ openMeldProfileId }: { openMeldProfileId: string }) => {
+              const actor =
+                openMeldProfileId === reviewer.profileId ? reviewer : requester;
+              return Promise.resolve({
+                ok: true,
+                profile: {
+                  profileId: actor.profileId,
+                  profileKind: actor.profileKind,
+                  profileName: actor.profileName,
+                  profileHandle: "task-participant",
+                  ownerUserId: actor.ownerUserId,
+                  status: "active",
+                },
+              });
+            }
+          );
           if (assignment === "retry-after-issue-update") {
             resolveProfileById.mockRejectedValueOnce(
               new Error("Auth temporarily unavailable")
@@ -274,8 +282,107 @@ describe("Space Task handoff delivery", () => {
                 wakeAssignee: true,
               },
             };
-            const assigned = await instance.rpcMutateTask(input);
+            const taskRequestContext =
+              assignment === "self-trigger"
+                ? {
+                    ...context,
+                    actorContext: {
+                      ...context.actorContext,
+                      callerPrincipalId: reviewer.ownerUserId ?? undefined,
+                      openMeldProfileId: reviewer.profileId,
+                      ownerUserId: reviewer.ownerUserId ?? undefined,
+                      profileKind: "agent" as const,
+                    },
+                  }
+                : context;
+            const createInput = {
+              spaceId,
+              context: taskRequestContext,
+              ...(assignment === "self-trigger"
+                ? { representedRequester: requester }
+                : {}),
+              body: {
+                operationId: "create-with-initial-handoff",
+                title: "Fix loading state",
+                sourceSignalId: source.id,
+                threadId,
+                assigneeProfileId: reviewer.profileId,
+                reviewerProfileId: requester.profileId,
+                wakeAssignee: true,
+                externalWorkItems: [issue],
+              },
+            };
+            const creating =
+              assignment === "create-and-delegate" ||
+              assignment === "self-trigger";
+            const assigned = creating
+              ? await instance.rpcCreateTask(createInput)
+              : await instance.rpcMutateTask(input);
+            if (creating) {
+              created = assigned;
+            }
             expect(assigned.task.phase).toBe("to_do");
+            if (assignment === "self-trigger") {
+              const detail = await instance.rpcGetTask({
+                spaceId,
+                context: taskRequestContext,
+                taskId: assigned.task.taskId,
+                includeAffordances: true,
+              });
+              expect(detail.pendingActions).toContainEqual({
+                kind: "handoff",
+                state: "failed",
+                error: expect.stringContaining("cannot Wake itself"),
+              });
+              const signalId = `space-task-handoff:${assigned.event.eventId}`;
+              expect(
+                state.storage.sql
+                  .exec("SELECT id FROM space_signals WHERE id = ?", signalId)
+                  .toArray()
+              ).toEqual([]);
+              expect(
+                state.storage.sql
+                  .exec(
+                    "SELECT payload_json FROM openMeldDaemon_outbox WHERE source_event_id = ?",
+                    signalId
+                  )
+                  .toArray()
+              ).toEqual([]);
+              expect(
+                new SpaceTaskDeliveryRepository(state.storage.sql).wakeRefs(
+                  assigned.task.taskId
+                )
+              ).toEqual([]);
+              await instance.rpcMutateTask({
+                spaceId,
+                context: taskRequestContext,
+                taskId: assigned.task.taskId,
+                body: {
+                  action: "mark_in_progress",
+                  operationId: "resume-after-blocked-handoff",
+                  expectedRevision: assigned.task.revision,
+                },
+              });
+              const resumed = await instance.rpcGetTask({
+                spaceId,
+                context: taskRequestContext,
+                taskId: assigned.task.taskId,
+                includeAffordances: true,
+              });
+              expect(resumed.task.phase).toBe("in_progress");
+              expect(
+                resumed.pendingActions?.filter(
+                  (action) => action.kind === "handoff"
+                )
+              ).toEqual([]);
+              // Supersession changes the current projection, not failure history.
+              expect(
+                new SpaceTaskDeliveryRepository(state.storage.sql).read(
+                  `${assigned.event.eventId}:handoff`
+                )
+              ).not.toBeNull();
+              return;
+            }
             if (assignment === "retry-after-issue-update") {
               const deliveries = new SpaceTaskDeliveryRepository(
                 state.storage.sql
@@ -314,7 +421,11 @@ describe("Space Task handoff delivery", () => {
               );
               await space.deliverSpaceTaskAction(pending);
             }
-            expect((await instance.rpcMutateTask(input)).applied).toBe(false);
+            const replay =
+              assignment === "create-and-delegate"
+                ? await instance.rpcCreateTask(createInput)
+                : await instance.rpcMutateTask(input);
+            expect(replay.applied).toBe(false);
             const signalId = `space-task-handoff:${assigned.event.eventId}`;
             const row = state.storage.sql
               .exec<{ payload_json: string }>(
@@ -365,17 +476,61 @@ describe("Space Task handoff delivery", () => {
           taskId: created.task.taskId,
           identity: issue,
           observeOperationId: "observe-completed",
-          settleOperationId: "settle-completed",
           observedAt: now,
           observedState: "closed",
           observedStateReason: "completed",
         });
         const deliveries = new SpaceTaskDeliveryRepository(state.storage.sql);
+        expect(service.read(created.task.taskId).task).toMatchObject({
+          phase: "to_do",
+          result: null,
+        });
+        expect(
+          deliveries.pending(Date.now()).some((item) => item.kind === "handoff")
+        ).toBe(false);
+        const taskContext = {
+          actor: requester,
+          isSpaceOwner: true,
+          resolveMember: (id: string) =>
+            [requester, reviewer].find((member) => member.profileId === id) ??
+            null,
+        };
+        const assigned = service.mutate(
+          created.task.taskId,
+          {
+            action: "assign",
+            operationId: "assign-result-author",
+            expectedRevision: service.read(created.task.taskId).task.revision,
+            assigneeProfileId: requester.profileId,
+          },
+          taskContext
+        );
+        const started = service.mutate(
+          created.task.taskId,
+          {
+            action: "mark_in_progress",
+            operationId: "start-explicit-work",
+            expectedRevision: assigned.task.revision,
+          },
+          taskContext
+        );
+        service.mutate(
+          created.task.taskId,
+          {
+            action: "submit_result",
+            operationId: "submit-verified-result",
+            expectedRevision: started.task.revision,
+            summary: "Verified the requested loading-state behavior.",
+          },
+          taskContext
+        );
         const delivery = deliveries
           .pending(Date.now())
           .find((item) => item.kind === "handoff");
         if (!delivery) {
-          throw new Error("Completed issue must deliver its review handoff");
+          throw new Error(
+            "The explicit Task result must deliver its review handoff"
+          );
         }
         expect(delivery.actor).toBeNull();
         // A retained user-authorized action still requires fresh authorization;

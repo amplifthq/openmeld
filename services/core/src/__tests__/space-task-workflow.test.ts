@@ -526,6 +526,10 @@ describe("Space Task workflow", () => {
 
   it("replays an exact create operation without duplicating the Task or event", () => {
     const tasks = new Map<string, SpaceTask>();
+    const observedAt = new Map<
+      string,
+      import("../space/infrastructure/sql/space-task-repo").SpaceTaskPullRequestCursor
+    >();
     const events: SpaceTaskEvent[] = [];
     const operations = new Map<
       string,
@@ -537,6 +541,8 @@ describe("Space Task workflow", () => {
       listEvents: (taskId) => events.filter((event) => event.taskId === taskId),
       listTasks: () => [...tasks.values()],
       readOperation: (operationId) => operations.get(operationId) ?? null,
+      readPullRequestCursor: (taskId) => observedAt.get(taskId),
+      recordPullRequestCursor: (taskId, time) => observedAt.set(taskId, time),
       readTask: (taskId) => tasks.get(taskId) ?? null,
       recordOperation: (operation) => {
         operations.set(operation.operationId, operation);

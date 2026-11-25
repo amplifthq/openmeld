@@ -7,6 +7,55 @@ import type { SpaceMemberRecord } from "../src/space/infrastructure/sql/space-me
 
 describe("Space Inbox recipient and addressing boundaries", () => {
   it.each([
+    "outside-owner",
+    "felix",
+  ])("notifies an Organization mention once per account with existing access respected (%s)", (ownerUserId) => {
+    const signal = message({ mentionTargets: ["outside-person"] });
+    signal.data.text = "Confidential report contents";
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      ...projectionInput(signal),
+      spaceName: "Private launch plans",
+      signalContext: {
+        resolvedHumanMentions: [
+          {
+            profileId: "outside-person",
+            profileName: "Colleague",
+            ownerUserId,
+            scope: "organization",
+          },
+        ],
+      },
+    });
+    const notification = record?.candidates.find(
+      (item) => item.recipientUserId === ownerUserId
+    );
+    expect(notification?.kind).toBe("space_mention");
+    expect(
+      record?.candidates.filter((item) => item.recipientUserId === ownerUserId)
+    ).toHaveLength(1);
+    if (ownerUserId === "felix") {
+      expect(notification?.contextLabel).toBe("Private launch plans");
+      return;
+    }
+    expect(notification).toMatchObject({
+      kind: "space_mention",
+      contextLabel: "Organization mention",
+      sourceFacts: {
+        organizationMentionProfileId: "outside-person",
+        recipientReasons: ["human_mention"],
+      },
+    });
+    expect(JSON.stringify(notification)).not.toContain(
+      "Confidential report contents"
+    );
+    expect(JSON.stringify(notification)).not.toContain("Private launch plans");
+    expect(
+      record?.candidates.filter(
+        (item) => item.recipientUserId === "outside-owner"
+      )
+    ).toHaveLength(1);
+  });
+  it.each([
     "agent",
     "system",
   ] as const)("makes a proactive %s result unread for current Human members without a requester", (kind) => {
@@ -65,7 +114,7 @@ describe("Space Inbox recipient and addressing boundaries", () => {
         threadPlacement: "thread",
       },
       threadParticipantProfileIds: ["monica"],
-      threadRootAuthorUserId: "monica",
+      replyRecipientUserId: "monica",
       wakeRequesterUserId: "monica",
     });
     const recipients = await selectSpaceInboxRecipients(

@@ -82,7 +82,6 @@ describe("organization member role changes", () => {
       BETTER_AUTH_OPENMELD_SECRET:
         "1234567890123456789012345678901234567890123456789012345678901234",
       BETTER_AUTH_URL: AUTH_URL,
-      OPENMELD_AUTH_KV: {},
       OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
       PASSKEY_RP_ID: "localhost",
       WEB_APP_URL: APP_URL,

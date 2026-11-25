@@ -5,7 +5,6 @@ import test from "node:test";
 import { parseJsoncObject } from "../../packages/db/src/tooling/parse-jsonc.ts";
 
 const STAGING_HYPERDRIVE_ID = "6af2d43ec8d8498b9607c653ca231e73";
-const STAGING_KV_ID = "ce0678aff60e4d5b864ad0591ea5e88a";
 const PRODUCTION_RESOURCE_PATTERN = /-prod/u;
 const PRODUCTION_URL_PATTERN =
   /https:\/\/(?:(?:app|auth|gateway)\.)?openmeld\.ai(?:["/])/u;
@@ -102,9 +101,6 @@ test("binds Auth and Core only to the staging database", () => {
       },
     ]);
   }
-  assert.deepEqual(configs.auth.env.stg.kv_namespaces, [
-    { binding: "OPENMELD_AUTH_KV", id: STAGING_KV_ID },
-  ]);
 });
 
 test("keeps staging service bindings, queues, and storage inside staging", () => {

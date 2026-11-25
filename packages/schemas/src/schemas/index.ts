@@ -15,6 +15,7 @@ export {
 } from "./ai-usage";
 export {
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  SERVICE_PREVIOUS_CONNECTION_ID_HEADER,
   serviceConnectionDiagnosticIdSchema,
 } from "./daemon/service-connection-correlation";
 export {
@@ -38,6 +39,10 @@ export {
   centerAgentReadAuditJournalRpcInputSchema,
 } from "./http/center-agent-evidence";
 export {
+  centerAgentReadSpaceGuideRequestSchema,
+  centerAgentReadSpaceGuideResponseSchema,
+} from "./http/center-agent-knowledge";
+export {
   CENTER_AGENT_RETAINED_MEMORY_MAX_ITEMS,
   CENTER_AGENT_RETAINED_MEMORY_MAX_SOURCES,
   CENTER_AGENT_RETAINED_MEMORY_MAX_TEXT_CHARS,
@@ -46,6 +51,14 @@ export {
   centerAgentSearchMemoryResponseSchema,
   centerAgentSearchMemoryRpcInputSchema,
 } from "./http/center-agent-memory-search";
+export {
+  centerAgentWorkTargetRecordSchema,
+  centerAgentWorkTargetRequestSchema,
+  centerAgentWorkTargetResponseSchema,
+  centerAgentWorkTargetSchema,
+  centerAgentWorkTargetSelectionSchema,
+  centerAgentWorkTargetSourceInputSchema,
+} from "./http/center-agent-work-target";
 export {
   LOCAL_AGENT_REASONING_MAX_CHARS,
   localAgentReasoningPreferencesRpcSchema,
@@ -62,6 +75,12 @@ export {
   organizationMemberPresenceSchema,
   organizationMemberPresenceWriteResponseSchema,
 } from "./http/organization-member-presence";
+export {
+  approvedPluginActionSchema,
+  pluginActionRecoveryInputSchema,
+  readApprovedPluginActionInputSchema,
+  readApprovedPluginActionResponseSchema,
+} from "./http/plugin-action-recovery";
 export {
   listPluginActionRequestsInputSchema,
   listPluginActionRequestsResponseSchema,
@@ -92,6 +111,12 @@ export {
   spaceHistoryNavigationQuerySchema,
   spaceHistoryNavigationSchema,
 } from "./http/space-history-navigation";
+export {
+  MAX_ORGANIZATION_MENTION_TARGETS,
+  remoteAgentResolveReplyMentionsRequestSchema,
+  remoteAgentResolveReplyMentionsResponseSchema,
+  spaceHumanMentionTargetSchema,
+} from "./http/space-human-mentions";
 export { agentFailureFactsSchema } from "./runtime/agent-failure";
 export {
   CENTER_AGENT_SESSION_TITLE_INPUT_MAX_LENGTH,
@@ -695,6 +720,8 @@ export {
   MAX_RUNTIME_TRANSPORT_AGENT_PROFILE_WORK_USAGE_AVAILABLE_TARGETS,
   OPENMELD_ADMISSION_EVIDENCE_HEADER,
   OPENMELD_EXECUTION_ADMISSION_HEADER,
+  RUNTIME_TRANSPORT_READ_ATTEMPT_HEADER,
+  RUNTIME_TRANSPORT_READ_ID_HEADER,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportAgentControllerConversationOccupancySchema,
   runtimeTransportAgentProfileExecutionStateRequestSchema,
@@ -784,6 +811,7 @@ export {
   runtimeTransportPreExecutionHandoffReasonCodeSchema,
   runtimeTransportPreExecutionHandoffRequestSchema,
   runtimeTransportPreExecutionHandoffResponseSchema,
+  runtimeTransportReadAttemptHeadersSchema,
   runtimeTransportReadProfileFolderProjectionRequestSchema,
   runtimeTransportReadProfileFolderProjectionResponseSchema,
   runtimeTransportReadProfileWorkspaceRequestSchema,
@@ -2055,6 +2083,7 @@ export {
   organizationDocumentPromptContextRpcInputSchema,
   organizationDocumentRouteParamsSchema,
   organizationDocumentSchema,
+  organizationDocumentSourceReferenceSchema,
   organizationDocumentSummarySchema,
   profileReportTypeSchema,
   recordCenterAgentMemberResearchComputerFileResponseSchema,
@@ -2302,6 +2331,7 @@ export {
 } from "./http/plugin-delegation";
 export {
   connectorActionOutcomeUnknownSchema,
+  linearIssuePreviewNamesSchema,
   pluginActionEffectSchema,
   pluginRuntimeRequestSchema,
   pluginRuntimeResponseSchema,
@@ -2375,6 +2405,7 @@ export {
   createProjectBodySchema,
   createProjectResponseSchema,
   createProjectRpcInputSchema,
+  githubRepositoryTargetSchema,
   isLinearIssueCreateAction,
   listProjectsQuerySchema,
   listProjectsResponseSchema,
@@ -2478,6 +2509,7 @@ export {
   listSensitiveOperationAuditResponseSchema,
   MEMBER_AGENT_SENSITIVE_OPERATION_AUDIT_ROUTE,
   memberAgentSensitiveOperationAuditRouteParamsSchema,
+  permissionModeAuditChangeSchema,
   type RequestCredential,
   type RequestCredentialKind,
   RISK_WINDOW_EXECUTION_LIMIT,
@@ -2491,6 +2523,7 @@ export {
   SENSITIVE_OPERATION_SOURCE_REQUIRED_CODE,
   type SensitiveOperation,
   type SensitiveOperationAuditEvent,
+  type SensitiveOperationAuditQuery,
   type SensitiveOperationAuthorization,
   type SensitiveOperationAuthorizationInput,
   type SensitiveOperationDecision,
@@ -2498,6 +2531,7 @@ export {
   type SensitiveOperationOutcomeInput,
   type SensitiveOperationSourceKind,
   sensitiveOperationAuditEventSchema,
+  sensitiveOperationAuditQuerySchema,
   sensitiveOperationAuthorizationInputSchema,
   sensitiveOperationAuthorizationSchema,
   sensitiveOperationDecisionSchema,
@@ -2645,11 +2679,13 @@ export {
   projectSpaceNativeDeliveryTraceFinalVisibleOutcome,
   resolveRuntimeCoordinatorHeadStatusRootCause,
   resolveSpaceDispatchTraceRootCause,
+  SPACE_DISPATCH_TRACE_EXECUTION_CONTEXT_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_NATIVE_DELIVERY_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS,
+  SPACE_DISPATCH_TRACE_SDK_SCHEDULES_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_WAITING_EVIDENCE_CONTRACT_VERSION,
   spaceDispatchTraceAttemptStatusSchema,
   spaceDispatchTraceClaimLeaseSchema,
@@ -2949,6 +2985,8 @@ export {
   spaceTaskIdSchema,
   spaceTaskMutationReceiptSchema,
   spaceTaskPhaseSchema,
+  spaceTaskPullRequestSchema,
+  spaceTaskRequesterRepresentationSchema,
   spaceTaskResponseSchema,
   spaceTaskResultSchema,
   spaceTaskReviewSchema,
@@ -2992,6 +3030,19 @@ export {
   spaceWakeStopSelectorSchema,
 } from "./http/space-wake-stop";
 export {
+  WAKE_TIMING_MILESTONE_NAMES,
+  WAKE_TIMING_MODEL_VERSION,
+  WAKE_TIMING_SEGMENT_KINDS,
+  wakeTimingMilestoneNameSchema,
+  wakeTimingMilestoneSchema,
+  wakeTimingSchema,
+  wakeTimingSegmentKindSchema,
+  wakeTimingSegmentSchema,
+  wakeTimingStateSchema,
+  wakeTimingTotalsByKindSchema,
+  wakeTimingTotalsSchema,
+} from "./http/space-wake-timing";
+export {
   getSpaceWakeTraceWaterfallInputSchema,
   getSpaceWakeTraceWaterfallResponseSchema,
   WAKE_TRACE_WATERFALL_STEP_NAMES,
@@ -3020,6 +3071,7 @@ export {
 } from "./http/worker-health";
 export {
   findOpenMeldToolsUpdateFailureCode,
+  findOpenMeldToolsUpdateStep,
   formatLocalComponentsSummaryDescription,
   formatLocalComponentsSummaryLabel,
   formatLocalSetupActionDescription,
@@ -3047,18 +3099,21 @@ export {
   localSkillsComponentProjectionSchema,
   localSkillsComponentUpdateProjectionSchema,
   OPEN_MELD_TOOLS_UPDATE_FAILURE_DETAIL_MAX_CHARS,
+  type OpenMeldToolsUpdateStep,
   openMeldToolsControlCapabilitySchema,
   openMeldToolsControlRequestSchema,
   openMeldToolsControlResultSchema,
   openMeldToolsMaintenanceMutationResultSchema,
   openMeldToolsMaintenanceProjectionSchema,
   openMeldToolsUpdateAttemptSchema,
+  openMeldToolsUpdateCheckpointSchema,
   openMeldToolsUpdateFailureCodeSchema,
   openMeldToolsUpdateOperationPhaseSchema,
   openMeldToolsUpdateOperationSchema,
   openMeldToolsUpdateProcessFailureFrameSchema,
   openMeldToolsUpdateRequestResultSchema,
   openMeldToolsUpdateRequestSourceSchema,
+  openMeldToolsUpdateStepCode,
   resolveOpenMeldToolsUpdateTargetVersions,
 } from "./local-components";
 export {
@@ -3476,6 +3531,7 @@ export {
   REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS,
   readGitHubAppWebhookIssueObservation,
+  readGitHubAppWebhookPullRequestObservation,
   remoteAgentAdmissionAttemptEvidenceSchema,
   remoteAgentAdmissionStageOperationSchema,
   remoteAgentConversationContinuityContextSchema,

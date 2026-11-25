@@ -8,10 +8,10 @@ import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import { applyAuthSchemaCustomizations } from "../src/tooling/auth-schema-customizations";
 
-// Captured from auth@1.6.30 generate using the real OpenMeld CLI config.
+// Captured from auth@1.7.7 generate using the real OpenMeld CLI config.
 const generated = readFileSync(
   new URL(
-    "./fixtures/better-auth-1.6.30-postgresql.schema.txt",
+    "./fixtures/better-auth-1.7.7-postgresql.schema.txt",
     import.meta.url
   ),
   "utf8"
@@ -45,6 +45,7 @@ describe("native Better Auth schema generation", () => {
       "members",
       "organizations",
       "passkeys",
+      "rate_limits",
       "sessions",
       "users",
       "verifications",
@@ -71,11 +72,14 @@ describe("native Better Auth schema generation", () => {
     expect(emailVerified?.getSQLType()).toBe("integer");
     expect(emailVerified?.mapFromDriverValue(0)).toBe(false);
     expect(emailVerified?.mapToDriverValue(true)).toBe(1);
-    expect(columns.map((column) => column.name)).toContain(
-      "last_selected_organization_id"
+    expect(columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(["last_selected_organization_id", "deleted_at"])
     );
     const organizations = getTableConfig(
       module.exports.organizations as PgTable
+    );
+    expect(organizations.columns.map((column) => column.name)).toContain(
+      "deletion_requested_at"
     );
     expect(
       organizations.indexes.map((index) => index.config.name).sort()

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { resolveOpenMeldToolsUpdateTargetVersions } from "@openmeld/schemas";
 import type {
   DaemonServiceUpdateJob,
   OpenMeldToolsUpdateAttempt,
@@ -259,12 +260,13 @@ async function runAttempt(
   };
   await deps.persistAttempt(running);
   try {
+    const targets = resolveOpenMeldToolsUpdateTargetVersions(running.operation);
     const result = await deps.runUpgrade({
       operationId: running.operation.operationId,
       requestedAt: running.operation.requestedAt,
       requestSource: running.operation.requestSource,
-      targetCliVersion: running.operation.targetCliVersion,
-      targetServiceVersion: running.operation.targetServiceVersion,
+      targetCliVersion: targets.cliVersion,
+      targetServiceVersion: targets.serviceVersion,
     });
     if (result.exitCode !== 0) {
       const fallbackMessage = `OpenMeld update process exited with status ${String(result.exitCode)}.`;

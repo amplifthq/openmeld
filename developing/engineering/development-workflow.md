@@ -1210,6 +1210,79 @@ additive database constraint and existing rows. Do not lower published mandatory
 version floors; ship a forward corrective release. This audit authorizes no
 production migration, publication, or deployment.
 
+### Local Agent Recovery Reliability Contract Impact Audit
+
+The disconnect-recovery correction changes local Service installation, Claude
+SDK process supervision, Codex RPC failure handling, and Claude reply-review tool scope.
+It reuses the current Host receipt and delivery-only contracts. Authenticated
+local control adds `shutdown_if_idle`, backed by the Host's conditional
+`beginDrain` input. Ordinary automatic updates must not fall back when an old
+Service rejects the distinct command. Manual updates retain their existing graceful path. No cloud Runtime
+Transport, Wake, result receipt, Prepare or user CLI JSON output changes. Old and
+new cloud/local components can still perform setup, Wake, Space actions and
+diagnostics. Ordinary updates preserve workspaces in place, and a timed-out
+controlled stop cannot authorize automatic termination. Existing incomplete
+process receipts remain fenced; the change does not replay unknown work.
+
+Permission audit details require additive PostgreSQL migration 0052 before the
+new Core writer. Audit readers opt in with `responseVersion=2`; requests without
+it retain the strict legacy response shape. New readers accept omitted details
+from old receivers. Deploy the migration, Core, Gateway, then Web/packaged Desktop
+for this feature. Rollback retains the nullable column. Desktop authentication
+notifications require a Desktop release; a Web deployment does not install them.
+
+The candidate is version 0.3.282 with explicit `available` decisions for CLI and
+Service in `release/local-components-policy.json`. It does not require a contract
+floor increase. Publish the updated CLI/update worker with the Service. Do not force an old
+updater through a live Wake to deliver this fix. This implementation does not
+authorize a production migration, release, or production smoke.
+
+### Execution Host Previous-Work Recovery Contract Impact Audit
+
+A replacement Host now separates previous work that is still running from work
+that cannot be confirmed. Complete receipts naming a live Host or provider tree,
+and an owner lock held by an identified live Host, report
+`host.previous_work_running` with the existing `wait_for_previous_work` recovery
+action. The Host rechecks the unchanged same-boot rule until it can start.
+Incomplete and legacy receipts keep `host.previous_work_unconfirmed`; malformed
+receipts report `host.owner_corrupt` and holderless owner locks report
+`host.owner_lock_unverified`. None of those three is rechecked, and the update
+worker ends a waiting update for any of them as `needs_help`.
+
+Because waiting can now authorize a takeover, receipt evidence is per task and
+per provider invocation. It is complete only while no control, adapter maintenance
+or workspace cleanup runs, and each started task is either inside an invocation
+whose latest launch is recorded or between finished invocations. The shared local-execution
+slots add a pre-run hook, a task refusal callback, and a read of started work, so
+the Host records a task before its work begins. A task refused there reports
+`host.execution_record_unavailable` through the existing result outbox. The Host
+wraps each local adapter's `dispatch` to record every invocation, including repair
+rounds of the same task, before the adapter can launch a probe or provider.
+Queued tasks do not count, and idle slots keep any live recorded process group
+in the receipt.
+
+The private receipt gains `service-execution-host-owner-v3` for non-quiescent,
+per-task evidence. A non-quiescent v2 receipt from an older Service had
+Host-wide completeness and stays unconfirmed. Quiescent receipts keep the v2
+shape, so a verified rollback to 0.3.288 or earlier still starts; an older
+Service reading a non-quiescent v3 receipt reports it as corrupt, which matches
+the existing rule never to roll back over uncertain new-Host work. Host IPC
+methods, Runtime Transport, Wake, result receipts, Prepare, and CLI JSON output
+are unchanged; the Host IPC stays inside one Service artifact.
+
+The computer-care observation has accepted this code pattern and recovery action
+since 0.3.261, so current Core, Gateway, and Web read it without a deploy. Core
+copy for `restart_computer` no longer suggests that OpenMeld may recover by
+itself, which is also true for older Services that never recheck; the
+`wait_for_previous_work` copy says new tasks resume automatically. Either deploy
+order is safe. The update worker waits through `host.previous_work_running`
+and transient read failures. The three persistent refusals listed above end
+the update as `needs_help`. Desktop does not read Host reasons and needs no release.
+
+The candidate is version 0.3.290 with explicit `available` decisions for CLI and
+Service, without a contract floor increase. This implementation does not
+authorize a production release or production smoke.
+
 ### Trusted Delegation Contract Impact Audit
 
 The Local task permission correction also adds an optional Core-owned requester

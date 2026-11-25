@@ -110,6 +110,7 @@ export const sensitiveOperationAuditEvents = applicationTable(
     outcome: text("outcome").$type<SensitiveOperationOutcomeValue>().notNull(),
     reasonCode: text("reason_code"),
     confirmationId: text("confirmation_id"),
+    permissionModeChangeJson: text("permission_mode_change_json"),
     createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [

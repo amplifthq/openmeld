@@ -1,8 +1,10 @@
+import { pluginConnectionContinuationBindingSchema } from "@openmeld/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSubmitTurnRequest } from "../../remote-agent/tests/fixtures";
 import {
   readPluginConnectionExecutionBinding,
   readSpacePluginConnectionBinding,
+  readSpacePluginConnectionOriginalSource,
 } from "../src/connectors/plugin-connection-execution-binding";
 import type { CoreBindings } from "../src/lib/bindings";
 import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
@@ -72,6 +74,59 @@ beforeEach(() => {
   owners.delivery.mockResolvedValue(delivery);
 });
 describe("explicit Plugin identities survive subsequent setup without becoming a global preference", () => {
+  it.each([
+    false,
+    true,
+  ])("resolves the original goal across connection and action continuations, rejecting cycles=%s", async (cycle) => {
+    const make = (sourceId: string) =>
+      pluginConnectionContinuationBindingSchema.parse({
+        v: 1,
+        organizationId: request.organizationId,
+        spaceId: request.spaceId,
+        sourceDispatchId: "dispatch",
+        source: {
+          signalId: sourceId,
+          revision: 0,
+          fingerprint: "0".repeat(64),
+        },
+        reply: { signalId: "reply", revision: 0, fingerprint: "0".repeat(64) },
+        requesterUserId: "user_1",
+        requesterProfileId: request.author.profileId,
+        targetProfileId: request.agentProfileId,
+        service: "linear",
+        scope: "member",
+        connectionName: "linear-me",
+        connectionUpdatedAtMs: 42,
+        continuationTextDigest: "0".repeat(64),
+        threadContext: null,
+      });
+    owners.space.mockImplementation((_env, value) => {
+      if (value.signalId === "approved-action") {
+        return Promise.resolve(make("connection-continued"));
+      }
+      if (value.signalId === "connection-continued") {
+        return Promise.resolve(
+          make(cycle ? "approved-action" : "original-request")
+        );
+      }
+      return Promise.resolve(null);
+    });
+    const result = readSpacePluginConnectionOriginalSource(env, {
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      signalId: "approved-action",
+      targetProfileId: request.agentProfileId,
+      requesterUserId: "user_1",
+    });
+    if (cycle) {
+      await expect(result).rejects.toThrow("execution_identity_changed");
+    } else {
+      await expect(result).resolves.toEqual({
+        signalId: "original-request",
+        requesterProfileId: request.author.profileId,
+      });
+    }
+  });
   it.each([
     "space",
     "slack",
