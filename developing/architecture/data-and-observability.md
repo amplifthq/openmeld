@@ -2597,7 +2597,11 @@ state from it.
 
 Flushes are delayed messages on the existing Message Channel events queue. A
 flush that finds a newer message in its batch does nothing, because that
-message scheduled its own flush.
+message scheduled its own flush. Before a flush sends text to the classifier,
+Core requires a current connection with the same Organization and connection
+generation as every claimed message. Slack uses the last local workspace
+binding or token update time as its generation. A disconnected or changed
+connection archives the batch as `unrouted` without a model call.
 
 The Lark-platform context cursor keeps its existing writer. With unaddressed
 intake on, Core also reads it before a turn so Feishu Channel context is a

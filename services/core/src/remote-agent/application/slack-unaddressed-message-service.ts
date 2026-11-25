@@ -23,6 +23,7 @@ type UnaddressedSlackObservationDependencies =
       slackTeamId: string;
     }): Promise<{
       botUserId: string;
+      connectionGeneration: number;
       organizationId: string;
     } | null>;
   };
@@ -35,7 +36,11 @@ type UnaddressedSlackObservationDependencies =
 export async function readUnaddressedSlackWorkspace(input: {
   db: PostgresDatabase;
   slackTeamId: string;
-}): Promise<{ botUserId: string; organizationId: string } | null> {
+}): Promise<{
+  botUserId: string;
+  connectionGeneration: number;
+  organizationId: string;
+} | null> {
   const [binding, token] = await Promise.all([
     readRemoteAgentSlackWorkspaceBinding(input),
     readSlackWorkspaceToken(input),
@@ -45,6 +50,9 @@ export async function readUnaddressedSlackWorkspace(input: {
   }
   return {
     botUserId: token.botUserId,
+    // Slack has no connection-generation column. Changes to the binding or
+    // installed token invalidate observations made against the prior state.
+    connectionGeneration: Math.max(binding.updatedAtMs, token.updatedAtMs),
     organizationId: binding.organizationId,
   };
 }
@@ -119,7 +127,7 @@ export async function observeUnaddressedSlackChannelMessage(
     {
       db,
       message: {
-        connectionGeneration: null,
+        connectionGeneration: workspace.connectionGeneration,
         connectionId: slackTeamId,
         conversationKey: event.data.channel,
         messageId: event.data.ts,

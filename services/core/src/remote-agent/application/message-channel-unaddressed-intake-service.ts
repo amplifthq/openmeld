@@ -98,6 +98,14 @@ export type UnaddressedChannelIntakeDependencies = {
     db: PostgresDatabase;
     trigger: UnaddressedChannelMessageRecord;
   }): Promise<boolean>;
+  readCurrentConnection(input: {
+    db: PostgresDatabase;
+    connectionId: string;
+    provider: UnaddressedChannelBatchQueueMessage["provider"];
+  }): Promise<{
+    connectionGeneration: number;
+    organizationId: string;
+  } | null>;
   releaseBatch(
     input: Parameters<typeof releaseUnaddressedChannelBatch>[0]
   ): Promise<number>;
@@ -201,6 +209,7 @@ export async function settleUnaddressedChannelMessagesAnsweredByMention(input: {
 
 export function createUnaddressedChannelIntakeDependencies(input: {
   env: CoreBindings;
+  readCurrentConnection: UnaddressedChannelIntakeDependencies["readCurrentConnection"];
   submitRequest: UnaddressedChannelIntakeDependencies["submitRequest"];
 }): UnaddressedChannelIntakeDependencies {
   return {
@@ -242,6 +251,7 @@ export function createUnaddressedChannelIntakeDependencies(input: {
       });
       return cursor !== null;
     },
+    readCurrentConnection: input.readCurrentConnection,
     releaseBatch: releaseUnaddressedChannelBatch,
     settleBatch: settleUnaddressedChannelBatch,
     submitRequest: input.submitRequest,
@@ -494,6 +504,32 @@ async function routeClaimedUnaddressedChannelBatch(input: {
     db,
     trigger,
   });
+  // Authorization may have changed while these messages waited in the queue.
+  // Check every claimed row before its content can leave Core. A single claim
+  // can contain messages observed on either side of a reconnect.
+  const current = await dependencies.readCurrentConnection({
+    connectionId: trigger.connectionId,
+    db,
+    provider: input.provider,
+  });
+  if (
+    !current ||
+    input.messages.some(
+      (message) =>
+        message.connectionGeneration !== current.connectionGeneration ||
+        message.organizationId !== current.organizationId
+    )
+  ) {
+    await dependencies.settleBatch({
+      batchId,
+      db,
+      nativeDeliveryId: null,
+      nowMs: Date.now(),
+      route: "unrouted",
+      state: "archived",
+    });
+    return { batchId, route: "unrouted", status: "archived" };
+  }
   const classified = await dependencies.classifyBatch({
     batchId,
     messages: input.messages

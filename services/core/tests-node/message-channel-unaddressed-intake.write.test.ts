@@ -43,6 +43,7 @@ const START_MS = 1_000_000;
 const SLACK_TEAM_ID = "T123";
 const SLACK_CHANNEL_ID = "C123";
 const SLACK_BOT_USER_ID = "U0BOT";
+const SLACK_CONNECTION_GENERATION = START_MS - 1000;
 const ARI_THREAD_BATCH = `thread:${ROOT_ID}:sender:ou_ari`;
 const BO_THREAD_BATCH = `thread:${ROOT_ID}:sender:ou_bo`;
 
@@ -444,6 +445,67 @@ describe("unaddressed Channel message intake", () => {
     }
   });
 
+  it.each([
+    ["disconnect", null],
+    ["reconnect", { connectionGeneration: 4, organizationId: "org_1" }],
+    ["rebind", { connectionGeneration: 3, organizationId: "org_2" }],
+  ] as const)("does not classify Feishu content after a %s", async (_, live) => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await fixture.observe({
+        id: "om_1",
+        sender: "ou_ari",
+        text: "Queued before the connection changed",
+        atMs: START_MS,
+      });
+      fixture.readCurrentConnection.mockResolvedValue(live);
+      await expect(
+        fixture.flush({
+          scheduledBy: START_MS,
+          atMs: START_MS + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+        })
+      ).resolves.toMatchObject({ route: "unrouted", status: "archived" });
+      expect(fixture.classifyBatch).not.toHaveBeenCalled();
+      expect(fixture.submitRequest).not.toHaveBeenCalled();
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("does not classify a mixed Slack batch after reinstalling the app", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await fixture.observeSlack({
+        text: "Before reinstall",
+        ts: "1710000000.000100",
+      });
+      const reinstalled = {
+        botUserId: SLACK_BOT_USER_ID,
+        connectionGeneration: SLACK_CONNECTION_GENERATION + 1,
+        organizationId: "org_1",
+      };
+      fixture.readCurrentConnection.mockResolvedValue(reinstalled);
+      await fixture.observeSlack(
+        { text: "After reinstall", ts: "1710000000.000200" },
+        reinstalled
+      );
+      await expect(
+        fixture.flush({
+          atMs: START_MS + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+          batchKey: "sender:U123",
+          connectionId: SLACK_TEAM_ID,
+          conversationKey: SLACK_CHANNEL_ID,
+          provider: "slack",
+          scheduledBy: START_MS,
+        })
+      ).resolves.toMatchObject({ route: "unrouted", status: "archived" });
+      expect(fixture.classifyBatch).not.toHaveBeenCalled();
+      expect(fixture.submitRequest).not.toHaveBeenCalled();
+    } finally {
+      await fixture.close();
+    }
+  });
+
   it("archives an ordinary Slack channel message and starts its request as that message's own thread", async () => {
     const fixture = await createFixture({ route: "new_request" });
     try {
@@ -731,11 +793,25 @@ async function createFixture(input: {
   const submitRequest = vi.fn<
     UnaddressedChannelIntakeDependencies["submitRequest"]
   >(() => Promise.resolve({ deliveryId: "delivery_1", status: "submitted" }));
+  const readCurrentConnection = vi.fn<
+    UnaddressedChannelIntakeDependencies["readCurrentConnection"]
+  >(({ provider }) => {
+    if (provider === "slack") {
+      return Promise.resolve({
+        connectionGeneration: SLACK_CONNECTION_GENERATION,
+        organizationId: "org_1",
+      });
+    }
+    return Promise.resolve(
+      connection.status === "connected" ? connection : null
+    );
+  });
   const dependencies: UnaddressedChannelIntakeDependencies = {
     claimBatch: claimDueUnaddressedChannelBatch,
     classifyBatch,
     expireStaleMessages: expireStaleUnaddressedChannelMessages,
     hasPriorAgentTurn: () => Promise.resolve(false),
+    readCurrentConnection,
     releaseBatch: releaseUnaddressedChannelBatch,
     settleBatch: settleUnaddressedChannelBatch,
     submitRequest,
@@ -813,8 +889,13 @@ async function createFixture(input: {
     },
     observeSlack(
       event: Record<string, unknown>,
-      workspace: { botUserId: string; organizationId: string } | null = {
+      workspace: {
+        botUserId: string;
+        connectionGeneration: number;
+        organizationId: string;
+      } | null = {
         botUserId: SLACK_BOT_USER_ID,
+        connectionGeneration: SLACK_CONNECTION_GENERATION,
         organizationId: "org_1",
       }
     ) {
@@ -832,6 +913,7 @@ async function createFixture(input: {
       );
     },
     queue,
+    readCurrentConnection,
     slackStates: () =>
       listStates({
         connectionId: SLACK_TEAM_ID,

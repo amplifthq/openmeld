@@ -11,7 +11,10 @@ import {
   UnaddressedChannelIntakeRetryableError,
 } from "../../application/message-channel-unaddressed-intake-service";
 import { processRemoteAgentSlackEvent } from "../../application/slack-signal-service";
-import { submitUnaddressedSlackRequest } from "../../application/slack-unaddressed-message-service";
+import {
+  readUnaddressedSlackWorkspace,
+  submitUnaddressedSlackRequest,
+} from "../../application/slack-unaddressed-message-service";
 import { readRemoteAgentLarkPlatformChannelConnection } from "../../infrastructure/postgresql/lark-platform-channel-connection-repo";
 
 const UNADDRESSED_CHANNEL_BATCH_RETRY_DELAY_SECONDS = 5;
@@ -56,6 +59,24 @@ export async function handleUnaddressedChannelBatchQueueMessage(input: {
       },
       createUnaddressedChannelIntakeDependencies({
         env: input.env,
+        async readCurrentConnection({ connectionId, db, provider }) {
+          if (provider === "slack") {
+            return await readUnaddressedSlackWorkspace({
+              db,
+              slackTeamId: connectionId,
+            });
+          }
+          const connection = await readRemoteAgentLarkPlatformChannelConnection(
+            {
+              connectionId,
+              db,
+            }
+          );
+          return connection?.provider === provider &&
+            connection.status === "connected"
+            ? connection
+            : null;
+        },
         submitRequest(request) {
           if (request.trigger.provider === "slack") {
             return submitUnaddressedSlackRequest(request, {
