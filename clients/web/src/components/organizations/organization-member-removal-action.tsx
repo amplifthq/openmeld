@@ -52,7 +52,9 @@ export function OrganizationMemberRemovalAction(input: {
 }) {
 	const queryClient = useQueryClient();
 	const [open, setOpen] = useState(false);
-	const [successorUserId, setSuccessorUserId] = useState("");
+	const [selectedSuccessorUserId, setSelectedSuccessorUserId] = useState<
+		string | null
+	>(null);
 	const memberName =
 		input.member.humanProfile?.profileName ?? input.member.user.name;
 	const removalPreview = useMutation({
@@ -69,6 +71,12 @@ export function OrganizationMemberRemovalAction(input: {
 			return plan;
 		},
 	});
+	const defaultSuccessor = removalPreview.data?.defaultSuccessor;
+	const successorUserId =
+		selectedSuccessorUserId ?? defaultSuccessor?.userId ?? "";
+	const usesDefaultSuccessor =
+		defaultSuccessor !== undefined &&
+		defaultSuccessor.userId === successorUserId;
 	const removeMutation = useMutation({
 		mutationFn: async () => {
 			const plan = removalPreview.data;
@@ -82,7 +90,12 @@ export function OrganizationMemberRemovalAction(input: {
 						organizationId: input.organizationId,
 						spaces: plan.spaces,
 						...(plan.spaces.some((space) => space.action === "transfer")
-							? { successorUserId }
+							? {
+									successorUserId,
+									...(usesDefaultSuccessor
+										? { useDefaultSuccessor: true as const }
+										: {}),
+								}
 							: {}),
 					});
 				} catch (error) {
@@ -147,7 +160,7 @@ export function OrganizationMemberRemovalAction(input: {
 					input.onStarted?.();
 					removeMutation.reset();
 					input.onError(null);
-					setSuccessorUserId("");
+					setSelectedSuccessorUserId(null);
 					removalPreview.reset();
 					removalPreview.mutate();
 					setOpen(true);
@@ -187,10 +200,11 @@ export function OrganizationMemberRemovalAction(input: {
 						error={removalPreview.error}
 						isPending={removalPreview.isPending}
 						onRetry={() => removalPreview.mutate()}
-						onSuccessorChange={setSuccessorUserId}
+						onSuccessorChange={setSelectedSuccessorUserId}
 						plan={removalPreview.data}
 						successors={successors}
 						successorUserId={successorUserId}
+						usesDefaultSuccessor={usesDefaultSuccessor}
 					/>
 					<AlertDialogFooter>
 						<AlertDialogCancel disabled={removeMutation.isPending}>
@@ -200,7 +214,7 @@ export function OrganizationMemberRemovalAction(input: {
 							disabled={
 								removeMutation.isPending ||
 								!removalPreview.isSuccess ||
-								(requiresSuccessor && !successor)
+								(requiresSuccessor && !(successor || usesDefaultSuccessor))
 							}
 							onClick={() => removeMutation.mutate()}
 							type="button"
@@ -228,6 +242,7 @@ function OrganizationMemberRemovalReview(input: {
 	plan: OrganizationMemberRemovalPlan | undefined;
 	successorUserId: string;
 	successors: readonly DirectoryMember[];
+	usesDefaultSuccessor: boolean;
 }) {
 	if (input.isPending) {
 		return (
@@ -251,7 +266,23 @@ function OrganizationMemberRemovalReview(input: {
 	if (!input.plan || input.plan.spaces.length === 0) {
 		return null;
 	}
-	const successor = input.successors.find(
+	const defaultSuccessor = input.plan.defaultSuccessor;
+	const successorOptions = input.successors.map((member) => ({
+		userId: member.userId,
+		name: member.humanProfile?.profileName ?? member.user.name,
+	}));
+	if (
+		defaultSuccessor &&
+		!successorOptions.some(
+			(successor) => successor.userId === defaultSuccessor.userId
+		)
+	) {
+		successorOptions.unshift({
+			userId: defaultSuccessor.userId,
+			name: defaultSuccessor.profileName,
+		});
+	}
+	const successor = successorOptions.find(
 		(member) => member.userId === input.successorUserId
 	);
 	return (
@@ -276,31 +307,27 @@ function OrganizationMemberRemovalReview(input: {
 						<SelectTrigger
 							aria-label="New Space owner"
 							className="w-full"
-							displayValue={
-								successor
-									? (successor.humanProfile?.profileName ?? successor.user.name)
-									: undefined
-							}
+							displayValue={successor?.name}
 							placeholder="Choose a new Space owner"
 						/>
 						<SelectContent>
-							{input.successors.map((member, index) => (
+							{successorOptions.map((member, index) => (
 								<SelectItem
 									index={index}
-									key={member.memberId}
+									key={member.userId}
 									value={member.userId}
 								>
-									{member.humanProfile?.profileName ?? member.user.name}
+									{member.name}
 								</SelectItem>
 							))}
 						</SelectContent>
 					</Select>
 					<p className="text-muted-foreground text-xs">
-						The new owner will join the transferred Spaces and gain access to
-						their history and files, including private content. You only gain
-						access if you select yourself.
+						{input.usesDefaultSuccessor && defaultSuccessor
+							? `${defaultSuccessor.profileName} is the organization’s default recipient and already has access to all Spaces listed for transfer. Confirm to give them ownership.`
+							: "The new owner will join the transferred Spaces and gain access to their history and files, including private content. You only gain access if you select yourself."}
 					</p>
-					{input.successors.length === 0 ? (
+					{successorOptions.length === 0 ? (
 						<p className="text-destructive text-xs" role="alert">
 							No other member has an active Human Profile. Add or enable a
 							teammate before transferring these Spaces.

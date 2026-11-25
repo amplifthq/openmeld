@@ -103,6 +103,58 @@ describe("Organization member removal routes", () => {
     expect(coreRpc.prepareOrganizationMemberRemoval).not.toHaveBeenCalled();
   });
 
+  it("opts into the named default without changing legacy review payloads", async () => {
+    const { coreRpc, env } = makeEnv();
+    const body = { memberId: PLAN.memberId };
+    const currentPlan = {
+      ...PLAN,
+      spaces: [
+        {
+          spaceId: "shared-space",
+          name: "Operations",
+          action: "transfer" as const,
+        },
+      ],
+      defaultSuccessor: {
+        userId: "fixture-owner",
+        profileName: "Owner Fixture",
+      },
+    };
+    const legacy = await request(env, "preview", body);
+    expect(legacy.status).toBe(200);
+    await expect(legacy.json()).resolves.toEqual(PLAN);
+    expect(coreRpc.previewOrganizationMemberRemoval).toHaveBeenNthCalledWith(
+      1,
+      expect.not.objectContaining({ includeDefaultSuccessor: true })
+    );
+
+    coreRpc.previewOrganizationMemberRemoval.mockResolvedValueOnce(currentPlan);
+    const current = await request(
+      env,
+      "preview",
+      body,
+      "?includeDefaultSuccessor=1"
+    );
+    expect(current.status).toBe(200);
+    await expect(current.json()).resolves.toEqual(currentPlan);
+    expect(coreRpc.previewOrganizationMemberRemoval).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ ...body, includeDefaultSuccessor: true })
+    );
+
+    const prepared = {
+      ...body,
+      spaces: currentPlan.spaces,
+      successorUserId: currentPlan.defaultSuccessor.userId,
+      useDefaultSuccessor: true,
+    };
+    const result = await request(env, "prepare", prepared);
+    expect(result.status).toBe(200);
+    expect(
+      coreRpc.prepareOrganizationMemberRemoval
+    ).toHaveBeenCalledExactlyOnceWith(expect.objectContaining(prepared));
+  });
+
   it("rejects unreviewed preparation and preserves an uncertain mutation outcome without retrying", async () => {
     const { coreRpc, env } = makeEnv();
     expect(
@@ -136,11 +188,12 @@ describe("Organization member removal routes", () => {
 function request(
   env: CloudflareBindings,
   action: "preview" | "prepare",
-  body: unknown
+  body: unknown,
+  query = ""
 ) {
   return app.fetch(
     new Request(
-      `http://local/v1/organizations/current/member-removal/${action}`,
+      `http://local/v1/organizations/current/member-removal/${action}${query}`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },

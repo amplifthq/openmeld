@@ -138,3 +138,92 @@ it("does not remove the member when preview is denied", async () => {
 	).toHaveProperty("disabled", true);
 	expect(mocks.remove).not.toHaveBeenCalled();
 });
+
+const defaultSuccessor = {
+	userId: "owner-user-fixture",
+	profileName: "Owner Fixture",
+};
+const sharedSpaceTransfer = {
+	spaceId: "space-fixture",
+	name: "Operations handoff",
+	action: "transfer",
+};
+const DEFAULT_RECIPIENT_COPY =
+	/Owner Fixture is the organization’s default recipient and already has access/;
+const EXPLICIT_PRIVATE_ACCESS_COPY = /including private content/;
+
+it("reviews the configured recipient before preparing transfer and removing the member", async () => {
+	mocks.preview.mockResolvedValue({
+		memberId: member.memberId,
+		userId: member.userId,
+		spaces: [sharedSpaceTransfer],
+		defaultSuccessor,
+	});
+	mocks.prepare.mockResolvedValue({ prepared: true });
+	mocks.remove.mockResolvedValue(undefined);
+	renderAction("admin");
+	fireEvent.click(screen.getByRole("button", { name: "Remove Casey Fixture" }));
+	const dialog = await screen.findByRole("alertdialog");
+	expect(await within(dialog).findByText(DEFAULT_RECIPIENT_COPY)).toBeTruthy();
+	expect(within(dialog).queryByText(EXPLICIT_PRIVATE_ACCESS_COPY)).toBeNull();
+	expect(
+		within(dialog).getByRole("combobox", { name: "New Space owner" })
+			.textContent
+	).toContain(defaultSuccessor.profileName);
+	expect(mocks.prepare).not.toHaveBeenCalled();
+	expect(mocks.remove).not.toHaveBeenCalled();
+	fireEvent.click(
+		within(dialog).getByRole("button", { name: "Remove member" })
+	);
+	await waitFor(() => expect(mocks.remove).toHaveBeenCalledOnce());
+	expect(mocks.prepare).toHaveBeenCalledExactlyOnceWith({
+		memberId: member.memberId,
+		organizationId: organization.id,
+		spaces: [sharedSpaceTransfer],
+		successorUserId: defaultSuccessor.userId,
+		useDefaultSuccessor: true,
+	});
+	expect(mocks.prepare.mock.invocationCallOrder[0]).toBeLessThan(
+		mocks.remove.mock.invocationCallOrder[0]
+	);
+});
+
+it("requires an explicit choice when Core did not offer the organization default", async () => {
+	mocks.preview.mockResolvedValue({
+		memberId: member.memberId,
+		userId: member.userId,
+		spaces: [sharedSpaceTransfer],
+	});
+	renderAction("owner");
+	fireEvent.click(screen.getByRole("button", { name: "Remove Casey Fixture" }));
+	const dialog = await screen.findByRole("alertdialog");
+	expect(
+		await within(dialog).findByText(EXPLICIT_PRIVATE_ACCESS_COPY)
+	).toBeTruthy();
+	expect(within(dialog).queryByText(DEFAULT_RECIPIENT_COPY)).toBeNull();
+	expect(
+		within(dialog).getByRole("button", { name: "Remove member" })
+	).toHaveProperty("disabled", true);
+	expect(mocks.prepare).not.toHaveBeenCalled();
+	expect(mocks.remove).not.toHaveBeenCalled();
+});
+
+it("does not remove the member if the reviewed default is no longer eligible", async () => {
+	mocks.preview.mockResolvedValue({
+		memberId: member.memberId,
+		userId: member.userId,
+		spaces: [sharedSpaceTransfer],
+		defaultSuccessor,
+	});
+	mocks.prepare.mockRejectedValue(new Error("Space ownership changed."));
+	renderAction("admin");
+	fireEvent.click(screen.getByRole("button", { name: "Remove Casey Fixture" }));
+	const dialog = await screen.findByRole("alertdialog");
+	await within(dialog).findByText(DEFAULT_RECIPIENT_COPY);
+	fireEvent.click(
+		within(dialog).getByRole("button", { name: "Remove member" })
+	);
+	await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+	expect(mocks.prepare).toHaveBeenCalledOnce();
+	expect(mocks.remove).not.toHaveBeenCalled();
+});

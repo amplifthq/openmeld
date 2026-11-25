@@ -51,6 +51,10 @@ export function registerOrganizationMemberRemovalRoutes(
       execute: () =>
         c.var.coreRpc.previewOrganizationMemberRemoval({
           ...parsed.data,
+          // Older renderers parse the original strict plan shape.
+          ...(c.req.query("includeDefaultSuccessor") === "1"
+            ? { includeDefaultSuccessor: true as const }
+            : {}),
           context: buildCoreRpcContext(c),
         }),
     });

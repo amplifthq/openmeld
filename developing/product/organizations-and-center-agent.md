@@ -71,6 +71,24 @@ with an active Human Profile and receives Space membership and ownership, includ
 access to private history. Confirmation must make that access grant explicit.
 The complete Space-owned rules live in `space-collaboration.md`.
 
+A workspace may opt into a default recipient for member-removal Space ownership handoff.
+Core takes a JSON object of immutable Organization IDs to immutable native
+membership IDs from `OPENMELD_ORGANIZATION_MEMBER_REMOVAL_RECIPIENTS`,
+for example `{"org-example":"member-example"}`. Unset configuration has no
+effect. Enable it only after compatible Core, Gateway, and Web code is running.
+Configure only a verified owner of that same Organization with an
+active default Human Profile. Core never selects a recipient by name, email,
+creator status, or an arbitrary owner. The reviewer still confirms the named
+owner and the list of Spaces. The default is offered only if the recipient's
+Human Profile is already an active member of every Space marked for transfer;
+it neither adds membership nor grants access to private history. If no default
+is eligible, the same explicit chooser and private-history warning apply.
+Changing configuration, role, profile, or access invalidates a previously
+reviewed default before transfer, and each Space revalidates under its own
+ownership serialization gate. This does not transfer personal channels,
+Computers, workstation Agent Profiles, or credentials; already shared
+organization assets remain with the Organization.
+
 These explicitly confirmed Space changes happen before the existing native Auth
 member removal. They persist if preparation partially succeeds or native removal
 later fails. The UI reports the incomplete removal and refreshes the plan for an
