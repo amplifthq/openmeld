@@ -130,31 +130,12 @@ export function DirectoryHumanProfilesWorkspace(input: {
 			defaultModuleSidebarOpen={!!input.selectedProfileId}
 			initialOuterSidebarState={input.initialSidebarStates?.outer}
 			mainHeader={
-				input.selectedProfileId ? (
-					<div className="flex h-full items-center justify-between gap-2 px-3 sm:px-4">
-						<Link
-							className={buttonVariants({ size: "sm", variant: "ghost" })}
-							search={{}}
-							to={buildOrganizationPeoplePath(input.orgSlug)}
-						>
-							<ArrowLeftIcon aria-hidden="true" data-icon="inline-start" />
-							Back to Team
-						</Link>
-						{selectedMember && input.memberActions}
-					</div>
-				) : (
-					<TeamHeader
-						actions={
-							input.onInviteMembers ? (
-								<Button onClick={input.onInviteMembers} size="sm">
-									<PlusIcon />
-									Invite members
-								</Button>
-							) : undefined
-						}
-						active="people"
-					/>
-				)
+				<PeopleHeader
+					memberActions={selectedMember && input.memberActions}
+					onInviteMembers={input.onInviteMembers}
+					orgSlug={input.orgSlug}
+					showBack={Boolean(input.selectedProfileId)}
+				/>
 			}
 			mainSidebar={{
 				key: "people",
@@ -217,6 +198,42 @@ export function DirectoryHumanProfilesWorkspace(input: {
 				/>
 			)}
 		</AppFullWidthLayout>
+	);
+}
+
+function PeopleHeader(input: {
+	memberActions?: ReactNode;
+	onInviteMembers?: () => void;
+	orgSlug: string;
+	showBack: boolean;
+}) {
+	if (input.showBack) {
+		return (
+			<div className="flex h-full items-center justify-between gap-2 px-3 sm:px-4">
+				<Link
+					className={buttonVariants({ size: "sm", variant: "ghost" })}
+					search={{}}
+					to={buildOrganizationPeoplePath(input.orgSlug)}
+				>
+					<ArrowLeftIcon aria-hidden="true" data-icon="inline-start" />
+					Back to Team
+				</Link>
+				{input.memberActions}
+			</div>
+		);
+	}
+	return (
+		<TeamHeader
+			actions={
+				input.onInviteMembers ? (
+					<Button onClick={input.onInviteMembers} size="sm">
+						<PlusIcon />
+						Invite members
+					</Button>
+				) : undefined
+			}
+			active="people"
+		/>
 	);
 }
 
