@@ -548,39 +548,16 @@ export function createSelfCliRunner(): WorkspaceCliRunner {
     });
 }
 
-export function parseWorkspaceMcpArgv(argv: readonly string[]): {
+export async function runWorkspaceMcpServer(options: {
   readOnly: boolean;
   profile?: string;
-} {
-  const args = argv.slice(3);
-  let readOnly = false;
-  let profile: string | undefined;
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg === "--read-only") {
-      readOnly = true;
-      continue;
+}): Promise<void> {
+  if (options.profile !== undefined) {
+    const profile = options.profile.trim();
+    if (!profile || profile.startsWith("-")) {
+      throw new Error("openmeld mcp --profile needs a profile ID.");
     }
-    if (arg === "--profile") {
-      const value = args[index + 1]?.trim();
-      if (!value) {
-        throw new Error("openmeld mcp --profile needs a profile ID.");
-      }
-      profile = value;
-      index += 1;
-      continue;
-    }
-    throw new Error(
-      `Unknown openmeld mcp option "${String(arg)}". Supported: --read-only, --profile <id>.`
-    );
   }
-  return { readOnly, ...(profile ? { profile } : {}) };
-}
-
-export async function runWorkspaceMcpServer(
-  argv: readonly string[] = process.argv
-): Promise<void> {
-  const options = parseWorkspaceMcpArgv(argv);
   const server = createWorkspaceMcpServer({
     ...options,
     runCli: createSelfCliRunner(),

@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import {
   createWorkspaceMcpServer,
   formatWorkspaceCliResult,
-  parseWorkspaceMcpArgv,
   resolveSelfCliCommand,
   type WorkspaceCliInvocation,
   type WorkspaceCliResult,
@@ -235,25 +234,6 @@ describe("openmeld mcp", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain("The outcome is unknown");
-  });
-
-  it("parses its own options and refuses unknown ones", () => {
-    expect(parseWorkspaceMcpArgv(["node", "openmeld", "mcp"])).toEqual({
-      readOnly: false,
-    });
-    expect(
-      parseWorkspaceMcpArgv([
-        "node",
-        "openmeld",
-        "mcp",
-        "--read-only",
-        "--profile",
-        "usr_me",
-      ])
-    ).toEqual({ readOnly: true, profile: "usr_me" });
-    expect(() =>
-      parseWorkspaceMcpArgv(["node", "openmeld", "mcp", "--yolo"])
-    ).toThrow("Unknown openmeld mcp option");
   });
 
   it("starts itself through node for the npm build and directly for the binary", () => {

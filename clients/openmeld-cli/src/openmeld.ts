@@ -322,6 +322,7 @@ import {
   isCliMetadataQueryArgv,
   isPassiveCliQueryArgv,
   isStandaloneViewQueryArgv,
+  isWorkspaceMcpServerArgv,
   parseLeadingCommandTokensFromArgv,
   parseStandaloneViewSwitchArgv,
   parseViewFromArgv,
@@ -4397,11 +4398,12 @@ program
   )
   .option("--read-only", "Only expose tools that read", false)
   .option("--profile <id>", "OpenMeld profile ID the tools act as")
-  .action(async () => {
+  .action(async (options: { readOnly: boolean; profile?: string }) => {
+    parseViewFromArgv(process.argv);
     const { runWorkspaceMcpServer } = await import(
       "./mcp/workspace-mcp-server"
     );
-    await runWorkspaceMcpServer(process.argv);
+    await runWorkspaceMcpServer(options);
   });
 
 const spaceTasksCmd = withSpaceProfileOption(
@@ -6556,10 +6558,7 @@ async function main() {
     return;
   }
   if (isWorkspaceMcpServerArgv(argv)) {
-    const { runWorkspaceMcpServer } = await import(
-      "./mcp/workspace-mcp-server"
-    );
-    await runWorkspaceMcpServer(argv);
+    await program.parseAsync(argv);
     return;
   }
   if (isDispatchSpaceActionArgv(argv)) {
@@ -6578,18 +6577,6 @@ function isDispatchSpaceActionToolServerArgv(argv: readonly string[]): boolean {
     argv[2] === "space" &&
     argv[3] === "action" &&
     argv[4] === "tool-server"
-  );
-}
-
-/**
- * `openmeld mcp` speaks the MCP protocol on stdout, so it starts before any
- * entry check, banner, or update notice can write there. Help stays with the
- * normal command parser.
- */
-function isWorkspaceMcpServerArgv(argv: readonly string[]): boolean {
-  return (
-    argv[2] === "mcp" &&
-    !argv.slice(3).some((arg) => arg === "--help" || arg === "-h")
   );
 }
 
