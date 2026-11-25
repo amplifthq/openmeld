@@ -151,16 +151,32 @@ describe("conversation navigation", () => {
 		expect(next.chats?.groups).toEqual(chats.groups);
 		expect(next.groups).toEqual(preferences.groups);
 	});
-	it("rejects moving a Space into a direct-message group", () => {
+	it("moves both conversation types into one folder and removes stale membership", () => {
+		const item = conversation("space", "space", 1);
+		const next = moveConversationPreferences({
+			preferences,
+			chats,
+			conversation: item,
+			target: sections[3],
+			visibleIds: ["dm"],
+		});
+		expect(next.chats?.groups[0].spaceIds).toEqual(["dm", "space"]);
+		expect(next.groups[0].spaceIds).toEqual([]);
+		const nextChats = next.chats ?? chats;
+		const nextSections = conversationSections(next, nextChats);
 		expect(
-			moveConversationPreferences({
-				preferences,
-				chats,
-				conversation: conversation("space", "space", 1),
-				target: sections[3],
-				visibleIds: [],
-			})
-		).toBe(preferences);
+			conversationSectionId(item, nextSections, nextChats.pinned.spaceIds)
+		).toBe("chat:work");
+
+		const unfiled = moveConversationPreferences({
+			preferences: next,
+			chats: nextChats,
+			conversation: item,
+			target: nextSections[2],
+			visibleIds: [],
+		});
+		expect(unfiled.chats?.groups[0].spaceIds).toEqual(["dm"]);
+		expect(unfiled.spaces.spaceIds).toEqual(["space"]);
 	});
 	it("unpinning through a group move only changes the matching preference owner", () => {
 		const next = moveConversationPreferences({

@@ -2,12 +2,12 @@ import type { OrganizationDocumentKind } from "@openmeld/schemas/types";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { appShellStaticData } from "#/components/app/shell-layout";
-import { TeamHeader } from "#/components/directory/team-header";
 import { TeamFilesSidebar } from "#/components/organizations/team-files-navigation";
 import {
 	TeamFilesPage,
 	TeamKnowledgeFilesPage,
 } from "#/components/organizations/team-files-page";
+import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { buildOrganizationSkillsPath } from "#/lib/organizations/organization-routes";
 import { fileViewParser } from "#/lib/page-tab-search";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
@@ -77,7 +77,7 @@ function TeamFilesRoute() {
 			contentLayout="flush"
 			defaultModuleSidebarOpen
 			initialOuterSidebarState={sidebarStates.outer}
-			mainHeader={<TeamHeader active="files" />}
+			mainHeader={<SpaceWindowHeader renderFrame={false} title="Files" />}
 			mainSidebar={{
 				key: "files",
 				label: "Files",

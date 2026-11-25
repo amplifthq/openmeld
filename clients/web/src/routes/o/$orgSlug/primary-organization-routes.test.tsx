@@ -107,6 +107,12 @@ vi.mock("#/components/profiles/people-and-agents-page", () => ({
 	),
 }));
 
+vi.mock("#/components/directory/team-directory-page", () => ({
+	TeamDirectoryPage: ({ view }: { view: string }) => (
+		<h1 data-section-id={view}>Team</h1>
+	),
+}));
+
 vi.mock("#/components/organizations/organization-entry-page", () => ({
 	NewOrganizationPage: ({ intent }: { intent?: string }) => (
 		<h1 data-intent={intent} data-section-id="new-organization">
@@ -268,30 +274,19 @@ describe("primary organization routes", () => {
 		expect(heading.closest("main")).toBeTruthy();
 	});
 
-	it.each([
-		{
-			expectedSectionId: "people",
-			route: PeopleRoute,
-		},
-	])("mounts the first-level $expectedSectionId home", ({
-		expectedSectionId,
-		route,
-	}) => {
-		vi.spyOn(route, "useLoaderData").mockReturnValue({
+	it("opens the Members view on Team home", () => {
+		vi.spyOn(PeopleRoute, "useLoaderData").mockReturnValue({
 			sidebarStates: undefined,
 		});
-		vi.spyOn(route, "useParams").mockReturnValue({ orgSlug: "acme" });
-		vi.spyOn(route, "useSearch").mockReturnValue({});
-		const Component = route.options.component as ComponentType;
+		vi.spyOn(PeopleRoute, "useSearch").mockReturnValue({});
+		const Component = PeopleRoute.options.component as ComponentType;
 		render(<Component />);
 
 		expect(
 			screen
-				.getByRole("heading", {
-					name: new RegExp(`^${expectedSectionId}$`, "i"),
-				})
+				.getByRole("heading", { name: "Team" })
 				.getAttribute("data-section-id")
-		).toBe(expectedSectionId);
+		).toBe("members");
 	});
 
 	it("mounts the full-page organization manager", () => {

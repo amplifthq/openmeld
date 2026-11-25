@@ -1050,7 +1050,9 @@ describe("app space entry route", () => {
 			screen.getByText("Ask Mira Chen to add you to this Space.")
 		).toBeTruthy();
 		expect(
-			screen.getByRole("link", { name: "Back to Spaces" }).getAttribute("href")
+			screen
+				.getByRole("link", { name: "Back to Messages" })
+				.getAttribute("href")
 		).toBe("/o/acme/spaces");
 		// The draft conversation mounted while access was pending is removed once
 		// the resolver rejects it.

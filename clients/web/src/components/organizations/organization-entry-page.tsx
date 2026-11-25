@@ -120,7 +120,7 @@ function OrganizationEntryPageContent(input: {
 	const returnsToOrganizationPicker = selectableOrganizations.length > 0;
 	const backLabel = returnsToOrganizationPicker
 		? "Back to Organizations"
-		: "Back to Spaces";
+		: "Back to Messages";
 
 	const handleCreateOrganization = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();

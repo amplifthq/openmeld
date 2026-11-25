@@ -77,7 +77,7 @@ vi.mock("#/lib/sidebar-width-cookie", async (importOriginal) => ({
 	...(await importOriginal<typeof import("#/lib/sidebar-width-cookie")>()),
 	getAppSidebarStatesForRoute: readSidebar,
 }));
-// Keep real route options, page content, TeamHeader and Router. Only the outer
+// Keep real route options, page content and Router. Only the outer
 // platform chrome/account services are substituted; this is not visual smoke.
 vi.mock("#/components/app/app-shell", () => ({ AppShell: Outlet }));
 vi.mock("#/components/app/app-full-width-layout", () => ({
@@ -96,7 +96,13 @@ vi.mock("#/components/app/app-full-width-layout", () => ({
 vi.mock("#/components/spaces/space-header", () => ({
 	SpaceWindowHeader: ({
 		navigation,
-	}: ComponentProps<typeof SpaceWindowHeader>) => <header>{navigation}</header>,
+		title,
+	}: ComponentProps<typeof SpaceWindowHeader>) => (
+		<header data-testid="skills-route-header">
+			<span>{title}</span>
+			{navigation}
+		</header>
+	),
 }));
 beforeEach(() => {
 	vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
@@ -165,14 +171,12 @@ describe("Team Skills routes", () => {
 	it.each([
 		"/o/acme/skills",
 		"/o/acme/skills/skill-one",
-	])("renders %s in Team without a Center Agent session", async (url) => {
+	])("renders %s as a standalone resource without a Center Agent session", async (url) => {
 		const { router } = renderRoutes(url);
-		await screen.findByRole("tab", { name: "Skills", selected: true });
-		expect(screen.getAllByRole("tab")).toEqual(
-			["People", "Agents", "Files", "Skills", "Plugins"].map((name) =>
-				screen.getByRole("tab", { name })
-			)
+		expect((await screen.findByTestId("skills-route-header")).textContent).toBe(
+			"Skills"
 		);
+		expect(screen.queryByRole("tablist", { name: "Team view" })).toBeNull();
 		expect(screen.queryByRole("complementary")).toBeNull();
 		expect(
 			resolveAppOuterRailDestinationFromMatches(router.state.matches)
@@ -203,30 +207,30 @@ describe("Team Skills routes", () => {
 		}
 	});
 
-	it("retains Team ownership during data loading and a data error", async () => {
+	it("retains the Skills header during loading and a data error", async () => {
 		listSkills.mockRejectedValue(new Error("Offline"));
 		renderRoutes("/o/acme/skills");
-		await screen.findByRole("tab", { name: "Skills", selected: true });
+		await screen.findByTestId("skills-route-header");
 		await screen.findByText("Could not load Skills");
-		expect(
-			screen.getByRole("tab", { name: "Skills", selected: true })
-		).toBeTruthy();
+		expect(screen.getByTestId("skills-route-header").textContent).toBe(
+			"Skills"
+		);
 		expect(screen.queryByRole("complementary")).toBeNull();
 	});
 
-	it("keeps a route-loader failure inside the Team shell and can retry", async () => {
+	it("keeps a route-loader failure inside the Skills shell and can retry", async () => {
 		readSidebar.mockRejectedValueOnce(new Error("Sidebar read failed"));
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		renderRoutes("/o/acme/skills");
 		await screen.findByText("Could not open Skills");
-		expect(
-			screen.getByRole("tab", { name: "Skills", selected: true })
-		).toBeTruthy();
+		expect(screen.getByTestId("skills-route-header").textContent).toBe(
+			"Skills"
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 		await screen.findByText("No Skills yet");
 	});
 
-	it("renders the Team shell while the route loader is pending", async () => {
+	it("renders the Skills shell while the route loader is pending", async () => {
 		vi.useFakeTimers();
 		try {
 			readSidebar.mockReturnValue(new Promise(() => undefined));
@@ -239,9 +243,9 @@ describe("Team Skills routes", () => {
 			expect(
 				screen.getByRole("status", { name: "Loading Skills" })
 			).toBeTruthy();
-			expect(
-				screen.getByRole("tab", { name: "Skills", selected: true })
-			).toBeTruthy();
+			expect(screen.getByTestId("skills-route-header").textContent).toBe(
+				"Skills"
+			);
 			expect(screen.queryByRole("complementary")).toBeNull();
 		} finally {
 			cleanup();
@@ -250,16 +254,6 @@ describe("Team Skills routes", () => {
 			await vi.runOnlyPendingTimersAsync();
 			vi.useRealTimers();
 		}
-	});
-
-	it("does not carry session, plugin scope, query or anchor context through Team tabs", async () => {
-		const { router } = renderRoutes(
-			"/o/acme/skills?draft=new&group=g&session=s&scope=personal#skill-history-heading"
-		);
-		fireEvent.click(await screen.findByRole("tab", { name: "People" }));
-		await waitFor(() =>
-			expect(router.state.location.href).toBe("/o/acme/people")
-		);
 	});
 });
 
@@ -325,10 +319,7 @@ describe("legacy Skills compatibility", () => {
 
 describe("Skill navigation with the real UnsavedChangesGuard", () => {
 	it.each([
-		["People", "/o/acme/people"],
-		["Agents", "/o/acme/agents"],
-		["Plugins", "/o/acme/plugins"],
-		["Skills", "/o/acme/skills"],
+		["Team", "/o/acme/people"],
 		["All Skills", "/o/acme/skills"],
 		["Switch Organization", "/o/beta/skills"],
 	])("can cancel or discard when leaving via %s", async (exit, destination) => {
@@ -347,12 +338,13 @@ describe("Skill navigation with the real UnsavedChangesGuard", () => {
 							nextOrgSlug: "beta",
 						}),
 					});
+				} else if (exit === "Team") {
+					router.navigate({
+						to: "/o/$orgSlug/people",
+						params: { orgSlug: "acme" },
+					});
 				} else {
-					fireEvent.click(
-						screen.getByRole(exit === "All Skills" ? "link" : "tab", {
-							name: exit,
-						})
-					);
+					fireEvent.click(screen.getByRole("link", { name: exit }));
 				}
 			});
 		leave();
@@ -711,11 +703,6 @@ function renderRoutes(
 		path: "agents",
 		component: () => <h1>Agents</h1>,
 	});
-	const plugins = createRoute({
-		getParentRoute: () => org,
-		path: "plugins",
-		component: () => <h1>Plugins</h1>,
-	});
 	const before = createRoute({
 		getParentRoute: () => root,
 		path: "/before",
@@ -732,7 +719,6 @@ function renderRoutes(
 				legacy.addChildren([legacyIndex, legacyDetail]),
 				people,
 				agents,
-				plugins,
 			]),
 		]),
 	});

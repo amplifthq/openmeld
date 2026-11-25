@@ -39,10 +39,8 @@ export function SidebarSectionActions(input: {
 	sort: Sort;
 	disabled: boolean;
 	onSort: (sort: Sort) => void;
-	onNewItem?: () => void;
-	newItemLabel?: string;
-	addLabel?: string;
 	onNewGroup?: (name: string) => void;
+	groupNoun?: "folder" | "group";
 	onDelete?: () => void;
 	sortOptions?: readonly (readonly [Sort, string])[];
 	filter?: {
@@ -52,13 +50,12 @@ export function SidebarSectionActions(input: {
 	};
 }) {
 	const rename = useSidebarGroupRename();
-	const [addOpen, setAddOpen] = useState(false);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [creatingGroup, setCreatingGroup] = useState(false);
 	const [name, setName] = useState("");
 	const nameId = useId();
-	const addLabel =
-		input.addLabel ?? (input.onNewItem ? "Add Space or group" : "New group");
+	const groupNoun = input.groupNoun ?? "group";
+	const addLabel = `New ${groupNoun}`;
 	const selectedSort =
 		!input.sortOptions && input.sort === "name" ? "recent" : input.sort;
 	const sorts: readonly (readonly [Sort, string])[] = input.sortOptions ?? [
@@ -70,37 +67,25 @@ export function SidebarSectionActions(input: {
 		<>
 			<SidebarGroupActions
 				className="static hidden h-6 group-focus-within/sidebar-group-root:flex group-hover/sidebar-group-root:flex data-open:flex [@media(hover:none)]:flex"
-				data-open={input.alwaysVisible || addOpen || settingsOpen || undefined}
+				data-open={
+					input.alwaysVisible || creatingGroup || settingsOpen || undefined
+				}
 			>
-				{(input.onNewItem || input.onNewGroup) && (
-					<DropdownMenu onOpenChange={setAddOpen} open={addOpen}>
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<DropdownMenuTrigger
-										render={<SidebarGroupAction aria-label={addLabel} />}
-									/>
-								}
-							>
-								<PlusIcon />
-							</TooltipTrigger>
-							<TooltipContent>{addLabel}</TooltipContent>
-						</Tooltip>
-						<FluidDropdownMenuContent align="end" className="w-48">
-							{input.onNewItem && (
-								<FluidDropdownMenuItem index={0} onClick={input.onNewItem}>
-									{input.newItemLabel ?? "New Space"}
-								</FluidDropdownMenuItem>
-							)}
-							<FluidDropdownMenuItem
-								disabled={input.disabled}
-								index={input.onNewItem ? 1 : 0}
-								onClick={() => setCreatingGroup(true)}
-							>
-								New group
-							</FluidDropdownMenuItem>
-						</FluidDropdownMenuContent>
-					</DropdownMenu>
+				{input.onNewGroup && (
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<SidebarGroupAction
+									aria-label={addLabel}
+									onClick={() => setCreatingGroup(true)}
+									render={<button disabled={input.disabled} type="button" />}
+								/>
+							}
+						>
+							<PlusIcon aria-hidden="true" />
+						</TooltipTrigger>
+						<TooltipContent>{addLabel}</TooltipContent>
+					</Tooltip>
 				)}
 				<DropdownMenu onOpenChange={setSettingsOpen} open={settingsOpen}>
 					<Tooltip>
@@ -109,7 +94,7 @@ export function SidebarSectionActions(input: {
 								<DropdownMenuTrigger
 									render={
 										<SidebarGroupAction
-											aria-label={`${input.label} group settings`}
+											aria-label={`${input.label} ${groupNoun} settings`}
 										/>
 									}
 								/>
@@ -117,7 +102,9 @@ export function SidebarSectionActions(input: {
 						>
 							<SlidersHorizontalIcon />
 						</TooltipTrigger>
-						<TooltipContent>Group settings</TooltipContent>
+						<TooltipContent>
+							{groupNoun === "folder" ? "Folder settings" : "Group settings"}
+						</TooltipContent>
 					</Tooltip>
 					<FluidDropdownMenuContent
 						align="end"
@@ -148,7 +135,7 @@ export function SidebarSectionActions(input: {
 								index={sorts.length}
 								onClick={() => rename?.()}
 							>
-								Rename group
+								Rename {groupNoun}
 							</FluidDropdownMenuItem>
 						)}
 						{input.onDelete && (
@@ -157,7 +144,7 @@ export function SidebarSectionActions(input: {
 								index={sorts.length + 1}
 								onClick={input.onDelete}
 							>
-								Delete group
+								Delete {groupNoun}
 							</FluidDropdownMenuItem>
 						)}
 						{input.filter && (
@@ -187,7 +174,7 @@ export function SidebarSectionActions(input: {
 			<Dialog onOpenChange={setCreatingGroup} open={creatingGroup}>
 				<DialogContent className="sm:max-w-sm">
 					<DialogHeader>
-						<DialogTitle>New group</DialogTitle>
+						<DialogTitle>New {groupNoun}</DialogTitle>
 					</DialogHeader>
 					<form
 						className="flex flex-col gap-3"
@@ -201,7 +188,9 @@ export function SidebarSectionActions(input: {
 							setName("");
 						}}
 					>
-						<label htmlFor={nameId}>Group name</label>
+						<label htmlFor={nameId}>
+							{groupNoun === "folder" ? "Folder name" : "Group name"}
+						</label>
 						<Input
 							id={nameId}
 							maxLength={80}
@@ -209,7 +198,7 @@ export function SidebarSectionActions(input: {
 							value={name}
 						/>
 						<Button disabled={input.disabled || !name.trim()} type="submit">
-							Create group
+							Create {groupNoun}
 						</Button>
 					</form>
 				</DialogContent>

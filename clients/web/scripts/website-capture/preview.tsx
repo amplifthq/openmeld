@@ -42,6 +42,7 @@ import {
 	TeamSidebarHeaderActionsProvider,
 } from "../../src/components/directory/team-sidebar-header";
 import { TeamFilesSidebar } from "../../src/components/organizations/team-files-navigation";
+import { ConversationSelectionPrompt } from "../../src/components/spaces/conversations-home";
 import { ConversationsSidebar } from "../../src/components/spaces/conversations-sidebar";
 import { Bubble } from "../../src/components/spaces/primitives/bubble";
 import {
@@ -113,7 +114,6 @@ import {
 	DemoFiles,
 	DocumentDialog,
 	FocusedTeamScene,
-	SpaceDirectory,
 	TeamScene,
 } from "./demo-scenes";
 import { DemoSpaceCard } from "./demo-space-card";
@@ -323,7 +323,7 @@ function Preview() {
 	const isTeam = ["people", "agents", "plugins", "skills", "files"].includes(
 		path.split("/")[3]
 	);
-	const scene = path.endsWith("/spaces") ? "Spaces" : "Conversation";
+	const scene = path.endsWith("/spaces") ? "Messages" : "Conversation";
 	let activeDestination: "people" | "routines" | "spaces" = "spaces";
 	if (isTeam) {
 		activeDestination = "people";
@@ -387,9 +387,8 @@ function Preview() {
 			)}
 		</div>
 	);
-	if (scene === "Spaces") {
-		title = "Spaces";
-		content = <SpaceDirectory />;
+	if (scene === "Messages") {
+		content = <ConversationSelectionPrompt />;
 	}
 	if (isTeam || isRoutines) {
 		title = isRoutines ? "Routines" : "Team";
@@ -406,7 +405,7 @@ function Preview() {
 	}
 	const section = path.split("/")[3];
 	let moduleNavigation: ReactNode = null;
-	let moduleNavigationLabel = "Spaces";
+	let moduleNavigationLabel = "Messages";
 	if (isTeam && section === "files") {
 		moduleNavigation = <TeamFilesSidebar />;
 		moduleNavigationLabel = "Files";
@@ -434,7 +433,9 @@ function Preview() {
 			</TeamSidebarHeaderActionsProvider>
 		);
 	} else if (!(isTeam || isInbox || isRoutines)) {
-		moduleNavigation = <ConversationsSidebar showSearch={false} />;
+		moduleNavigation = (
+			<ConversationsSidebar home={scene === "Messages"} showSearch={false} />
+		);
 	}
 
 	return (
@@ -487,45 +488,46 @@ function Preview() {
 							}
 						>
 							<section className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-								{!(isTeam || isInbox || isRoutines) && (
-									<SpaceWindowHeader
-										actions={
-											scene === "Conversation" ? (
-												<SpaceMembersToggleButton
-													controlsId={
-														wide
-															? "space-members-panel"
-															: "space-members-drawer"
-													}
-													memberCount={
-														membersProps.snapshot.humans.length +
-														membersProps.snapshot.agents.length
-													}
-													onOpenChange={setMembersOpen}
-													open={membersOpen}
-												/>
-											) : undefined
-										}
-										navigation={
-											scene === "Conversation" ? (
-												<SpaceViewTabs
-													activeView={view}
-													idPrefix="demo-space"
-													onViewChange={setView}
-													tasksEnabled={false}
-												/>
-											) : undefined
-										}
-										title={title}
-										titleAdornment={
-											scene === "Conversation" ? (
-												<span className="text-muted-foreground text-xs">
-													{demoConversationVisibility(spaceId)}
-												</span>
-											) : undefined
-										}
-									/>
-								)}
+								{scene === "Conversation" &&
+									!(isTeam || isInbox || isRoutines) && (
+										<SpaceWindowHeader
+											actions={
+												scene === "Conversation" ? (
+													<SpaceMembersToggleButton
+														controlsId={
+															wide
+																? "space-members-panel"
+																: "space-members-drawer"
+														}
+														memberCount={
+															membersProps.snapshot.humans.length +
+															membersProps.snapshot.agents.length
+														}
+														onOpenChange={setMembersOpen}
+														open={membersOpen}
+													/>
+												) : undefined
+											}
+											navigation={
+												scene === "Conversation" ? (
+													<SpaceViewTabs
+														activeView={view}
+														idPrefix="demo-space"
+														onViewChange={setView}
+														tasksEnabled={false}
+													/>
+												) : undefined
+											}
+											title={title}
+											titleAdornment={
+												scene === "Conversation" ? (
+													<span className="text-muted-foreground text-xs">
+														{demoConversationVisibility(spaceId)}
+													</span>
+												) : undefined
+											}
+										/>
+									)}
 								{content}
 							</section>
 						</AppSurfaceLayout>

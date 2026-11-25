@@ -68,7 +68,7 @@ it("finds Spaces and direct-message sessions by their sidebar titles and opens t
 	render(
 		<QueryClientProvider client={new QueryClient()}>
 			<TooltipProvider>
-				<AppCommandCenter onNewMessage={vi.fn()} />
+				<AppCommandCenter />
 			</TooltipProvider>
 		</QueryClientProvider>
 	);
@@ -89,17 +89,20 @@ it("finds Spaces and direct-message sessions by their sidebar titles and opens t
 	});
 });
 
-it("closes command search and hands New message to the shared dialog owner", async () => {
-	const onNewMessage = vi.fn();
+it("opens Messages through the single conversation destination", async () => {
+	navigate.mockResolvedValue(undefined);
 	render(
 		<QueryClientProvider client={new QueryClient()}>
 			<TooltipProvider>
-				<AppCommandCenter onNewMessage={onNewMessage} />
+				<AppCommandCenter />
 			</TooltipProvider>
 		</QueryClientProvider>
 	);
 	fireEvent.keyDown(window, { key: "k", metaKey: true });
-	fireEvent.click(await screen.findByRole("option", { name: "New message" }));
-	expect(onNewMessage).toHaveBeenCalledOnce();
+	await screen.findByRole("combobox");
+	expect(screen.queryByRole("option", { name: "New message" })).toBeNull();
+	expect(screen.queryByRole("option", { name: "Direct messages" })).toBeNull();
+	fireEvent.click(await screen.findByRole("option", { name: "Messages" }));
+	expect(navigate).toHaveBeenCalledWith({ to: "/o/test/spaces" });
 	expect(screen.queryByRole("combobox")).toBeNull();
 });

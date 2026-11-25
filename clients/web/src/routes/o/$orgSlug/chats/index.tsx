@@ -5,7 +5,6 @@ export const Route = createFileRoute("/o/$orgSlug/chats/")({
 		throw redirect({
 			to: "/o/$orgSlug/spaces",
 			params,
-			search: { view: "messages" },
 			replace: true,
 		});
 	},

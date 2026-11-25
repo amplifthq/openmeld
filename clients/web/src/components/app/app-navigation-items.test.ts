@@ -8,7 +8,6 @@ import {
 describe("resolveAppNavigationItems", () => {
 	it("labels the Organization workspace root as Desk", () => {
 		const items = resolveAppNavigationItems({
-			includeSpaces: true,
 			orgSlug: "acme",
 		});
 
@@ -22,7 +21,6 @@ describe("resolveAppNavigationItems", () => {
 
 	it("keeps Computers out of shared product navigation", () => {
 		const items = resolveAppNavigationItems({
-			includeSpaces: true,
 			orgSlug: "acme",
 		});
 

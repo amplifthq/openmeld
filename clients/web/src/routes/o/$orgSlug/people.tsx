@@ -1,12 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod/v4";
 import { appShellStaticData } from "#/components/app/shell-layout";
-import { PeopleAndAgentsPage } from "#/components/profiles/people-and-agents-page";
+import { TeamDirectoryPage } from "#/components/directory/team-directory-page";
 import { prefetchPeopleRouteData } from "#/lib/organizations/app-route-prefetch";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 
 const peopleRouteSearchSchema = z.object({
-	profileId: z.string().trim().min(1).optional(),
+	agentId: z.string().trim().min(1).optional().catch(undefined),
+	profileId: z.string().trim().min(1).optional().catch(undefined),
+	view: z.literal("topics").optional().catch(undefined),
 });
 
 export const Route = createFileRoute("/o/$orgSlug/people")({
@@ -34,10 +36,20 @@ function PeopleRoute() {
 	const search = Route.useSearch();
 
 	return (
-		<PeopleAndAgentsPage
-			activeSectionId="people"
-			focusProfileId={search.profileId ?? null}
+		<TeamDirectoryPage
 			initialSidebarStates={sidebarStates}
+			selection={resolveTeamSelection(search)}
+			view={search.view ?? "members"}
 		/>
 	);
+}
+
+function resolveTeamSelection(search: z.infer<typeof peopleRouteSearchSchema>) {
+	if (search.agentId) {
+		return { id: search.agentId, kind: "agent" as const };
+	}
+	if (search.profileId) {
+		return { id: search.profileId, kind: "person" as const };
+	}
+	return undefined;
 }

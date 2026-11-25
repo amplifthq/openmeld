@@ -9,7 +9,6 @@ import {
 	buildOrganizationAgentsPath,
 	buildOrganizationComputersPath,
 	buildOrganizationDefaultPath,
-	buildOrganizationDirectMessagesPath,
 	buildOrganizationInboxPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationSpacesPath,
@@ -18,7 +17,7 @@ import {
 const routes = {
 	home: buildOrganizationDefaultPath,
 	spaces: buildOrganizationSpacesPath,
-	messages: buildOrganizationDirectMessagesPath,
+	messages: buildOrganizationSpacesPath,
 	people: buildOrganizationPeoplePath,
 	agents: buildOrganizationAgentsPath,
 	inbox: buildOrganizationInboxPath,

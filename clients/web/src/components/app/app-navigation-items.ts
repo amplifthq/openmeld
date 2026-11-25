@@ -1,6 +1,5 @@
 import {
 	buildOrganizationAgentActivityPath,
-	buildOrganizationDirectMessagesPath,
 	buildOrganizationInboxPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationProjectsPath,
@@ -17,10 +16,9 @@ export type AppNavigationItem = {
 };
 
 export function resolveAppNavigationItems(input: {
-	includeSpaces: boolean;
 	orgSlug: string;
 }): AppNavigationItem[] {
-	const items = [
+	return [
 		{
 			label: "Desk",
 			section: "home",
@@ -32,14 +30,9 @@ export function resolveAppNavigationItems(input: {
 			to: buildOrganizationInboxPath(input.orgSlug),
 		},
 		{
-			label: "Browse spaces",
-			section: "space",
-			to: buildOrganizationSpacesPath(input.orgSlug),
-		},
-		{
-			label: "Spaces",
+			label: "Messages",
 			section: "directMessages",
-			to: buildOrganizationDirectMessagesPath(input.orgSlug),
+			to: buildOrganizationSpacesPath(input.orgSlug),
 		},
 		{
 			label: "Team",
@@ -61,9 +54,5 @@ export function resolveAppNavigationItems(input: {
 			section: "projects",
 			to: buildOrganizationProjectsPath(input.orgSlug),
 		},
-	] as const satisfies readonly AppNavigationItem[];
-
-	return items.filter(
-		(item) => input.includeSpaces || item.section !== "space"
-	);
+	];
 }

@@ -137,7 +137,7 @@ it.each([
 		expect(draft).toHaveProperty("isConnected", true);
 		expect(draft).toHaveProperty("value", "Unsent work");
 		fireEvent.click(
-			screen.getByRole("button", { name: "Close Spaces navigation" })
+			screen.getByRole("button", { name: "Close Messages navigation" })
 		);
 		expect(toggle.getAttribute("aria-expanded")).toBe("false");
 		disconnect();

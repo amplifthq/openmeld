@@ -221,9 +221,8 @@ export function deriveActivityView(
 		projectsById,
 		windowStartMs: timeline.windowStartMs,
 	});
-	const feed = deriveFeed({
+	const feed = deriveActivityFeed({
 		filters: input.filters,
-		nowMs: input.nowMs,
 		projectsById,
 		recentEvents: input.snapshot.recentEvents,
 	});
@@ -467,9 +466,8 @@ function resolveStatusDurationLabel(input: {
 	return formatRelativeTime(input.lastObservedAtMs, input.nowMs);
 }
 
-function deriveFeed(input: {
+export function deriveActivityFeed(input: {
 	filters: ActivityViewFilters;
-	nowMs: number;
 	projectsById: ReadonlyMap<
 		string,
 		AgentActivitySnapshotResponse["projects"][number]

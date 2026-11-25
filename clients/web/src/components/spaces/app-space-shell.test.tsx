@@ -289,7 +289,7 @@ describe("AppDirectMessageShell", () => {
 				currentProfileId="human-1"
 				currentSpaceId="space-1"
 			>
-				<div>Messages</div>
+				<div>Conversation content</div>
 				<WakeProgressProjectionTestSurface />
 			</AppDirectMessageShell>
 		);
@@ -298,7 +298,7 @@ describe("AppDirectMessageShell", () => {
 		expect(screen.getByTestId("visible-wake-progress-count").textContent).toBe(
 			"1"
 		);
-		expect(screen.getByText("Messages")).toBeTruthy();
+		expect(screen.getByText("Conversation content")).toBeTruthy();
 		expect(appInnerSidebarSpy).not.toHaveBeenCalled();
 		view.rerender(
 			<AppDirectMessageShell

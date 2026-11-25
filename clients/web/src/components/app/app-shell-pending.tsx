@@ -35,7 +35,7 @@ export function AppShellPending() {
 			initialModuleSidebarState={sidebarState}
 			moduleNavigation={
 				<>
-					<AppModuleSidebarHeader title="Spaces" />
+					<AppModuleSidebarHeader title="Messages" />
 					<SidebarListSkeleton
 						label="Loading conversations"
 						rowCount={2}
@@ -43,7 +43,7 @@ export function AppShellPending() {
 					/>
 				</>
 			}
-			moduleNavigationLabel="Spaces"
+			moduleNavigationLabel="Messages"
 			outerRail={
 				<aside
 					aria-hidden="true"

@@ -169,7 +169,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 								</Button>
 							) : undefined
 						}
-						active="people"
+						active="members"
 					/>
 				)
 			}

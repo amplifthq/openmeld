@@ -21,10 +21,9 @@ import {
 import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useMatches } from "@tanstack/react-router";
-import { type CSSProperties, useState } from "react";
+import type { CSSProperties } from "react";
 import { useInboxAttention } from "#/components/inbox/use-inbox-attention";
 import { useCenterAgentConversationIntentPrefetch } from "#/components/organizations/use-center-agent-conversation-intent-prefetch";
-import { NewChatDialog } from "#/components/spaces/new-chat-dialog";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import {
 	SIDEBAR_DISPLAY_CHOICES,
@@ -47,7 +46,6 @@ import {
 	buildAppRailGroups,
 } from "./app-rail-navigation";
 import {
-	AppRailShortcutsPopover,
 	buildPinnedRailDestinations,
 	resolveActiveSidebarShortcut,
 	visibleSidebarShortcuts,
@@ -68,7 +66,6 @@ export function AppOuterRail({
 	account: AppOuterRailAccount;
 	conversationList?: "conversation" | "sidebar" | "home";
 }) {
-	const [newMessage, setNewMessage] = useState(false);
 	const { presentation } = useAppNavigationPresentation();
 	const sidebar = useSidebar();
 	const inlineList = presentation === "inline" ? conversationList : undefined;
@@ -141,8 +138,7 @@ export function AppOuterRail({
 				{ "--app-rail-icon-width": `${SIDEBAR_ICON_WIDTH}px` } as CSSProperties
 			}
 		>
-			<AppCommandCenter onNewMessage={() => setNewMessage(true)} />
-			<NewChatDialog onOpenChange={setNewMessage} open={newMessage} />
+			<AppCommandCenter />
 			<SidebarDestinationActionsProvider>
 				<AppSidebarHeader
 					account={{ ...account, image: accountAvatarImage }}
@@ -187,17 +183,6 @@ export function AppOuterRail({
 								currentOrganization.slug
 							)}
 							position={index}
-							renderSectionTrigger={(section, trigger) => (
-								<AppRailShortcutsPopover
-									group={section}
-									isPersonal={currentOrganization.isPersonal === true}
-									onNewMessage={() => setNewMessage(true)}
-									orgSlug={currentOrganization.slug}
-									pinned={shortcuts.pinned}
-									toggle={shortcuts.toggle}
-									trigger={trigger}
-								/>
-							)}
 							standaloneSelection={Boolean(pinnedActive)}
 							tier={mode}
 						/>

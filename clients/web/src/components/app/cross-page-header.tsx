@@ -19,7 +19,6 @@ type CrossPageHeaderProps = {
 	className?: string;
 	currentSection?: AppShellSection | null;
 	frameSection?: AppShellSection;
-	includeSpaces?: boolean;
 	navigationSlot?: ReactNode;
 	showNavigation?: boolean;
 };
@@ -30,19 +29,13 @@ export function CrossPageHeader({
 	className,
 	currentSection = null,
 	frameSection,
-	includeSpaces,
 	navigationSlot,
 	showNavigation = true,
 }: CrossPageHeaderProps) {
 	const headerRightContent =
 		navigationSlot ??
 		(showNavigation ? (
-			<CrossPageHeaderNavigation
-				currentSection={currentSection}
-				includeSpaces={
-					includeSpaces ?? (currentSection === null ? true : undefined)
-				}
-			/>
+			<CrossPageHeaderNavigation currentSection={currentSection} />
 		) : null);
 
 	return (

@@ -23,24 +23,11 @@ import { AppSurfaceLayout } from "./app-surface-layout";
 import type { AppShellSection } from "./shell-layout";
 
 vi.mock("./app-command-center", () => ({ AppCommandCenter: () => null }));
-vi.mock("#/components/spaces/new-chat-dialog", () => ({
-	NewChatDialog: (input: {
-		open: boolean;
-		onOpenChange: (open: boolean) => void;
-	}) =>
-		input.open ? (
-			<div aria-label="New message" role="dialog">
-				<button onClick={() => input.onOpenChange(false)} type="button">
-					Close New message
-				</button>
-			</div>
-		) : null,
-}));
 
 const BETA_ORGANIZATION_NAME_PATTERN = /Beta/;
 const SEARCH_MENU_ITEM_PATTERN = /Search/;
 const ACME_ORGANIZATION_NAME_PATTERN = /Acme/;
-const CHAT_ATTENTION_LABEL = /Spaces, Priority attention, 106/;
+const CHAT_ATTENTION_LABEL = /Messages, Priority attention, 106/;
 const navigateMock = vi.fn();
 const routerInvalidateMock = vi.fn();
 const useAccountAvatarMock = vi.hoisted(() => vi.fn());
@@ -253,7 +240,7 @@ const FELIX_ACCOUNT_MENU_ITEM_NAME = /Felix.*felix@example\.com/;
 const USER_MENU_PATTERN = /Open user menu for/;
 const INBOX_LINK_NAME_PATTERN = /^Inbox/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
-const PRIMARY_RAIL_LABELS = ["Inbox", "Spaces", "Team", "Routines"] as const;
+const PRIMARY_RAIL_LABELS = ["Inbox", "Messages", "Team", "Routines"] as const;
 
 describe("AppOuterRail", () => {
 	beforeEach(() => {
@@ -458,7 +445,7 @@ describe("AppOuterRail", () => {
 	it("keeps fixed navigation visible when the middle list is collapsed", () => {
 		rememberClientSidebarState("outer", { tier: "hidden", width: "308px" });
 		renderRail();
-		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Messages" })).toBeTruthy();
 		expect(
 			screen.getByTestId("app-module-sidebar").getAttribute("data-state")
 		).toBe("hidden");
@@ -468,7 +455,7 @@ describe("AppOuterRail", () => {
 		rememberClientSidebarState("outer", { tier: "icon", width: "8rem" });
 		renderRail({ tier: "expanded", width: "9rem" });
 
-		for (const label of ["Inbox", "Spaces", "Team"]) {
+		for (const label of ["Inbox", "Messages", "Team"]) {
 			const link = screen.getByRole("link", {
 				name: label,
 			});
@@ -499,18 +486,18 @@ describe("AppOuterRail", () => {
 		expect(peopleLink.getAttribute("href")).toBe("/o/acme/people");
 	});
 
-	it("opens the canonical Spaces home", () => {
+	it("opens the canonical Messages home", () => {
 		appShellSection = "settings";
 		routerLocation = { pathname: "/o/acme/settings", searchStr: "" };
 		renderRail();
 
 		const directMessagesLink = screen.getByRole("link", {
-			name: "Spaces",
+			name: "Messages",
 		});
 		expect(directMessagesLink.getAttribute("href")).toBe("/o/acme/spaces");
 	});
 
-	it("returns from Team to Browse Spaces and keeps Organizations isolated", () => {
+	it("returns from Team to Messages and keeps Organizations isolated", () => {
 		routerLocation = {
 			pathname: "/o/acme/spaces/launch",
 			searchStr: "?profileId=human-two&thread=review",
@@ -520,7 +507,7 @@ describe("AppOuterRail", () => {
 		routerLocation = { pathname: "/o/acme/people", searchStr: "" };
 		rendered.rerender(buildRailElement());
 		expect(
-			screen.getByRole("link", { name: "Spaces" }).getAttribute("href")
+			screen.getByRole("link", { name: "Messages" }).getAttribute("href")
 		).toBe("/o/acme/spaces");
 		appOrganization = {
 			...appOrganization,
@@ -529,7 +516,7 @@ describe("AppOuterRail", () => {
 		routerLocation = { pathname: "/o/beta/people", searchStr: "" };
 		rendered.rerender(buildRailElement());
 		expect(
-			screen.getByRole("link", { name: "Spaces" }).getAttribute("href")
+			screen.getByRole("link", { name: "Messages" }).getAttribute("href")
 		).toBe("/o/beta/spaces");
 	});
 	it("keeps Team flat even with a saved collapsed Team preference", () => {
@@ -571,7 +558,7 @@ describe("AppOuterRail", () => {
 		expect(screen.queryByRole("button", { name: "Create" })).toBeNull();
 		expect(screen.queryByRole("link", { name: "Desk" })).toBeNull();
 		expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
-		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Messages" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
 	});
 
@@ -616,20 +603,20 @@ describe("AppOuterRail", () => {
 			document.querySelector('[data-slot="app-surface"]')?.contains(middle)
 		).toBe(true);
 		expect(
-			within(rail).getByRole("link", { name: "Spaces" }).getAttribute("href")
+			within(rail).getByRole("link", { name: "Messages" }).getAttribute("href")
 		).toBe("/o/acme/spaces");
-		expect(within(rail).getAllByRole("link", { name: "Spaces" })).toHaveLength(
-			1
-		);
+		expect(
+			within(rail).getAllByRole("link", { name: "Messages" })
+		).toHaveLength(1);
 	});
 	it.each([
 		"people",
 		"settings",
 		"home",
-	] as const)("keeps Spaces accessible on %s pages", (section) => {
+	] as const)("keeps Messages accessible on %s pages", (section) => {
 		appShellSection = section;
 		renderRail();
-		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Messages" })).toBeTruthy();
 		expect(screen.getByRole("link", { name: "Team" })).toBeTruthy();
 	});
 	it("shows discovery in the mobile drawer despite a collapsed desktop preference and dismisses after navigation", async () => {
@@ -639,7 +626,7 @@ describe("AppOuterRail", () => {
 			screen.getByRole("button", { name: "Open app navigation" })
 		);
 		const drawer = screen.getByRole("dialog", { name: "OpenMeld navigation" });
-		fireEvent.click(within(drawer).getByRole("link", { name: "Spaces" }));
+		fireEvent.click(within(drawer).getByRole("link", { name: "Messages" }));
 		await waitFor(() =>
 			expect(
 				screen.queryByRole("dialog", { name: "OpenMeld navigation" })
@@ -647,13 +634,13 @@ describe("AppOuterRail", () => {
 		);
 		fireEvent.click(
 			screen.getByRole("button", {
-				name: "Open Spaces navigation",
+				name: "Open Messages navigation",
 				hidden: true,
 			})
 		);
 		expect(
 			within(
-				screen.getByRole("dialog", { name: "Spaces navigation" })
+				screen.getByRole("dialog", { name: "Messages navigation" })
 			).getByRole("link", { name: "Existing conversation" })
 		).toBeTruthy();
 	});
@@ -667,7 +654,7 @@ describe("AppOuterRail", () => {
 		renderRail();
 		expect(
 			await screen.findByRole("link", {
-				name: "Spaces, Priority attention, 5 unread updates",
+				name: "Messages, Priority attention, 5 unread updates",
 			})
 		).toBeTruthy();
 	});
@@ -675,7 +662,7 @@ describe("AppOuterRail", () => {
 		ordinarySpaceActionCount = 1;
 		renderRail({ conversationList: "conversation" });
 		const spaces = await screen.findByRole("link", {
-			name: "Spaces, Priority attention",
+			name: "Messages, Priority attention",
 		});
 		expect(
 			spaces.querySelector("[data-app-rail-status-indicator]")
@@ -692,7 +679,7 @@ describe("AppOuterRail", () => {
 		renderRail({ conversationList: "conversation", tier: "hidden" });
 		const draft = screen.getByRole("textbox", { name: "Draft" });
 		const spaces = await screen.findByRole("link", {
-			name: "Spaces, 1 unread update",
+			name: "Messages, 1 unread update",
 		});
 		expect(
 			spaces.querySelector("[data-app-rail-status-indicator]")
@@ -730,7 +717,7 @@ describe("AppOuterRail", () => {
 		ordinarySpaceUnreadCount = undefined;
 		renderRail();
 
-		const link = await screen.findByRole("link", { name: "Spaces" });
+		const link = await screen.findByRole("link", { name: "Messages" });
 		expect(
 			link.querySelector('[data-app-rail-status-indicator="chats-unread"]')
 		).toBeNull();
@@ -754,7 +741,7 @@ describe("AppOuterRail", () => {
 	it.each([
 		"icon",
 		"expanded",
-	] as const)("shows an accessible blue Spaces unread dot in the %s tier", async (tier) => {
+	] as const)("shows an accessible blue Messages unread dot in the %s tier", async (tier) => {
 		ordinarySpaceUnreadCount = 3;
 		rememberClientSidebarState("outer", {
 			tier,
@@ -763,7 +750,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier });
 
 		const link = await screen.findByRole("link", {
-			name: "Spaces, 3 unread updates",
+			name: "Messages, 3 unread updates",
 		});
 		const indicator = link.querySelector(
 			'[data-app-rail-status-indicator="chats-unread"]'
@@ -1639,7 +1626,7 @@ describe("AppOuterRail", () => {
 		expect(screen.queryByText("Sign in again to continue.")).toBeNull();
 	});
 
-	it("opens the target Spaces list without carrying the current Space id", async () => {
+	it("opens the target Messages list without carrying the current Space id", async () => {
 		appOrganization = {
 			activeOrganization: null,
 			currentOrganization: {
@@ -1794,7 +1781,7 @@ describe("AppOuterRail", () => {
 			screen.getByRole("link", { name: "Team" }).getAttribute("aria-current")
 		).toBe("page");
 	});
-	it("keeps Routines primary and selected without duplicating an old saved pin", async () => {
+	it("keeps Routines primary and selected without duplicating an old saved pin", () => {
 		window.localStorage.setItem(
 			"openmeld.appearance.sidebar-shortcuts",
 			"routines files"
@@ -1814,128 +1801,64 @@ describe("AppOuterRail", () => {
 		const pins = screen.getByRole("navigation", { name: "Pinned shortcuts" });
 		expect(within(pins).queryByRole("link", { name: "Routines" })).toBeNull();
 		expect(within(pins).getByRole("link", { name: "Files" })).toBeTruthy();
-		fireEvent.keyDown(screen.getByRole("link", { name: "Team" }), {
-			key: "ArrowDown",
-		});
-		await screen.findByRole("button", { name: "Pin Agents to sidebar" });
-		expect(
-			screen.queryByRole("button", { name: "Pin Routines to sidebar" })
-		).toBeNull();
 		expect(screen.getAllByRole("link", { name: "Routines" })).toHaveLength(1);
 	});
-	it.each([
-		["Agents", "/o/acme/agents", "agents", "Team", "Agents"],
-		["Plugins", "/o/acme/plugins", "plugins", "Team", "Plugins"],
-		["Skills", "/o/acme/skills", "skills", "Team", "Skills"],
-		["Files", "/o/acme/files", "files", "Team", "Files"],
-		[
-			"Direct messages",
-			"/o/acme/spaces?view=messages",
-			"space",
-			"Spaces",
-			"DMs",
-		],
-		["Discover", "/o/acme/spaces?view=discover", "space", "Spaces", "Discover"],
-	] as const)("pins %s without navigating, restores it, and selects only the pinned destination", async (label, path, section, parent, sidebarLabel) => {
-		const view = renderRail();
-		fireEvent.keyDown(screen.getByRole("link", { name: parent }), {
-			key: "ArrowDown",
-		});
-		fireEvent.click(
-			await screen.findByRole("button", { name: `Pin ${label} to sidebar` })
-		);
-		expect(navigateMock).not.toHaveBeenCalled();
-		expect(
-			within(screen.getByRole("navigation", { name: "Pinned shortcuts" }))
-				.getByRole("link", { name: sidebarLabel })
-				.getAttribute("href")
-		).toBe(path);
-		view.unmount();
-		const url = new URL(path, "http://localhost");
-		routerLocation = { pathname: url.pathname, searchStr: url.search };
-		appShellSection = section;
+	it("opens Team directly without a resource popover", () => {
 		renderRail();
+		const team = screen.getByRole("link", { name: "Team" });
+		expect(team.getAttribute("href")).toBe("/o/acme/people");
+		fireEvent.keyDown(team, { key: "ArrowDown" });
+		expect(screen.queryByRole("dialog", { name: "Team resources" })).toBeNull();
+	});
+	it("opens Messages directly without a hover menu or a second DM shortcut", () => {
+		window.localStorage.setItem(
+			"openmeld.appearance.sidebar-shortcuts",
+			"messages"
+		);
+		renderRail();
+		const link = screen.getByRole("link", { name: "Messages" });
+		fireEvent.pointerEnter(link, { pointerType: "mouse" });
+		fireEvent.keyDown(link, { key: "ArrowDown" });
+		expect(link.getAttribute("href")).toBe("/o/acme/spaces");
+		expect(link.closest("[data-sidebar-hover-preview]")).toBeNull();
+		expect(
+			screen.queryByRole("dialog", { name: "Spaces resources" })
+		).toBeNull();
+		expect(screen.queryByRole("link", { name: "DMs" })).toBeNull();
+		expect(screen.queryByRole("link", { name: "New Space" })).toBeNull();
+	});
+
+	it("restores and selects the saved Discover shortcut", () => {
+		window.localStorage.setItem(
+			"openmeld.appearance.sidebar-shortcuts",
+			"discover"
+		);
+		routerLocation = {
+			pathname: "/o/acme/spaces",
+			searchStr: "?view=discover",
+		};
+		appShellSection = "space";
+		renderRail();
+		const link = within(
+			screen.getByRole("navigation", { name: "Pinned shortcuts" })
+		).getByRole("link", { name: "Discover" });
+		expect(link.getAttribute("href")).toBe("/o/acme/spaces?view=discover");
+		expect(link.getAttribute("aria-current")).toBe("page");
 		expect(
 			screen
-				.getByRole("link", { name: sidebarLabel })
+				.getByRole("link", { name: "Messages" })
 				.getAttribute("aria-current")
-		).toBe("page");
-		expect(
-			screen.getByRole("link", { name: parent }).getAttribute("aria-current")
 		).toBeNull();
-		fireEvent.keyDown(screen.getByRole("link", { name: parent }), {
-			key: "ArrowDown",
-		});
-		fireEvent.click(
-			await screen.findByRole("button", { name: `Unpin ${label} from sidebar` })
-		);
-		expect(
-			screen.queryByRole("navigation", { name: "Pinned shortcuts" })
-		).toBeNull();
-		expect(
-			screen.getByRole("link", { name: parent }).getAttribute("aria-current")
-		).toBe("page");
 	});
-	it.each([
-		["Team", "New Agent", "/o/acme/new-agent"],
-		["Spaces", "New Space", "/o/acme/new-space"],
-	])("opens %s creation links in the current Organization without pin controls", async (parent, label, path) => {
-		renderRail();
-		fireEvent.keyDown(screen.getByRole("link", { name: parent }), {
-			key: "ArrowDown",
-		});
-		const link = await screen.findByRole("link", { name: label });
-		expect(link.getAttribute("href")).toBe(path);
-		expect(
-			screen.queryByRole("button", { name: `Pin ${label} to sidebar` })
-		).toBeNull();
-		fireEvent.click(link);
-		await waitFor(() => {
-			expect(screen.queryByRole("link", { name: label })).toBeNull();
-		});
-	});
-	it("opens New message from Spaces and can reopen it after closing", async () => {
-		renderRail();
-		for (let attempt = 0; attempt < 2; attempt++) {
-			fireEvent.keyDown(screen.getByRole("link", { name: "Spaces" }), {
-				key: "ArrowDown",
-			});
-			fireEvent.click(
-				await screen.findByRole("button", { name: "New message" })
-			);
-			expect(
-				await screen.findByRole("dialog", { name: "New message" })
-			).toBeTruthy();
-			await waitFor(() => {
-				expect(
-					screen.queryByRole("link", { name: "Direct messages" })
-				).toBeNull();
-			});
-			expect(
-				screen.queryByRole("button", { name: "Pin New message to sidebar" })
-			).toBeNull();
-			fireEvent.click(
-				screen.getByRole("button", { name: "Close New message" })
-			);
-			expect(screen.queryByRole("dialog", { name: "New message" })).toBeNull();
-		}
-	});
-	it("hides Discover in personal workspaces without forgetting its saved pin", async () => {
+
+	it("hides Discover in personal workspaces without forgetting its saved pin", () => {
 		window.localStorage.setItem(
 			"openmeld.appearance.sidebar-shortcuts",
 			"discover"
 		);
 		appOrganization.currentOrganization.isPersonal = true;
 		renderRail();
-		fireEvent.keyDown(screen.getByRole("link", { name: "Spaces" }), {
-			key: "ArrowDown",
-		});
-		await screen.findByRole("link", { name: "Direct messages" });
 		expect(screen.queryByRole("link", { name: "Discover" })).toBeNull();
-		expect(screen.getByRole("button", { name: "New message" })).toBeTruthy();
-		expect(
-			screen.getByRole("link", { name: "New Space" }).getAttribute("href")
-		).toBe("/o/acme/new-space");
 		expect(
 			window.localStorage.getItem("openmeld.appearance.sidebar-shortcuts")
 		).toBe("discover");
