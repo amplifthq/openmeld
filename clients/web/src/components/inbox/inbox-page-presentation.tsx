@@ -333,14 +333,12 @@ export function InboxListSkeleton() {
 
 export function InboxEmptyState(input: {
 	view: InboxView | InboxFeedCategory;
-	deferred?: boolean;
 	unreadOnly?: boolean;
 	filtered?: boolean;
 }) {
 	const copy = resolveInboxEmptyStateCopy(
 		input.view,
 		input.unreadOnly,
-		input.deferred,
 		input.filtered
 	);
 	return (
@@ -359,18 +357,11 @@ export function InboxEmptyState(input: {
 function resolveInboxEmptyStateCopy(
 	view: InboxView | InboxFeedCategory,
 	unreadOnly = false,
-	deferred = false,
 	filtered = false
 ): {
 	description: string;
 	title: string;
 } {
-	if (deferred) {
-		return {
-			title: "Nothing due right now",
-			description: "Items you saved for later will return here.",
-		};
-	}
 	if (filtered) {
 		return {
 			title: "No matching items",
@@ -380,8 +371,7 @@ function resolveInboxEmptyStateCopy(
 	if (view === "todo") {
 		return {
 			title: "You’re all caught up",
-			description:
-				"Nothing needs your action right now. You can still browse Activity.",
+			description: "Nothing needs your action right now.",
 		};
 	}
 	if (unreadOnly || view === "unread") {

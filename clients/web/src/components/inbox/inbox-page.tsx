@@ -63,7 +63,6 @@ import { PluginActionRequest } from "./plugin-action-request";
 import { useInboxExpansion } from "./use-inbox-expansion";
 import { useInboxItemDismissMutation } from "./use-inbox-item-dismiss-mutation";
 import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
-import { useInboxLater } from "./use-inbox-later";
 
 function InboxSourceDetails({ target }: { target: InboxItem["sourceTarget"] }) {
 	if (target.kind === "desktop_update") {
@@ -205,7 +204,6 @@ export function InboxPage(input: {
 	);
 	const [announcement, setAnnouncement] = useState("");
 	const scope = `${currentUserId}:${currentOrganization.id}`;
-	const { defer, later } = useInboxLater(scope);
 	const isTodo = input.view === "todo";
 	const githubIssues = useInboxGitHubIssues({ enabled: isTodo });
 	const [confirmation, setConfirmation] = useState<{
@@ -216,7 +214,11 @@ export function InboxPage(input: {
 		organizationId: currentOrganization.id,
 		onAnnouncement: setAnnouncement,
 	});
-	const { dismiss, isPending: isRemoving } = useInboxItemDismissMutation({
+	const {
+		dismiss,
+		complete,
+		isPending: isRemoving,
+	} = useInboxItemDismissMutation({
 		organizationId: currentOrganization.id,
 		onAnnouncement: setAnnouncement,
 		onDismissed: input.onItemDismissed,
@@ -291,8 +293,6 @@ export function InboxPage(input: {
 			}
 		);
 	}, [feed.data, sourceItem?.id, input.requestId]);
-	const visibleRows = rows.filter((row) => !(isTodo && later[row.item.id]));
-	const deferredCount = rows.length - visibleRows.length;
 	const firstPage = feed.data?.pages[0];
 	const snapshotExpired = firstPage
 		? Date.parse(firstPage.snapshotExpiresAt) <= Date.now()
@@ -325,10 +325,6 @@ export function InboxPage(input: {
 		snapshotExpired,
 	});
 	const openItem = (item: InboxItem) => setRead(item, true);
-	const deferTodo = (item: InboxItem) => {
-		defer(item.id);
-		setAnnouncement(`${item.title} deferred for one hour on this device.`);
-	};
 	const confirmationLabel = markReadLabel(confirmation?.unreadCount ?? null);
 	const workspaceLabel = currentOrganization.isPersonal
 		? "Personal workspace"
@@ -382,7 +378,7 @@ export function InboxPage(input: {
 		);
 	};
 	const renderLegacyFeed = () => {
-		if (isTodo || !firstPage || visibleRows.length === 0) {
+		if (isTodo || !firstPage || rows.length === 0) {
 			return null;
 		}
 		return (
@@ -391,7 +387,6 @@ export function InboxPage(input: {
 				expansion={expansion}
 				filters={filters}
 				isMutating={selectionPending}
-				onDefer={deferTodo}
 				onDismiss={requestRemoval}
 				onOpenItem={openItem}
 				onSelection={requestSelection}
@@ -399,7 +394,7 @@ export function InboxPage(input: {
 				organizationId={currentOrganization.id}
 				organizationSlug={currentOrganization.slug}
 				refreshWarningShown={savedViewNotice === "failed"}
-				rows={visibleRows}
+				rows={rows}
 				sectionAction={selectionAction}
 				snapshotExpired={snapshotExpired}
 				snapshotId={firstPage.snapshotId}
@@ -415,7 +410,7 @@ export function InboxPage(input: {
 				githubIssues.data?.result.status === "unavailable");
 		const showEmpty =
 			Boolean(firstPage) &&
-			visibleRows.length === 0 &&
+			rows.length === 0 &&
 			!githubPreventsEmpty &&
 			!sourceItem &&
 			!feed.hasNextPage;
@@ -429,18 +424,17 @@ export function InboxPage(input: {
 				{isTodo ? (
 					<InboxTodoList
 						github={githubIssues}
-						onDefer={deferTodo}
+						onDone={complete}
 						onIgnore={requestRemoval}
 						onOpen={openItem}
 						onSetRead={setRead}
 						organizationSlug={currentOrganization.slug}
-						rows={visibleRows}
+						rows={rows}
 					/>
 				) : null}
 				{renderLegacyFeed()}
 				{showEmpty ? (
 					<InboxEmptyState
-						deferred={deferredCount > 0}
 						filtered={hasFilters}
 						unreadOnly={filters.unreadOnly}
 						view={input.view}

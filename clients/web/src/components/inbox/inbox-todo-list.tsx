@@ -4,12 +4,12 @@ import type {
 	InboxItem,
 } from "@openmeld/schemas/types";
 import { SharedLayoutGroup } from "@openmeld/ui/fluid/shared-layout-group";
-import { InboxTodoActions } from "./inbox-feed-view";
 import {
 	InboxGitHubTodoRow,
 	type useInboxGitHubIssues,
 } from "./inbox-github-issues";
 import { InboxItemRow } from "./inbox-list";
+import { InboxTodoActions } from "./inbox-todo-actions";
 
 type TodoRow =
 	| { kind: "inbox"; key: string; at: number; row: InboxFeedRow }
@@ -42,7 +42,7 @@ export function InboxTodoList(input: {
 	organizationSlug: string;
 	onOpen: (item: InboxItem) => void;
 	onSetRead: (item: InboxItem, read: boolean) => void;
-	onDefer: (item: InboxItem) => void;
+	onDone: (item: InboxItem) => void;
 	onIgnore: (item: InboxItem) => void;
 }) {
 	const todos = mergeInboxTodos(input.rows, input.github.visibleIssues);
@@ -77,10 +77,10 @@ export function InboxTodoList(input: {
 							todo
 							trailingActions={(onOpen) => (
 								<InboxTodoActions
-									item={todo.row.item}
-									onDefer={input.onDefer}
-									onIgnore={input.onIgnore}
-									onOpen={onOpen}
+									onDone={() => input.onDone(todo.row.item)}
+									onIgnore={() => input.onIgnore(todo.row.item)}
+									open={{ onOpen }}
+									title={todo.row.item.title}
 								/>
 							)}
 						/>

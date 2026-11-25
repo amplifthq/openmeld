@@ -101,12 +101,15 @@ describe("GitHub assignments in To do", () => {
 		expect(mocks.list).toHaveBeenCalledTimes(2);
 	});
 
-	it("ignores only the visible revision, without a provider call", async () => {
+	it.each([
+		"Done",
+		"Ignore",
+	])("%s hides only the visible revision, without a provider call", async (action) => {
 		mocks.list.mockResolvedValue(githubResult([assignment]));
 		const first = renderPanel();
 		await screen.findByText(assignment.title);
 		fireEvent.click(
-			screen.getByRole("button", { name: `Ignore: ${assignment.title}` })
+			screen.getByRole("button", { name: `${action}: ${assignment.title}` })
 		);
 		expect(screen.queryByText(assignment.title)).toBeNull();
 		expect(mocks.list).toHaveBeenCalledOnce();

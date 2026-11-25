@@ -136,7 +136,7 @@ afterEach(() => {
 });
 
 describe("canonical Inbox attention page", () => {
-	it("keeps already-read requests actionable and defers without resolving the source", async () => {
+	it("completes an already-read TODO without resolving its source request", async () => {
 		const request = item({
 			id: "todo-request",
 			attention: "action_required",
@@ -155,16 +155,48 @@ describe("canonical Inbox attention page", () => {
 		expect(screen.queryByRole("button", { name: "Filters" })).toBeNull();
 		expect(screen.getByRole("list", { name: "TODO" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Open" })).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Later: Approve the test plan" })
+		).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Ignore: Approve the test plan" })
+		).toBeTruthy();
+		mocks.dismiss.mockResolvedValueOnce({ dismissedItemId: request.id });
+		mocks.feed.mockResolvedValue(page([]));
 		fireEvent.click(
-			screen.getByRole("button", { name: "Later: Approve the test plan" })
+			screen.getByRole("button", { name: "Done: Approve the test plan" })
 		);
-		expect(await screen.findByText("Nothing due right now")).toBeTruthy();
-		expect(screen.queryByText("Approve the test plan")).toBeNull();
-		expect(mocks.dismiss).not.toHaveBeenCalled();
+		expect(await screen.findByText("You’re all caught up")).toBeTruthy();
+		await waitFor(() =>
+			expect(mocks.dismiss).toHaveBeenCalledExactlyOnceWith({
+				itemId: request.id,
+				organizationId: testOrganization.id,
+			})
+		);
+		expect(screen.queryByRole("alertdialog")).toBeNull();
 		expect(mocks.read).not.toHaveBeenCalled();
-		cleanup();
-		renderPage({ rows, view: "all" });
-		expect(screen.getByText("Approve the test plan")).toBeTruthy();
+		expect(mocks.navigate).not.toHaveBeenCalled();
+		expect(request.resolutionStatus).toBe("open");
+	});
+
+	it("restores the TODO when marking it done fails", async () => {
+		const request = item({
+			id: "failed-done",
+			attention: "action_required",
+			resolutionStatus: "open",
+			title: "Review the test run",
+		});
+		renderPage({ rows: [row(request)], view: "todo" });
+		mocks.dismiss.mockRejectedValueOnce(new Error("network offline"));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Done: Review the test run" })
+		);
+		expect(
+			await screen.findByText("Could not complete Review the test run.")
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Done: Review the test run" })
+		).toBeTruthy();
 	});
 
 	it("mixes both sources by recency in one list with no source headings", async () => {

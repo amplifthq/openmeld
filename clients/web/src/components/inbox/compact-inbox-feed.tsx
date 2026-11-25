@@ -22,7 +22,6 @@ import {
 } from "./inbox-page-presentation";
 import { useInboxExpansion } from "./use-inbox-expansion";
 import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
-import { useInboxLater } from "./use-inbox-later";
 
 const FILTERS = {
 	category: "todo",
@@ -35,7 +34,6 @@ const FILTERS = {
 export function CompactInboxFeed(input: { onOpenItem: () => void }) {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const expansion = useInboxExpansion(currentUserId, currentOrganization.id);
-	const { later } = useInboxLater(`${currentUserId}:${currentOrganization.id}`);
 	const [announcement, setAnnouncement] = useState("");
 	const feed = useOrganizationInboxFeed({
 		...FILTERS,
@@ -55,7 +53,7 @@ export function CompactInboxFeed(input: { onOpenItem: () => void }) {
 	const seen = new Set<string>();
 	const allRows = feed.data?.pages.flatMap((page) => page.rows) ?? [];
 	const rows = allRows.filter((row) => {
-		if (later[row.item.id] || seen.has(row.groupKey)) {
+		if (seen.has(row.groupKey)) {
 			return false;
 		}
 		seen.add(row.groupKey);
@@ -123,13 +121,9 @@ export function CompactInboxFeed(input: { onOpenItem: () => void }) {
 						aria-hidden="true"
 						className="size-5 text-muted-foreground"
 					/>
-					<p className="mt-3 font-medium text-sm">
-						{allRows.length ? "Nothing due right now" : "You’re all caught up"}
-					</p>
+					<p className="mt-3 font-medium text-sm">You’re all caught up</p>
 					<p className="mt-1 text-muted-foreground text-sm">
-						{allRows.length
-							? "Items you saved for later will return here."
-							: "Nothing needs your action right now."}
+						Nothing needs your action right now.
 					</p>
 				</div>
 			) : null}
