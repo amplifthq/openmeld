@@ -88,7 +88,7 @@ describe("buildOpenMeldNavigationAction", () => {
     );
   });
 
-  it("does not accept credentials, guessed providers, or ambiguous connection scope in a message action", () => {
+  it("rejects credentials, malformed provider slugs, and ambiguous connection scope in a message action", () => {
     const target = {
       kind: "plugin_connection",
       service: "github",
@@ -101,13 +101,22 @@ describe("buildOpenMeldNavigationAction", () => {
     expect(
       openMeldNavigationTargetSchema.safeParse({
         ...target,
-        service: "unshipped_plugin",
+        service: "invalid provider/path",
       }).success
     ).toBe(false);
     expect(
       openMeldNavigationTargetSchema.safeParse({ ...target, scope: undefined })
         .success
     ).toBe(false);
+  });
+
+  it("accepts a syntactically valid provider slug without hardcoding the live catalog", () => {
+    const target = {
+      kind: "plugin_connection",
+      scope: "member",
+      service: "dynamic_connector_provider",
+    };
+    expect(openMeldNavigationTargetSchema.parse(target)).toEqual(target);
   });
 
   it("builds an absolute link for a Space returned by an OpenMeld tool", () => {
