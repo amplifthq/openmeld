@@ -44,6 +44,7 @@ import {
 	resolveInboxFeedLoadMoreState,
 } from "./inbox-feed-view";
 import { InboxFilterMenu } from "./inbox-filter-menu";
+import { InboxGitHubIssues, useInboxGitHubIssues } from "./inbox-github-issues";
 import { InboxItemsList } from "./inbox-list";
 import {
 	InboxEmptyState,
@@ -61,6 +62,7 @@ import { PluginActionRequest } from "./plugin-action-request";
 import { useInboxExpansion } from "./use-inbox-expansion";
 import { useInboxItemDismissMutation } from "./use-inbox-item-dismiss-mutation";
 import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
+import { useInboxLater } from "./use-inbox-later";
 
 function InboxSourceDetails({ target }: { target: InboxItem["sourceTarget"] }) {
 	if (target.kind === "desktop_update") {
@@ -179,7 +181,7 @@ export function InboxPage(input: {
 	const filters = {
 		grouping: "space" as const,
 		category: input.view,
-		unreadOnly: input.unreadOnly ?? false,
+		unreadOnly: input.view !== "todo" && input.unreadOnly === true,
 		agentsOnly: input.agentsOnly ?? false,
 		peopleOnly: input.peopleOnly ?? false,
 		conversationType: input.conversationType ?? "all",
@@ -202,6 +204,9 @@ export function InboxPage(input: {
 	);
 	const [announcement, setAnnouncement] = useState("");
 	const scope = `${currentUserId}:${currentOrganization.id}`;
+	const { defer, later } = useInboxLater(scope);
+	const isTodo = input.view === "todo";
+	const githubIssues = useInboxGitHubIssues({ enabled: isTodo });
 	const [confirmation, setConfirmation] = useState<{
 		snapshotId: string;
 		unreadCount: number;
@@ -285,6 +290,8 @@ export function InboxPage(input: {
 			}
 		);
 	}, [feed.data, sourceItem?.id, input.requestId]);
+	const visibleRows = rows.filter((row) => !(isTodo && later[row.item.id]));
+	const deferredCount = rows.length - visibleRows.length;
 	const firstPage = feed.data?.pages[0];
 	const snapshotExpired = firstPage
 		? Date.parse(firstPage.snapshotExpiresAt) <= Date.now()
@@ -317,11 +324,82 @@ export function InboxPage(input: {
 		snapshotExpired,
 	});
 	const openItem = (item: InboxItem) => setRead(item, true);
+	const deferTodo = (item: InboxItem) => {
+		defer(item.id);
+		setAnnouncement(`${item.title} deferred for one hour on this device.`);
+	};
 	const confirmationLabel = markReadLabel(confirmation?.unreadCount ?? null);
+	const renderFeedPanel = () => {
+		const githubPreventsEmpty =
+			isTodo &&
+			(githubIssues.visibleIssues.length > 0 ||
+				githubIssues.isFetching ||
+				githubIssues.isError ||
+				githubIssues.data?.result.status === "unavailable");
+		const showEmpty =
+			Boolean(firstPage) &&
+			visibleRows.length === 0 &&
+			!githubPreventsEmpty &&
+			!sourceItem &&
+			!feed.hasNextPage;
+		return (
+			<TabsSubtlePanel
+				idPrefix="inbox-view"
+				index={selectedIndex}
+				selectedIndex={selectedIndex}
+			>
+				<div className="flex min-w-0 flex-col gap-4">
+					{isTodo ? <InboxGitHubIssues query={githubIssues} /> : null}
+					{feed.isPending ? <InboxListSkeleton /> : null}
+					{feed.isError && !feed.data ? (
+						<InboxInitialError onRetry={() => feed.refetch()} />
+					) : null}
+					{firstPage && visibleRows.length > 0 ? (
+						<InboxFeedView
+							accountId={currentUserId}
+							expansion={expansion}
+							filters={filters}
+							isMutating={selectionPending}
+							onDefer={deferTodo}
+							onDismiss={requestRemoval}
+							onOpenItem={openItem}
+							onSelection={requestSelection}
+							onSetRead={setRead}
+							organizationId={currentOrganization.id}
+							organizationSlug={currentOrganization.slug}
+							refreshWarningShown={savedViewNotice === "failed"}
+							rows={visibleRows}
+							sectionAction={isTodo ? null : selectionAction}
+							snapshotExpired={snapshotExpired}
+							snapshotId={firstPage.snapshotId}
+						/>
+					) : null}
+					{showEmpty ? (
+						<InboxEmptyState
+							deferred={deferredCount > 0}
+							filtered={hasFilters}
+							unreadOnly={filters.unreadOnly}
+							view={input.view}
+						/>
+					) : null}
+					{loadMoreState ? (
+						<InboxInfiniteScrollTrigger
+							onLoadMore={async () => {
+								if (!feed.isFetching) {
+									await feed.fetchNextPage();
+								}
+							}}
+							state={loadMoreState}
+						/>
+					) : null}
+				</div>
+			</TabsSubtlePanel>
+		);
+	};
 	return (
 		<div className="flex min-w-0 flex-col gap-6">
 			<AppPageHeader
-				description="Your conversations, decisions, and updates in one place."
+				description="See what needs you, without sorting through updates."
 				eyebrow={
 					currentOrganization.isPersonal
 						? "Personal workspace"
@@ -352,17 +430,19 @@ export function InboxPage(input: {
 								/>
 							))}
 						</TabsSubtle>
-						<label
-							className="ml-auto flex shrink-0 cursor-pointer items-center gap-2 text-muted-foreground text-sm"
-							htmlFor="inbox-unread-only"
-						>
-							<Switch
-								checked={filters.unreadOnly}
-								id="inbox-unread-only"
-								onCheckedChange={(value) => input.onUnreadOnlyChange?.(value)}
-							/>
-							Unread only
-						</label>
+						{isTodo ? null : (
+							<label
+								className="ml-auto flex shrink-0 cursor-pointer items-center gap-2 text-muted-foreground text-sm"
+								htmlFor="inbox-unread-only"
+							>
+								<Switch
+									checked={filters.unreadOnly}
+									id="inbox-unread-only"
+									onCheckedChange={(value) => input.onUnreadOnlyChange?.(value)}
+								/>
+								Unread only
+							</label>
+						)}
 					</div>
 					<div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
 						<div className="flex flex-wrap items-center gap-2">
@@ -425,62 +505,7 @@ export function InboxPage(input: {
 					kind={savedViewNotice}
 					onRefresh={() => feed.refetch()}
 				/>
-				{INBOX_TABS.map((tab, index) => (
-					<TabsSubtlePanel
-						idPrefix="inbox-view"
-						index={index}
-						key={tab.view}
-						selectedIndex={selectedIndex}
-					>
-						{index === selectedIndex ? (
-							<div className="flex min-w-0 flex-col gap-4">
-								{feed.isPending ? <InboxListSkeleton /> : null}
-								{feed.isError && !feed.data ? (
-									<InboxInitialError onRetry={() => feed.refetch()} />
-								) : null}
-								{firstPage && rows.length > 0 ? (
-									<InboxFeedView
-										accountId={currentUserId}
-										expansion={expansion}
-										filters={filters}
-										isMutating={selectionPending}
-										onDismiss={requestRemoval}
-										onOpenItem={openItem}
-										onSelection={requestSelection}
-										onSetRead={setRead}
-										organizationId={currentOrganization.id}
-										organizationSlug={currentOrganization.slug}
-										refreshWarningShown={savedViewNotice === "failed"}
-										rows={rows}
-										sectionAction={selectionAction}
-										snapshotExpired={snapshotExpired}
-										snapshotId={firstPage.snapshotId}
-									/>
-								) : null}
-								{firstPage &&
-								rows.length === 0 &&
-								!sourceItem &&
-								!feed.hasNextPage ? (
-									<InboxEmptyState
-										filtered={hasFilters}
-										unreadOnly={filters.unreadOnly}
-										view={input.view}
-									/>
-								) : null}
-								{loadMoreState ? (
-									<InboxInfiniteScrollTrigger
-										onLoadMore={async () => {
-											if (!feed.isFetching) {
-												await feed.fetchNextPage();
-											}
-										}}
-										state={loadMoreState}
-									/>
-								) : null}
-							</div>
-						) : null}
-					</TabsSubtlePanel>
-				))}
+				{renderFeedPanel()}
 			</div>
 			{removalDialog}
 			<AlertDialog

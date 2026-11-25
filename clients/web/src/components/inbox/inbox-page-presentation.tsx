@@ -1,4 +1,8 @@
-import type { InboxItem, InboxView } from "@openmeld/schemas/types";
+import type {
+	InboxFeedCategory,
+	InboxItem,
+	InboxView,
+} from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
@@ -351,16 +355,17 @@ export function InboxListSkeleton() {
 }
 
 export function InboxEmptyState(input: {
-	view: InboxView;
+	view: InboxView | InboxFeedCategory;
+	deferred?: boolean;
 	unreadOnly?: boolean;
 	filtered?: boolean;
 }) {
-	const copy = input.filtered
-		? {
-				title: "No matching items",
-				description: "Try different filters to see more activity.",
-			}
-		: resolveInboxEmptyStateCopy(input.view, input.unreadOnly);
+	const copy = resolveInboxEmptyStateCopy(
+		input.view,
+		input.unreadOnly,
+		input.deferred,
+		input.filtered
+	);
 	return (
 		<div className="flex min-h-60 flex-col items-center justify-center rounded-md border border-border/70 bg-card px-6 py-12 text-center">
 			<span className="grid size-10 place-items-center rounded-md border border-border/70 bg-background text-muted-foreground">
@@ -375,12 +380,33 @@ export function InboxEmptyState(input: {
 }
 
 function resolveInboxEmptyStateCopy(
-	view: InboxView,
-	unreadOnly = false
+	view: InboxView | InboxFeedCategory,
+	unreadOnly = false,
+	deferred = false,
+	filtered = false
 ): {
 	description: string;
 	title: string;
 } {
+	if (deferred) {
+		return {
+			title: "Nothing due right now",
+			description: "Items you saved for later will return here.",
+		};
+	}
+	if (filtered) {
+		return {
+			title: "No matching items",
+			description: "Try different filters to see more activity.",
+		};
+	}
+	if (view === "todo") {
+		return {
+			title: "You’re all caught up",
+			description:
+				"Nothing needs your action right now. You can still browse Activity.",
+		};
+	}
 	if (unreadOnly || view === "unread") {
 		const titles = {
 			all: "No unread items",

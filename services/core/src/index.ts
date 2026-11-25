@@ -298,6 +298,7 @@ import type {
   OrganizationAiBillingRpcInput,
   OrganizationAiUsageRpcInput,
   OrganizationComputersResponse,
+  OrganizationDashboardRpcInput,
   OrganizationDirectoryResponse,
   OrganizationDocumentPromptContextResponse,
   OrganizationDocumentPromptContextRpcInput,
@@ -510,6 +511,7 @@ import {
   rpcGetSpaceInboxSummary,
   rpcGetSpaceInboxUnreadTargets,
   rpcListInboxFeed,
+  rpcListInboxGitHubIssues,
   rpcListInboxItems,
   rpcMarkAllInboxItemsRead,
   rpcMarkCenterAgentInboxReadThrough,
@@ -532,6 +534,7 @@ import {
   type SyncMemberAgentsRpcInput,
   setLocalAgentEnabledWithMemberAgents,
 } from "./member-agent/member-agent-rpc";
+import { rpcOrganizationDashboards } from "./organization-dashboards/organization-dashboard-rpc";
 import { rpcCenterAgentManageOrganizationDocuments } from "./organization-documents/center-agent-document-rpc";
 import {
   rpcApproveOrganizationDocumentDraft,
@@ -1830,6 +1833,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       )
     );
   }
+  listInboxGitHubIssues(
+    input: import("@openmeld/schemas/types").ListInboxGitHubIssuesRpcInput
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcListInboxGitHubIssues(this.env, input)
+    );
+  }
   searchMessages(
     input: import("@openmeld/schemas").MessageSearchRpcInput,
     spaceImageGeometryVersion?: string
@@ -1983,6 +1993,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ): Promise<InboxNotificationPreferencesResponse> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcUpdateInboxNotificationPreferences(this.env, input)
+    );
+  }
+  organizationDashboards(input: OrganizationDashboardRpcInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcOrganizationDashboards(this.env, input)
     );
   }
   listOrganizationDocuments(
@@ -5250,6 +5265,9 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: UpdateInboxNotificationPreferencesRpcInput
   ): Promise<InboxNotificationPreferencesResponse> {
     return super.updateInboxNotificationPreferences(input);
+  }
+  organizationDashboards(input: OrganizationDashboardRpcInput) {
+    return super.organizationDashboards(input);
   }
   listOrganizationDocuments(
     input: ListOrganizationDocumentsRpcInput

@@ -10,6 +10,27 @@ import {
 } from "../src/navigation-action";
 
 describe("buildOpenMeldNavigationAction", () => {
+  it("prefills only a bounded Dashboard draft on the current Organization URL", () => {
+    const action = buildOpenMeldNavigationAction({
+      organizationWebUrl: "https://app.openmeld.ai/o/acme?old=yes#old",
+      target: {
+        kind: "dashboard_draft",
+        draftKind: "github_issues",
+        draftName: "Review & verify",
+        draftRepository: "acme/app",
+      },
+    });
+    expect(action.url).toBe(
+      "https://app.openmeld.ai/o/acme/dashboard?draftKind=github_issues&draftName=Review+%26+verify&draftRepository=acme%2Fapp"
+    );
+    expect(
+      openMeldNavigationTargetSchema.safeParse({
+        ...action.target,
+        data: "secret",
+      }).success
+    ).toBe(false);
+  });
+
   it("shares the canonical Organization routes with OpenMeld Web", () => {
     expect(
       buildOpenMeldOrganizationWebUrl({

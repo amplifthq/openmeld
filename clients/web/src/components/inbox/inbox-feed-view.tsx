@@ -59,6 +59,7 @@ type FeedViewProps = {
 	onOpenItem: (item: InboxItem) => void;
 	onSetRead: (item: InboxItem, read: boolean) => void;
 	onDismiss?: (item: InboxItem) => void;
+	onDefer?: (item: InboxItem) => void;
 	onSelection: (selection: MutateInboxFeedBody) => void;
 	isMutating: boolean;
 	/** The page already shows the Inbox refresh warning, so groups stay quiet. */
@@ -377,7 +378,21 @@ function InboxFeedItem(input: FeedViewProps & { row: InboxFeedRow }) {
 		...input.row,
 		item: presentInboxItem(input.row.item, useConversationNames()),
 	};
+	const todo = input.filters.category === "todo" && !input.compact;
 	const conversation = row.group?.kind === "conversation";
+	let trailingActions: ReactNode | ((onOpen: () => void) => ReactNode);
+	if (todo) {
+		trailingActions = (onOpen) => (
+			<InboxTodoActions
+				item={row.item}
+				onDefer={input.onDefer}
+				onIgnore={input.onDismiss}
+				onOpen={onOpen}
+			/>
+		);
+	} else if (conversation) {
+		trailingActions = <InboxGroupActions {...input} label={row.item.title} />;
+	}
 	return (
 		<InboxItemRow
 			contextActions={
@@ -408,12 +423,46 @@ function InboxFeedItem(input: FeedViewProps & { row: InboxFeedRow }) {
 			previewOverride={conversation ? row.item.title : undefined}
 			showItemActions={!conversation}
 			titleOverride={conversation ? row.item.preview : undefined}
-			trailingActions={
-				conversation ? (
-					<InboxGroupActions {...input} label={row.item.title} />
-				) : undefined
-			}
+			todo={todo}
+			trailingActions={trailingActions}
 		/>
+	);
+}
+
+function InboxTodoActions({
+	item,
+	onDefer,
+	onIgnore,
+	onOpen,
+}: {
+	item: InboxItem;
+	onDefer?: (item: InboxItem) => void;
+	onIgnore?: (item: InboxItem) => void;
+	onOpen: () => void;
+}) {
+	return (
+		<div className="flex flex-wrap items-center gap-1">
+			<Button onClick={onOpen} size="sm" variant="secondary">
+				Open to complete
+			</Button>
+			<Button
+				aria-label={`Later: ${item.title}`}
+				onClick={() => onDefer?.(item)}
+				size="sm"
+				title="Hide for one hour on this device"
+				variant="ghost"
+			>
+				Later
+			</Button>
+			<Button
+				aria-label={`Ignore: ${item.title}`}
+				onClick={() => onIgnore?.(item)}
+				size="sm"
+				variant="ghost"
+			>
+				Ignore
+			</Button>
+		</div>
 	);
 }
 

@@ -1,5 +1,6 @@
 import {
 	buildOrganizationAgentActivityPath,
+	buildOrganizationDashboardPath,
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationInboxPath,
 	buildOrganizationPeoplePath,
@@ -30,6 +31,11 @@ export function resolveAppNavigationItems(input: {
 			label: "Inbox",
 			section: "inbox",
 			to: buildOrganizationInboxPath(input.orgSlug),
+		},
+		{
+			label: "Dashboard",
+			section: "dashboard",
+			to: buildOrganizationDashboardPath(input.orgSlug),
 		},
 		{
 			label: "Browse spaces",

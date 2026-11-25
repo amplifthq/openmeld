@@ -8,6 +8,7 @@ export type AppShellSection =
 	| "centerAgent"
 	| "computers"
 	| "connect"
+	| "dashboard"
 	| "directMessages"
 	| "home"
 	| "inbox"
@@ -25,6 +26,7 @@ export type AppOuterRailDestination =
 	| "agentActivity"
 	| "agents"
 	| "computers"
+	| "dashboard"
 	| "directMessages"
 	| "home"
 	| "people"
@@ -55,6 +57,7 @@ export const appShellStaticData = {
 	centerAgent: { appShellSection: "centerAgent" },
 	computers: { appShellSection: "people" },
 	connect: { appShellSection: "connect" },
+	dashboard: { appShellSection: "dashboard" },
 	directMessages: { appShellSection: "directMessages" },
 	documents: { appShellSection: "files" },
 	home: { appShellSection: "home" },
@@ -117,6 +120,7 @@ export function resolveAppOuterRailDestinationFromMatches(
 		case "agentActivity":
 		case "agents":
 		case "computers":
+		case "dashboard":
 		case "directMessages":
 		case "home":
 		case "inbox":

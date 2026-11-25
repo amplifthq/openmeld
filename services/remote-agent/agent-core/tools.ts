@@ -1421,8 +1421,19 @@ const pluginConnectionNavigationInputSchema = strictObject({
 const navigationActionToolInputSchema = strictObject({
   connectToUserId: optional(trimmedNonEmptyStringSchema),
   connectedComputerId: optional(trimmedNonEmptyStringSchema),
+  draftArtifact: optional(
+    strictObject({
+      spaceId: pipe(trimmedNonEmptyStringSchema, maxLength(512)),
+      fileId: pipe(trimmedNonEmptyStringSchema, maxLength(128)),
+      revision: pipe(number(), integer(), minValue(1)),
+    })
+  ),
+  draftKind: optional(picklist(["github_issues", "ugc", "traffic"])),
+  draftName: optional(pipe(trimmedNonEmptyStringSchema, maxLength(100))),
+  draftRepository: optional(pipe(trimmedNonEmptyStringSchema, maxLength(140))),
   kind: picklist([
     "computer_setup",
+    "dashboard_draft",
     "organization_app",
     "plugin_connection",
     "project",
@@ -2560,7 +2571,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       name: "openmeld_get_navigation_action",
       description: input.personalAgent
         ? "Offer the existing Plugin connection form when the member requests setup or a needed connection blocks the current task. Use the exact supported service and preserve the requested member/shared identity; choose is only for setup without an identity requirement. The member authorizes through the existing Web form. This action grants no provider or Agent access, starts no authorization, and does not automatically resume work. Never provide credentials or construct an authorization URL."
-        : "Record and return one trusted OpenMeld action for the final reply. Call this only when the user explicitly asked to open the exact destination or opening it is the one concrete next step required to advance the current request. Reading, listing, or changing a routable resource is not by itself a reason to present an action. Use this for computer setup or recovery, Plugin connection, the Projects page, one Project, or one Space. For a Plugin, use kind plugin_connection, an exact supported service, and scope member, shared, or choose. Preserve an explicit personal or organization identity; choose is only for setup without an identity requirement. The member opens the existing connection form in the conversation; the current account and server decide its permitted options. This action does not authorize a provider, grant Agent access, or automatically resume work. Never put credentials or an authorization URL in the input. For a connected Slack, Lark, or Feishu member whose requested action is blocked on personal OpenMeld access, first call openmeld_require_identity_for_action, then read the Organization directory. If the current provider name and available email clearly identify exactly one member, copy that directory userId into connectToUserId; otherwise omit it. Then use kind message_channel_identity_link with purpose continue_request. Use purpose optional_setup only when the participant explicitly asks to connect this provider account, never as an unsolicited suggestion after successful work. That identity-link action connects or sets up the account and continues the same request, so never tell the member to find an admin, request an invite link, mention the Center Agent again, or repeat the request. Never invent a userId or construct an OpenMeld link.",
+        : "Record and return one trusted OpenMeld action for the final reply. Call this only when the user explicitly asked to open the exact destination or opening it is the one concrete next step required to advance the current request. Reading, listing, or changing a routable resource is not by itself a reason to present an action. Use this for computer setup or recovery, Plugin connection, the Projects page, one Project, or one Space. When a verified human explicitly asks to create a team dashboard, use kind dashboard_draft with draftKind, draftName, and optional draftRepository for a GitHub dashboard. Only include a repository explicitly supplied to this request. For a UGC or Traffic dashboard, optional draftArtifact may contain exactly the spaceId, fileId, and revision from the current user's own OpenMeld file-preview link. Never invent those fields or copy them from other sources. Never put file contents, metrics, secrets, or unrelated context in the draft link. Tell them it is a prefilled draft and only their Create action shares it with the Organization. Never claim the dashboard is already created or that a source is connected. For a Plugin, use kind plugin_connection, an exact supported service, and scope member, shared, or choose. Preserve an explicit personal or organization identity; choose is only for setup without an identity requirement. The member opens the existing connection form in the conversation; the current account and server decide its permitted options. This action does not authorize a provider, grant Agent access, or automatically resume work. Never put credentials or an authorization URL in the input. For a connected Slack, Lark, or Feishu member whose requested action is blocked on personal OpenMeld access, first call openmeld_require_identity_for_action, then read the Organization directory. If the current provider name and available email clearly identify exactly one member, copy that directory userId into connectToUserId; otherwise omit it. Then use kind message_channel_identity_link with purpose continue_request. Use purpose optional_setup only when the participant explicitly asks to connect this provider account, never as an unsolicited suggestion after successful work. That identity-link action connects or sets up the account and continues the same request, so never tell the member to find an admin, request an invite link, mention the Center Agent again, or repeat the request. Never invent a userId or construct an OpenMeld link.",
       input: navigationInput,
       execute: async (payload) => {
         const toolContext = await buildRemoteAgentToolContext({
@@ -2608,6 +2619,15 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             submissionId: input.submissionId,
             toolContext,
           });
+        }
+        if (
+          parsedTarget.kind === "dashboard_draft" &&
+          (turnEnvelope?.sender.kind !== "member" ||
+            !turnEnvelope.sender.verified)
+        ) {
+          throw new Error(
+            "Dashboard drafts require a verified OpenMeld member."
+          );
         }
         const organizationWebUrl = turnEnvelope?.organization.webUrl;
         if (!organizationWebUrl) {

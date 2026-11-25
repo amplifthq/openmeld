@@ -14,7 +14,12 @@ import { InboxPage } from "#/components/inbox/inbox-page";
 import { prefetchInboxRouteData } from "#/lib/organizations/app-route-prefetch";
 import { inboxViewParser } from "#/lib/page-tab-search";
 
-type InboxRouteView = "all" | "mentions" | "needs-action" | "needs-review";
+type InboxRouteView =
+	| "todo"
+	| "all"
+	| "mentions"
+	| "needs-action"
+	| "needs-review";
 
 export const Route = createFileRoute("/o/$orgSlug/inbox/")({
 	validateSearch: (
@@ -32,7 +37,8 @@ export const Route = createFileRoute("/o/$orgSlug/inbox/")({
 		return {
 			item,
 			requestId: resolveInboxItemId(search.requestId),
-			view: resolveInboxRouteView(search.view),
+			view:
+				search.view === "unread" ? "all" : resolveInboxRouteView(search.view),
 			people:
 				!(search.agents === true || search.agents === "true") &&
 				(search.people === true || search.people === "true")
@@ -56,7 +62,8 @@ export const Route = createFileRoute("/o/$orgSlug/inbox/")({
 	loaderDeps: ({ search }) => ({
 		grouping: "space" as const,
 		category: parseInboxRouteView(search.view),
-		unreadOnly: search.unread === true,
+		unreadOnly:
+			parseInboxRouteView(search.view) !== "todo" && search.unread === true,
 		agentsOnly: search.agents === true,
 		peopleOnly: search.people === true,
 		conversationType: search.conversation ?? "all",
@@ -82,7 +89,7 @@ function InboxIndexRoute() {
 		// Keep the legacy view=unread spelling readable; category validation below
 		// still uses the canonical Inbox view parser.
 		view: parseAsString
-			.withDefault("all")
+			.withDefault("todo")
 			.withOptions({ history: "push", scroll: false }),
 		unread: parseAsBoolean.withDefault(false),
 		agents: parseAsBoolean.withDefault(false),
@@ -95,7 +102,8 @@ function InboxIndexRoute() {
 		item: parseAsString,
 		requestId: parseAsString,
 	});
-	const view = resolveInboxRouteView(search.view);
+	const view =
+		search.view === "unread" ? "all" : resolveInboxRouteView(search.view);
 	const unreadOnly = search.unread || search.view === "unread";
 	const itemId = resolveInboxItemId(search.item);
 	return (
@@ -128,7 +136,7 @@ function InboxIndexRoute() {
 				onUnreadOnlyChange={(unreadOnly) => {
 					setSearch(
 						{
-							view: view ?? "all",
+							view: view ?? "todo",
 							item: null,
 							requestId: null,
 							unread: unreadOnly,
@@ -138,8 +146,8 @@ function InboxIndexRoute() {
 				}}
 				onViewChange={(view) => {
 					setSearch({
-						view: buildInboxRouteView(view) ?? "all",
-						unread: unreadOnly,
+						view: buildInboxRouteView(view),
+						unread: view !== "todo" && unreadOnly,
 						item: null,
 						requestId: null,
 					});
@@ -156,7 +164,7 @@ function InboxIndexRoute() {
 function resolveInboxRouteView(value: unknown): InboxRouteView | undefined {
 	const parsed =
 		typeof value === "string" ? inboxViewParser.parse(value) : null;
-	return parsed === "all" ? undefined : (parsed ?? undefined);
+	return parsed === "todo" ? undefined : (parsed ?? undefined);
 }
 
 function resolveInboxItemId(value: unknown): string | undefined {
@@ -175,13 +183,9 @@ function parseInboxRouteView(
 	if (view === "needs-review") {
 		return "needs_review";
 	}
-	return view === "needs-action" ? "needs_action" : (view ?? "all");
+	return view === "needs-action" ? "needs_action" : (view ?? "todo");
 }
 
-function buildInboxRouteView(
-	view: InboxFeedCategory
-): InboxRouteView | undefined {
-	return view === "all"
-		? undefined
-		: (view.replace("_", "-") as InboxRouteView);
+function buildInboxRouteView(view: InboxFeedCategory): InboxRouteView {
+	return view.replace("_", "-") as InboxRouteView;
 }

@@ -22,9 +22,10 @@ import {
 } from "./inbox-page-presentation";
 import { useInboxExpansion } from "./use-inbox-expansion";
 import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
+import { useInboxLater } from "./use-inbox-later";
 
 const FILTERS = {
-	category: "all",
+	category: "todo",
 	grouping: "space",
 	unreadOnly: false,
 	agentsOnly: false,
@@ -34,6 +35,7 @@ const FILTERS = {
 export function CompactInboxFeed(input: { onOpenItem: () => void }) {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const expansion = useInboxExpansion(currentUserId, currentOrganization.id);
+	const { later } = useInboxLater(`${currentUserId}:${currentOrganization.id}`);
 	const [announcement, setAnnouncement] = useState("");
 	const feed = useOrganizationInboxFeed({
 		...FILTERS,
@@ -51,15 +53,14 @@ export function CompactInboxFeed(input: { onOpenItem: () => void }) {
 		? Date.parse(firstPage.snapshotExpiresAt) <= Date.now()
 		: false;
 	const seen = new Set<string>();
-	const rows = (feed.data?.pages.flatMap((page) => page.rows) ?? []).filter(
-		(row) => {
-			if (seen.has(row.groupKey)) {
-				return false;
-			}
-			seen.add(row.groupKey);
-			return true;
+	const allRows = feed.data?.pages.flatMap((page) => page.rows) ?? [];
+	const rows = allRows.filter((row) => {
+		if (later[row.item.id] || seen.has(row.groupKey)) {
+			return false;
 		}
-	);
+		seen.add(row.groupKey);
+		return true;
+	});
 	const loadMoreState = resolveInboxFeedLoadMoreState(feed, snapshotExpired);
 	const savedViewNotice = inboxSavedViewNotice({
 		hasData: Boolean(feed.data),
@@ -122,9 +123,13 @@ export function CompactInboxFeed(input: { onOpenItem: () => void }) {
 						aria-hidden="true"
 						className="size-5 text-muted-foreground"
 					/>
-					<p className="mt-3 font-medium text-sm">No updates yet</p>
+					<p className="mt-3 font-medium text-sm">
+						{allRows.length ? "Nothing due right now" : "You’re all caught up"}
+					</p>
 					<p className="mt-1 text-muted-foreground text-sm">
-						New updates and requests will appear here.
+						{allRows.length
+							? "Items you saved for later will return here."
+							: "Nothing needs your action right now."}
 					</p>
 				</div>
 			) : null}

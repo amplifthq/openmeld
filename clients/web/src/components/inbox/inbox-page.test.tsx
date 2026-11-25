@@ -42,6 +42,7 @@ const testOrganization = {
 const AGENT_REQUEST_LABEL = /Tali wants PR Reviewer in a Space/;
 const EXACT_MESSAGE_LABEL = /Open exact message/u;
 const SLACK_REPLY_LABEL = /Slack reply/u;
+const WAITING_LABEL = /Waiting/u;
 const OLD_REQUEST_LABEL = /Old request/u;
 const UNAVAILABLE_LABEL = /This Inbox item isn’t available/u;
 const INSTALLED_LABEL = /^OpenMeld installed/u;
@@ -68,6 +69,11 @@ vi.mock("#/lib/organizations/inbox", async () => ({
 	dismissCurrentInboxItem: mocks.dismiss,
 	mutateCurrentInboxFeed: mocks.selection,
 	markAllCurrentInboxItemsRead: mocks.legacyReadAll,
+}));
+vi.mock("#/lib/organizations/inbox-github-issues", () => ({
+	listCurrentGitHubInboxIssues: async () => ({
+		result: { status: "ready", issues: [], partial: false },
+	}),
 }));
 vi.mock("@tanstack/react-router", async () => ({
 	...(await vi.importActual<typeof import("@tanstack/react-router")>(
@@ -129,6 +135,36 @@ afterEach(() => {
 });
 
 describe("canonical Inbox attention page", () => {
+	it("keeps already-read requests actionable and defers without resolving the source", async () => {
+		const request = item({
+			id: "todo-request",
+			attention: "action_required",
+			resolutionStatus: "open",
+			readAt: "2026-09-18T01:01:00Z",
+			title: "Approve the test plan",
+		});
+		const rows = [
+			row(request, { section: "priority", requestCategory: "action" }),
+		];
+		renderPage({ rows, view: "todo" });
+		expect(screen.queryByRole("switch", { name: "Unread only" })).toBeNull();
+		expect(screen.getByText("Design Room")).toBeTruthy();
+		expect(screen.getByText(WAITING_LABEL)).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Open to complete" })
+		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Later: Approve the test plan" })
+		);
+		expect(await screen.findByText("Nothing due right now")).toBeTruthy();
+		expect(screen.queryByText("Approve the test plan")).toBeNull();
+		expect(mocks.dismiss).not.toHaveBeenCalled();
+		expect(mocks.read).not.toHaveBeenCalled();
+		cleanup();
+		renderPage({ rows, view: "all" });
+		expect(screen.getByText("Approve the test plan")).toBeTruthy();
+	});
+
 	it("marks a single item read immediately from its visible quick action and restores a failed save", async () => {
 		const message = item({ title: "Standalone update" });
 		let rejectRead: (error: Error) => void = () => undefined;
@@ -245,7 +281,7 @@ describe("canonical Inbox attention page", () => {
 		expect(mocks.read).not.toHaveBeenCalled();
 	});
 
-	it("renders four categories and independent server-side filters without an Agent tab or administrator gate", () => {
+	it("renders five categories and independent server-side filters without an Agent tab or administrator gate", () => {
 		const onViewChange = vi.fn();
 		const onUnreadOnlyChange = vi.fn();
 		const onFiltersChange = vi.fn();
@@ -256,8 +292,14 @@ describe("canonical Inbox attention page", () => {
 			onFiltersChange,
 			peopleOnly: true,
 		});
-		expect(screen.getAllByRole("tab")).toHaveLength(4);
-		for (const name of ["All", "Mentions", "Needs action", "Needs review"]) {
+		expect(screen.getAllByRole("tab")).toHaveLength(5);
+		for (const name of [
+			"To do",
+			"Activity",
+			"Mentions",
+			"Needs action",
+			"Needs review",
+		]) {
 			expect(screen.getByRole("tab", { name })).toBeTruthy();
 		}
 		expect(screen.queryByRole("tab", { name: "Agents" })).toBeNull();
@@ -288,7 +330,7 @@ describe("canonical Inbox attention page", () => {
 		);
 		renderPage({ rows: [], prime: false, preserveFeedMock: true });
 		expect(screen.getByRole("heading", { name: "Inbox" })).toBeTruthy();
-		expect(screen.getAllByRole("tab")).toHaveLength(4);
+		expect(screen.getAllByRole("tab")).toHaveLength(5);
 		expect(screen.getByRole("switch", { name: "Unread only" })).toBeTruthy();
 		expect(
 			screen.getByText("Loading Inbox").parentElement?.getAttribute("aria-busy")
