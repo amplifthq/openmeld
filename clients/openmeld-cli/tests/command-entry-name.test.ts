@@ -64,6 +64,20 @@ describe("command entry name", () => {
     expect(resolveCommandEntryNameFromTokens(["space", "board"])).toBe(
       "space.board"
     );
+    expect(resolveCommandEntryNameFromTokens(["space", "tasks"])).toBe(
+      "space.tasks"
+    );
+    expect(resolveCommandEntryNameFromTokens(["space", "tasks", "show"])).toBe(
+      "space.tasks.show"
+    );
+    expect(
+      resolveCommandEntryNameFromTokens(["space", "tasks", "create"])
+    ).toBe("space.tasks.create");
+    for (const action of ["start", "submit", "review", "cancel", "reopen"]) {
+      expect(
+        resolveCommandEntryNameFromTokens(["spaces", "tasks", action])
+      ).toBe("space.tasks.change");
+    }
     expect(resolveCommandEntryNameFromTokens(["space", "access"])).toBe(
       "space.access"
     );

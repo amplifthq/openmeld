@@ -698,6 +698,34 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     REQUIRED_SIGN_IN,
     CONFIRM_SELECTED_PROFILE
   ),
+  "space.tasks": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    AUTO_FIX_LOCAL_RUNTIME,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.tasks.show": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    AUTO_FIX_LOCAL_RUNTIME,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.tasks.create": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    AUTO_FIX_LOCAL_RUNTIME,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.tasks.change": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    AUTO_FIX_LOCAL_RUNTIME,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
   "space.members": buildCommandChecks(
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,
