@@ -2219,30 +2219,19 @@ Profile directory readiness or retain a stale provider id. The Center Agent's
 system prompt receives the same friendly name so a member can also ask which
 model is active.
 
-Computers belong to their owners in **People**. The selected Human Profile's
-main detail renders that person's Computer cards from Core's team-safe
-Organization Computer projection, including a Service-connected Computer with
-no Agent Profile yet. Selecting a card opens the existing Computer detail route;
-the signed-in member also retains **Add a Computer**. The product does not keep
-an intermediate all-Computers inventory page. The signed-in member's complete
-inventory and all Computer mutations remain account-scoped. Another member's card and detail
-may show computer name, owner, device category, operating-system family/version,
-last-seen time, coarse Service state, team-safe local-agent availability, and
-visible Agents that use it. A reported local agent may also expose operational
-details that help teammates understand compatibility: controller state, native
-interface, installed version and update status, launch readiness and install
-count, reported model names, native capabilities, last-check time, and
-provider-reported Usage Limits. It does
-not expose controller accounts, executable or installation paths, launch
-arguments, update commands, private skills, local policy, credentials, raw
-errors, or mutation controls. A live Service may expose team-safe OpenMeld
-Tools component versions and update states; setup commands, hashes, and
-owner-only controls remain private.
+People profiles show local Agents directly, using the team-safe Organization
+Computer projection. An existing teammate Computer link leads to a compact
+read-only page: Computer name, current connection state, enabled local Agents,
+reported remaining quota, and chat for any exact visible Agent Profile bound
+to that Computer and controller. It does not render the Service, CLI or skill
+install status, local tool diagnostics, or the historical token chart.
+Owner Computer settings, access controls, and diagnostic actions remain in the
+canonical owner-only management path.
 
 Team Computer links include both the owner account ID and device ID. A device
 ID alone is not unique across accounts. Legacy device-only links resolve only
 when the visible inventory has exactly one matching Computer; ambiguous links
-ask the viewer to select the Computer from its owner's Profile. They must never
+show an ambiguous-link error instead of selecting a Computer. They must never
 pick the first match or borrow another account's live status. Team detail
 resolution waits for the initial Organization projection refresh before using
 cached identity evidence. Stale local-agent checks display **Status out of date**:
@@ -2259,7 +2248,7 @@ recorded tokens are unavailable. No usage records or unsupported collection
 produce no consumption copy, badge, placeholder, or reserved space. These
 statistics remain separate from provider account Usage Limits and do not
 present Local usage as free or as spending the organization allowance.
-Owner and teammate views read the same organization-scoped consumption query.
+These usage details remain available in the owner management surface; teammate Computer details omit consumption entirely.
 
 Owned Computer Connection cards keep the current status, actions, and any last
 update failure visible. Update records, software versions, connection history,
@@ -2271,23 +2260,11 @@ connection report does not erase a failed update or confirm installation.
 Sleep prevention is one setting row without a separate Power heading; its
 saved preference and default remain owned by the local Service.
 
-Owned and teammate Computer details place Local agents before the compact Local
-Agent token usage card, prioritizing agent availability and controls over usage
-statistics. The usage card combines recorded Local Agent tokens on that enrolled Computer
-in the current Organization. The default seven-day area chart uses calendar
-days in the viewer's time zone, including today so far. Details contains the
-7/30-day selector, refresh, and an accessible daily input/output/total table.
-Each controller has an unstacked series, a labelled legend, and its existing
-Local Agent icon in tooltips and table rows. Colors reuse the shared controller
-brand accents; monochrome Cursor and OpenCode logos use fixed amber and teal
-chart accents. Unknown attribution remains explicitly labelled. Daily controller
-rows and curves use the same scoped time-series query.
-Initial loading uses the shared Evil Charts skeleton; no recorded tokens hides
-the card. Explicit missing-token receipts produce gaps instead of known-zero
-points, and partial totals are disclosed in Details. No provider polling or
-inference is performed to load the chart.
+Computer detail pages do not render an aggregate token waveform. The
+organization Usage page continues to report aggregate recorded consumption
+independently of provider account quota.
 
-Each Local Agent renders its `usageLimits` list inside the existing expandable
+In owner Computer management, each Local Agent renders its `usageLimits` list inside the existing expandable
 row. Usage Limit evidence does not create a separate page or make the row expand
 automatically. In the collapsed row, a compact summary follows the existing
 version and update metadata. Single-provider controllers retain one compact

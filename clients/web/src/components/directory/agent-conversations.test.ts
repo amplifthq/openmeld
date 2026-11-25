@@ -93,8 +93,17 @@ describe("owned Agent conversations", () => {
 		expect(rows[0].agents.map((item) => item.id)).toEqual([agent.id, "second"]);
 	});
 	it("reuses the represented profile for an owner observer and the Human after joining", () => {
+		const messagePreview = {
+			profileId: "person",
+			signalId: "message",
+			text: "Latest update",
+			timestamp: 200,
+		};
 		const observer = agentConversationLink({
-			conversation: { space: space("dm"), agents: [agent] },
+			conversation: {
+				space: { ...space("dm"), messagePreview },
+				agents: [agent],
+			},
 			humanProfileId: "me",
 			orgSlug: "studio",
 		});
@@ -105,6 +114,7 @@ describe("owned Agent conversations", () => {
 		const joined = {
 			...space("converted", ["me", agent.id]),
 			directMessageConvertedAt: "2026-09-09T00:00:00Z",
+			messagePreview,
 		};
 		expect(
 			agentConversationLink({
