@@ -48,6 +48,7 @@ export function OrganizationMemberRemovalAction(input: {
 	onRemoved?: () => void;
 	onStarted?: () => void;
 	organizationId: string;
+	surface?: "team";
 	variant?: "outline" | "destructive";
 }) {
 	const queryClient = useQueryClient();
@@ -80,10 +81,10 @@ export function OrganizationMemberRemovalAction(input: {
 	const removeMutation = useMutation({
 		mutationFn: async () => {
 			const plan = removalPreview.data;
-			if (!(removalPreview.isSuccess && plan)) {
+			if (!plan) {
 				throw new Error("Review this member's Spaces before removing them.");
 			}
-			if (plan.spaces.length > 0) {
+			if (plan.spaces.length > 0 || input.surface === "team") {
 				try {
 					await prepareOrganizationMemberRemoval({
 						memberId: plan.memberId,
@@ -99,9 +100,7 @@ export function OrganizationMemberRemovalAction(input: {
 							: {}),
 					});
 				} catch (error) {
-					throw new Error(
-						`The member was not removed. Some Space changes may have been saved. Review the updated Spaces before retrying. ${describeMemberRemovalError(error)}`
-					);
+					throw memberRemovalPreparationError(plan.spaces.length > 0, error);
 				}
 			}
 			try {
@@ -186,15 +185,18 @@ export function OrganizationMemberRemovalAction(input: {
 					<AlertDialogHeader>
 						<AlertDialogTitle>Remove {memberName}?</AlertDialogTitle>
 						<AlertDialogDescription>
-							{memberName} will lose access to this organization. Review any
-							Space changes before confirming removal.
+							{input.surface === "team"
+								? `${memberName} will lose access to this workspace. Shared work stays. Their Agents, computers, and personal channel connections aren’t transferred.`
+								: `${memberName} will lose access to this organization. Review any Space changes before confirming removal.`}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
-					<p className="text-muted-foreground text-sm">
-						Their Agents, computers, and connected channel accounts are not
-						deleted or transferred by removing their membership. Shared work and
-						organization channel connections stay in the workspace.
-					</p>
+					{input.surface === "team" ? null : (
+						<p className="text-muted-foreground text-sm">
+							Their Agents, computers, and connected channel accounts are not
+							deleted or transferred by removing their membership. Shared work
+							and organization channel connections stay in the workspace.
+						</p>
+					)}
 					<OrganizationMemberRemovalReview
 						disabled={removeMutation.isPending}
 						error={removalPreview.error}
@@ -226,6 +228,18 @@ export function OrganizationMemberRemovalAction(input: {
 				</AlertDialogContent>
 			</AlertDialog>
 		</>
+	);
+}
+
+function memberRemovalPreparationError(
+	hasSpaceChanges: boolean,
+	error: unknown
+) {
+	const outcome = hasSpaceChanges
+		? "Some Space changes may have been saved. Review the updated Spaces before retrying. "
+		: "";
+	return new Error(
+		`The member was not removed. ${outcome}${describeMemberRemovalError(error)}`
 	);
 }
 
@@ -325,7 +339,7 @@ function OrganizationMemberRemovalReview(input: {
 					<p className="text-muted-foreground text-xs">
 						{input.usesDefaultSuccessor && defaultSuccessor
 							? `${defaultSuccessor.profileName} is the organization’s default recipient and already has access to all Spaces listed for transfer. Confirm to give them ownership.`
-							: "The new owner will join the transferred Spaces and gain access to their history and files, including private content. You only gain access if you select yourself."}
+							: "The new owner gains access to the history and files of any transferred Spaces they do not already belong to, including private content. You only gain access if you select yourself."}
 					</p>
 					{successorOptions.length === 0 ? (
 						<p className="text-destructive text-xs" role="alert">
