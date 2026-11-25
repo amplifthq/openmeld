@@ -1,24 +1,262 @@
 {
   "schemaVersion": 1,
   "controller": "codex",
-  "observedAt": "2026-11-11T12:30:24.140Z",
-  "fingerprint": "17b88a7c63b875eb1137eebe3eba42369cadd6979a89b3deb034b17c97b9f6c7",
+  "observedAt": "2026-11-25T00:45:16.185Z",
+  "fingerprint": "9c18dfefa86ef754db3b8a55c13049d41af638ed94a185a8c2df1c6f1cd1791a",
   "sources": [
     {
-      "url": "https://github.com/openai/codex/releases/tag/rust-v0.167.1",
+      "url": "https://github.com/openai/codex/releases/tag/rust-v0.172.0",
       "kind": "official-release",
       "data": {
-        "tag": "rust-v0.167.1",
-        "publishedAt": "2026-11-10T21:32:01Z",
-        "notes": "\n\n## Changelog\n\nFull Changelog: https://github.com/openai/codex/compare/rust-v0.167.0...rust-v0.167.1\n\n\n\n"
+        "tag": "rust-v0.172.0",
+        "publishedAt": "2026-11-24T00:03:55Z",
+        "notes": "## New Features\n\n- Follow thread links from search results and transcripts to open saved conversations and nested agents in the terminal. (#62332)\n- Press `Tab` to complete arguments for supported slash commands. For example, `/mcp lo` completes to `/mcp login`. (#62343)\n- Jump between task groups in the agent command center with `Shift+Up` and `Shift+Down`. (#62200)\n- Optional stdio MCP servers with cached tool lists now start on their first tool call by default. (#62366)\n- Set an approval reviewer for individual connected app tools in `config.toml`. (#62360)\n- App-server clients can select Amazon Bedrock Runtime during setup or sign-in. (#62222)\n\n## Bug Fixes\n\n- `codex exec resume` restores saved sandbox permissions, the working directory, and workspace roots unless explicitly overridden. (#62194)\n- Remote sessions preserve working directories, workspace roots, and writable paths when the client and server run on different operating systems. (#62375, #62376, #62377)\n- Codex reports provider errors as soon as they arrive in a response stream and identifies which API spend limit was reached. (#62329, #62356)\n- Interrupting a parent turn preserves queued replies from child agents for the next turn. (#62348)\n- Use `PageUp` and `PageDown` to read and submit answer choices that are taller than the terminal’s answer area. (#62209)\n- Cloud replies that finish after history loads now update in place, keeping the terminal transcript in order. (#62403)\n\n## Documentation\n\n- The bundled `openai-docs` skill now covers migration to GPT-6.2 Astra and Sol, including endpoint choices and tool-calling requirements. (#62447)\n\n## Chores\n\n- Code Mode now uses gRPC for all host connections. The `code_mode_host_grpc` setting is deprecated. (#62476)\n- Python formatting and SDK type generation now verify dependency hashes against the repository lockfile. (#62346)\n\n## Changelog\n\nFull Changelog: https://github.com/openai/codex/compare/rust-v0.171.0...rust-v0.172.0\n\n- #62190 Route turn and response checkpoints through the rollout budget policy @anp-oai\n- #62192 Distinguish Windows sandbox provisioning timeouts and pipe closures @zm-oai\n- #62194 Preserve saved sandbox permissions when resuming `codex exec` @viyatb-oai\n- #62200 Add task group navigation to the agent command center @bc-openai\n- #62202 Omit unknown server versions from `/status` @bc-openai\n- #62205 Keep sandbox preparation with the command through launch @viyatb-oai\n- #62206 Prevent duplicate initial context when injection races the first turn @euroelessar\n- #62209 Allow paging through long choices in async questions @bc-openai\n- #62215 Resolve Linux sandbox mode once before launching the helper @viyatb-oai\n- #62222 Allow Bedrock Runtime selection during setup and login @alexsong-oai\n- #62225 Tag Guardian review counts with turn origin @cazhang-oai\n- #62245 Refactor realtime handoff and history access @zahan-oai\n- #62251 Derive realtime input receipts from thread history @zahan-oai\n- #62271 Gate local realtime frame history on paginated storage @zahan-oai\n- #62274 Support independent refreshes of managed Guardian policy @ioanbudea-OAI\n- #62276 Refresh managed Guardian policy independently of MCP @ioanbudea-OAI\n- #62284 Use the system clock for in-memory MCP message boards @jif-oai\n- #62288 Persist realtime handoffs before accepting turn input @zahan-oai\n- #62292 Route injected plaintext agent mail through the native mailbox @jif-oai\n- #62299 Preserve pending realtime speech when a call ends @zahan-oai\n- #62302 Route local MCP board notifications through response item injection @jif-oai\n- #62308 Extract Guardian verdict execution and pending-action context @felixxia-oai\n- #62309 Use attached Guardian reviewers for synchronous approvals @felixxia-oai\n- #62310 Use Guardian V3 board evidence for synchronous approvals @felixxia-oai\n- #62314 Keep authorization evidence local to agent forks @rhan-oai\n- #62317 Move sandbox preparation into platform backends @viyatb-oai\n- #62320 Trace MCP binding capture and tool catalog refresh @bkotsopoulos\n- #62325 Accept inbound Noise connections in remote exec-server @richardopenai\n- #62326 Measure plugin recommendation latency during initial context setup @bkotsopoulos\n- #62329 Report API spend limit errors by scope @apcha-oai\n- #62331 Migrate the Windows MXC sandbox to the public V1 SDK @iceweasel-oai\n- #62332 Open Codex thread links inside the TUI @bc-openai\n- #62335 Let users open the command center from provider error screens @bc-openai\n- #62337 Box the config reload future for persistent MCP tool approvals @dylan-hurd-oai\n- #62338 Account for macOS voice build parallelism in Bazel @dylan-hurd-oai\n- #62343 Add slash command argument completion to the TUI composer @bc-openai\n- #62346 Verify dependency hashes when running Python repository tools @colby-oai\n- #62348 Preserve queued agent messages when a parent turn is interrupted @jif-oai\n- #62350 Support piped I/O when starting Seatbelt sandbox commands @charliemarsh-oai\n- #62353 Add a shared sandbox launcher for Linux and macOS @charliemarsh-oai\n- #62354 Treat statusless bio and cyber policy errors as terminal @charliemarsh-oai\n- #62356 Surface Responses stream errors as soon as they arrive @charliemarsh-oai\n- #62357 Report why turn critical path capture is incomplete @akak-oai\n- #62358 Reserve credential permission tables in Codex configuration @viyatb-oai\n- #62360 Allow per-tool approval reviewers for Codex apps @jameswt-oai\n- #62362 Make sidebar file preview errors easier to act on @fcoury-oai\n- #62366 Enable lazy startup for stdio MCP servers by default @charliemarsh-oai\n- #62370 Share config layer entries across snapshots @charliemarsh-oai\n- #62372 Make Guardian V3 routing and retrieval guidance configurable @felixxia-oai\n- #62373 Add opt-in in-memory message boards for Guardian v3 @felixxia-oai\n- #62374 Reconsider denials in attached Guardian reviews @felixxia-oai\n- #62375 Preserve app-server thread working directories across platforms @etraut-openai\n- #62376 Preserve sandbox writable roots across client and server platforms @etraut-openai\n- #62377 Preserve workspace roots across client and server platforms @etraut-openai\n- #62378 Remove the 4,000-byte prompt limit for `thread/sample` @keyz\n- #62382 Skip the sandbox denial wait when unified exec output closes @richardopenai\n- #62384 Centralize transcript overlay input routing @fcoury-oai\n- #62386 Prepare managed proxy settings once per sandbox command @viyatb-oai\n- #62387 Expose custom status lines in `/experimental` @joesavona\n- #62388 Support optional Apps tool results in Responses requests @ssetty-oai\n- #62389 Pause runtime sandbox integrity checks @iceweasel-oai\n- #62390 Highlight clickable links and controls on hover in the fullscreen TUI @fcoury-oai\n- #62392 Pass eligible connector results through to ChatGPT Responses @ssetty-oai\n- #62400 Test saved chat hover highlighting in the sidebar chooser @fcoury-oai\n- #62403 Reconcile unfinished Cloud replies in the TUI transcript @bc-openai\n- #62407 Deduplicate large tool output strings in rollout traces @cassirer-openai\n- #62415 Enable network access in the shell snapshot filesystem test @TAFOYA-OAI\n- #62419 Allow per-sample model overrides in `thread/sample` @keyz\n- #62420 Box the future returned by response item injection @charliemarsh-oai\n- #62421 Reject provider query parameters for connector result passthrough @ssetty-oai\n- #62423 Include nested Apps tool results in Code Mode sampling requests @ssetty-oai\n- #62430 Support tool-specific JavaScript preloads in Code Mode @hlevy-openai\n- #62432 Add opt-in OAuth discovery to config server loaders @vishnu-oai\n- #62434 Expand connector result metadata coverage across auth configurations @ssetty-oai\n- #62435 Let extensions attach metadata to MCP tool requests @tepman-oai\n- #62437 Defer Git worktree status until the turn starts @ningyi-oai\n- #62439 Add Windows MXC sandbox launch diagnostics @iceweasel-oai\n- #62447 Update the `openai-docs` skill for GPT-6.2 @kkahadze-oai\n- #62474 Send authorized connector results over Responses WebSockets @ssetty-oai\n- #62476 Use gRPC for all code-mode host connections @cconger\n- #62477 Box the thread startup future in `spawn_thread` @charliemarsh-oai\n- #62489 Honor elastic budgets for attached Guardian reviews @felixxia-oai\n- #62496 Refresh managed Guardian policy across Codex threads @ioanbudea-OAI\n- #62499 Expose Daybreak availability in model discovery @igorrybalka-oai\n- #62507 Add Statsig counters for `exec_command` latency @jif-oai\n\n\n"
       }
     },
     {
-      "url": "https://raw.githubusercontent.com/openai/codex/0a94398fa60c4fac0e7659e4213a0a36e613dd46/codex-rs/models-manager/models.json",
+      "url": "https://raw.githubusercontent.com/openai/codex/3d86e43b075adeba2193ec5c22ac92f55afd82e6/codex-rs/models-manager/models.json",
       "kind": "official-harness-catalog",
       "data": {
-        "commit": "0a94398fa60c4fac0e7659e4213a0a36e613dd46",
+        "commit": "3d86e43b075adeba2193ec5c22ac92f55afd82e6",
         "models": [
+          {
+            "slug": "gpt-6.2-sol",
+            "prefer_websockets": true,
+            "support_verbosity": true,
+            "default_verbosity": "low",
+            "apply_patch_tool_type": "freeform",
+            "web_search_tool_type": "text_and_image",
+            "input_modalities": ["text", "image"],
+            "supports_image_detail_original": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 10000
+            },
+            "supports_parallel_tool_calls": true,
+            "tool_mode": "code_mode_only",
+            "multi_agent_version": "v2",
+            "multi_agent_reasoning_effort": "xhigh",
+            "use_responses_lite": true,
+            "supports_reasoning_effort_updates": true,
+            "include_skills_usage_instructions": false,
+            "include_apps_usage_instructions": false,
+            "include_plugin_usage_instructions": false,
+            "guardian": null,
+            "node_repl_auto_review_required": true,
+            "node_repl_disabled": false,
+            "requires_sandboxed_review": false,
+            "allow_only_codex_cloud_agent_orchestrator": false,
+            "allow_only_chatgpt_workspace_executor": false,
+            "auto_review_model_override": null,
+            "model_specialty": null,
+            "context_window": 500000,
+            "max_context_window": 872000,
+            "auto_compact_token_limit": null,
+            "comp_hash": "3000",
+            "default_reasoning_summary": "none",
+            "display_name": "GPT-6.2-Sol",
+            "description": "Fast, go-to model for coding and everyday work.",
+            "default_reasoning_level": "low",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Fast responses with lighter reasoning"
+              },
+              {
+                "effort": "medium",
+                "description": "Balances speed and reasoning depth for everyday tasks"
+              },
+              {
+                "effort": "high",
+                "description": "Greater reasoning depth for complex problems"
+              },
+              {
+                "effort": "xhigh",
+                "description": "Extra high reasoning depth for complex problems"
+              },
+              {
+                "effort": "max",
+                "description": "Maximum reasoning depth for the hardest problems"
+              },
+              {
+                "effort": "ultra",
+                "description": "Maximum reasoning with automatic task delegation"
+              }
+            ],
+            "shell_type": "shell_command",
+            "visibility": "list",
+            "minimal_client_version": "0.166.0",
+            "supported_in_api": true,
+            "availability_nux": null,
+            "upgrade": null,
+            "priority": 1,
+            "experimental_supported_tools": [
+              "request_user_input_async",
+              "send_message_to_user_async",
+              "clock",
+              "literature_search_query",
+              "multi_agent_v2_in_code_mode"
+            ],
+            "available_in_plans": [
+              "business",
+              "edu",
+              "edu_plus",
+              "edu_pro",
+              "education",
+              "ent26",
+              "enterprise",
+              "enterprise_cbp_automation",
+              "enterprise_cbp_trial",
+              "enterprise_cbp_usage_based",
+              "finserv",
+              "go",
+              "hc",
+              "hc_consumption",
+              "law",
+              "plus",
+              "pro",
+              "prolite",
+              "promax",
+              "quorum",
+              "rosalind_academic",
+              "sci",
+              "self_serve_business_prolite",
+              "self_serve_business_usage_based",
+              "team"
+            ],
+            "supports_search_tool": true,
+            "supports_experimental_context": false,
+            "default_service_tier": null,
+            "service_tiers": [
+              {
+                "id": "priority",
+                "name": "Fast",
+                "description": "2x speed, increased usage"
+              }
+            ],
+            "additional_speed_tiers": ["fast"],
+            "supports_reasoning_summary_parameter": true,
+            "supports_reasoning_summaries": true
+          },
+          {
+            "slug": "gpt-6.2-astra",
+            "prefer_websockets": true,
+            "support_verbosity": true,
+            "default_verbosity": "low",
+            "apply_patch_tool_type": "freeform",
+            "web_search_tool_type": "text_and_image",
+            "input_modalities": ["text", "image"],
+            "supports_image_detail_original": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 10000
+            },
+            "supports_parallel_tool_calls": true,
+            "tool_mode": "code_mode_only",
+            "multi_agent_version": "v2",
+            "multi_agent_reasoning_effort": "xhigh",
+            "use_responses_lite": true,
+            "supports_reasoning_effort_updates": true,
+            "include_skills_usage_instructions": false,
+            "include_apps_usage_instructions": false,
+            "include_plugin_usage_instructions": false,
+            "guardian": null,
+            "node_repl_auto_review_required": true,
+            "node_repl_disabled": false,
+            "requires_sandboxed_review": false,
+            "allow_only_codex_cloud_agent_orchestrator": false,
+            "allow_only_chatgpt_workspace_executor": false,
+            "auto_review_model_override": null,
+            "model_specialty": null,
+            "context_window": 272000,
+            "max_context_window": 872000,
+            "auto_compact_token_limit": null,
+            "comp_hash": "3000",
+            "default_reasoning_summary": "none",
+            "display_name": "GPT-6.2-Astra",
+            "description": "Our most capable model for complex coding and professional work.",
+            "default_reasoning_level": "low",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Fast responses with lighter reasoning"
+              },
+              {
+                "effort": "medium",
+                "description": "Balances speed and reasoning depth for everyday tasks"
+              },
+              {
+                "effort": "high",
+                "description": "Greater reasoning depth for complex problems"
+              },
+              {
+                "effort": "xhigh",
+                "description": "Extra high reasoning depth for complex problems"
+              },
+              {
+                "effort": "max",
+                "description": "Maximum reasoning depth for the hardest problems"
+              },
+              {
+                "effort": "ultra",
+                "description": "Maximum reasoning with automatic task delegation"
+              }
+            ],
+            "shell_type": "shell_command",
+            "visibility": "list",
+            "minimal_client_version": "0.166.0",
+            "supported_in_api": true,
+            "availability_nux": null,
+            "upgrade": null,
+            "priority": 2,
+            "experimental_supported_tools": [
+              "request_user_input_async",
+              "send_message_to_user_async",
+              "clock",
+              "literature_search_query",
+              "multi_agent_v2_in_code_mode"
+            ],
+            "available_in_plans": [
+              "business",
+              "edu",
+              "edu_plus",
+              "edu_pro",
+              "education",
+              "ent26",
+              "enterprise",
+              "enterprise_cbp_automation",
+              "enterprise_cbp_trial",
+              "enterprise_cbp_usage_based",
+              "finserv",
+              "go",
+              "hc",
+              "hc_consumption",
+              "law",
+              "plus",
+              "pro",
+              "prolite",
+              "promax",
+              "quorum",
+              "rosalind_academic",
+              "sci",
+              "self_serve_business_prolite",
+              "self_serve_business_usage_based",
+              "team"
+            ],
+            "supports_search_tool": true,
+            "supports_experimental_context": false,
+            "default_service_tier": null,
+            "service_tiers": [
+              {
+                "id": "priority",
+                "name": "Fast",
+                "description": "2x speed, increased usage"
+              }
+            ],
+            "additional_speed_tiers": ["fast"],
+            "supports_reasoning_summary_parameter": true,
+            "supports_reasoning_summaries": true
+          },
           {
             "slug": "gpt-6-astra",
             "prefer_websockets": true,
@@ -53,7 +291,7 @@
             "comp_hash": "3000",
             "default_reasoning_summary": "none",
             "display_name": "GPT-6-Astra",
-            "description": "Frontier intelligence for the most demanding work.",
+            "description": "Previous generation model for complex coding and professional work.",
             "default_reasoning_level": "low",
             "supported_reasoning_levels": [
               {
@@ -87,7 +325,7 @@
             "supported_in_api": true,
             "availability_nux": null,
             "upgrade": null,
-            "priority": 2,
+            "priority": 5,
             "experimental_supported_tools": [
               "send_user_message_async",
               "clock"
@@ -160,13 +398,13 @@
             "requires_sandboxed_review": false,
             "auto_review_model_override": null,
             "model_specialty": null,
-            "context_window": 272000,
+            "context_window": 500000,
             "max_context_window": 872000,
             "auto_compact_token_limit": null,
             "comp_hash": "3000",
             "default_reasoning_summary": "none",
             "display_name": "GPT-6.1-Sol",
-            "description": "Latest workhorse model for coding and everyday work.",
+            "description": "Previous generation model for coding and everyday work.",
             "default_reasoning_level": "low",
             "supported_reasoning_levels": [
               {
@@ -202,7 +440,7 @@
               "message": "Maximize usage with GPT-6.1 Sol. Try it on complex work for near-Astra performance at a lower cost."
             },
             "upgrade": null,
-            "priority": 1,
+            "priority": 4,
             "experimental_supported_tools": [
               "send_user_message_async",
               "clock"
@@ -283,7 +521,7 @@
             "comp_hash": "3000",
             "default_reasoning_summary": "none",
             "display_name": "GPT-6.1 Terra",
-            "description": "GPT-6.1 Terra Codex model.",
+            "description": "Efficient model that excels at visual understanding and computer use.",
             "default_reasoning_level": "low",
             "supported_reasoning_levels": [
               {
@@ -317,7 +555,7 @@
             "supported_in_api": true,
             "availability_nux": null,
             "upgrade": null,
-            "priority": 7,
+            "priority": 3,
             "experimental_supported_tools": [
               "send_user_message_async",
               "clock"
@@ -399,7 +637,7 @@
             "comp_hash": "3000",
             "default_reasoning_summary": "none",
             "display_name": "GPT-6-Sol",
-            "description": "Previous generation workhorse model.",
+            "description": "Legacy model for coding and everyday work.",
             "default_reasoning_level": "medium",
             "supported_reasoning_levels": [
               {
@@ -433,7 +671,7 @@
             "supported_in_api": true,
             "availability_nux": null,
             "upgrade": null,
-            "priority": 3,
+            "priority": 6,
             "experimental_supported_tools": [
               "send_user_message_async",
               "clock"
@@ -541,7 +779,7 @@
             "supported_in_api": true,
             "availability_nux": null,
             "upgrade": null,
-            "priority": 4,
+            "priority": 7,
             "experimental_supported_tools": [
               "send_user_message_async",
               "clock"
@@ -620,123 +858,8 @@
             "comp_hash": "3000",
             "default_reasoning_summary": "none",
             "display_name": "GPT-5.6-Sol",
-            "description": "Older generation workhorse model.",
+            "description": "Legacy model for coding and everyday work.",
             "default_reasoning_level": "low",
-            "supported_reasoning_levels": [
-              {
-                "effort": "low",
-                "description": "Fast responses with lighter reasoning"
-              },
-              {
-                "effort": "medium",
-                "description": "Balances speed and reasoning depth for everyday tasks"
-              },
-              {
-                "effort": "high",
-                "description": "Greater reasoning depth for complex problems"
-              },
-              {
-                "effort": "xhigh",
-                "description": "Extra high reasoning depth for complex problems"
-              },
-              {
-                "effort": "max",
-                "description": "Maximum reasoning depth for the hardest problems"
-              },
-              {
-                "effort": "ultra",
-                "description": "Maximum reasoning with automatic task delegation"
-              }
-            ],
-            "shell_type": "shell_command",
-            "visibility": "list",
-            "minimal_client_version": "0.144.0",
-            "supported_in_api": true,
-            "availability_nux": null,
-            "upgrade": {
-              "model": "gpt-6-sol",
-              "migration_markdown": "Meet GPT-6 Sol\n\nOur latest Sol is more intelligent and more efficient so your usage limits go further. This model is a great daily driver for complex tasks, especially coding.\n",
-              "retirement_at": null
-            },
-            "priority": 5,
-            "experimental_supported_tools": [],
-            "available_in_plans": [
-              "business",
-              "edu",
-              "edu_plus",
-              "edu_pro",
-              "education",
-              "ent26",
-              "enterprise",
-              "enterprise_cbp_automation",
-              "enterprise_cbp_trial",
-              "enterprise_cbp_usage_based",
-              "finserv",
-              "free",
-              "free_workspace",
-              "go",
-              "hc",
-              "k12",
-              "plus",
-              "pro",
-              "prolite",
-              "promax",
-              "quorum",
-              "sci",
-              "self_serve_business_prolite",
-              "self_serve_business_usage_based",
-              "team"
-            ],
-            "supports_search_tool": true,
-            "supports_experimental_context": false,
-            "default_service_tier": null,
-            "service_tiers": [
-              {
-                "id": "priority",
-                "name": "Fast",
-                "description": "1.5x speed, increased usage"
-              }
-            ],
-            "additional_speed_tiers": ["fast"],
-            "supports_reasoning_summary_parameter": true,
-            "supports_reasoning_summaries": true
-          },
-          {
-            "slug": "gpt-5.6-terra",
-            "prefer_websockets": true,
-            "support_verbosity": true,
-            "default_verbosity": "low",
-            "apply_patch_tool_type": "freeform",
-            "web_search_tool_type": "text_and_image",
-            "input_modalities": ["text", "image"],
-            "supports_image_detail_original": true,
-            "truncation_policy": {
-              "mode": "tokens",
-              "limit": 10000
-            },
-            "supports_parallel_tool_calls": true,
-            "tool_mode": "code_mode_only",
-            "multi_agent_version": "v2",
-            "multi_agent_reasoning_effort": null,
-            "use_responses_lite": true,
-            "supports_reasoning_effort_updates": false,
-            "include_skills_usage_instructions": false,
-            "include_apps_usage_instructions": true,
-            "include_plugin_usage_instructions": true,
-            "guardian": null,
-            "node_repl_auto_review_required": false,
-            "node_repl_disabled": false,
-            "requires_sandboxed_review": false,
-            "auto_review_model_override": null,
-            "model_specialty": null,
-            "context_window": 272000,
-            "max_context_window": 872000,
-            "auto_compact_token_limit": null,
-            "comp_hash": "3000",
-            "default_reasoning_summary": "none",
-            "display_name": "GPT-5.6-Terra",
-            "description": "Older balanced model for straightforward work.",
-            "default_reasoning_level": "medium",
             "supported_reasoning_levels": [
               {
                 "effort": "low",
@@ -817,6 +940,121 @@
             "supports_reasoning_summaries": true
           },
           {
+            "slug": "gpt-5.6-terra",
+            "prefer_websockets": true,
+            "support_verbosity": true,
+            "default_verbosity": "low",
+            "apply_patch_tool_type": "freeform",
+            "web_search_tool_type": "text_and_image",
+            "input_modalities": ["text", "image"],
+            "supports_image_detail_original": true,
+            "truncation_policy": {
+              "mode": "tokens",
+              "limit": 10000
+            },
+            "supports_parallel_tool_calls": true,
+            "tool_mode": "code_mode_only",
+            "multi_agent_version": "v2",
+            "multi_agent_reasoning_effort": null,
+            "use_responses_lite": true,
+            "supports_reasoning_effort_updates": false,
+            "include_skills_usage_instructions": false,
+            "include_apps_usage_instructions": true,
+            "include_plugin_usage_instructions": true,
+            "guardian": null,
+            "node_repl_auto_review_required": false,
+            "node_repl_disabled": false,
+            "requires_sandboxed_review": false,
+            "auto_review_model_override": null,
+            "model_specialty": null,
+            "context_window": 272000,
+            "max_context_window": 872000,
+            "auto_compact_token_limit": null,
+            "comp_hash": "3000",
+            "default_reasoning_summary": "none",
+            "display_name": "GPT-5.6-Terra",
+            "description": "Legacy balanced model for agentic coding.",
+            "default_reasoning_level": "medium",
+            "supported_reasoning_levels": [
+              {
+                "effort": "low",
+                "description": "Fast responses with lighter reasoning"
+              },
+              {
+                "effort": "medium",
+                "description": "Balances speed and reasoning depth for everyday tasks"
+              },
+              {
+                "effort": "high",
+                "description": "Greater reasoning depth for complex problems"
+              },
+              {
+                "effort": "xhigh",
+                "description": "Extra high reasoning depth for complex problems"
+              },
+              {
+                "effort": "max",
+                "description": "Maximum reasoning depth for the hardest problems"
+              },
+              {
+                "effort": "ultra",
+                "description": "Maximum reasoning with automatic task delegation"
+              }
+            ],
+            "shell_type": "shell_command",
+            "visibility": "list",
+            "minimal_client_version": "0.144.0",
+            "supported_in_api": true,
+            "availability_nux": null,
+            "upgrade": {
+              "model": "gpt-6-sol",
+              "migration_markdown": "Meet GPT-6 Sol\n\nOur latest Sol is more intelligent and more efficient so your usage limits go further. This model is a great daily driver for complex tasks, especially coding.\n",
+              "retirement_at": null
+            },
+            "priority": 9,
+            "experimental_supported_tools": [],
+            "available_in_plans": [
+              "business",
+              "edu",
+              "edu_plus",
+              "edu_pro",
+              "education",
+              "ent26",
+              "enterprise",
+              "enterprise_cbp_automation",
+              "enterprise_cbp_trial",
+              "enterprise_cbp_usage_based",
+              "finserv",
+              "free",
+              "free_workspace",
+              "go",
+              "hc",
+              "k12",
+              "plus",
+              "pro",
+              "prolite",
+              "promax",
+              "quorum",
+              "sci",
+              "self_serve_business_prolite",
+              "self_serve_business_usage_based",
+              "team"
+            ],
+            "supports_search_tool": true,
+            "supports_experimental_context": false,
+            "default_service_tier": null,
+            "service_tiers": [
+              {
+                "id": "priority",
+                "name": "Fast",
+                "description": "1.5x speed, increased usage"
+              }
+            ],
+            "additional_speed_tiers": ["fast"],
+            "supports_reasoning_summary_parameter": true,
+            "supports_reasoning_summaries": true
+          },
+          {
             "slug": "gpt-5.6-luna",
             "prefer_websockets": true,
             "support_verbosity": true,
@@ -850,7 +1088,7 @@
             "comp_hash": "3000",
             "default_reasoning_summary": "none",
             "display_name": "GPT-5.6-Luna",
-            "description": "Older fast and efficient model.",
+            "description": "Legacy fast model for simpler tasks.",
             "default_reasoning_level": "medium",
             "supported_reasoning_levels": [
               {
@@ -884,7 +1122,7 @@
               "migration_markdown": "Meet GPT-6 Luna\n\nOur latest Luna is significantly more efficient, so your usage limits go even further. Reach for it for any job that doesn't require frontier intelligence.\n",
               "retirement_at": null
             },
-            "priority": 9,
+            "priority": 10,
             "experimental_supported_tools": [],
             "available_in_plans": [
               "business",
@@ -987,7 +1225,7 @@
             ],
             "shell_type": "shell_command",
             "visibility": "hide",
-            "minimal_client_version": "0.142.2",
+            "minimal_client_version": "0.144.0",
             "supported_in_api": true,
             "availability_nux": null,
             "upgrade": null,
@@ -1338,48 +1576,13 @@
     {
       "url": "https://learn.chatgpt.com/docs/models.md",
       "kind": "official-document",
-      "data": "# Models\n\n> For the complete documentation index, see [llms.txt](https://learn.chatgpt.com/llms.txt). Markdown versions of documentation pages are available by appending `.md` to the page URL.\n\nChoosing a model is about finding the right balance of speed, cost, and capability\nfor your task. Sometimes you need a quick first draft. Other times, a complex\nproblem calls for more careful reasoning. This guide introduces our latest\nmodels, shows where each one shines, and helps you find a starting point for\nyour work.\n\nGPT-5.5 retirement: [See replacement models and migration\n  steps](#gpt-55-retirement).\n\n<ContentModeSwitch group=\"codex-surface\" id=\"app\">\n\n\n\n  \n\n\n## Choose a model\n\nIn Work or Codex in the ChatGPT desktop app, use the model and reasoning control\nbeneath the composer to choose an available model and adjust its reasoning effort.\n\n**Reasoning effort** guides how much work the model puts into thinking through\nyour request. Higher effort can improve results for complex tasks, but it takes\nlonger and uses more tokens. Start with the default effort and increase it when\nthe task needs deeper planning or analysis.\n\n**Ultra** mode goes\nbeyond a single-agent run. It uses\n[subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) to accelerate complex work,\nmaking it useful for larger tasks that can be split across subagents.\n\n  \n\n  <CodexModelSwitcher client:visible className=\"lg:mt-7\" />\n\n\n\n</ContentModeSwitch>\n\n<ContentModeSwitch group=\"codex-surface\" id=\"web\">\n\n\n\n  \n\n\n## Choose a model\n\nThese recommendations apply to **ChatGPT Work** on the web. Use the\nmodel and reasoning control beneath the composer to choose an available model\nand adjust its reasoning effort.\n\n**Reasoning effort** guides how much work the model puts into thinking through\nyour request. Higher effort can improve results for complex tasks, but it takes\nlonger and uses more tokens. Start with the default effort and increase it when\nthe task needs deeper planning or analysis.\n\n**Ultra** mode goes\nbeyond a single-agent run. It uses\n[subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) to accelerate complex work,\nmaking it useful for larger tasks that can be split across subagents.\n\n  \n\n  <CodexModelSwitcher client:visible className=\"lg:mt-7\" />\n\n\n\n</ContentModeSwitch>\n\n<ContentModeSwitch group=\"codex-surface\" id=\"cli\">\n\n## Choose a model\n\nGPT-6.1 Terra requires Codex CLI 0.159.0 or later. To use it, run\n`codex -m gpt-6.1-terra`.\n\nIn an interactive CLI session, use `/model` to switch models or adjust\nreasoning effort. You can also choose a model when you launch Codex with\n`--model` or its `-m` alias:\n\n```bash\ncodex --model gpt-6.1-sol\n```\n\n\nThe same option works with non-interactive runs. For example:\n\n```bash\ncodex exec -m gpt-6.1-sol \"Review the current changes\"\n```\n\n\n**Reasoning effort** guides how much work the model puts into thinking through\nyour request. Higher effort can improve results for complex tasks, but it takes\nlonger and uses more tokens. Start with the default effort and increase it when\nthe task needs deeper planning or analysis.\n\n**Ultra** mode goes\nbeyond a single-agent run. It uses\n[subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) to accelerate complex work,\nmaking it useful for larger tasks that can be split across subagents.\n\n</ContentModeSwitch>\n\n<ContentModeSwitch group=\"codex-surface\" id=\"ide\">\n\n\n\n  \n\n\n## Choose a model\n\nUse the model switcher below the composer to choose an available model and\nreasoning effort.\n\n**Reasoning effort** guides how much work the model puts into thinking through\nyour request. Higher effort can improve results for complex tasks, but it takes\nlonger and uses more tokens. Start with the default effort and increase it when\nthe task needs deeper planning or analysis.\n\n**Ultra** mode goes\nbeyond a single-agent run. It uses\n[subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) to accelerate complex work,\nmaking it useful for larger tasks that can be split across subagents.\n\n  \n\n  <CodexModelSwitcher client:visible forceDark className=\"lg:mt-7\" />\n\n\n\n</ContentModeSwitch>\n\n<ContentModeSwitch group=\"codex-surface\" ids=\"app,web\">\n\nIn the ChatGPT desktop app and ChatGPT Work on the web, start with the default\n  Power setting available to your account. Move toward **Smarter** for deeper\n  reasoning or **Faster** for faster, lower-cost work. Open **Advanced** to\n  choose a specific model, reasoning effort, or speed. To try GPT-6.1 Terra in\n  this example, open **Advanced** and choose it from the model list.\n\nThe six Power presets shown are Luna High, GPT-6 Sol Light (selected\nin this example), GPT-6 Sol Medium, Astra Light, Astra Medium, and Astra Extra\nHigh. Some paid plans omit Astra Extra High. Advanced controls are illustrative;\navailable options and defaults vary by plan, client, workspace settings, and rollout.\n\n</ContentModeSwitch>\n\n<a id=\"recommended-models\"></a>\n<a id=\"other-models\"></a>\n<a id=\"deprecated-codex-models\"></a>\n<a id=\"configure-your-default-local-model\"></a>\n<a id=\"choose-a-model-for-cloud-tasks\"></a>\n<a id=\"gpt-6-astra\"></a>\n\n<ContentModeSwitch group=\"codex-surface\" ids=\"app,web,cli,ide\">\n\n## Recommended models\n\nStart with the kind of work you want to do. Astra suits the most demanding\nworkflows. GPT-6.1 Sol offers near-Astra performance at a lower cost than Astra.\nGPT-6.1 Terra is a fast, efficient choice for writing, visual understanding, and\ncomputer use. Luna suits focused, repeatable tasks.\n\nThese recommendations apply to ChatGPT Work and Codex. For Chat, see [models in ChatGPT](https://help.openai.com/en/articles/20001354-gpt-6-and-other-models-in-chatgpt) in the Help Center.\n\n<a id=\"app-compare-models\"></a>\n\n\n\n  <ModelDetails\n    client:load\n    name=\"gpt-6-astra\"\n    slug=\"gpt-6-astra\"\n    imageLabel=\"Astra\"\n    wallpaperUrl=\"/images/api/models/gpt-6-astra-texture.webp\"\n    description=\"Our most capable model for complex work across code, apps, and research, combining advanced reasoning, computer use, and stronger judgment.\"\n    data={{\n      features: [\n        {\n          title: \"Capability\",\n          value: \"\",\n          icons: [\n            \"openai.SparklesFilled\",\n            \"openai.SparklesFilled\",\n            \"openai.SparklesFilled\",\n            \"openai.SparklesFilled\",\n            \"openai.SparklesFilled\",\n          ],\n        },\n        {\n          title: \"Speed\",\n          value: \"\",\n          icons: [\"openai.Flash\", \"openai.Flash\"],\n        },\n        { title: \"ChatGPT desktop app\", value: true },\n        { title: \"ChatGPT web\", value: true },\n        { title: \"Codex CLI\", value: true },\n        { title: \"Codex IDE extension\", value: true },\n        { title: \"ChatGPT Credits\", value: true },\n        { title: \"API Access\", value: true },\n      ],\n    }}\n  />\n\n<ModelDetails\n  client:load\n  name=\"gpt-6.1-sol\"\n  slug=\"gpt-6.1-sol\"\n  imageLabel=\"6.1 Sol\"\n  wallpaperUrl=\"/images/api/models/gpt-6.1-sol-texture.webp\"\n  description=\"Near-Astra performance for complex work at a lower cost than Astra. Consider it for repeated, long-running work across code, apps, and documents.\"\n  data={{\n    features: [\n      {\n        title: \"Capability\",\n        value: \"\",\n        icons: [\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n        ],\n      },\n      {\n        title: \"Speed\",\n        value: \"\",\n        icons: [\"openai.Flash\", \"openai.Flash\", \"openai.Flash\"],\n      },\n      { title: \"Work and Codex in the desktop app\", value: true },\n      { title: \"ChatGPT Work on the web\", value: true },\n      { title: \"Codex CLI\", value: true },\n      { title: \"Codex IDE extension\", value: true },\n      { title: \"ChatGPT Credits\", value: true },\n      { title: \"API Access\", value: true },\n    ],\n  }}\n/>\n\n\n\n\n<a\n  id=\"gpt-61-terra\"\n  data-codex-legacy-anchor\n  className=\"block scroll-mt-24\"\n></a>\n\n<ModelDetails\n  client:load\n  name=\"gpt-6.1-terra\"\n  slug=\"gpt-6.1-terra\"\n  imageLabel=\"6.1 Terra\"\n  wallpaperUrl=\"/images/api/models/gpt-6.1-terra-block.webp\"\n  description=\"A fast, efficient model for clear writing, visual understanding, and computer use. Try it for drafting proposals, interpreting charts, or working with information in an app.\"\n  data={{\n    features: [\n      {\n        title: \"Capability\",\n        value: \"\",\n        icons: [\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n        ],\n      },\n      {\n        title: \"Speed\",\n        value: \"\",\n        icons: [\"openai.Flash\", \"openai.Flash\", \"openai.Flash\", \"openai.Flash\"],\n      },\n      { title: \"Work and Codex in the desktop app\", value: true },\n      { title: \"ChatGPT Work on the web\", value: true },\n      { title: \"Codex CLI\", value: true },\n      { title: \"ChatGPT Credits\", value: true },\n      { title: \"API Access\", value: true },\n    ],\n  }}\n/>\n\n\n\n\n<ModelDetails\n  client:load\n  name=\"gpt-6-luna\"\n  slug=\"gpt-6-luna\"\n  imageLabel=\"6 Luna\"\n  wallpaperUrl=\"/images/api/models/gpt-5.6-luna.webp\"\n  description=\"Our most efficient model for focused, high-volume tasks, including summarization, extraction, and focused coding.\"\n  data={{\n    features: [\n      {\n        title: \"Capability\",\n        value: \"\",\n        icons: [\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n        ],\n      },\n      {\n        title: \"Speed\",\n        value: \"\",\n        icons: [\"openai.Flash\", \"openai.Flash\", \"openai.Flash\", \"openai.Flash\"],\n      },\n      { title: \"Work and Codex in the desktop app\", value: true },\n      { title: \"ChatGPT Work on the web\", value: true },\n      { title: \"Codex CLI\", value: true },\n      { title: \"Codex IDE extension\", value: true },\n      { title: \"ChatGPT Credits\", value: true },\n      { title: \"API Access\", value: true },\n    ],\n  }}\n/>\n\n\n\n\n</ContentModeSwitch>\n\n<a id=\"gpt-61-sol\"></a>\n<a id=\"gpt-6.1-sol\"></a>\n\nGPT-6.1 Sol uses a default context window of 500,000 tokens in Codex and\nChatGPT Work. See [pricing](https://learn.chatgpt.com/docs/pricing) for subscription usage and credit rates.\n\nFor model availability, pricing, and usage limits, see [ChatGPT Work and Codex](https://help.openai.com/en/articles/20001275-chatgpt-work-and-codex) in the Help Center.\n\n<ContentModeSwitch group=\"codex-surface\" ids=\"app,web,cli,ide\">\n\n<a id=\"choosing-sol-terra-and-luna\"></a>\n\n<a id=\"choosing-astra-sol-and-luna\"></a>\n<a id=\"app-choosing-astra-sol-and-luna\"></a>\n<a id=\"web-choosing-astra-sol-and-luna\"></a>\n<a id=\"cli-choosing-astra-sol-and-luna\"></a>\n<a id=\"ide-choosing-astra-sol-and-luna\"></a>\n\n## Choosing a model\n\nStart with a task you know well and compare the result with what you need.\nConsider how long you're willing to wait, how much usage the task requires,\nand the level of detail or judgment involved. You can change models as your\nwork changes.\n\n### Where each model shines\n\n- **Astra, for the hardest end-to-end work.** Choose Astra for complete workflows\n  across code, apps, and research that need sustained reasoning and judgment.\n  Give it the sources, templates, constraints, and checks that define a useful\n  result. Astra is better at asking focused questions and incorporating your\n  guidance while keeping the original goal and constraints in view.\n- **GPT-6.1 Sol, for repeated, long-running work.** Consider GPT-6.1 Sol for\n  work across code, apps, and documents when cost matters. Keep Astra for your\n  most demanding work.\n- **GPT-6.1 Terra, for everyday writing and visual work.** Choose Terra for clear\n  communication, interpreting images and screens, and completing tasks across\n  supported apps. Try it for drafting proposals, reviewing visual materials,\n  or filling out forms from source documents.\n- **Luna, for clear, repeatable tasks.** Choose Luna for specific, high-volume\n  tasks when you know what a good result looks like, such as extraction,\n  classification, transformation, and structured summaries.\n\n### Try an example\n\nUse your own materials with these prompts, and tell ChatGPT what a useful\nresult should include.\n\n| Model         | Task                                           | Example prompt                                                                                                                                                                        |\n| ------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |\n| Astra         | Work through a complex decision.               | \"Compare these three vendor proposals against our requirements. Explain the tradeoffs, recommend an option, and list the questions we should resolve before deciding.\"                |\n| GPT-6.1 Sol   | Bring several sources into a working document. | \"Use this project brief, meeting notes, and timeline to draft an implementation plan. Identify dependencies, flag conflicting details, and list the decisions we still need to make.\" |\n| GPT-6.1 Terra | Make sense of visual information.              | \"Review these dashboard screenshots and summarize the main changes. Refer to the chart labels and values, and flag anything you can't read confidently.\"                              |\n| Luna          | Organize information into a consistent format. | \"Turn these meeting notes into a table of action items, owners, and due dates. Mark any missing owner or date as unspecified.\"                                                        |\n\nReview the result against your source materials, especially names, numbers,\nand details taken from images. For tasks on websites or in desktop apps, check\nthe [browser use](https://learn.chatgpt.com/docs/browser) and [computer use](https://learn.chatgpt.com/docs/computer-use) setup\nrequirements first.\n\n### Pick a reasoning effort\n\nFor example, you might use a lower effort to rewrite a short email and a higher\neffort to compare several proposals with competing requirements.\n\nFor GPT-6.1 Sol, start with the reasoning effort available by default in your\nclient and adjust based on the task. Start with **High** for Luna or **Light**\nfor Astra.\nIn configuration, Astra's Light setting is `low`. Increase the effort for tasks\nthat need more planning, analysis, or checking.\n\n- **Light** in the ChatGPT desktop app, ChatGPT Work on the web, and IDE extension, or **Low** in the\n  CLI, suits quick, well-scoped tasks.\n- **Medium** balances speed and depth for tasks that need more planning.\n- **High** and **Extra High** suit difficult work with multiple steps, sources,\n  or tradeoffs.\n\nReasoning efforts don't map exactly between model generations. Try a familiar task\nat a lower setting and adjust based on the result.\n\n### Know when to use Max or Ultra\n\n**Max** gives the selected model more time to reason about a single task. Use it\nfor the hardest problems, when depth matters more than speed or usage. If you\ndon't see Max in the ChatGPT desktop app, check your app settings.\n\n**Ultra** uses [subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) to handle\nseparate parts of a complex task in parallel. Choose it when you can divide the\nwork into meaningful parts. Most tasks do not need Max or Ultra.\n\nGPT-6 Luna supports reasoning efforts up to **Max**, but not **Ultra**.\n\nIn the CLI, use `/model`, choose a model, then select **More reasoning…**\nto see its supported Max or Ultra options.\n\nIf your model supports Ultra but it doesn't appear in the desktop app's model\nslider, go to **Settings** > **Configuration**, then turn on\n**Ultra in model picker slider**.\n\n</ContentModeSwitch>\n\n## GPT-5.5 retirement\n\nEffective October 14, 2026, at noon PDT (19:00 UTC), GPT-5.5 retires from\nCodex for users signed in with ChatGPT. The OpenAI API and Codex sessions\nauthenticated with an API key aren't affected.\n\nFor Codex with ChatGPT sign-in, choose an available replacement:\n\n- On Plus, Pro, Business, Enterprise, and Edu plans, choose **GPT-6.1 Sol**\n  (`gpt-6.1-sol`) when available.\n- On Free and Go plans, choose **GPT-6 Luna** (`gpt-6-luna`) in the desktop app\n  when available.\n\nReplace `gpt-5.5` in workspace defaults, saved model settings, managed\nconfigurations, custom agents, scheduled tasks, and scripts that select a model.\n\nSee [workspace model availability](https://learn.chatgpt.com/docs/enterprise/workspace-model-availability#prepare-for-the-gpt-55-retirement)\nfor administrator guidance.\n\n<ContentModeSwitch group=\"codex-surface\" ids=\"app,cli,ide\">\n\n## Other models\n\nWith API-key authentication, model availability follows your API organization\nand project. GPT-5.5 remains available through the OpenAI API and in Codex\nsessions authenticated with an API key. See the [API model catalog](https://developers.openai.com/api/docs/models).\n\nFor a custom model provider or gateway, use a compatible Responses API endpoint.\nSee [Custom model providers](https://learn.chatgpt.com/docs/config-file/config-advanced#custom-model-providers)\nfor configuration and [Gateway compatibility](https://learn.chatgpt.com/docs/enterprise/gateway-compatibility)\nfor streaming, tool, and conversation requirements. Current Codex releases don't\nsupport `wire_api = \"chat\"` or a Chat Completions-only endpoint.\n\n## Deprecated Codex models\n\nGPT-5.3-Codex-Spark retired on September 14, 2026, and is no longer available\nin the ChatGPT desktop app, Codex CLI, or IDE extension. Update saved\nconfigurations, custom agents, and scripts that select `gpt-5.3-codex-spark`\nto use an [available model](https://learn.chatgpt.com/docs/models#recommended-models). See the\n[Spark retirement notice](https://learn.chatgpt.com/docs/changelog#codex-2026-09-14-codex-spark-deprecation).\n\nGPT-5.5 retires from Codex with ChatGPT sign-in on October 14, 2026, at noon\nPDT (19:00 UTC). Replace `gpt-5.5` with a model available to your account and\nclient. API-key sessions aren't affected. See\n[GPT-5.5 retirement](https://learn.chatgpt.com/docs/models#gpt-55-retirement) for plan-specific\nreplacements and the migration checklist.\n\nThe `gpt-5.4` and `gpt-5.4-mini` models retired from Codex with ChatGPT sign-in\non August 31, 2026. Replace `gpt-5.4` with `gpt-6-sol` and\n`gpt-5.4-mini` with `gpt-6-luna` when available to your plan and client.\nIn Enterprise and Edu, an administrator must enable Luna first. Update workspace\ndefaults, saved model settings, managed configurations, custom agents, and\nscheduled tasks with an available replacement.\n\nThe `gpt-5.2` and `gpt-5.3-codex` models are already deprecated in Codex when\nyou sign in with ChatGPT. Update scripts, configuration files, and\n`codex exec --model` commands that still reference those models.\n\nThe OpenAI API and Codex authenticated with your own API key aren't affected\nby the GPT-5.4 retirement. For current API model availability, see the\n[API models page](https://developers.openai.com/api/docs/models).\n\n## Configure your default local model\n\nThe ChatGPT desktop app, Codex CLI, and IDE extension use the same `config.toml`\n[configuration file](https://learn.chatgpt.com/docs/config-file/config-basic). To specify a model, add a\n`model` entry to your configuration file. If you don't specify a model, the\nChatGPT desktop app, Codex CLI, or IDE extension uses a recommended model.\n\n```toml\nmodel = \"gpt-6.1-sol\"\n```\n\n\n</ContentModeSwitch>"
+      "data": "# Models\n\n> For the complete documentation index, see [llms.txt](https://learn.chatgpt.com/llms.txt). Markdown versions of documentation pages are available by appending `.md` to the page URL.\n\nChoosing a model is about finding the right balance of speed, cost, and capability\nfor your task. Sometimes you need a quick first draft. Other times, a complex\nproblem calls for more careful reasoning. This guide introduces our latest\nmodels, shows where each one shines, and helps you find a starting point for\nyour work.\n\nGPT-5.5 retirement: [See replacement models and migration\n  steps](#gpt-55-retirement).\n\n<ContentModeSwitch group=\"codex-surface\" id=\"app\">\n\n\n\n  \n\n\n## Choose a model\n\nIn Work or Codex in the ChatGPT desktop app, use the model and reasoning control\nbeneath the composer to choose an available model and adjust its reasoning effort.\nIf you see the Power slider, open **Advanced** to choose a specific model,\nsuch as GPT-6.2 Astra.\n\n**Reasoning effort** guides how much work the model puts into thinking through\nyour request. Higher effort can improve results for complex tasks, but it takes\nlonger and uses more tokens. Start with the default effort and increase it when\nthe task needs deeper planning or analysis.\n\n**Ultra** mode goes\nbeyond a single-agent run. It uses\n[subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) to accelerate complex work,\nmaking it useful for larger tasks that can be split across subagents.\n\n  \n\n  <CodexModelSwitcher client:visible surface=\"work\" className=\"lg:mt-7\" />\n\n\n\n</ContentModeSwitch>\n\n<ContentModeSwitch group=\"codex-surface\" id=\"web\">\n\n\n\n  \n\n\n## Choose a model\n\nThese recommendations apply to **ChatGPT Work** on the web. Use the\nmodel and reasoning control beneath the composer to choose an available model\nand adjust its reasoning effort.\n\n**Reasoning effort** guides how much work the model puts into thinking through\nyour request. Higher effort can improve results for complex tasks, but it takes\nlonger and uses more tokens. Start with the default effort and increase it when\nthe task needs deeper planning or analysis.\n\n**Ultra** mode goes\nbeyond a single-agent run. It uses\n[subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) to accelerate complex work,\nmaking it useful for larger tasks that can be split across subagents.\n\n  \n\n  <CodexModelSwitcher client:visible surface=\"work\" className=\"lg:mt-7\" />\n\n\n\n</ContentModeSwitch>\n\n<ContentModeSwitch group=\"codex-surface\" id=\"cli\">\n\n## Choose a model\n\nGPT-6.1 Terra requires Codex CLI 0.159.0 or later. To use it, run\n`codex -m gpt-6.1-terra`.\n\nIn an interactive CLI session, use `/model` to switch models or adjust\nreasoning effort. To start Codex with Sol, use `--model` or its `-m` alias:\n\n```bash\ncodex --model gpt-6.2-sol\n```\n\n\nThe same option works with non-interactive runs. For example:\n\n```bash\ncodex exec -m gpt-6.2-sol \"Review the current changes\"\n```\n\n\n**Reasoning effort** guides how much work the model puts into thinking through\nyour request. Higher effort can improve results for complex tasks, but it takes\nlonger and uses more tokens. Start with the default effort and increase it when\nthe task needs deeper planning or analysis.\n\n**Ultra** mode goes\nbeyond a single-agent run. It uses\n[subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) to accelerate complex work,\nmaking it useful for larger tasks that can be split across subagents.\n\n</ContentModeSwitch>\n\n<ContentModeSwitch group=\"codex-surface\" id=\"ide\">\n\n\n\n  \n\n\n## Choose a model\n\nUse the model switcher below the composer to choose an available model and\nreasoning effort.\n\n**Reasoning effort** guides how much work the model puts into thinking through\nyour request. Higher effort can improve results for complex tasks, but it takes\nlonger and uses more tokens. Start with the default effort and increase it when\nthe task needs deeper planning or analysis.\n\n**Ultra** mode goes\nbeyond a single-agent run. It uses\n[subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) to accelerate complex work,\nmaking it useful for larger tasks that can be split across subagents.\n\n  \n\n  <CodexModelSwitcher client:visible forceDark className=\"lg:mt-7\" />\n\n\n\n</ContentModeSwitch>\n\n<ContentModeSwitch group=\"codex-surface\" ids=\"app,web\">\n\nThis example shows the Power slider for a ChatGPT Work account with access to\n  both GPT-6.2 models. New Work chats start with GPT-6.2 Sol at **Light** on\n  supported consumer plans or **Medium** in Enterprise workspaces with the model\n  enabled. Move the Power slider toward **Smarter** for deeper reasoning or\n  **Faster** for faster, lower-cost work. Open **Advanced** to choose a specific\n  model or reasoning effort from the options available to your account.\n\n</ContentModeSwitch>\n\n<a id=\"recommended-models\"></a>\n<a id=\"other-models\"></a>\n<a id=\"deprecated-codex-models\"></a>\n<a id=\"configure-your-default-local-model\"></a>\n<a id=\"choose-a-model-for-cloud-tasks\"></a>\n\n<ContentModeSwitch group=\"codex-surface\" ids=\"app,web,cli,ide\">\n\n## Recommended models\n\nGPT-6.2 Astra and GPT-6.2 Sol are now available in ChatGPT Work and Codex on\n[supported plans and clients](https://learn.chatgpt.com/docs/pricing#feature-availability). For demanding\nwork across code, apps, or research, choose GPT-6.2 Astra. In Codex, try Astra to\ntrace a bug across services, fix it, and test the change. See\n[Prompting GPT-6.2 in Codex](https://learn.chatgpt.com/guides/prompting-gpt-6-2-astra).\n\nChoose GPT-6.2 Sol for\neveryday coding, writing, and work across several sources. It costs fewer credits\nper token than GPT-6.2 Astra at [Standard speed](https://learn.chatgpt.com/docs/pricing#token-rates).\nGPT-6.1 Terra is a fast, efficient choice for writing, visual understanding, and\ncomputer use. Luna suits focused, repeatable tasks.\n\nThese recommendations apply to ChatGPT Work and Codex. For Chat availability, see [models in ChatGPT](https://help.openai.com/en/articles/20001354-gpt-6-and-other-models-in-chatgpt) in the Help Center.\n\n<a id=\"app-compare-models\"></a>\n\n\n\n\n\n\n<ModelDetails\n  client:load\n  name=\"GPT-6.2 Astra\"\n  slug=\"gpt-6.2-astra\"\n  imageLabel=\"6.2 Astra\"\n  wallpaperUrl=\"/images/api/models/gpt-6.2-astra-block.webp\"\n  description=\"Choose GPT-6.2 Astra for demanding projects, such as diagnosing a bug across services or turning research into a presentation that follows your template.\"\n  data={{\n    features: [\n      { title: \"ChatGPT Work\", value: \"Web, mobile, and desktop\" },\n      { title: \"Codex\", value: \"App and CLI\" },\n      { title: \"Default context in Codex\", value: \"272,000 tokens\" },\n    ],\n  }}\n/>\n\n\n\n\n\n\n\n<ModelDetails\n  client:load\n  name=\"GPT-6.2 Sol\"\n  slug=\"gpt-6.2-sol\"\n  imageLabel=\"6.2 Sol\"\n  wallpaperUrl=\"/images/api/models/gpt-6.2-sol-block.webp\"\n  description=\"Use GPT-6.2 Sol for everyday tasks like editing code, drafting a report, or turning project notes into a plan.\"\n  data={{\n    features: [\n      { title: \"ChatGPT Work\", value: \"Web, mobile, and desktop\" },\n      { title: \"Codex\", value: \"App and CLI\" },\n      { title: \"Default context in Codex\", value: \"500,000 tokens\" },\n    ],\n  }}\n/>\n\n\n\n\n\n\n\n<ModelDetails\n  client:load\n  name=\"gpt-6-astra\"\n  slug=\"gpt-6-astra\"\n  imageLabel=\"Astra\"\n  wallpaperUrl=\"/images/api/models/gpt-6-astra-texture.webp\"\n  description=\"Combine reasoning and computer use to tackle complex work across code, apps, and research.\"\n  data={{\n    features: [\n      {\n        title: \"Capability\",\n        value: \"\",\n        icons: [\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n        ],\n      },\n      {\n        title: \"Speed\",\n        value: \"\",\n        icons: [\"openai.Flash\", \"openai.Flash\"],\n      },\n      { title: \"ChatGPT desktop app\", value: true },\n      { title: \"ChatGPT web\", value: true },\n      { title: \"Codex CLI\", value: true },\n      { title: \"Codex IDE extension\", value: true },\n      { title: \"ChatGPT Credits\", value: true },\n      { title: \"API Access\", value: true },\n    ],\n  }}\n/>\n\n\n\n\n<ModelDetails\n  client:load\n  name=\"gpt-6.1-sol\"\n  slug=\"gpt-6.1-sol\"\n  imageLabel=\"6.1 Sol\"\n  wallpaperUrl=\"/images/api/models/gpt-6.1-sol-texture.webp\"\n  description=\"Performance close to GPT-6 Astra for complex work at a lower cost. Consider it for repeated, long-running work across code, apps, and documents.\"\n  data={{\n    features: [\n      {\n        title: \"Capability\",\n        value: \"\",\n        icons: [\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n        ],\n      },\n      {\n        title: \"Speed\",\n        value: \"\",\n        icons: [\"openai.Flash\", \"openai.Flash\", \"openai.Flash\"],\n      },\n      { title: \"Work and Codex in the desktop app\", value: true },\n      { title: \"ChatGPT Work on the web\", value: true },\n      { title: \"Codex CLI\", value: true },\n      { title: \"Codex IDE extension\", value: true },\n      { title: \"ChatGPT Credits\", value: true },\n      { title: \"API Access\", value: true },\n    ],\n  }}\n/>\n\n\n\n\n<a\n  id=\"gpt-61-terra\"\n  data-codex-legacy-anchor\n  className=\"block scroll-mt-24\"\n></a>\n\n<ModelDetails\n  client:load\n  name=\"gpt-6.1-terra\"\n  slug=\"gpt-6.1-terra\"\n  imageLabel=\"6.1 Terra\"\n  wallpaperUrl=\"/images/api/models/gpt-6.1-terra-block.webp\"\n  description=\"A fast, efficient model for clear writing, visual understanding, and computer use. Try it for drafting proposals, interpreting charts, or working with information in an app.\"\n  data={{\n    features: [\n      {\n        title: \"Capability\",\n        value: \"\",\n        icons: [\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n        ],\n      },\n      {\n        title: \"Speed\",\n        value: \"\",\n        icons: [\"openai.Flash\", \"openai.Flash\", \"openai.Flash\", \"openai.Flash\"],\n      },\n      { title: \"Work and Codex in the desktop app\", value: true },\n      { title: \"ChatGPT Work on the web\", value: true },\n      { title: \"Codex CLI\", value: true },\n      { title: \"ChatGPT Credits\", value: true },\n      { title: \"API Access\", value: true },\n    ],\n  }}\n/>\n\n\n\n\n<ModelDetails\n  client:load\n  name=\"gpt-6-luna\"\n  slug=\"gpt-6-luna\"\n  imageLabel=\"6 Luna\"\n  wallpaperUrl=\"/images/api/models/gpt-5.6-luna.webp\"\n  description=\"Our most efficient model for focused, high-volume tasks, including summarization, extraction, and focused coding.\"\n  data={{\n    features: [\n      {\n        title: \"Capability\",\n        value: \"\",\n        icons: [\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n          \"openai.SparklesFilled\",\n        ],\n      },\n      {\n        title: \"Speed\",\n        value: \"\",\n        icons: [\"openai.Flash\", \"openai.Flash\", \"openai.Flash\", \"openai.Flash\"],\n      },\n      { title: \"Work and Codex in the desktop app\", value: true },\n      { title: \"ChatGPT Work on the web\", value: true },\n      { title: \"Codex CLI\", value: true },\n      { title: \"Codex IDE extension\", value: true },\n      { title: \"ChatGPT Credits\", value: true },\n      { title: \"API Access\", value: true },\n    ],\n  }}\n/>\n\n\n\n\n</ContentModeSwitch>\n\nTo use a longer context window in Codex, set `model_context_window` in\n[`config.toml`](https://learn.chatgpt.com/docs/config-file/config-advanced#model-reasoning-verbosity-and-limits).\nGPT-6.2 Astra and GPT-6.2 Sol each support a context window of up to 1 million tokens.\n\n<a id=\"gpt-61-sol\"></a>\n<a id=\"gpt-6.1-sol\"></a>\n\nGPT-6.1 Sol uses a default context window of 500,000 tokens in Codex and\nChatGPT Work. See [pricing](https://learn.chatgpt.com/docs/pricing) for subscription usage and credit rates.\n\nFor model availability, pricing, and usage limits, see [ChatGPT Work and Codex](https://help.openai.com/en/articles/20001275-chatgpt-work-and-codex) in the Help Center.\n\n<ContentModeSwitch group=\"codex-surface\" ids=\"app,web,cli,ide\">\n\n<a id=\"choosing-sol-terra-and-luna\"></a>\n\n<a id=\"choosing-astra-sol-and-luna\"></a>\n<a id=\"app-choosing-astra-sol-and-luna\"></a>\n<a id=\"web-choosing-astra-sol-and-luna\"></a>\n<a id=\"cli-choosing-astra-sol-and-luna\"></a>\n<a id=\"ide-choosing-astra-sol-and-luna\"></a>\n\n## Choosing a model\n\nStart with a task you know well and compare the result with what you need.\nConsider how long you're willing to wait, how much usage the task requires,\nand the level of detail or judgment involved. You can change models as your\nwork changes.\n\n### Where each model shines\n\n- **GPT-6.2 Astra or GPT-6 Astra, for the hardest end-to-end work.** Choose an\n  available Astra model for tasks that need sustained reasoning across code,\n  apps, or research. Give it the sources, constraints, and checks that define a\n  useful result.\n- **GPT-6.2 Sol, for everyday work.** Choose Sol to edit code, draft documents,\n  or turn several sources into a plan.\n- **GPT-6.1 Terra, for everyday writing and visual work.** Choose Terra for clear\n  communication, interpreting images and screens, and completing tasks across\n  supported apps. Try it for drafting proposals, reviewing visual materials,\n  or filling out forms from source documents.\n- **Luna, for clear, repeatable tasks.** Choose Luna for specific, high-volume\n  tasks when you know what a good result looks like, such as extraction,\n  classification, transformation, and structured summaries.\n\n### Try an example\n\nUse your own materials with these prompts, and tell ChatGPT what a useful\nresult should include.\n\n| Model                        | Task                                           | Example prompt                                                                                                                                                                        |\n| ---------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |\n| GPT-6.2 Astra or GPT-6 Astra | Work through a complex decision.               | \"Compare these three vendor proposals against our requirements. Explain the tradeoffs, recommend an option, and list the questions we should resolve before deciding.\"                |\n| GPT-6.2 Sol                  | Bring several sources into a working document. | \"Use this project brief, meeting notes, and timeline to draft an implementation plan. Identify dependencies, flag conflicting details, and list the decisions we still need to make.\" |\n| GPT-6.1 Terra                | Make sense of visual information.              | \"Review these dashboard screenshots and summarize the main changes. Refer to the chart labels and values, and flag anything you can't read confidently.\"                              |\n| Luna                         | Organize information into a consistent format. | \"Turn these meeting notes into a table of action items, owners, and due dates. Mark any missing owner or date as unspecified.\"                                                        |\n\nReview the result against your source materials, especially names, numbers,\nand details taken from images. For tasks on websites or in desktop apps, check\nthe [browser use](https://learn.chatgpt.com/docs/browser) and [computer use](https://learn.chatgpt.com/docs/computer-use) setup\nrequirements first.\n\n### Pick a reasoning effort\n\nFor example, you might use a lower effort to rewrite a short email and a higher\neffort to compare several proposals with competing requirements.\n\nFor GPT-6.2 Astra or GPT-6.2 Sol, start with the effort your client selects\nand adjust it based on the task. For Luna, start with **High**. For GPT-6\nAstra, start with **Light** (`low` in configuration). Increase the effort for\ntasks that need more planning, analysis, or checking.\n\n- **Light** in the ChatGPT desktop app, ChatGPT Work on the web, and IDE extension, or **Low** in the\n  CLI, suits quick, well-scoped tasks.\n- **Medium** balances speed and depth for tasks that need more planning.\n- **High** and **Extra High** suit difficult work with multiple steps, sources,\n  or tradeoffs.\n\n\n\n  [Learn more in our Model selection guide](https://learn.chatgpt.com/docs/model-selection#how-to-think-about-models-and-reasoning-effort)\n\n\n\n### Know when to use Max or Ultra\n\n**Max** gives the selected model more time to reason about a single task. Use it\nfor the hardest problems, when depth matters more than speed or usage. If you\ndon't see Max in the ChatGPT desktop app, check your app settings.\n\n**Ultra** uses [subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) to handle\nseparate parts of a complex task in parallel. Choose it when you can divide the\nwork into meaningful parts. Most tasks do not need Max or Ultra.\n\nGPT-6 Luna supports reasoning efforts up to **Max**, but not **Ultra**.\n\nIn the CLI, use `/model`, choose a model, then select **More reasoning…**\nto see its supported Max or Ultra options.\n\nIf your model supports Ultra but it doesn't appear in the desktop app's model\nslider, go to **Settings** > **Configuration**, then turn on\n**Ultra in model picker slider**.\n\n</ContentModeSwitch>\n\n## GPT-5.5 retirement\n\nEffective October 14, 2026, at noon PDT (19:00 UTC), GPT-5.5 retires from\nCodex for users signed in with ChatGPT. The OpenAI API and Codex sessions\nauthenticated with an API key aren't affected.\n\nFor Codex with ChatGPT sign-in, choose an available replacement:\n\n- On Plus, Pro, Business, Enterprise, and Edu plans, choose **GPT-6.1 Sol**\n  (`gpt-6.1-sol`) when available.\n- On Free and Go plans, choose **GPT-6 Luna** (`gpt-6-luna`) in the desktop app\n  when available.\n\nReplace `gpt-5.5` in workspace defaults, saved model settings, managed\nconfigurations, custom agents, scheduled tasks, and scripts that select a model.\n\nSee [workspace model availability](https://learn.chatgpt.com/docs/enterprise/workspace-model-availability#prepare-for-the-gpt-55-retirement)\nfor administrator guidance.\n\n<ContentModeSwitch group=\"codex-surface\" ids=\"app,cli,ide\">\n\n## Other models\n\nWith API-key authentication, model availability follows your API organization\nand project. GPT-5.5 remains available through the OpenAI API and in Codex\nsessions authenticated with an API key. See the [API model catalog](https://developers.openai.com/api/docs/models).\n\nFor a custom model provider or gateway, use a compatible Responses API endpoint.\nSee [Custom model providers](https://learn.chatgpt.com/docs/config-file/config-advanced#custom-model-providers)\nfor configuration and [Gateway compatibility](https://learn.chatgpt.com/docs/enterprise/gateway-compatibility)\nfor streaming, tool, and conversation requirements. Current Codex releases don't\nsupport `wire_api = \"chat\"` or a Chat Completions-only endpoint.\n\n## Deprecated Codex models\n\nGPT-5.3-Codex-Spark retired on September 14, 2026, and is no longer available\nin the ChatGPT desktop app, Codex CLI, or IDE extension. Update saved\nconfigurations, custom agents, and scripts that select `gpt-5.3-codex-spark`\nto use an [available model](https://learn.chatgpt.com/docs/models#recommended-models). See the\n[Spark retirement notice](https://learn.chatgpt.com/docs/changelog#codex-2026-09-14-codex-spark-deprecation).\n\nGPT-5.5 retires from Codex with ChatGPT sign-in on October 14, 2026, at noon\nPDT (19:00 UTC). Replace `gpt-5.5` with a model available to your account and\nclient. API-key sessions aren't affected. See\n[GPT-5.5 retirement](https://learn.chatgpt.com/docs/models#gpt-55-retirement) for plan-specific\nreplacements and the migration checklist.\n\nThe `gpt-5.4` and `gpt-5.4-mini` models retired from Codex with ChatGPT sign-in\non August 31, 2026. Replace `gpt-5.4` with `gpt-6-sol` and\n`gpt-5.4-mini` with `gpt-6-luna` when available to your plan and client.\nIn Enterprise and Edu, an administrator must enable Luna first. Update workspace\ndefaults, saved model settings, managed configurations, custom agents, and\nscheduled tasks with an available replacement.\n\nThe `gpt-5.2` and `gpt-5.3-codex` models are already deprecated in Codex when\nyou sign in with ChatGPT. Update scripts, configuration files, and\n`codex exec --model` commands that still reference those models.\n\nThe OpenAI API and Codex authenticated with your own API key aren't affected\nby the GPT-5.4 retirement. For current API model availability, see the\n[API models page](https://developers.openai.com/api/docs/models).\n\n## Configure your default local model\n\nThe ChatGPT desktop app, Codex CLI, and IDE extension use the same `config.toml`\n[configuration file](https://learn.chatgpt.com/docs/config-file/config-basic). To specify a model, add a\n`model` entry to your configuration file. If you don't specify a model, the\nChatGPT desktop app, Codex CLI, or IDE extension uses a recommended model.\nThis example selects Sol in the app or CLI. When sharing a configuration with\nthe IDE extension, pick a model available in every client you use,\nsuch as `gpt-6.1-sol`.\n\n```toml\nmodel = \"gpt-6.2-sol\"\n```\n\n\n</ContentModeSwitch>"
     },
     {
       "url": "https://models.dev/api.json",
       "kind": "discovery-only",
       "data": {
         "openai": {
-          "gpt-5.3-codex-spark": {
-            "id": "gpt-5.3-codex-spark",
-            "name": "GPT-5.3 Codex Spark",
-            "description": "Coding-optimized GPT model for repository edits, reviews, and agentic software work",
-            "family": "gpt-codex-spark",
-            "attachment": true,
-            "reasoning": true,
-            "reasoning_options": [
-              {
-                "type": "effort",
-                "values": ["none", "low", "medium", "high", "xhigh"]
-              }
-            ],
-            "tool_call": true,
-            "structured_output": true,
-            "temperature": false,
-            "knowledge": "2025-08-31",
-            "release_date": "2026-02-05",
-            "last_updated": "2026-02-05",
-            "modalities": {
-              "input": ["text", "image", "pdf"],
-              "output": ["text"]
-            },
-            "open_weights": false,
-            "limit": {
-              "context": 128000,
-              "input": 100000,
-              "output": 32000
-            },
-            "cost": {
-              "input": 1.75,
-              "output": 14,
-              "cache_read": 0.175
-            }
-          },
           "gpt-5.4": {
             "id": "gpt-5.4",
             "name": "GPT-5.4",
@@ -1420,6 +1623,18 @@
                   "provider": {
                     "body": {
                       "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 1.25,
+                    "output": 7.5,
+                    "cache_read": 0.125
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
                     }
                   }
                 }
@@ -1525,7 +1740,7 @@
             ],
             "tool_call": true,
             "structured_output": true,
-            "temperature": false,
+            "temperature": true,
             "knowledge": "2025-12-01",
             "release_date": "2026-04-23",
             "last_updated": "2026-04-23",
@@ -1550,6 +1765,18 @@
                   "provider": {
                     "body": {
                       "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 2.5,
+                    "output": 15,
+                    "cache_read": 0.25
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
                     }
                   }
                 }
@@ -1592,7 +1819,7 @@
             ],
             "tool_call": true,
             "structured_output": true,
-            "temperature": false,
+            "temperature": true,
             "knowledge": "2026-02-16",
             "release_date": "2026-07-09",
             "last_updated": "2026-07-09",
@@ -1618,6 +1845,19 @@
                   "provider": {
                     "body": {
                       "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.1,
+                    "output": 0.6,
+                    "cache_read": 0.01,
+                    "cache_write": 0.125
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
                     }
                   }
                 },
@@ -1673,7 +1913,7 @@
             ],
             "tool_call": true,
             "structured_output": true,
-            "temperature": false,
+            "temperature": true,
             "knowledge": "2026-02-16",
             "release_date": "2026-07-09",
             "last_updated": "2026-07-09",
@@ -1699,6 +1939,19 @@
                   "provider": {
                     "body": {
                       "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 2,
+                    "output": 10,
+                    "cache_read": 0.2,
+                    "cache_write": 2.5
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
                     }
                   }
                 },
@@ -1754,7 +2007,7 @@
             ],
             "tool_call": true,
             "structured_output": true,
-            "temperature": false,
+            "temperature": true,
             "knowledge": "2026-02-16",
             "release_date": "2026-07-09",
             "last_updated": "2026-07-09",
@@ -1780,6 +2033,19 @@
                   "provider": {
                     "body": {
                       "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 1,
+                    "output": 6,
+                    "cache_read": 0.1,
+                    "cache_write": 1.25
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
                     }
                   }
                 },
@@ -1864,6 +2130,19 @@
                     }
                   }
                 },
+                "flex": {
+                  "cost": {
+                    "input": 5,
+                    "output": 25,
+                    "cache_read": 0.5,
+                    "cache_write": 6.25
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
+                },
                 "pro": {
                   "provider": {
                     "body": {
@@ -1929,7 +2208,7 @@
             ],
             "tool_call": true,
             "structured_output": true,
-            "temperature": false,
+            "temperature": true,
             "knowledge": "2026-05-18",
             "release_date": "2026-09-22",
             "last_updated": "2026-09-22",
@@ -1955,6 +2234,19 @@
                   "provider": {
                     "body": {
                       "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.05,
+                    "output": 0.25,
+                    "cache_read": 0.005,
+                    "cache_write": 0.0625
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
                     }
                   }
                 },
@@ -2010,7 +2302,7 @@
             ],
             "tool_call": true,
             "structured_output": true,
-            "temperature": false,
+            "temperature": true,
             "knowledge": "2026-04-20",
             "release_date": "2026-09-22",
             "last_updated": "2026-09-22",
@@ -2036,6 +2328,19 @@
                   "provider": {
                     "body": {
                       "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 1,
+                    "output": 5,
+                    "cache_read": 0.1,
+                    "cache_write": 1.25
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
                     }
                   }
                 },
@@ -2120,6 +2425,19 @@
                     }
                   }
                 },
+                "flex": {
+                  "cost": {
+                    "input": 1,
+                    "output": 5,
+                    "cache_read": 0.05,
+                    "cache_write": 1.25
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
+                    }
+                  }
+                },
                 "pro": {
                   "provider": {
                     "body": {
@@ -2185,7 +2503,7 @@
             ],
             "tool_call": true,
             "structured_output": true,
-            "temperature": false,
+            "temperature": true,
             "knowledge": "2026-06-01",
             "release_date": "2026-10-26",
             "last_updated": "2026-10-26",
@@ -2211,6 +2529,19 @@
                   "provider": {
                     "body": {
                       "service_tier": "priority"
+                    }
+                  }
+                },
+                "flex": {
+                  "cost": {
+                    "input": 0.5,
+                    "output": 2.5,
+                    "cache_read": 0.025,
+                    "cache_write": 0.625
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "flex"
                     }
                   }
                 },
@@ -2251,6 +2582,182 @@
             },
             "canonical_model_id": "openai/gpt-6.1-terra"
           },
+          "gpt-6.2-astra": {
+            "id": "gpt-6.2-astra",
+            "name": "GPT-6.2 Astra",
+            "description": "A frontier reasoning model for coding, computer use, and professional work such as slides, spreadsheets, and documents.",
+            "family": "gpt-astra",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["low", "medium", "high", "xhigh", "max"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-05-18",
+            "release_date": "2026-11-17",
+            "last_updated": "2026-11-17",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 16,
+                    "output": 80,
+                    "cache_read": 0.8,
+                    "cache_write": 20
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "pro": {
+                  "provider": {
+                    "body": {
+                      "reasoning": {
+                        "mode": "pro"
+                      }
+                    }
+                  }
+                },
+                "ultrafast": {
+                  "provider": {
+                    "body": {
+                      "service_tier": "ultrafast"
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 8,
+              "output": 40,
+              "cache_read": 0.4,
+              "cache_write": 10,
+              "tiers": [
+                {
+                  "input": 16,
+                  "output": 60,
+                  "cache_read": 0.8,
+                  "cache_write": 20,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 16,
+                "output": 60,
+                "cache_read": 0.8,
+                "cache_write": 20
+              }
+            },
+            "canonical_model_id": "openai/gpt-6.2-astra"
+          },
+          "gpt-6.2-sol": {
+            "id": "gpt-6.2-sol",
+            "name": "GPT-6.2 Sol",
+            "description": "An efficient reasoning model for everyday work, multistep agentic workflows, and coding.",
+            "family": "gpt-sol",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["low", "medium", "high", "xhigh", "max"]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": false,
+            "knowledge": "2026-06-01",
+            "release_date": "2026-11-17",
+            "last_updated": "2026-11-17",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1050000,
+              "input": 922000,
+              "output": 128000
+            },
+            "experimental": {
+              "modes": {
+                "fast": {
+                  "cost": {
+                    "input": 4,
+                    "output": 20,
+                    "cache_read": 0.2,
+                    "cache_write": 5
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "priority"
+                    }
+                  }
+                },
+                "pro": {
+                  "provider": {
+                    "body": {
+                      "reasoning": {
+                        "mode": "pro"
+                      }
+                    }
+                  }
+                },
+                "ultrafast": {
+                  "provider": {
+                    "body": {
+                      "service_tier": "ultrafast"
+                    }
+                  }
+                }
+              }
+            },
+            "cost": {
+              "input": 2,
+              "output": 10,
+              "cache_read": 0.1,
+              "cache_write": 2.5,
+              "tiers": [
+                {
+                  "input": 4,
+                  "output": 15,
+                  "cache_read": 0.2,
+                  "cache_write": 5,
+                  "tier": {
+                    "type": "context",
+                    "size": 272000
+                  }
+                }
+              ],
+              "context_over_200k": {
+                "input": 4,
+                "output": 15,
+                "cache_read": 0.2,
+                "cache_write": 5
+              }
+            },
+            "canonical_model_id": "openai/gpt-6.2-sol"
+          },
           "gpt-daybreak-blue-latest": {
             "id": "gpt-daybreak-blue-latest",
             "name": "Daybreak Blue",
@@ -2266,7 +2773,7 @@
             ],
             "tool_call": true,
             "structured_output": true,
-            "temperature": false,
+            "temperature": true,
             "knowledge": "2026-02-16",
             "release_date": "2026-08-07",
             "last_updated": "2026-08-07",
@@ -2347,7 +2854,44 @@
       }
     }
   ],
-  "changes": [],
+  "changes": [
+    {
+      "modelId": "gpt-6.2-sol",
+      "before": null,
+      "after": {
+        "id": "gpt-6.2-sol",
+        "displayName": "GPT-6.2-Sol",
+        "unavailable": false,
+        "supportedReasoningLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ],
+        "minCliVersion": "0.166.0"
+      }
+    },
+    {
+      "modelId": "gpt-6.2-astra",
+      "before": null,
+      "after": {
+        "id": "gpt-6.2-astra",
+        "displayName": "GPT-6.2-Astra",
+        "unavailable": false,
+        "supportedReasoningLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ],
+        "minCliVersion": "0.166.0"
+      }
+    }
+  ],
   "manual": [
     "gpt-6-sol: minimum version 0.155.1 → 0.155.0. Review before changing existing selections or compatibility policy.",
     "gpt-6-luna: minimum version 0.155.1 → 0.155.0. Review before changing existing selections or compatibility policy."
