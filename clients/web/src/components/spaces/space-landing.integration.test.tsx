@@ -6002,12 +6002,13 @@ describe("SpaceLanding", () => {
 		// so the user comes back after connecting OpenMeld Service.
 		expect(screen.getByText("Connect this computer")).toBeTruthy();
 
-		expect(screen.queryByRole("tab", { name: "Graph" })).toBeNull();
+		expect(screen.queryByRole("tablist", { name: "Space view" })).toBeNull();
+		expect(screen.getByRole("region", { name: "Messages" })).toBeTruthy();
 		expect(
-			screen
-				.getByRole("tab", { name: "Messages" })
-				.getAttribute("aria-selected")
-		).toBe("true");
+			screen.getByRole("button", { name: "Space resources" })
+		).toBeTruthy();
+		expect(screen.queryByRole("menuitem", { name: "Tasks" })).toBeNull();
+		expect(screen.queryByRole("menuitem", { name: "Graph" })).toBeNull();
 		expect(screen.getByText("Connect this computer")).toBeTruthy();
 
 		fireEvent.click(
@@ -17255,7 +17256,7 @@ describe("SpaceLanding", () => {
 			)
 		).toBeTruthy();
 		expect(
-			within(screen.getByRole("tabpanel", { name: "Messages" })).queryByText(
+			within(screen.getByRole("region", { name: "Messages" })).queryByText(
 				"I'll check it."
 			)
 		).toBeNull();
@@ -17364,14 +17365,15 @@ describe("SpaceLanding", () => {
 			"Keep this draft while browsing the Space."
 		);
 		for (const tab of ["Tasks", "Files"]) {
-			fireEvent.click(screen.getByRole("tab", { name: tab }));
+			fireEvent.click(screen.getByRole("button", { name: "Space resources" }));
+			fireEvent.click(await screen.findByRole("menuitem", { name: tab }));
 			await waitFor(() => {
 				expect(
 					screen.queryByRole("complementary", { name: "Thread" })
 				).toBeNull();
 			});
-			expect(screen.getByRole("tabpanel", { name: tab })).toBeTruthy();
-			fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
+			expect(screen.getByRole("region", { name: tab })).toBeTruthy();
+			fireEvent.click(screen.getByRole("button", { name: "Back to messages" }));
 			const thread = await screen.findByRole("complementary", {
 				name: "Thread",
 			});

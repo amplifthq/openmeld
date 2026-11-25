@@ -216,6 +216,7 @@ type SpaceConversationPanelResolvedProps = {
 	agentStreams?: readonly SpaceConversationVisibleStreamProjection[];
 	historyNavigation?: SpaceHistoryNavigationController;
 	activeSpaceView: SpaceView;
+	resourceNavigation?: boolean;
 	allowedActions: readonly string[];
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
@@ -901,6 +902,7 @@ function SpaceConversationPanelContent(
 						</MessageScroller>
 					</MessageScrollerProvider>
 				}
+				resourceNavigation={input.resourceNavigation}
 				tasks={input.tasks}
 			/>
 
@@ -1979,8 +1981,17 @@ function resolveConversationRestorationPresentation(input: {
 	};
 }
 
+const SPACE_VIEW_LABELS = {
+	messages: "Messages",
+	tasks: "Tasks",
+	files: "Files",
+	graph: "Graph",
+	guide: "Guide",
+} satisfies Record<SpaceView, string>;
+
 function SpacePrimaryView(input: {
 	activeView: SpaceView;
+	resourceNavigation?: boolean;
 	files?: ReactNode;
 	graph: ReactNode;
 	guide?: ReactNode;
@@ -1988,7 +1999,6 @@ function SpacePrimaryView(input: {
 	messages: ReactNode;
 	tasks?: ReactNode;
 }) {
-	const selectedIndex = getSpaceViewIndex(input.activeView);
 	const [visitedMessages, setVisitedMessages] = useState(
 		input.activeView === "messages"
 	);
@@ -2009,28 +2019,58 @@ function SpacePrimaryView(input: {
 	return (
 		<>
 			{input.activeView !== "messages" && (
-				<div
-					aria-labelledby={`${input.idPrefix}-tab-${selectedIndex}`}
-					className="flex min-h-0 flex-1 flex-col"
-					id={`${input.idPrefix}-panel-${selectedIndex}`}
-					role="tabpanel"
+				<SpaceViewRegion
+					idPrefix={input.idPrefix}
+					resourceNavigation={input.resourceNavigation}
+					view={input.activeView}
 				>
 					{activeContent}
-				</div>
+				</SpaceViewRegion>
 			)}
 			{renderMessages && (
 				<Activity mode={input.activeView === "messages" ? "visible" : "hidden"}>
-					<div
-						aria-labelledby={`${input.idPrefix}-tab-${getSpaceViewIndex("messages")}`}
-						className="flex min-h-0 flex-1 flex-col"
-						id={`${input.idPrefix}-panel-${getSpaceViewIndex("messages")}`}
-						role="tabpanel"
+					<SpaceViewRegion
+						idPrefix={input.idPrefix}
+						resourceNavigation={input.resourceNavigation}
+						view="messages"
 					>
 						{input.messages}
-					</div>
+					</SpaceViewRegion>
 				</Activity>
 			)}
 		</>
+	);
+}
+
+function SpaceViewRegion(input: {
+	children: ReactNode;
+	idPrefix: string;
+	resourceNavigation?: boolean;
+	view: SpaceView;
+}) {
+	const layout = "flex min-h-0 flex-1 flex-col";
+	const index = getSpaceViewIndex(input.view);
+	const id = `${input.idPrefix}-panel-${index}`;
+	if (input.resourceNavigation) {
+		return (
+			<section
+				aria-label={SPACE_VIEW_LABELS[input.view]}
+				className={layout}
+				id={id}
+			>
+				{input.children}
+			</section>
+		);
+	}
+	return (
+		<div
+			aria-labelledby={`${input.idPrefix}-tab-${index}`}
+			className={layout}
+			id={id}
+			role="tabpanel"
+		>
+			{input.children}
+		</div>
 	);
 }
 

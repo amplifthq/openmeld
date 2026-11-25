@@ -4793,12 +4793,11 @@ presentations.
 
 It should keep the familiar conversation model clear:
 
-The authenticated ordinary shared-Space header exposes **Messages | Tasks |
-Files** as one
-keyboard-accessible tab list. Files keeps the same Space header and membership
-context; it is not a Resources redirect or a second app shell. Opening Files
-loads the Space root, and opening folders uses breadcrumb navigation without
-changing file identity.
+The authenticated ordinary shared Space opens to Messages without a tab row.
+The header’s **Resources** menu opens **Tasks**, **Files**, and **Guide** within
+the same Space. **Back to messages** restores the conversation, and existing
+deep links use the same view state. Files keeps the same membership context;
+folders use breadcrumb navigation without changing file identity.
 
 Tasks opens one responsive board with **To do**, **In progress**, and **In
 review** as the active columns. Done and Canceled stay in collapsed history
@@ -4925,7 +4924,7 @@ drawer and previews that snapshot read-only in the main surface. A member may
 restore it as a new latest revision without erasing later revisions. The header
 uses the viewer's local date and time instead of a hard-coded timezone.
 
-Returning to the file list, changing **Messages | Tasks | Files**, opening a
+Returning to the file list, changing Space views, opening a
 different chat file, following an internal route, reloading, or closing the
 window with a local draft uses the same save, discard, or cancel contract as
 Organization Documents. A repeated click on a chat file card reopens its exact
@@ -5818,33 +5817,14 @@ directly to that recorded result; Graph must not preserve a redundant
 `Replied`, `Failed`, or `Completed` Wake node between them. Structured statuses
 and system notices keep their recorded event semantics.
 
-At the latest messages, the Space header presents a two-row hierarchy. The first
-row contains the Space name, access mode, and
-right-aligned actions. The second row contains the available Space views
-(Messages, Tasks, and Files) below the Space name. Those view labels align with
-the Space name and use a flat active underline that overlays the header divider.
-The Members action shows the active
-member total from the Space member projection. The header and Space sidebar do
-not repeat `Joined as` or an aggregate live-human count; speaking identity stays
-with the composer when a choice is available, and per-member presence belongs
-in the Members surface. When dismissed contextual setup remains recallable,
-**Get set up** appears in the right-aligned action group immediately before
-**Members**. On compact screens only, the same recall control may move to the
-trailing edge of the second header row so the Space name remains identifiable;
-it stays visually separate from the **Messages** and **Files** view control and
-returns to the primary action group at wider breakpoints.
-
-While reading earlier messages in a Space, scrolling at least 64 CSS pixels
-away from the latest messages switches the header directly into one compact
-row. Messages, Tasks, and Files appear between the sidebar toggle and the title,
-separated from the title by a vertical divider. There is no entrance animation,
-position transition, or scroll-progress interpolation, regardless of motion
-preferences. The header expands only when the reader returns within 16 CSS
-pixels of the latest messages. This distance hysteresis absorbs small scrolls
-and avoids toggling at the threshold without a timer-based debounce.
-The same layout applies inside Desk windows; width checks use layout coordinates,
-unaffected by canvas zoom. Long titles truncate. Insufficient width and mobile
-setup recall retain the complete two-row layout. Direct messages retain their
+The authenticated ordinary shared-Space header uses one row across viewports:
+the Space name and access indicator, Members, Resources, and the Space menu.
+Search and Share are in the Space menu. An actionable setup recall, relevant
+notification controls, and dismissed pins can still surface when applicable.
+The Members action shows the active member total. The header and Space sidebar
+do not repeat `Joined as` or an aggregate live-human count; speaking identity
+stays with the composer, and per-member presence belongs in Members.
+Long titles truncate. Direct messages and public previews retain their
 existing headers.
 All Space views share the expanded/compact preference per Organization, Profile,
 and Space. Switching views or replacing the message scroller rebinds input
