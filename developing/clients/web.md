@@ -3309,48 +3309,27 @@ be undone.
 Selecting a Human Profile sidebar item replaces the main content without
 opening a right drawer. The route preserves the selected `profileId`, so reload,
 back, and forward navigation return to the same person. The persistent detail
-hero presents the member email and join time as one muted metadata line, while
-the Organization role remains in the badge beside the member name. The detail
-owns an **Agents** section whose header keeps **Manage Agents** for the signed-in
-member and **All Agents** for other people at the trailing
-edge. Every ordinary Agent appears as a compact card with its avatar, name, and
-permission-scoped Controller and model summary when known. Cards stay in one
-horizontal row and the row scrolls inline when it overflows; selecting a card
-opens that exact Agent, while the section header link opens that person's full
-Agent list. The detail also owns Computers, Connected Channels,
-shared Profile details, and the permitted Profile Report, Learn about,
-**Chat with {member}**, inline edit, connect, or manage actions. **Chat with
-{member}** is the primary action and keeps the same compact button height as
-adjacent actions. It does not repeat those account facts in a separate
-member-account section. Header metadata, Channel-account, Profile, and
-detail values are
-text-selectable. Editing remains available only
-for the signed-in member's own active default Human Profile. The sidebar and
-detail omit the internal Handle, undefined recent activity, and the ubiquitous
-**Active** state; only an exceptional disabled state is visible. Web does not
-derive an Organization online dot from last-used time, Computer state, or
-Space-scoped presence. Members without an active Human Profile do not receive
-a **Chat with** or edit action, but their detail remains available for inspecting
-account details and the explicit unavailable or disabled profile state. The
-signed-in member does not receive a **Chat with** action for themself.
-People admits only one pending Direct Message
-open intent at a time so competing responses cannot navigate to an earlier
-selection. The People sidebar includes
-**Learn about all members** and shows processed progress such as `3/8` while
-Core runs the serial batch. A member currently queued or running shows
-**Learning…**; other starts stay disabled until the batch is terminal.
-People polls the Core-owned status and document list while work is active.
-When a Profile Report exists, the document icon opens the latest report; amber
-indicates that it has updates to review and save. **Learn about {member}**
-remains available beside it so a member can create a fresh dated report. A
-successful Documents read that contains no report shows only **Learn about
-{member}**. Loading or failed evidence shows neither action because Web cannot
-yet prove whether a report exists. The selected detail follows the same
-evidence rule and keeps the learning action beside Direct Message when both are
-available.
-**Profile Report** is the user-facing document term; the persisted
-`member_profile` kind and member-research orchestration names remain
-compatibility contracts.
+hero presents the member's email and role. The detail puts **Local Agents**
+first, grouping the current authorized Computer projection by controller. Each
+detected, enabled local controller shows its connection and separate reported
+remaining limit per source; missing quota is not treated as zero and offline
+reports are labeled stale. It does not pool quota or imply that the number
+belongs to a particular configured Agent Profile. Chat buttons open the
+matching visible Agent Profile through the existing colleague access flow;
+detection by itself neither creates an Agent Profile nor grants Wake access.
+For an unshared controller, **Message owner** opens the human Direct Message
+without sending a message. Own Agent management remains available through
+**Manage**. Hide the section rather than show a zero count for a teammate with
+no visible local Agents.
+
+Show a short **Current focus**, **Recent sessions**, and **Activity** readout
+from the authenticated member-filtered Agent Activity snapshot when it has
+content. Only currently active, fresh observations contribute to Focus.
+Heartbeats, private session contents, and other members' events do not appear.
+Profile Report and research controls are not on the People profile; retained
+reports and research APIs keep their existing destination and permissions.
+Open a separate human Direct Message for another active member, and allow
+inline editing only for the current member's own active default Human Profile.
 
 In an Organization workspace, People reads the Organization Computer
 projection and shows a concrete summary on every Human Profile sidebar item. Exactly
@@ -3361,54 +3340,10 @@ offline** without a number. Zero registered Computers remains **Connect a
 computer** for the signed-in member and **No computer connected** for a
 teammate. Attention and unavailable states remain explicit.
 The sidebar Computer icon uses the same state without a separate dot: green
-for connected, amber for attention, and muted otherwise. One Computer opens its
-detail from its card in the selected Profile; multiple Computers remain separate
-cards in that same Profile. The signed-in member with none receives **Add a
-Computer** and the normal setup route; teammates have no setup or management
-action. A failed or incomplete response never blanks People or changes a
-member's identity; missing evidence stays unavailable rather than being
-presented as not connected. Computer state never claims that the Human Profile
-is online. The main detail uses the same summary tone and projection as the
-sidebar.
-
-The selected Human Profile detail replaces the former **Work access** row with
-the existing Computer cards, preserving Computer name, operating-system and
-device metadata, state, Local Agent summary, last-seen evidence, and direct
-navigation to the existing Computer detail. This is component reuse, not a
-second Computer card implementation. **Add a Computer** appears alongside the
-cards only for the signed-in member.
-
-People reads Message Channel connections and their Core-owned identity-link
-projection together. The sidebar shows a provider icon only when the selected
-member has a real identity mapping for that provider. Missing, unavailable,
-unconfigured, and unmapped accounts add no sidebar placeholder. **Set up**,
-**Connection unavailable**, **No account connected**, provider account text,
-and self-only actions belong in the persistent detail. **Connect Slack**,
-**Connect Lark**, or **Connect Feishu** opens the existing private
-provider-proof flow; selecting a Human Profile never assigns a Channel account.
-When the Organization has not configured that provider, the same connection
-panel gives an owner or admin **Set up Slack**, **Set up Lark**, or **Set up
-Feishu** and gives an ordinary member **Ask an admin to set up {provider}**.
-The member action creates one deduplicated Organization Inbox request for every
-current owner and admin instead of granting Organization mutation authority.
-That request links directly to **Center Agent → Channels** and resolves when the
-Organization connects the provider.
-The detail exposes the same self-only connection action and keeps a mapped
-identity visible as unavailable
-when that provider connection needs repair. All status copy remains neutral
-gray rather than amber. When available, the detail shows the provider account
-name or handle first and the exact provider email
-second, separated by a middle dot. Either field may be absent, and Web never
-infers one from the other or adds `@` to a provider display name. For Slack, Core
-resolves the display metadata for the exact linked Slack user through the
-connected Organization workspace; if neither field is available, Web says
-**Account details unavailable**. The current member can use **Reconnect Slack** to refresh a
-legacy identity proof without disconnecting first. An admin cannot perform that
-provider identity proof on another member's behalf.
-Self and Channel managers may disconnect a wrong mapping; replacement still
-requires a private provider proof and confirmation by the intended signed-in
-account. Disconnecting this relationship never disconnects the Organization
-Channel.
+for connected, amber for attention, and muted otherwise. A failed or incomplete
+response never blanks People or changes a member's identity; missing evidence
+stays unavailable. Computer and Channel settings remain in their respective
+management destinations, not on the member profile.
 
 The top of the People sidebar owns one **Invite Members** button, parallel to
 **New Space** in Spaces. It opens a single dialog containing both invitation

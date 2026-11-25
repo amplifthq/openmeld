@@ -6,19 +6,19 @@ import { HumanPresenceIndicator } from "#/components/profiles/human-presence";
 
 const AVATAR_SIZE = {
 	card: 56,
-	detail: 96,
+	detail: 56,
 	sidebar: 20,
 } as const;
 
 const PLACEHOLDER_SIZE_CLASS_NAME = {
 	card: "size-14",
-	detail: "size-24",
+	detail: "size-14",
 	sidebar: "size-5",
 } as const;
 
 const PLACEHOLDER_ICON_SIZE_CLASS_NAME = {
 	card: "size-6",
-	detail: "size-10",
+	detail: "size-6",
 	sidebar: "size-3.5",
 } as const;
 
