@@ -1959,6 +1959,7 @@ const manageSpaceTasksToolInputSchema = strictObject({
     "list",
     "get",
     "create",
+    "create_human_assignment",
     "create_and_delegate",
     "delegate",
     "assign",
@@ -2035,6 +2036,7 @@ const manageSpaceTasksToolInputSchema = strictObject({
       maxLength(SPACE_TASK_RESULT_SUMMARY_MAX_CHARS)
     )
   ),
+  targetSpaceId: optional(nonEmptyStringSchema),
   taskId: optional(nonEmptyStringSchema),
   title: optional(
     pipe(string(), trim(), minLength(1), maxLength(SPACE_TASK_TITLE_MAX_CHARS))
@@ -2229,6 +2231,41 @@ function withSpaceTaskGitHubClosePrompt(receipt: {
   return githubClosePrompt ? { ...receipt, githubClosePrompt } : receipt;
 }
 
+function resolveHumanTaskAssignmentSpace(
+  request: ManageSpaceTasksToolInput,
+  envelope: RemoteAgentTurnEnvelope | null | undefined,
+  currentSpaceId: string
+): string {
+  if (!(envelope && resolveVerifiedTurnEnvelopeProfileId(envelope))) {
+    throw new Error(
+      "Assigning work to a person requires a verified human request."
+    );
+  }
+  const target = request.targetSpaceId ?? currentSpaceId;
+  const privateRequest =
+    resolveCenterAgentContextScopePlan(envelope).interactionEnvironment ===
+    "requester_private";
+  if (target === currentSpaceId && privateRequest) {
+    throw new Error(
+      "Choose the shared Space where the requester and assignee belong."
+    );
+  }
+  if (
+    target !== currentSpaceId &&
+    !(privateRequest && envelope.space.isCenterAgentDm)
+  ) {
+    throw new Error(
+      "To assign work in another Space, request it in your private Center Agent chat."
+    );
+  }
+  if (!(request.assigneeProfileId && request.operationId)) {
+    throw new Error(
+      "Human assignment requires an exact assignee profile and stable operationId."
+    );
+  }
+  return target;
+}
+
 async function executeManageSpaceTasksTool(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
   payload: unknown;
@@ -2245,6 +2282,24 @@ async function executeManageSpaceTasksTool(input: {
   if (!space || (space.kind !== "space" && space.kind !== "dm")) {
     throw new Error(
       "Tasks are available only in the current OpenMeld conversation."
+    );
+  }
+  if (request.action === "create_human_assignment") {
+    const target = resolveHumanTaskAssignmentSpace(
+      request,
+      toolContext.turnEnvelope,
+      space.id
+    );
+    return await createSpaceTaskFromTool({
+      coreWorker: input.coreWorker,
+      request,
+      spaceId: target,
+      toolContext,
+    });
+  }
+  if (request.targetSpaceId) {
+    throw new Error(
+      "targetSpaceId is only supported when creating a human assignment."
     );
   }
   if (request.action === "list") {
@@ -2344,10 +2399,13 @@ async function createSpaceTaskFromTool(input: {
         }
       : {}),
   });
-  const rpc = requireCoreRpc(
-    input.coreWorker.createSpaceTask,
-    "createSpaceTask"
-  );
+  const rpc =
+    input.request.action === "create_human_assignment"
+      ? requireCoreRpc(
+          input.coreWorker.createSpaceHumanAssignment,
+          "createSpaceHumanAssignment"
+        )
+      : requireCoreRpc(input.coreWorker.createSpaceTask, "createSpaceTask");
   return withSpaceTaskGitHubClosePrompt(
     spaceTaskMutationReceiptSchema.parse(
       await rpc({
@@ -4449,7 +4507,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_manage_space_tasks",
       description:
-        "Manage durable delivery commitments in the current Space or private chat. Use Tasks for discrete deliverables that need ownership, progress, review, or later closure; not questions, acknowledgements, exploratory discussion, or tiny same-turn actions. First list Tasks and reuse the one linked to the request or issue. action=get with an exact taskId reads its current revision, result, review, and pending or failed handoffs. action=create records work without starting execution and leaves assignee empty unless explicitly selected. For new work that should start now, action=create_and_delegate requires a stable operationId, title, self-contained brief and completion conditions, Agent assigneeProfileId, and explicit reviewerProfileId (null only when no review was requested). Creation and the initial Wake intent commit atomically. Reuse operationId only with the identical request. " +
+        "Manage durable delivery commitments in the current Space or private chat. Use Tasks for discrete deliverables that need ownership, progress, review, or later closure; not questions, acknowledgements, exploratory discussion, or tiny same-turn actions. When the verified human explicitly asks you to assign a deliverable to another person, use action=create_human_assignment with their exact Human Profile ID from the Organization directory, title, brief, completion conditions and stable operationId. In a shared Space, use the current Space. From your private Center Agent chat use targetSpaceId for the shared Space the requester explicitly chose, resolving its exact ID through openmeld_list_spaces. If no Space or person can be resolved, ask; never guess, add members, or publish private chat history. A successful task appears in the assignee’s Inbox To do; it does not start an Agent or send a separate message. First list Tasks when working in the current conversation and reuse the one linked to the request or issue. action=get with an exact taskId reads its current revision, result, review, and pending or failed handoffs. action=create records work without starting execution and leaves assignee empty unless explicitly selected. For new work that should start now, action=create_and_delegate requires a stable operationId, title, self-contained brief and completion conditions, Agent assigneeProfileId, and explicit reviewerProfileId (null only when no review was requested). Creation and the initial Wake intent commit atomically. Reuse operationId only with the identical request. " +
         "For an existing Task, action=delegate requires taskId, latest expectedRevision, assigneeProfileId and explicit reviewerProfileId. Add a requested reviewer to the Space first; missing membership is a blocker. Delegation assigns and queues the handoff atomically. The Task remains To do until the assignee explicitly starts it; a queued handoff is not running execution. Do not also call a generic Wake. Update the brief when the deliverable changes. Only the assignee starts and submits verified results. When the result is a GitHub pull request, submit_result also passes owner, repo, number, url and pullRequestHeadSha (the full 40-character head commit SHA); a later push returns the Task to review. Review names the exact expectedResultRevision read, and for a Task with a pullRequest also passes the full head SHA actually verified as pullRequestHeadSha. Conflicts require a fresh read and decision. Space delivers review and rework handoffs; needsHumanDecision stops automatic work after two Agent rework rounds. " +
         "Use projectIds only after an explicit Project decision; Project order does not choose external destinations. Confirm GitHub association from spaceTask.created, or attach an existing issue. Linear attachment requires its verified issue UUID, identifier, team UUID and URL; Linear links are not monitored. External issue closure updates observation only and never completes or cancels the Task. A Task result may require closing a still-open GitHub issue through github_update_issue. Task phase is independent of Agent execution truth.",
       input: manageSpaceTasksToolInputSchema,

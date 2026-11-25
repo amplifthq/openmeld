@@ -2861,6 +2861,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcCreateSpaceTask(this.env, input)
     );
   }
+  createSpaceHumanAssignment(
+    input: CreateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCreateSpaceTask(this.env, input, true)
+    );
+  }
   mutateSpaceTask(
     input: MutateSpaceTaskInput
   ): Promise<SpaceTaskMutationReceipt> {
@@ -6939,6 +6946,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
 }
 export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
+  createSpaceHumanAssignment(
+    input: CreateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return super.createSpaceHumanAssignment(input);
+  }
   readFeishuGroupHistory(
     input: Parameters<typeof rpcReadFeishuGroupHistory>[1]
   ) {

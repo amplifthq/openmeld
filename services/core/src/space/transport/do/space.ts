@@ -9799,8 +9799,15 @@ export class Space extends DurableObject<CoreBindings> {
       }
     );
   }
-  async rpcCreateTask(
-    input: CreateSpaceTaskInput
+  async rpcCreateTask(input: CreateSpaceTaskInput): Promise<SpaceTaskMutationReceipt> {
+    return await this.handleRpcCreateTask(input, false);
+  }
+  async rpcCreateHumanAssignment(input: CreateSpaceTaskInput): Promise<SpaceTaskMutationReceipt> {
+    return await this.handleRpcCreateTask(input, true);
+  }
+  private async handleRpcCreateTask(
+    input: CreateSpaceTaskInput,
+    humanAssignment: boolean
   ): Promise<SpaceTaskMutationReceipt> {
     return await this.withPostgresRequest(
       async () => {
@@ -9829,7 +9836,7 @@ export class Space extends DurableObject<CoreBindings> {
                     representedRequester: input.representedRequester,
                   });
                 if (
-                  normalizedBody.wakeAssignee &&
+                  (normalizedBody.wakeAssignee || humanAssignment) &&
                   representation.representedRequester
                 ) {
                   const represented = this.buildSpaceTaskMemberContext(
@@ -9840,8 +9847,24 @@ export class Space extends DurableObject<CoreBindings> {
                     createContext = {
                       ...createContext,
                       representedRequester: represented.actor,
+                      ...(humanAssignment
+                        ? { requestedBy: represented.actor }
+                        : {}),
                     };
                   }
+                }
+                if (
+                  humanAssignment &&
+                  (!createContext.representedRequester ||
+                    !normalizedBody.assigneeProfileId ||
+                    createContext.resolveMember(normalizedBody.assigneeProfileId)
+                      ?.profileKind !== "human")
+                ) {
+                  throw new SpaceTaskWorkflowError({
+                    code: "space.membership_required",
+                    message: "The requester and Human assignee must both be active members of this Space.",
+                    status: 403,
+                  });
                 }
                 await this.armSpaceTaskRecovery();
                 const receipt = this.createSpaceTaskService(context).create(

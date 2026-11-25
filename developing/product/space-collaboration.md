@@ -209,6 +209,14 @@ Core rechecks the live delivery, Binding, and requester access. The requester
 must still be an active member of this Space and the Task's requester. This
 permits creation with an initial handoff, assignment, brief updates, and reviewer selection; it does not
 permit the Center Agent to start, submit, or accept another Agent's work.
+A verified human can also explicitly ask Center Agent to assign a deliverable
+to another human. In a shared Space this targets the current Space; in the
+requester's private Center Agent chat they must name an authorized shared
+Space. The requester and assignee must both be active Space members. Center
+Agent copies only the requested deliverable into the new Space Task, never the
+private source message, and does not send a separate message or Wake. The
+persisted Task is recorded for the human requester and projects into the
+assignee's Inbox To do through the ordinary Task assignment path.
 A requested reviewer must be an active Space member before delegation succeeds.
 An unavailable reviewer is a blocker, not an implicit choice of no review.
 Reviews name the exact submitted result revision the reviewer saw. A concurrent
