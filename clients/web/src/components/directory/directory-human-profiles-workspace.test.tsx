@@ -1,6 +1,5 @@
 import type { LocalRuntimeComputer } from "@openmeld/schemas/types";
 import {
-	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -28,9 +27,6 @@ vi.mock("./team-sidebar-header", () => ({
 const STALE_CODEX_QUOTA = /Codex Weekly usage, 65% left, Stale/;
 const REMOVED_PROFILE_COPY =
 	/Learn about|Profile Report|Connected Channels|No Agents yet|Joined|MacBook/;
-const ENABLED_LOCAL_AGENT_SUMMARY_PATTERN =
-	/Claude Code enabled, Codex enabled, Cursor enabled/;
-const LOCAL_AGENT_LOGO_TEST_ID_PATTERN = /^local-agent-logo-/;
 afterEach(() => {
 	cleanup();
 	vi.useRealTimers();
@@ -508,111 +504,28 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		).toEqual(["Online", "Offline"]);
 	});
 
-	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", async () => {
-		vi.useFakeTimers();
-		vi.setSystemTime(new Date("2026-08-28T03:00:00.000Z"));
-		renderWorkspace();
+	it("keeps each People row focused on opening the member profile", () => {
+		const onSelectProfile = vi.fn();
+		renderWorkspace({ onSelectProfile });
 
 		const sidebar = screen.getByRole("navigation", { name: "People" });
-		expect(within(sidebar).getByText("Felix")).toBeTruthy();
-		expect(within(sidebar).queryByText("felix@example.com")).toBeNull();
-		const felixItem = screen.getByRole("button", {
+		const member = within(sidebar).getByRole("button", {
 			name: "Open Felix's profile",
 		});
-		const heading = felixItem.querySelector(
-			'[data-slot="human-profile-sidebar-heading"]'
-		);
-		expect(heading).not.toBeNull();
+		const row = member.parentElement;
+		if (!row) {
+			throw new Error("Expected a member list item.");
+		}
+		fireEvent.mouseEnter(row);
+		expect(within(row).getAllByRole("button")).toEqual([member]);
+		expect(within(row).getByText("Felix")).toBeTruthy();
+		expect(within(row).queryByText("felix@example.com")).toBeNull();
 		expect(
-			within(heading as HTMLElement).getByRole("img", {
-				name: "Computer connected",
-			})
+			within(row).getByRole("img", { name: "Computer connected" })
 		).toBeTruthy();
-		expect(felixItem.textContent).not.toContain("Computer connected");
-		expect(within(felixItem).queryByText("Owner")).toBeNull();
-		const channelAccounts = felixItem.querySelector(
-			'[data-slot="human-profile-channel-identities"]'
-		);
-		expect(channelAccounts).toBeNull();
-		const localAgents = within(sidebar).getByRole("img", {
-			name: ENABLED_LOCAL_AGENT_SUMMARY_PATTERN,
-		});
-		const activityAndAgents = felixItem.querySelector(
-			'[data-slot="human-profile-activity-and-local-agents"]'
-		);
-		expect(activityAndAgents).not.toBeNull();
-		expect(activityAndAgents?.contains(localAgents)).toBe(true);
-		expect(
-			within(activityAndAgents as HTMLElement).queryByText("yesterday")
-		).toBeNull();
-		expect(felixItem.textContent).not.toContain("Last active");
-		expect(localAgents.classList.contains("justify-start")).toBe(true);
-		const localAgentLogos = within(localAgents).getAllByTestId(
-			LOCAL_AGENT_LOGO_TEST_ID_PATTERN
-		);
-		expect(localAgentLogos).toHaveLength(4);
-		for (const logo of localAgentLogos) {
-			expect(logo.dataset.variant).toBeUndefined();
-		}
-		const localAgentTriggers = within(localAgents).getAllByTestId(
-			"human-profile-local-agent"
-		);
-		const tooltipLabels: string[] = [];
-		for (const trigger of localAgentTriggers) {
-			fireEvent.mouseEnter(trigger);
-			fireEvent.mouseMove(trigger);
-			await act(() => vi.advanceTimersByTimeAsync(500));
-			tooltipLabels.push(screen.getByRole("tooltip").textContent ?? "");
-			fireEvent.mouseLeave(trigger);
-			await act(() => vi.advanceTimersByTimeAsync(200));
-			expect(trigger.classList.contains("ring-1")).toBe(false);
-			expect(trigger.classList.contains("border")).toBe(false);
-			const logo = trigger.querySelector(
-				'[data-slot="human-profile-local-agent-logo"]'
-			);
-			expect(logo?.classList.contains("bg-sidebar")).toBe(true);
-			expect(logo?.classList.contains("before:bg-sidebar-accent")).toBe(true);
-			expect(logo?.classList.contains("overflow-hidden")).toBe(true);
-			expect(logo?.classList.contains("border")).toBe(false);
-			expect(logo?.classList.contains("ring-1")).toBe(false);
-			expect(
-				logo?.classList.contains("group-hover/local-agent:-translate-y-1")
-			).toBe(true);
-			expect(
-				logo?.classList.contains("group-hover/local-agent:scale-[1.14]")
-			).toBe(true);
-			expect(logo?.classList.contains("motion-reduce:transform-none")).toBe(
-				true
-			);
-			expect(logo?.classList.contains("motion-reduce:transition-none")).toBe(
-				true
-			);
-		}
-		expect(tooltipLabels).toEqual(
-			expect.arrayContaining(["Claude Code", "Codex", "Cursor", "Grok"])
-		);
-		const overflow = within(localAgents).getByText("+2").parentElement;
-		if (!overflow) {
-			throw new Error("Expected the Local Agent overflow indicator.");
-		}
-		expect(overflow.classList.contains("bg-sidebar")).toBe(true);
-		expect(overflow.classList.contains("before:bg-sidebar-accent")).toBe(true);
-		expect(overflow.classList.contains("overflow-hidden")).toBe(true);
-		expect(overflow.classList.contains("ring-1")).toBe(false);
-		expect(overflow.classList.contains("border")).toBe(false);
-		expect(
-			within(felixItem).getByRole("img", { name: "Computer connected" })
-		).toBeTruthy();
-		const graceItem = screen.getByRole("button", {
-			name: "Open Grace Hopper's profile",
-		});
-		expect(
-			graceItem.querySelector('[data-slot="human-profile-channel-identities"]')
-		).toBeNull();
-		expect(
-			within(screen.getByRole("main")).getAllByText("felix@example.com")
-		).toHaveLength(1);
-		expect(screen.getByRole("main").dataset.showMainHeader).toBe("true");
+		expect(within(row).queryByTestId("human-profile-local-agent")).toBeNull();
+		fireEvent.click(member);
+		expect(onSelectProfile).toHaveBeenCalledWith("profile-current");
 	});
 
 	it("keeps a single clipped row structure when the resizable sidebar becomes narrow", () => {

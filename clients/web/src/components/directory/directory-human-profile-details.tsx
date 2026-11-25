@@ -70,6 +70,7 @@ function ProfileActions(input: {
 		>
 			{input.canOpenDirectMessage ? (
 				<Button
+					aria-label={input.directMessageLabel}
 					className="max-w-full"
 					disabled={input.directMessageIsPending}
 					onClick={input.onOpenDirectMessage}
@@ -78,7 +79,7 @@ function ProfileActions(input: {
 					variant="ghost"
 				>
 					<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
-					<span className="truncate">{input.directMessageLabel}</span>
+					Chat
 				</Button>
 			) : null}
 			{input.canEdit ? (

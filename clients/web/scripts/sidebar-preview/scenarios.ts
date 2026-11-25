@@ -171,46 +171,6 @@ export const peopleScenarios: PersonScenario[] = [
 ].flatMap((state, index) =>
 	[0, 1, 6].map(
 		(count): PersonScenario => ({
-			activityNowMs: now,
-			computerGroup: count
-				? {
-						isCurrentUser: false,
-						ownerLabel: "Preview member",
-						ownerUserId: "preview",
-						computers: [
-							{
-								agents: [],
-								deviceDisplayName: "Development computer",
-								deviceId: "preview",
-								deviceType: "laptop",
-								isOwnedByCurrentUser: false,
-								lastSeenAtMs: now,
-								openMeldTools: null,
-								osVersion: null,
-								ownedComputer: null,
-								ownerLabel: "Preview member",
-								ownerUserId: "preview",
-								platformFamily: "macOS",
-								routeId: "preview",
-								serviceState: null,
-								localAgents: [
-									"codex",
-									"claude-code",
-									"cursor",
-									"opencode",
-									"grok-build",
-									"openclaw",
-								]
-									.slice(0, count)
-									.map((id) => ({
-										agentControllerRef: `builtin:${id}`,
-										enabled: true,
-										status: "ready",
-									})),
-							},
-						],
-					}
-				: null,
 			member: {
 				id: `person-${state}-${count}`,
 				userId: "preview",

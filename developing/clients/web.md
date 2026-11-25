@@ -3081,19 +3081,11 @@ family while replacing all document data with the target Organization's scope.
 
 People is a two-pane workspace. Its secondary sidebar lists one Human Profile
 per current member and the main content renders the selected person's complete
-Profile detail. A sidebar item may show only the high-frequency scan signals:
-the Human Profile avatar, name, explicit `(you)` marker, Organization role,
-Core-owned relative last-seen time, coarse Computer state, actually linked Slack,
-Lark, or Feishu identity icons, and each enabled reported Local Agent icon. It
-does not show email, provider account text, disabled Local Agents, unavailable
-identity mappings, or placeholder icons for providers the person has not linked.
-If no mapped Channel identity exists, Web renders no identity row. The relative
-time uses compact body copy such as **3 hours ago** and a tooltip such as **Last
-seen 3 hours ago**. It shares one row with Local Agent icons, with the time on
-the left and icons on the right. All logo-only signals have accessible names and
-tooltips. Local Agent identity
-uses the same catalog-owned logo and name as Computer detail; Web never creates
-a second name or logo map for People.
+Profile detail. A sidebar item shows an avatar, name, explicit `(you)` marker,
+and a compact Computer status. The whole row opens the profile without
+requiring hover. Chat, Local Agents, usage limits, and shared activity belong
+in the profile; the list does not duplicate them. The existing context menu
+retains optional shortcuts without turning them into extra row buttons.
 
 People and Human Profile popovers read the lightweight Profile Directory with
 `includeModelSelection=true` for member identity and member-visible Agent
@@ -3150,16 +3142,16 @@ unstar and custom placement persist; deleting a group returns its members to
 ordinary placement. Online requires an unexpired Core presence lease with Human
 interaction within five minutes. Any active page keeps the Human Online. Computer connections,
 Agent work, and historical activity never establish Human presence.
-Rows show the avatar, name, Computer status icon, Human last-seen
-time when known, and enabled local-agent icons. Computer explanations remain in
-the icon tooltip and accessible name; Channel identities and email are omitted.
+Rows show the avatar, name, and Computer status icon. Computer explanations
+remain in the tooltip and accessible row description; Channel identities and
+email are omitted.
 Pending Computer checks stay on their rows without delaying Human grouping. Sorting and drag placement
 remain personal preferences; dragging cannot change Human presence.
-People keeps its last successful Computer and Local Agent display in the
+People keeps its last successful Computer and Local Agent data in the
 Organization-scoped in-memory query cache for up to one day after leaving Team.
 An expired query refreshes on return or through the visible 30-second poll
 without clearing that display; a failed read shows unavailable Computer status
-while retaining the last known Agent logos as read-only context.
+while retaining the last known Agent data as read-only context.
 This Computer projection is not restored from IndexedDB.
 
 People and Space member/profile avatars show a small inset green dot only when
@@ -3176,20 +3168,10 @@ activity advances only on actual interaction, with its existing five-minute
 throttle; presence renewals do not advance it. Space-local Here … ago remains a
 separate historical fact. No system-wide activity or interaction contents are collected.
 
-Human cards combine enabled Local Agent logos and provider Usage in one compact, overlapping
-dock. Each controller appears once. A small ring overlays the logo's upper-right
-corner when the existing authorized Computer projection has quantified evidence;
-otherwise only the logo appears. The ring previews the first reported Computer/provider
-source, using the existing most-constrained-window summary. Additional sources
-appear only in the tooltip, never as an averaged or pooled quota. Hover previews every
-Computer, provider and window with remaining capacity, status, reset and observation
-times through the shared Computer Usage components. The compact sidebar logo strip
-keeps its existing sizing. This preview does not add permissions, collection or Wake policy.
-
 Agent Profile detail pages and Space profile previews read the same team-visible
 Computer Usage projection, matched to the Profile's current route Computer,
 owner, and controller. They never borrow a quota from another Computer or infer
-Wakeability from it. Human card docks align to the card's vertical center.
+Wakeability from it.
 Usage tooltips share compact remaining-capacity rings: up to three columns on
 wide screens and one column on narrow screens, with separate Computer/provider
 groups, reset times, and explicit non-available states. Stale evidence retains
@@ -3197,12 +3179,9 @@ its observation time. Local presentation fixtures enter through the shared
 Computer reader so card previews and detail routes show the same evidence.
 
 Team opens a compact member overview at `/o/:orgSlug/people`, with the same
-grouping and ordering as its sidebar. The overview and sidebar share the member
-member presentation data and personal preferences. The overview uses Fluid Card
-groups with persistent card surfaces and 56px avatars; sidebar rows keep their
-compact avatar sizes. Sidebar member rows omit activity timestamps and place
-local agents on a second row aligned with the name, with a 6px row gap, leaving the name row for hover
-actions; cards retain activity timestamps.
+grouping and ordering as its sidebar. Both use the same compact member summary
+and personal preferences. The overview uses Fluid Card groups and the sidebar
+uses compact rows; either opens the same profile.
 Sidebar groups start collapsed, using
 the same disclosure behavior as Spaces. Entering a person opens their group for
 that visit; explicit expand/collapse choices are remembered per viewer and
