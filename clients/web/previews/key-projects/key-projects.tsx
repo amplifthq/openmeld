@@ -21,7 +21,7 @@ import {
 	StarIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import "./key-projects.css";
 
 // Illustrative project updates with explicitly selected real Space destinations.
@@ -184,6 +184,20 @@ export function KeyProjectsPreview() {
 	const [choosing, setChoosing] = useState(false);
 	const [detail, setDetail] = useState<Project | null>(null);
 	const visible = eligible.filter((p) => selected.includes(p.id));
+	const manageFollowingRef = useRef<HTMLButtonElement>(null);
+	const followingOpener = useRef<HTMLButtonElement>(null);
+	const undoRef = useRef<HTMLButtonElement>(null);
+
+	function openFollowing(button: HTMLButtonElement) {
+		followingOpener.current = button;
+		setChoosing(true);
+	}
+
+	useLayoutEffect(() => {
+		if (removed) {
+			undoRef.current?.focus();
+		}
+	}, [removed]);
 	useEffect(() => {
 		try {
 			localStorage.setItem(preferenceKey, JSON.stringify(selected));
@@ -229,7 +243,11 @@ export function KeyProjectsPreview() {
 							</h1>
 							<p>The projects you follow. Only the updates that matter.</p>
 						</div>
-						<Button onClick={() => setChoosing(true)} variant="outline">
+						<Button
+							onClick={(event) => openFollowing(event.currentTarget)}
+							ref={manageFollowingRef}
+							variant="outline"
+						>
 							<StarIcon />
 							Manage following
 						</Button>
@@ -244,8 +262,10 @@ export function KeyProjectsPreview() {
 											? current
 											: [...current, removed.id]
 									);
+									manageFollowingRef.current?.focus();
 									setRemoved(null);
 								}}
+								ref={undoRef}
 								size="sm"
 								variant="ghost"
 							>
@@ -258,7 +278,9 @@ export function KeyProjectsPreview() {
 							<StarIcon size={28} />
 							<h2>Choose what matters now.</h2>
 							<p>Select the projects you want to follow here.</p>
-							<Button onClick={() => setChoosing(true)}>Choose projects</Button>
+							<Button onClick={(event) => openFollowing(event.currentTarget)}>
+								Choose projects
+							</Button>
 						</div>
 					) : (
 						<div className="focus-projects">
@@ -345,7 +367,14 @@ export function KeyProjectsPreview() {
 				</div>
 			</main>
 			<Dialog onOpenChange={setChoosing} open={choosing}>
-				<DialogContent className="rounded-xl p-6 sm:max-w-md">
+				<DialogContent
+					className="rounded-xl p-6 sm:max-w-md"
+					finalFocus={() =>
+						followingOpener.current?.isConnected
+							? followingOpener.current
+							: manageFollowingRef.current
+					}
+				>
 					<DialogTitle className="text-lg">Projects you follow</DialogTitle>
 					<DialogDescription>
 						Unfollow to remove a project from your homepage. The project stays
