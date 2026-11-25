@@ -20487,6 +20487,7 @@ export class Space extends DurableObject<CoreBindings> {
       requireActiveActorMembership &&
       !(
         actorOwnerUserId &&
+        !this.isAgentOwnerObserver(context.actorContext) &&
         hasActiveSpaceMemberRecordForOwnerUserId(
           this.ctx.storage.sql,
           actorOwnerUserId

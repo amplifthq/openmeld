@@ -147,6 +147,7 @@ type ConsentSpace = {
     access: ReturnType<typeof createAuthenticatedSpaceAccessContext>
   ): Promise<{ ok: boolean }>;
   rpcApplyAgentAccessDecision: Space["rpcApplyAgentAccessDecision"];
+  rpcPostMembers: Space["rpcPostMembers"];
   rpcRequestAgentForSpace: Space["rpcRequestAgentForSpace"];
   rpcMutateSpaceMessage: Space["rpcMutateSpaceMessage"];
   rpcGetWakeProgress: Space["rpcGetWakeProgress"];
@@ -871,6 +872,26 @@ describe("Colleague use of an Agent (Phase 4)", () => {
         expect(
           readSpaceMemberRecord(space.state.storage.sql, f.felix.profileId)
         ).toBeNull();
+        await expect(
+          space.instance.rpcPostMembers({
+            context: space.context(f.felix),
+            members: [
+              {
+                agentControllerRef: null,
+                ownerName: f.felix.name,
+                ownerUserId: f.felix.userId,
+                profileId: f.felix.profileId,
+                profileKind: "human",
+                profileName: f.felix.name,
+              },
+            ],
+            requireActorMembership: true,
+            spaceId: space.spaceId,
+          })
+        ).rejects.toMatchObject({
+          code: "space.membership_required",
+          status: 403,
+        });
         const [dispatched] = space.outbox(message);
         expect(dispatched?.requestChain).toEqual([
           { kind: "human", profileId: f.tali.profileId },
