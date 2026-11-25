@@ -25,6 +25,7 @@ vi.mock("./team-sidebar-header", () => ({
 	TeamSidebarHeaderAction: () => null,
 }));
 
+const STALE_CODEX_QUOTA = /Codex Weekly usage, 65% left, Stale/;
 const REMOVED_PROFILE_COPY =
 	/Learn about|Profile Report|Connected Channels|No Agents yet|Joined|MacBook/;
 const ENABLED_LOCAL_AGENT_SUMMARY_PATTERN =
@@ -732,7 +733,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		const detail = within(screen.getByTestId("human-profile-details"));
 		expect(detail.getByText("Offline")).toBeTruthy();
 		expect(detail.getByText("65% left")).toBeTruthy();
-		expect(detail.getByText("Stale")).toBeTruthy();
+		expect(detail.getByRole("meter", { name: STALE_CODEX_QUOTA })).toBeTruthy();
 	});
 
 	it("does not disclose a last-known quota after the current Computer projection fails", () => {
