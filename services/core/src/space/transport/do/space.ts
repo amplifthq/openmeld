@@ -20533,15 +20533,17 @@ export class Space extends DurableObject<CoreBindings> {
     const actorOwnerUserId = normalizeOptionalText(
       context.actorContext.ownerUserId
     );
+    const isSelfJoin = linkJoinUserId !== null && !requireActiveActorMembership;
     if (
-      requireActiveActorMembership &&
-      !(
-        actorOwnerUserId &&
-        hasActiveSpaceMemberRecordForOwnerUserId(
-          this.ctx.storage.sql,
-          actorOwnerUserId
-        )
-      )
+      (!isSelfJoin && this.isAgentOwnerObserver(context.actorContext)) ||
+      (requireActiveActorMembership &&
+        !(
+          actorOwnerUserId &&
+          hasActiveSpaceMemberRecordForOwnerUserId(
+            this.ctx.storage.sql,
+            actorOwnerUserId
+          )
+        ))
     ) {
       return Response.json(
         {
