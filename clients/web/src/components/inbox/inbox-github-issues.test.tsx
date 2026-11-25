@@ -101,6 +101,42 @@ describe("GitHub assignments in To do", () => {
 		expect(mocks.list).toHaveBeenCalledTimes(2);
 	});
 
+	it("keeps unrelated issue revisions hidden past 200 dismissals", async () => {
+		const storageKey = "openmeld.inbox.completed:github:test-user:test-org";
+		const oldRevision = `${assignment.id}:${assignment.updatedAt}`;
+		localStorage.setItem(
+			storageKey,
+			JSON.stringify([
+				...Array.from(
+					{ length: 199 },
+					(_, i) => `${1000 + i}:${assignment.updatedAt}`
+				),
+				oldRevision,
+				`95:${assignment.createdAt}`,
+			])
+		);
+		const newAssignment = {
+			...assignment,
+			id: 95,
+			title: "Review another issue",
+		};
+		mocks.list.mockResolvedValue(githubResult([assignment, newAssignment]));
+		const first = renderPanel();
+		await screen.findByText(newAssignment.title);
+		fireEvent.click(
+			screen.getByRole("button", { name: `Done: ${newAssignment.title}` })
+		);
+		first.unmount();
+		renderPanel();
+		await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
+		expect(screen.queryByText(assignment.title)).toBeNull();
+		expect(screen.queryByText(newAssignment.title)).toBeNull();
+		const persisted = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
+		expect(persisted).toContain(oldRevision);
+		expect(persisted).toContain(`95:${assignment.updatedAt}`);
+		expect(persisted).not.toContain(`95:${assignment.createdAt}`);
+	});
+
 	it.each([
 		"Done",
 		"Ignore",

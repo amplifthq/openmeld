@@ -20,8 +20,6 @@ function readIssueRevisions(key: string): string[] {
 	}
 }
 
-const MAX_STORED_ISSUE_REVISIONS = 200;
-
 function useIssueRevisions(key: string) {
 	const [state, setState] = useState(() => ({
 		key,
@@ -42,9 +40,20 @@ function useIssueRevisions(key: string) {
 	return {
 		items: new Set(revisions),
 		hide: (revision: string) => {
-			const next = [
-				...new Set([revision, ...revisions, ...readIssueRevisions(key)]),
-			].slice(0, MAX_STORED_ISSUE_REVISIONS);
+			// Keep one revision per issue. Dismissing a different assignment must
+			// not bring an unchanged issue back into the To do list.
+			const revisionByIssue = new Map<string, string>();
+			for (const entry of [
+				revision,
+				...readIssueRevisions(key),
+				...revisions,
+			]) {
+				const issueId = entry.split(":", 1)[0];
+				if (issueId && !revisionByIssue.has(issueId)) {
+					revisionByIssue.set(issueId, entry);
+				}
+			}
+			const next = [...revisionByIssue.values()];
 			try {
 				localStorage.setItem(key, JSON.stringify(next));
 			} catch {
