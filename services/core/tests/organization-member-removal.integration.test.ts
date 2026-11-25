@@ -375,6 +375,43 @@ describe("Organization member removal Space preparation", () => {
     expect(await f.departingMembershipExists()).toBe(true);
   });
 
+  it("lets owners and admins review removal, but denies members, self-removal, and owner targets", async () => {
+    const f = await fixture();
+    await f.db.query({
+      text: 'UPDATE "openmeld"."members" SET role = $1 WHERE id = $2',
+      values: ["admin", f.collaborator.memberId],
+    });
+    await f.db.query({
+      text: 'UPDATE "openmeld"."members" SET role = $1 WHERE id = $2',
+      values: ["owner", f.successor.memberId],
+    });
+    const plan = await f.preview();
+    await expect(
+      previewOrganizationMemberRemoval(core, {
+        context: f.context(f.collaborator),
+        memberId: f.departing.memberId,
+      })
+    ).resolves.toEqual(plan);
+
+    for (const [actor, target, code] of [
+      [f.departing, f.collaborator, "organization.role_required"],
+      [f.collaborator, f.collaborator, "organization.member_removal_forbidden"],
+      [f.collaborator, f.manager, "organization.member_removal_forbidden"],
+      [f.manager, f.successor, "organization.member_removal_forbidden"],
+    ] as const) {
+      const input = { context: f.context(actor), memberId: target.memberId };
+      await expect(
+        previewOrganizationMemberRemoval(core, input)
+      ).rejects.toMatchObject({ status: 403, code });
+      await expect(
+        prepareOrganizationMemberRemoval(core, { ...input, spaces: [] })
+      ).rejects.toMatchObject({ status: 403, code });
+    }
+
+    expect(await f.departingMembershipExists()).toBe(true);
+    expect((await f.state()).meta?.ownerUserIds).toEqual([f.departing.userId]);
+  });
+
   it.each([
     "pending Wake",
     "pending invitation",
