@@ -159,16 +159,7 @@ export function useConversationSidebarFixture() {
 			title: displayTitle(item),
 		})),
 		sections,
-		moveGroups: {
-			space: [
-				{ id: "pinned", name: "Pinned" },
-				{ id: "spaces", name: "Spaces" },
-			],
-			"direct-message": [
-				{ id: "pinned", name: "Pinned" },
-				{ id: "chats", name: "Direct messages" },
-			],
-		},
+		moveGroups: [{ id: "recent", name: "Recent" }],
 		selected: "design",
 		owner,
 		sort,
@@ -177,7 +168,8 @@ export function useConversationSidebarFixture() {
 			move(item.kind === "space" ? "spaces" : "chats", item.spaceId, []),
 		canMove: () => true,
 		updateSection: () => undefined,
-		addGroup: () => undefined,
+		addFolder: () => undefined,
+		moveFolder: () => undefined,
 		disabled: false,
 		directMessages: {
 			inbox: { data: undefined, isPending: false, isError: false },

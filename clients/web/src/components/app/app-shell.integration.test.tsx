@@ -394,59 +394,26 @@ describe("AppShell", () => {
 		);
 	});
 
-	it("hides Browse spaces while keeping conversations available when no spaces are joined", async () => {
+	it("offers one Messages tab on start routes before any groups are joined", async () => {
 		useRouterStateMock.mockReturnValue("/o/acme");
 		setRenderedAppSection("start");
 
 		await renderAppShell();
 
-		expect(
-			await screen.findByRole("tab", { name: TEAM_TAB_NAME })
-		).toBeTruthy();
+		const messagesTab = await screen.findByRole("tab", { name: "Messages" });
+		const peopleTab = screen.getByRole("tab", { name: TEAM_TAB_NAME });
+		expect(screen.getAllByRole("tab", { name: "Messages" })).toHaveLength(1);
 		expect(
 			screen.queryByRole("tab", { name: BROWSE_SPACES_TAB_NAME })
 		).toBeNull();
-		expect(screen.getByRole("tab", { name: "Spaces" })).toBeTruthy();
-		expect(screen.getByRole("tab", { name: TEAM_TAB_NAME })).toBeTruthy();
 		expect(screen.queryByRole("tab", { name: SETTINGS_TAB_NAME })).toBeNull();
-	});
-
-	it("navigates through the subtle header tabs on start routes when spaces exist", async () => {
-		useRouterStateMock.mockReturnValue("/o/acme");
-		setRenderedAppSection("start");
-		listAccountSpaceItemsMock.mockResolvedValue({
-			pinnedItems: [],
-			spaceItems: [
-				{
-					joinedProfiles: [],
-					lastJoinedAt: "2026-04-29T00:00:00.000Z",
-					openProfileId: "11111111-1111-4111-8111-111111111111",
-					openProfileName: "Felix",
-					pinnedAt: null,
-					pinnedProfileIds: [],
-					spaceId: "space-alpha",
-					spaceName: "Alpha",
-				},
-			],
-		});
-
-		await renderAppShell();
-
-		const spacesTab = await screen.findByRole("tab", {
-			name: BROWSE_SPACES_TAB_NAME,
-		});
-		const peopleTab = screen.getByRole("tab", { name: TEAM_TAB_NAME });
-		expect(spacesTab.compareDocumentPosition(peopleTab)).toBe(
+		expect(messagesTab.compareDocumentPosition(peopleTab)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
-
-		fireEvent.click(spacesTab);
+		fireEvent.click(messagesTab);
 		expect(useNavigateMock).toHaveBeenCalledWith({ to: "/o/acme/spaces" });
-
 		fireEvent.click(peopleTab);
-		expect(useNavigateMock).toHaveBeenCalledWith({
-			to: "/o/acme/people",
-		});
+		expect(useNavigateMock).toHaveBeenCalledWith({ to: "/o/acme/people" });
 	});
 
 	it("uses the full-screen shell without the legacy cross-page header on connect routes", async () => {

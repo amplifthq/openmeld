@@ -46,7 +46,7 @@ export function AppSurfaceLayout(input: {
 	};
 	const sidebar = input.moduleNavigation ? (
 		<AppModuleSidebar
-			label={input.moduleNavigationLabel ?? "Spaces"}
+			label={input.moduleNavigationLabel ?? "Messages"}
 			scrollKey={navigationScope}
 		>
 			{input.moduleNavigation}
@@ -55,7 +55,7 @@ export function AppSurfaceLayout(input: {
 		input.sidebar
 	);
 	const sidebarTitle = input.moduleNavigation
-		? (input.moduleNavigationLabel ?? "Spaces")
+		? (input.moduleNavigationLabel ?? "Messages")
 		: input.mobileSidebarTitle;
 
 	// The module geometry provider also owns header toggles, leaving the work

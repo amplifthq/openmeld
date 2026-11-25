@@ -41,7 +41,7 @@ the signed-in member's current **Computer** at the far-left edge of the inset
 content column and keeps **Center Agent / Inbox** together at the far-right
 edge, and
 the **Personal / current Organization name** Settings groups defined in
-`developing/clients/web.md`. Center Agent uses the shared Spaces list; **Messages /
+`developing/clients/web.md`. Center Agent uses the shared Messages list; **Messages /
 Tasks / Graph / Files** live in its header. **Channels** and **Memory** reuse their existing cards inside App Settings → Center Agent, below the general settings. Legacy management URLs redirect there and preserve channel OAuth results. Chat
 settings remain in the compact menu on conversation surfaces only. Center Agent settings live in
 the global App Settings destination, grouped under the current Organization
@@ -58,18 +58,16 @@ ownership remain in the existing Web hooks and router.
 One shell and one Settings framework let Web and the Electron GUI reuse shared
 pieces without forcing two clients to keep an obsolete route map. Current Web:
 
-- keeps **Inbox / Spaces / Team / Routines** as the fixed
+- keeps **Inbox / Messages / Team / Routines** as the fixed
   visible product destinations, temporarily omits **Projects / Documents /
   Agent Activity** without relocating them, separates Settings as a utility,
   and opens the current Computer, Center Agent, and Inbox from the app canvas's
   global toolbar;
 - uses one Settings destination with stable **Personal** and dynamically named
   current Organization groups;
-- orders Team tabs as **People / Agents / Files / Skills / Plugins**. Plugins retain
-  personal and named Organization configuration; Skills use one Organization
-  catalog, including in personal workspaces, without a second scope selector;
-- opens Team on its people directory, with each person's Computers and Agent list
-  reached through their Human Profile detail;
+- opens Team to **Members**, with **Topics** as its only other tab. People and
+  Agents share the searchable member directory, and either can be selected directly.
+  Computers are reached through runtime or Computer settings;
 - keeps Service preferences capability-gated for hosts that can own local-service
   controls; Service is not a Web top-level sidebar item;
 - gives every active app view one persistent outer app rail and content
@@ -261,7 +259,7 @@ The Web shell is a stable two-layer composition built from the shared
 - **Outer app rail** — always reachable on Home, Spaces, Direct
   Messages, People, Agents, Projects, Documents, Agent Activity, and
   Settings. The selected workspace switcher is its top identity surface. Home
-  contains **Inbox**, **Spaces**, **Team**, and **Routines**. Team opens People;
+  contains **Inbox**, **Messages**, **Team**, and **Routines**. Team opens People;
   Agents are reached through each person's profile and nested Agent routes.
   Projects, Documents, and Agent Activity routes
   render the same rail without a matching primary destination while their
@@ -288,15 +286,13 @@ Settings and contains Search and theme selection. The workspace switcher contain
   placeholder or dead action.
 - **Inner contextual sidebar** — optional, rendered inside the inset app
   surface, and owned only by route families that need contextual navigation.
-  Spaces, Direct Messages, and Center Agent conversations share the Spaces
-  list in the middle column, with Spaces and Direct messages as groups. People
-  owns the member sidebar, Agent detail owns its Agent list, and Files owns file
-  locations. Agent directories, Skills, Plugins, and Routines use their existing
-  in-page search and filters without a member sidebar. Settings
-  retains its own contextual navigation. Team tab content uses the shared page
-  inline padding, including the Plugins and Skills catalog and detail pages.
-  Skills loading/error states retain Team's header and rail highlight rather
-  than mounting Center Agent context. Canonical routes and compatibility
+  Group chats, direct messages, and Agent conversations share the Messages
+  list in the middle column. Team
+  owns its two-pane Members view inside the content surface. Agent settings own
+  their Agent list, and Files owns file locations. Skills, Plugins, and Routines
+  use in-page search and filters. Settings retains its own contextual navigation.
+  Skills has its own header and retains the rail highlight during loading and
+  errors. Canonical routes and compatibility
   redirects are owned by [web.md](web.md#organization-skills).
   Inside that unchanged shell, Skills uses a compact catalog and a document-first
   detail with a sticky Save/action row. Optional Files tabs and contextual
@@ -309,37 +305,28 @@ Settings and contains Search and theme selection. The workspace switcher contain
   behavior. Without an explicit visibility choice, overview pages start collapsed
   and conversation, person, and Agent detail pages start expanded. These route
   defaults are not saved as user choices, including when group collapse is saved.
-  Explicit expanded/hidden choices remain shared across the Spaces directory,
-  conversation details, and Team tabs, including People and Agents, and survive
-  reloads. Navigation never resets that choice; existing cookies remain valid.
-  The list heading is **Spaces** on home and inside conversations. The heading
-  opens the combined conversation home. On home the list is primary content, always visible at
-  full width on narrow screens and beside a selection prompt on wide screens.
-  This does not overwrite the contextual sidebar's explicit visibility choice.
-  Direct messages remains a secondary directory tab after Your Spaces. The plus
-  menu offers New message, New Space, and Browse Spaces. Browse Spaces opens
-  `?view=spaces`; the directory's Chats tab returns home. Home search is always visible,
-  and empty search results offer Find someone with the query prefilled in the
-  organization picker. Team remains the member directory, without a separate
-  Contacts destination. Recent is the default unless the user chose Grouped. It keeps the same Pinned rows and
-  orders other conversations by message time. Both views share row presentation
-  and destinations. The view is a browser preference scoped to account and
-  Organization; it neither navigates nor remounts the conversation pane.
-  Only that contextual region scrolls. Space groups appear between
-  Pinned and Spaces; their section actions create Spaces/groups and select
-  Priority, Recent activity, or Manual order independently. Unpinned sections
-  use the same Priority ranking: human input, unread messages, active
-  work, then idle Spaces, with recent activity breaking ties. Opening a Space must not promote it
-  merely because its visit timestamp changed. The shared Pinned section keeps
-  manual order across both conversation kinds. Recent uses message time and
-  leaves conversations without messages last. Dragging the whole row changes manual order
-  within Pinned or across groups belonging to the same conversation kind.
+  Existing sidebar visibility choices remain shared across Messages and its
+  conversation details. On the Messages home, the list is primary content. It
+  fills narrow screens and sits beside a selection prompt on wide screens.
+  The Messages heading opens that home from a conversation. The header's
+  New message button opens one picker for direct and group chats. Home search
+  stays visible, and the picker pre-fills the current search when opened.
+  Organization workspaces expose Discover under View and filters.
+  Recent is the default view. It orders unpinned conversations by message time
+  and keeps conversations without messages last. Grouped preserves personal
+  folders and shows both kinds of unfiled chat under Recent. Priority order
+  considers human input, unread messages, and active work before idle rows,
+  then uses activity to break ties. These browser preferences are scoped to
+  account and Organization. Reselecting a view keeps the conversation mounted.
+  Pinned keeps manual order across conversation kinds. Dragging rows changes
+  manual order within Pinned and named folders. A folder can hold both kinds
+  of chat.
   Crossing the
   Pinned boundary uses the same Account Space pin mutation as the row control;
   a failed pin mutation must not save a new group placement. Custom groups can
   be renamed inline from section settings (Enter or blur saves; Escape cancels).
-  Drag a custom group's title to reorder custom groups in Spaces, Direct
-  Messages, People, or Agents; built-in groups keep their fixed positions.
+  Drag a folder's title to reorder it within its saved group list. People and
+  Agents use the same group drag controls.
   Row and group drags use a horizontal insertion line, including gaps and empty
   sections. Rows stay stationary during dragging; dropping inserts before the
   indicated row (or at the end), then settles using transform-only motion.
@@ -356,13 +343,9 @@ Settings and contains Search and theme selection. The workspace switcher contain
   Section actions appear on their own group's hover or keyboard focus, remain
   visible while their menu is open, and stay discoverable on touch devices.
   Messages reuses the same section actions, ordering, and drag primitives.
-  Its optional `messages` preference namespace stores independent Pinned,
-  Direct Messages, and named group orders. Pin state still belongs to the
-  existing Account Space history, not sidebar preferences. Deleting a group
-  returns conversations to Direct Messages without changing membership.
-  The section add menu opens the shared DM open-or-reuse contract through an
-  active People/Agents picker; creating a sidebar group never creates a group DM.
-  Older clients omitting `messages` cannot erase it on a revision-checked save.
+  Removing a conversation folder returns its rows to Recent. Conversation
+  membership stays with the shared Account Space APIs. Sidebar writes preserve
+  existing folder identities and reconcile legacy chat preferences.
   Pin/unpin actions reveal on their row's hover or keyboard focus, including
   inside Pinned through its action menu. Pinned conversations use the shared
   Fluid navigation hover in a responsive grid with up to two-to-four columns,
@@ -561,19 +544,16 @@ Square.
 
 ## 6. Shared Sidebar family and resize behavior
 
-The outer rail's Spaces and Team resource popovers open on hover or Arrow Down/Space.
-Clicking Spaces from another section opens the combined conversation home. In an
-open desktop conversation, selecting Spaces again reveals the conversation list
-if needed and preserves the current conversation, Thread, draft, and scroll
-position. While the list is visible, ordinary unread dots appear on conversation
-rows only. The rail still shows priority attention. Clicking Team opens People.
-Each popover starts with that primary destination: Chats or People, without
-a pin toggle. Spaces then offers Direct messages and Discover using the existing
-`view` search parameter.
-The pinned Direct messages label is DMs. Discover is hidden in personal workspaces,
-including saved pins, without deleting the browser preference.
-Agents, Files, Skills, and Plugins link to the existing
-Team destinations and each has a separate Pin to sidebar toggle. Routines stays
+The Messages rail link opens the combined conversation home directly. In an
+open desktop conversation, selecting Messages again reveals the conversation
+list if needed and preserves the current conversation, Thread, draft, and
+scroll position. While the list is visible, ordinary unread dots appear on
+conversation rows only. The rail still shows priority attention. Team links
+directly to Members. Organization members can pin Discover from its own page.
+Personal workspaces hide Discover and retain its saved browser pin until the
+user returns to an organization workspace.
+Agent settings, Files, Skills, and Plugins have their own destinations in
+command search. Existing resource pins continue to resolve their destinations. Routines stays
 in the primary rail; old saved Routine pins do not create a duplicate. Pins start
 empty, persist in this browser in selection order, and resolve against the
 current Organization. A short divider separates pinned entries from the main

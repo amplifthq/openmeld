@@ -9,7 +9,7 @@ import {
 import type { ReactNode } from "react";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { appShellStaticData } from "#/components/app/shell-layout";
-import { TeamHeader } from "#/components/directory/team-header";
+import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import {
 	APP_ROUTE_PENDING_DELAY_MS,
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
@@ -40,7 +40,7 @@ function SkillsLayout(input: {
 		<AppFullWidthLayout
 			contentLayout="flush"
 			initialOuterSidebarState={input.initialOuterSidebarState}
-			mainHeader={<TeamHeader active="skills" />}
+			mainHeader={<SpaceWindowHeader renderFrame={false} title="Skills" />}
 			showMainHeader
 		>
 			<div className="flex w-full flex-col gap-6 px-[var(--app-page-inline-padding)] py-8">

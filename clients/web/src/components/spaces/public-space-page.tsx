@@ -1007,7 +1007,6 @@ function PublicSpaceEntryFrame(input: { children: ReactNode }) {
 				brandStatusLabel={null}
 				currentSection="space"
 				frameSection="start"
-				includeSpaces={true}
 			/>
 			<main className="flex flex-1 items-center justify-center px-6 py-10">
 				{input.children}
@@ -1041,7 +1040,6 @@ function PublicSpaceChrome(input: {
 					brandStatusLabel={null}
 					currentSection="space"
 					frameSection="start"
-					includeSpaces={true}
 				/>
 			)}
 			<main className="flex min-h-0 flex-1 overflow-hidden">

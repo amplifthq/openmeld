@@ -54,6 +54,15 @@ const captureConfig = mergeConfig(
 					if (source.endsWith("/use-browser-preference")) {
 						return "\0website-demo:preference";
 					}
+					if (source.endsWith("/use-default-human-profile")) {
+						return "\0website-demo:default-human-profile";
+					}
+					if (source.endsWith("/new-chat-dialog")) {
+						return resolve(
+							import.meta.dirname,
+							"../../src/components/spaces/new-chat-dialog.tsx"
+						);
+					}
 					if (source.endsWith("/sidebar-width-cookie")) {
 						return "\0website-demo:geometry";
 					}
@@ -85,6 +94,14 @@ const captureConfig = mergeConfig(
 						]);
 					}
 					const data = JSON.stringify(`${import.meta.dirname}/demo-data.ts`);
+					if (id === "\0website-demo:default-human-profile") {
+						return `import { demoDirectory } from ${data};
+							const human = demoDirectory.members[0].humanProfile;
+							export const useDefaultHumanProfile = () => ({
+								defaultHumanProfile: { openMeldProfileId: human.profileId, profileName: human.profileName },
+								profilesQuery: { isPending: false, isError: false },
+							});`;
+					}
 					const inbox = JSON.stringify(`${import.meta.dirname}/demo-inbox.tsx`);
 					if (id === "\0website-demo:directory-api") {
 						return demoApi("organization-directory", "demo-catalogs.ts", [

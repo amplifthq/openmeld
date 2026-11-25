@@ -177,7 +177,7 @@ describe("OrganizationEntryPage", () => {
 		renderNewOrganizationPage();
 
 		const backButton = screen.getByRole("button", {
-			name: "Back to Spaces",
+			name: "Back to Messages",
 		});
 		const header = document.querySelector(
 			'[data-slot="organization-entry-content-header"]'
@@ -292,7 +292,7 @@ describe("OrganizationEntryPage", () => {
 	it("returns from the organization setup guide to Spaces without organizations", () => {
 		renderNewOrganizationPage();
 
-		fireEvent.click(screen.getByRole("button", { name: "Back to Spaces" }));
+		fireEvent.click(screen.getByRole("button", { name: "Back to Messages" }));
 
 		expect(navigateMock).toHaveBeenCalledWith({
 			to: "/o/solo/spaces",
@@ -323,7 +323,7 @@ describe("OrganizationEntryPage", () => {
 	it("returns first-time Slack installers to Spaces instead of an ineligible Personal Workspace picker", () => {
 		renderSlackInstallNewOrganizationPage();
 
-		fireEvent.click(screen.getByRole("button", { name: "Back to Spaces" }));
+		fireEvent.click(screen.getByRole("button", { name: "Back to Messages" }));
 
 		expect(navigateMock).toHaveBeenCalledWith({
 			to: "/o/solo/spaces",

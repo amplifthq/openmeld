@@ -16,7 +16,7 @@ import type { ReactNode } from "react";
 import { AppContextualSidebarNav } from "#/components/app/app-contextual-layout";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { SidebarListSkeleton } from "#/components/app/sidebar-list-skeleton";
-import { TeamHeader } from "#/components/directory/team-header";
+import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationAgentsPath } from "#/lib/organizations/organization-routes";
 import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
@@ -107,14 +107,15 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 				!input.person &&
 				input.activeView === "agents" &&
 				!input.selectedMemberAgentId ? (
-					<TeamHeader
+					<SpaceWindowHeader
 						actions={
 							<Button onClick={input.onCreateAgent} size="sm">
 								<PlusIcon />
 								Create Agent
 							</Button>
 						}
-						active="agents"
+						renderFrame={false}
+						title="Agents"
 					/>
 				) : undefined
 			}

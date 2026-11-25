@@ -119,9 +119,9 @@ function NewSpaceHeader(input: {
 	return (
 		<div className="flex h-full min-w-0 items-center gap-2 px-4">
 			{input.showSidebarToggle ? <AppModuleSidebarToggle /> : null}
-			<TooltipHint content="Back to Spaces">
+			<TooltipHint content="Back to Messages">
 				<Link
-					aria-label="Back to Spaces"
+					aria-label="Back to Messages"
 					className={buttonVariants({ size: "icon-sm", variant: "ghost" })}
 					to={buildOrganizationSpacesPath(input.orgSlug)}
 				>

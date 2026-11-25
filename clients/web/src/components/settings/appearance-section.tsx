@@ -346,7 +346,7 @@ function SidebarDisplayPreview(input: { display: SidebarDisplay }) {
 			>
 				{[
 					{ icon: TrayIcon, label: "Inbox" },
-					{ icon: ChatCircleTextIcon, label: "Spaces" },
+					{ icon: ChatCircleTextIcon, label: "Messages" },
 					{ icon: UsersThreeIcon, label: "Team" },
 				].map(({ icon: Icon, label }) => (
 					<span className="flex flex-col items-center gap-0.5" key={label}>

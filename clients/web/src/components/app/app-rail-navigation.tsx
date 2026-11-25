@@ -104,7 +104,7 @@ export function buildAppRailGroups(input: {
 				},
 				{
 					id: "directMessages",
-					label: "Spaces",
+					label: "Messages",
 					conversationList: input.conversationList,
 					unreadCount: input.spacesUnreadCount + (input.chatUnreadCount ?? 0),
 					attentionTone: input.spacesAttentionTone,
@@ -134,14 +134,9 @@ export function AppRailNavigationGroup(input: {
 	position: number;
 	standaloneSelection?: boolean;
 	pinnedDestinations?: readonly AppRailDestination[];
-	renderSectionTrigger?: (
-		section: "spaces" | "team",
-		trigger: ReactElement
-	) => ReactElement;
 	tier: SidebarMode;
 }) {
 	const { presentation } = useAppNavigationPresentation();
-	const renderSectionTrigger = input.renderSectionTrigger;
 	const renderDestination = (destination: AppRailDestination) => (
 		<AppRailLink
 			active={
@@ -154,16 +149,6 @@ export function AppRailNavigationGroup(input: {
 			}
 			destination={destination}
 			key={destination.id}
-			renderTrigger={
-				renderSectionTrigger &&
-				(destination.id === "people" || destination.id === "directMessages")
-					? (trigger) =>
-							renderSectionTrigger(
-								destination.id === "people" ? "team" : "spaces",
-								trigger
-							)
-					: undefined
-			}
 			tier={input.tier}
 		/>
 	);
@@ -240,7 +225,6 @@ export function CollapsedRailTooltip(input: {
 
 export function AppRailLink(input: {
 	active: boolean;
-	renderTrigger?: (trigger: ReactElement) => ReactElement;
 	destination: AppRailDestination;
 	tier: SidebarMode;
 }) {
@@ -361,23 +345,6 @@ export function AppRailLink(input: {
 		</Link>
 	);
 
-	if (input.renderTrigger) {
-		return (
-			<SidebarMenuItem
-				className={
-					isIcon ? "mx-auto h-[3.25rem] w-full" : "group/destination relative"
-				}
-				data-app-rail-item
-			>
-				{input.renderTrigger(
-					<SidebarMenuButton isActive={input.active} render={link}>
-						{children}
-					</SidebarMenuButton>
-				)}
-				<RailDestinationActions {...input} />
-			</SidebarMenuItem>
-		);
-	}
 	if (isIcon) {
 		return (
 			<SidebarMenuItem
@@ -387,6 +354,7 @@ export function AppRailLink(input: {
 				<CollapsedRailTooltip
 					anchor={iconRef}
 					contextMenu={<ObjectMenuItems href={input.destination.to} />}
+					disabled={input.destination.id === "directMessages"}
 					label={accessibleLabel}
 				>
 					<SidebarMenuButton isActive={input.active} render={link}>

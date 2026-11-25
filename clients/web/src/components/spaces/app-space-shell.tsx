@@ -55,7 +55,7 @@ export function SpaceWindowFrame(input: {
 			globalControls={<AppGlobalControls />}
 			initialModuleSidebarState={input.initialSidebarState}
 			moduleNavigation={input.navigation}
-			moduleNavigationLabel="Spaces"
+			moduleNavigationLabel="Messages"
 			outerRail={input.outerRail}
 			testId="space-window-frame"
 		>
@@ -112,7 +112,7 @@ export function AppSpaceShell(input: AppSpaceShellProps) {
 					)
 				}
 				sidebarPreferenceKey="spaces"
-				sidebarSeparatorLabel="Resize the Spaces sidebar"
+				sidebarSeparatorLabel="Resize the Messages sidebar"
 			>
 				{input.children}
 			</SpaceWindowShell>

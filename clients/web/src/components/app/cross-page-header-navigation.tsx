@@ -5,67 +5,13 @@ import {
 	TabsSubtleItem,
 	TabsSubtlePanel,
 } from "@openmeld/ui/fluid/tabs-subtle";
-import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useOptionalCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
-import { hasAccountSpaceItems } from "#/lib/spaces/account-spaces";
-import { resolveAppSpacesProfileId } from "#/lib/spaces/app-spaces-profile";
-import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
-import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import { resolveAppNavigationItems } from "./app-navigation-items";
 import type { AppShellSection } from "./shell-layout";
 
 export function CrossPageHeaderNavigation(input: {
 	currentSection: AppShellSection | null;
-	includeSpaces?: boolean;
-}) {
-	if (input.includeSpaces !== undefined) {
-		return (
-			<CrossPageHeaderNavigationTabs
-				currentSection={input.currentSection}
-				includeSpaces={input.includeSpaces}
-			/>
-		);
-	}
-
-	return (
-		<DynamicCrossPageHeaderNavigation currentSection={input.currentSection} />
-	);
-}
-
-function DynamicCrossPageHeaderNavigation(input: {
-	currentSection: AppShellSection | null;
-}) {
-	const { state, storageScope } = useStartFlowState();
-	const profilesQuery = useQuery(
-		buildStartProfilesQueryOptions({
-			enabled: true,
-			storageScope,
-		})
-	);
-	const spacesProfileId = resolveAppSpacesProfileId({
-		profiles: profilesQuery.data ?? [],
-		selectedHumanProfileId: state.selectedHumanProfileId,
-	});
-	const spacesQuery = useQuery(
-		accountSpaceItemsQueryOptions({
-			enabled: spacesProfileId !== null,
-			profileId: spacesProfileId ?? "",
-		})
-	);
-
-	return (
-		<CrossPageHeaderNavigationTabs
-			currentSection={input.currentSection}
-			includeSpaces={hasAccountSpaceItems(spacesQuery.data)}
-		/>
-	);
-}
-
-function CrossPageHeaderNavigationTabs(input: {
-	currentSection: AppShellSection | null;
-	includeSpaces: boolean;
 }) {
 	const navigate = useNavigate();
 	const orgSlug = useOptionalCurrentOrganizationSlug();
@@ -75,14 +21,12 @@ function CrossPageHeaderNavigationTabs(input: {
 	if (!orgSlug) {
 		return null;
 	}
-	const items = resolveAppNavigationItems({
-		includeSpaces: input.includeSpaces,
-		orgSlug,
-	});
-	const selectedIndex = resolveSelectedIndex({
-		currentSection: input.currentSection,
-		items,
-	});
+	const items = resolveAppNavigationItems({ orgSlug });
+	const currentSection =
+		input.currentSection === "space" ? "directMessages" : input.currentSection;
+	const selectedIndex = items.findIndex(
+		(item) => item.section === currentSection
+	);
 
 	return (
 		<>
@@ -119,15 +63,4 @@ function CrossPageHeaderNavigationTabs(input: {
 			</div>
 		</>
 	);
-}
-
-function resolveSelectedIndex(input: {
-	currentSection: AppShellSection | null;
-	items: ReturnType<typeof resolveAppNavigationItems>;
-}): number {
-	const selectedIndex = input.items.findIndex(
-		(item) => item.section === input.currentSection
-	);
-
-	return selectedIndex;
 }

@@ -10,12 +10,10 @@ import { useRouterState } from "@tanstack/react-router";
 import { lazy, Suspense, useState } from "react";
 import { MessageResponse } from "../../src/components/ai/message-response";
 import type { DirectoryHumanProfileRow } from "../../src/components/directory/directory-human-profile-model";
-import { TeamHeader } from "../../src/components/directory/team-header";
 import type { FileSystemItem } from "../../src/components/extend/file-system";
 import { useTeamFilesView } from "../../src/components/organizations/team-files-navigation";
-import { SpaceDirectory as ProductSpaceDirectory } from "../../src/components/spaces/space-directory";
 import { SpaceWindowHeader } from "../../src/components/spaces/space-header";
-import { demoSkill, demoSpaces } from "./demo-data";
+import { demoSkill } from "./demo-data";
 import { DemoPeople } from "./demo-people";
 
 const DemoAgents = lazy(() =>
@@ -140,41 +138,6 @@ export function DocumentDialog({
 		</Dialog>
 	);
 }
-export function SpaceDirectory() {
-	const [items, setItems] = useState(demoSpaces);
-	return (
-		<div className="flex min-h-0 flex-1 flex-col px-6 py-5">
-			<div className="mb-5 border-border border-b pb-3 font-medium text-sm">
-				Your Spaces
-			</div>
-			<ProductSpaceDirectory
-				accountProfiles={[]}
-				accountSpaceItemsById={
-					new Map(items.map((item) => [item.spaceId, item]))
-				}
-				canJoinSpaces={false}
-				joinError={null}
-				onJoinSpace={() => undefined}
-				onTogglePinned={(item) =>
-					setItems((current) =>
-						current.map((space) =>
-							space.spaceId === item.spaceId
-								? { ...space, pinnedAt: space.pinnedAt ? null : "2026-10-01" }
-								: space
-						)
-					)
-				}
-				orgSlug="test"
-				pendingJoinSpaceId={null}
-				pinActionsPending={false}
-				profileId="human"
-				savedViewWarning={null}
-				spaces={[]}
-				tab={0}
-			/>
-		</div>
-	);
-}
 export function DemoFiles({
 	team = false,
 	showcase = false,
@@ -227,6 +190,14 @@ export function TeamScene({
 		| "files"
 		| "routines";
 	const detail = path.split("/")[4];
+	const titles = {
+		agents: "Agents",
+		files: "Files",
+		people: "Team",
+		plugins: "Plugins",
+		routines: "Routines",
+		skills: "Skills",
+	};
 	let content = <RoutinesPage />;
 	if (tab === "people") {
 		content = (
@@ -256,11 +227,7 @@ export function TeamScene({
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<header className="h-[var(--space-conversation-header-height)] w-full shrink-0 border-border border-b bg-background">
-				{tab === "routines" ? (
-					<SpaceWindowHeader renderFrame={false} title="Routines" />
-				) : (
-					<TeamHeader active={tab} />
-				)}
+				<SpaceWindowHeader renderFrame={false} title={titles[tab]} />
 			</header>
 			<div
 				className={`min-h-0 flex-1 overflow-auto p-6 ${tab === "files" ? "flex flex-col" : ""}`}

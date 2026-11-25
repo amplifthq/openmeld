@@ -1,14 +1,10 @@
 "use client";
 
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
-import type {
-	AuthProfileView,
-	OrganizationSpaceDirectoryWithMemberCountsItem,
-} from "@openmeld/schemas/types";
+import type { OrganizationSpaceDirectoryWithMemberCountsItem } from "@openmeld/schemas/types";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
-import { cn } from "@openmeld/ui/lib/utils";
-import { ChatCircleTextIcon, PlusIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon, PushPinIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQueryState } from "nuqs";
@@ -18,31 +14,24 @@ import { appShellStaticData } from "#/components/app/shell-layout";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { OrganizationScopedErrorState } from "#/components/organizations/organization-scoped-error-state";
 import {
-	type SpaceUnreadById,
-	selectAccountSpaceSections,
-} from "#/components/spaces/account-space-sections";
-import {
 	AppSpaceShell,
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
-import { ChatsDirectory } from "#/components/spaces/chats-directory";
 import { ConversationsHome } from "#/components/spaces/conversations-home";
 import { SpaceDirectory } from "#/components/spaces/space-directory";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { SpacePendingInvitations } from "#/components/spaces/space-pending-invitations";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
-import { SpacesDirectoryNavigation } from "#/components/spaces/spaces-directory-navigation";
-import { useAccountSpaceIndicators } from "#/components/spaces/use-account-space-indicators";
-import { useAccountSpacePinMutation } from "#/components/spaces/use-account-space-pin-mutation";
 import {
 	APP_ROUTE_PENDING_DELAY_MS,
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
 } from "#/lib/app-route-loading";
+import { useSidebarShortcuts } from "#/lib/appearance/sidebar-shortcuts";
 import { prefetchSpacesRouteData } from "#/lib/organizations/app-route-prefetch";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
-	buildOrganizationNewSpacePath,
 	buildOrganizationSpacePath,
+	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
 import {
 	joinOrganizationSpace,
@@ -55,10 +44,6 @@ import {
 	type AppSidebarPersistedStates,
 	getAppSidebarStatesForRoute,
 } from "#/lib/sidebar-width-cookie";
-import type {
-	AccountSpaceItem,
-	AccountSpaceSections,
-} from "#/lib/spaces/account-spaces";
 import { resolveAppSpacesProfileId } from "#/lib/spaces/app-spaces-profile";
 import {
 	organizationQueryKeys,
@@ -130,19 +115,18 @@ export function AppSpacesIndexContent(input: {
 	orgSlug: string;
 }) {
 	const [view] = useQueryState("view", spacesViewParser);
-	return view === "conversations" ? (
-		<ConversationsHome initialSidebarStates={input.initialSidebarStates} />
+	const { currentOrganization } = useAppOrganization();
+	return view === "discover" && currentOrganization.isPersonal !== true ? (
+		<DiscoverGroupsContent {...input} />
 	) : (
-		<AppSpacesDirectoryContent {...input} />
+		<ConversationsHome initialSidebarStates={input.initialSidebarStates} />
 	);
 }
 
-function AppSpacesDirectoryContent(input: {
+function DiscoverGroupsContent(input: {
 	initialSidebarStates?: AppSidebarPersistedStates;
 	orgSlug: string;
 }) {
-	// Keep the shell mounted and read the same immediate URL state as its tabs.
-	const [view] = useQueryState("view", spacesViewParser);
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const { activeOrganization, currentOrganization } = useAppOrganization();
@@ -164,14 +148,6 @@ function AppSpacesDirectoryContent(input: {
 			profileId: profileId ?? "",
 		})
 	);
-	const { unreadBySpaceId } = useAccountSpaceIndicators({
-		enabled: Boolean(profileId),
-		organizationId: currentOrganization.id,
-		profileId: profileId ?? "",
-	});
-	const pinMutation = useAccountSpacePinMutation({
-		currentProfileId: profileId ?? "",
-	});
 	const organizationSpacesQuery = useQuery(
 		organizationSpacesQueryOptions({
 			enabled: true,
@@ -245,21 +221,17 @@ function AppSpacesDirectoryContent(input: {
 			});
 		},
 	});
-	const accountState = useMemo(
+	const joinedSpaceIds = useMemo(
 		() =>
-			selectSpaceIndexAccountState({
-				currentOrganizationId: currentOrganization.id,
-				sections: accountSpacesQuery.data,
-				unreadBySpaceId,
-			}),
-		[accountSpacesQuery.data, currentOrganization.id, unreadBySpaceId]
-	);
-	const regularOrganizationSpaces = useMemo(
-		() =>
-			(organizationSpacesQuery.data?.spaces ?? []).filter(
-				(space) => !accountState.directMessageSpaceIds.has(space.spaceId)
+			new Set(
+				[
+					...(accountSpacesQuery.data?.pinnedItems ?? []),
+					...(accountSpacesQuery.data?.spaceItems ?? []),
+				]
+					.filter((item) => item.organizationId === currentOrganization.id)
+					.map((item) => item.spaceId)
 			),
-		[accountState.directMessageSpaceIds, organizationSpacesQuery.data?.spaces]
+		[accountSpacesQuery.data, currentOrganization.id]
 	);
 
 	if (profilesQuery.isPending) {
@@ -325,7 +297,7 @@ function AppSpacesDirectoryContent(input: {
 
 	return (
 		<AppSpaceShell
-			browseSpacesActive={view !== "messages"}
+			browseSpacesActive
 			currentProfileId={profileId}
 			currentSpaceId=""
 			initialOuterSidebarState={
@@ -334,11 +306,9 @@ function AppSpacesDirectoryContent(input: {
 			initialSidebarState={
 				input.initialSidebarStates?.inner ?? APP_SIDEBAR_DEFAULT_STATES.inner
 			}
-			showSpacesSidebar={view === "messages" || showSpacesSidebar}
+			showSpacesSidebar={showSpacesSidebar}
 		>
 			<SpaceIndexContentState
-				accountProfiles={profilesQuery.data ?? []}
-				accountSpaceItemsById={accountState.accountSpaceItemsById}
 				activeOrganization={activeOrganization}
 				canJoinSpaces={savedViewState.canJoinSpaces}
 				errorMessage={errorMessage}
@@ -349,13 +319,13 @@ function AppSpacesDirectoryContent(input: {
 						accountSpacesQuery.isPending &&
 						!accountSpacesQuery.isPaused)
 				}
-				isPersonalContext={currentOrganization.isPersonal === true}
 				isRetrying={
 					organizationSpacesQuery.isRefetching ||
 					profilesQuery.isRefetching ||
 					accountSpacesQuery.isRefetching
 				}
 				joinError={joinError}
+				joinedSpaceIds={joinedSpaceIds}
 				onJoinSpace={(spaceId) => {
 					joinSpaceMutation.mutate({ spaceId });
 				}}
@@ -368,21 +338,19 @@ function AppSpacesDirectoryContent(input: {
 						console.error("Failed to refresh Spaces.", error);
 					});
 				}}
-				onTogglePinned={pinMutation.toggle}
 				orgSlug={input.orgSlug}
 				pendingJoinSpaceId={
 					joinSpaceMutation.isPending
 						? (joinSpaceMutation.variables?.spaceId ?? null)
 						: null
 				}
-				pinActionsPending={pinMutation.arePinActionsPending}
 				profileId={profileId}
 				selfHealStatus={spacesSelfHeal.status}
 				showSavedViewWarning={
 					savedViewState.showSavedViewWarning ||
 					(accountSpacesQuery.isError && accountSpacesHaveData)
 				}
-				spaces={regularOrganizationSpaces}
+				spaces={organizationSpacesQuery.data?.spaces ?? []}
 			/>
 		</AppSpaceShell>
 	);
@@ -458,39 +426,10 @@ function resolveSpaceIndexErrorMessage(input: {
 	if (input.accountSpacesBlockingError) {
 		return (
 			input.accountSpacesError?.message ??
-			"OpenMeld could not separate Direct Messages from Spaces."
+			"OpenMeld could not verify which groups you have joined."
 		);
 	}
 	return null;
-}
-
-function selectSpaceIndexAccountState(input: {
-	currentOrganizationId: string;
-	sections: AccountSpaceSections | undefined;
-	unreadBySpaceId: SpaceUnreadById;
-}) {
-	if (!input.sections) {
-		return {
-			accountSpaceItemsById: new Map<string, AccountSpaceItem>(),
-			directMessageSpaceIds: new Set<string>(),
-		};
-	}
-
-	const sections = selectAccountSpaceSections({
-		currentOrganizationId: input.currentOrganizationId,
-		sections: input.sections,
-		unreadBySpaceId: input.unreadBySpaceId,
-	});
-	const accountSpaceItems = [...sections.pinnedItems, ...sections.spaceItems];
-
-	return {
-		accountSpaceItemsById: new Map(
-			accountSpaceItems.map((item) => [item.spaceId, item])
-		),
-		directMessageSpaceIds: new Set(
-			sections.directMessageItems.map((item) => item.spaceId)
-		),
-	};
 }
 
 function AppSpacesIndexEntryShell(input: {
@@ -514,21 +453,17 @@ function AppSpacesIndexEntryShell(input: {
 }
 
 type SpaceIndexContentStateInput = {
-	accountProfiles: readonly AuthProfileView[];
-	accountSpaceItemsById: ReadonlyMap<string, AccountSpaceItem>;
+	joinedSpaceIds: ReadonlySet<string>;
 	activeOrganization: OrganizationSummary | null;
 	canJoinSpaces: boolean;
 	errorMessage: string | null;
 	isMembershipError: boolean;
 	isPending: boolean;
-	isPersonalContext: boolean;
 	isRetrying: boolean;
 	joinError: SpaceJoinError | null;
 	onJoinSpace: (spaceId: string) => void;
-	onTogglePinned: (item: AccountSpaceItem) => void;
 	onRetry: () => void;
 	pendingJoinSpaceId: string | null;
-	pinActionsPending: boolean;
 	orgSlug: string;
 	profileId: string;
 	selfHealStatus: OrganizationMembershipSelfHealStatus;
@@ -537,45 +472,51 @@ type SpaceIndexContentStateInput = {
 };
 
 function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
-	const [view] = useQueryState("view", spacesViewParser);
-	if (view === "messages") {
-		return <ChatsDirectory />;
-	}
-	const tab = view === "discover" && !input.isPersonalContext ? 1 : 0;
-	const body = resolveSpaceIndexBody(input, tab);
-
+	const shortcuts = useSidebarShortcuts();
+	const pinned = shortcuts.pinned.includes("discover");
 	return (
 		<AppMainContent
 			header={
 				<SpaceWindowHeader
 					actions={
-						<Link
-							className={cn(buttonVariants({ size: "sm" }), "max-lg:min-h-8")}
-							to={buildOrganizationNewSpacePath(input.orgSlug)}
+						<Button
+							aria-label={
+								pinned
+									? "Unpin Discover from sidebar"
+									: "Pin Discover to sidebar"
+							}
+							aria-pressed={pinned}
+							onClick={() => shortcuts.toggle("discover")}
+							size="icon-sm"
+							variant="ghost"
 						>
-							<PlusIcon />
-							New Space
-						</Link>
+							<PushPinIcon
+								aria-hidden="true"
+								weight={pinned ? "fill" : "regular"}
+							/>
+						</Button>
 					}
 					leadingControl={
-						<ChatCircleTextIcon className="size-4 text-muted-foreground" />
+						<Link
+							aria-label="Back to Messages"
+							className={buttonVariants({ size: "icon-sm", variant: "ghost" })}
+							to={buildOrganizationSpacesPath(input.orgSlug)}
+						>
+							<ArrowLeftIcon aria-hidden="true" />
+						</Link>
 					}
-					navigation={<SpacesDirectoryNavigation />}
 					renderFrame={false}
-					title="Spaces"
+					title="Discover"
 				/>
 			}
 		>
-			{tab === 1 ? <SpacePendingInvitations /> : null}
-			{body}
+			<SpacePendingInvitations />
+			{resolveSpaceIndexBody(input)}
 		</AppMainContent>
 	);
 }
 
-function resolveSpaceIndexBody(
-	input: SpaceIndexContentStateInput,
-	tab: number
-) {
+function resolveSpaceIndexBody(input: SpaceIndexContentStateInput) {
 	// While a one-shot activation repair is in flight (or the mismatch was just
 	// detected and the repair is about to run), show loading rather than the
 	// raw membership error that is being resolved.
@@ -637,15 +578,11 @@ function resolveSpaceIndexBody(
 
 	return (
 		<SpaceDirectory
-			accountProfiles={input.accountProfiles}
-			accountSpaceItemsById={input.accountSpaceItemsById}
 			canJoinSpaces={input.canJoinSpaces}
 			joinError={input.joinError}
+			joinedSpaceIds={input.joinedSpaceIds}
 			onJoinSpace={input.onJoinSpace}
-			onTogglePinned={input.onTogglePinned}
-			orgSlug={input.orgSlug}
 			pendingJoinSpaceId={input.pendingJoinSpaceId}
-			pinActionsPending={input.pinActionsPending}
 			profileId={input.profileId}
 			savedViewWarning={
 				input.showSavedViewWarning
@@ -656,7 +593,6 @@ function resolveSpaceIndexBody(
 					: null
 			}
 			spaces={input.spaces}
-			tab={tab}
 		/>
 	);
 }

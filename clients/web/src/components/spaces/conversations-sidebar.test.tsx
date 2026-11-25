@@ -143,9 +143,9 @@ function mount(home = false) {
 	);
 }
 
-it("opens the home list with Spaces and direct messages together, searchable without opening a menu", () => {
+it("opens Messages with group and direct conversations in one searchable list", () => {
 	mount(true);
-	expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
+	expect(screen.getByRole("link", { name: "Messages" })).toBeTruthy();
 	expect(
 		screen.getByRole("heading", { name: "Pick a conversation" })
 	).toBeTruthy();
@@ -160,9 +160,9 @@ it("opens the home list with Spaces and direct messages together, searchable wit
 			.getByRole("link", { name: "Launch checklist" })
 			.getAttribute("href")
 	).toBe("/o/test/chats/center-agent?session=agent");
-	expect(
-		screen.getByRole("link", { name: "Browse Spaces" }).getAttribute("href")
-	).toBe("/o/test/spaces?view=spaces");
+	expect(screen.getAllByRole("button", { name: "New message" })).toHaveLength(
+		1
+	);
 	const search = screen.getByRole("searchbox", {
 		name: "Search conversations",
 	});
@@ -257,12 +257,17 @@ it("refreshes row timestamps across midnight and when the window regains focus",
 	expect(time?.textContent).toBe("2 days ago");
 });
 
-it("shows Spaces and Direct messages together and keeps the current draft when switching", async () => {
+it("keeps group and direct conversations together when switching views with an open draft", async () => {
 	mount();
 	expect(screen.getByRole("region", { name: "Recent" })).toBeTruthy();
 	await selectView("Grouped");
-	expect(screen.getByRole("region", { name: "Spaces" })).toBeTruthy();
-	expect(screen.getByRole("region", { name: "Direct messages" })).toBeTruthy();
+	const groupedRecent = within(screen.getByRole("region", { name: "Recent" }));
+	expect(
+		groupedRecent.getByRole("link", { name: "Product design" })
+	).toBeTruthy();
+	expect(
+		groupedRecent.getByRole("link", { name: "Launch checklist" })
+	).toBeTruthy();
 	const pinned = screen.getByRole("region", { name: "Pinned" });
 	expect(
 		within(pinned)
@@ -329,7 +334,7 @@ it("searches both types and applies the nested conversation filter", async () =>
 	search = screen.getByRole("searchbox", { name: "Search conversations" });
 	expect(search).toHaveProperty("value", "");
 	await waitFor(() => expect(document.activeElement).toBe(search));
-	expect(search.getAttribute("placeholder")).toBe("Find a space...");
+	expect(search.getAttribute("placeholder")).toBe("Search conversations");
 	fireEvent.change(search, { target: { value: "product" } });
 	expect(
 		screen.getByRole("link", { name: "Product design" }).getAttribute("href")
@@ -348,36 +353,35 @@ it("searches both types and applies the nested conversation filter", async () =>
 		await screen.findByRole("menuitem", { name: "Filter conversations" })
 	);
 	fireEvent.click(
-		await screen.findByRole("menuitemcheckbox", { name: "Spaces" })
+		await screen.findByRole("menuitemcheckbox", { name: "Groups" })
 	);
 	expect(screen.getByRole("link", { name: "Product design" })).toBeTruthy();
 	expect(screen.queryByRole("link", { name: "Launch checklist" })).toBeNull();
 });
-it("keeps the Spaces directory reachable in both views and carries an unmatched search into the organization picker", async () => {
+it("keeps Discover reachable separately and opens the same picker from one New message button", async () => {
 	mount();
 	expect(
-		screen.getByRole("link", { name: "Spaces" }).getAttribute("href")
+		screen.getByRole("link", { name: "Messages" }).getAttribute("href")
 	).toBe("/o/test/spaces");
-	for (const view of ["Grouped", "Recent"] as const) {
-		await selectView(view);
-		expect(screen.queryByRole("link", { name: "Browse spaces" })).toBeNull();
-	}
+	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+	fireEvent.click(await screen.findByRole("menuitem", { name: "Discover" }));
+	expect(navigate).toHaveBeenCalledWith({
+		to: "/o/test/spaces",
+		search: { view: "discover" },
+	});
 	fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
 	fireEvent.click(await screen.findByRole("menuitem", { name: "Search" }));
 	fireEvent.change(
 		screen.getByRole("searchbox", { name: "Search conversations" }),
 		{ target: { value: "Unfamiliar teammate" } }
 	);
-	fireEvent.click(screen.getByRole("button", { name: "Find someone" }));
+	fireEvent.click(screen.getByRole("button", { name: "New message" }));
 	expect(
 		screen.getByRole("textbox", { name: "Search people and agents" })
 	).toHaveProperty("value", "Unfamiliar teammate");
 	fireEvent.click(screen.getByRole("button", { name: "Close picker" }));
-	fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
-	fireEvent.click(await screen.findByRole("menuitem", { name: "New Space" }));
-	expect(navigate).toHaveBeenCalledWith({ to: "/o/test/new-space" });
-	fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
-	fireEvent.click(screen.getByRole("menuitem", { name: "New message" }));
+	fireEvent.click(screen.getByRole("button", { name: "Close search" }));
+	fireEvent.click(screen.getByRole("button", { name: "New message" }));
 	expect(
 		screen.getByRole("textbox", { name: "Search people and agents" })
 	).toHaveProperty("value", "");
@@ -428,7 +432,7 @@ it("prepends new pins without changing existing order across views", async () =>
 		])
 	);
 });
-it("does not offer direct-message rename or archive actions on Spaces", async () => {
+it("keeps group-specific row actions in the combined list", async () => {
 	mount();
 	fireEvent.click(
 		screen.getByRole("button", { name: "Actions for Product design" })

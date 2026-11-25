@@ -12,6 +12,7 @@ import {
 } from "#/components/member-agents/use-member-agents";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { resolveAccountSpaceRecency } from "#/lib/spaces/account-spaces";
+import { moveSidebarGroup } from "../app/sidebar-drop-target";
 import { selectAccountSpaceSections } from "./account-space-sections";
 import {
 	aliasSpaceIds,
@@ -24,6 +25,7 @@ import { mergeChatPreferences } from "./chat-sidebar-model";
 import {
 	type Conversation,
 	type ConversationSection,
+	canMoveToConversationSection,
 	conversationSectionId,
 	conversationSections,
 	moveConversationPreferences,
@@ -64,14 +66,12 @@ export function useConversations(input: {
 		const targets = preferences
 			? conversationSections(preferences, mergeChatPreferences(preferences, []))
 			: [];
-		const choices = (kind: "space" | "direct-message") =>
-			targets
-				.filter((target) => target.kind === "pinned" || target.kind === kind)
-				.map(({ id, name }) => ({ id, name }));
-		return {
-			space: choices("space"),
-			"direct-message": choices("direct-message"),
-		};
+		return [
+			...targets
+				.filter((target) => target.groupId)
+				.map(({ id, name }) => ({ id, name })),
+			{ id: "recent", name: "Recent" },
+		];
 	}, [preferences]);
 	useDeletedSpaceNotices(rawDirectMessages.spaces.data?.recentlyDeletedItems);
 	const accountSections = selectAccountSpaceSections({
@@ -284,7 +284,7 @@ export function useConversations(input: {
 			!disabled &&
 			!!conversation &&
 			!!target &&
-			(target.kind === "pinned" || target.kind === conversation.kind)
+			canMoveToConversationSection(conversation.kind, target)
 		);
 	};
 	const move = async (
@@ -443,7 +443,7 @@ export function useConversations(input: {
 					};
 		});
 	};
-	const addGroup = (kind: "space" | "direct-message", name: string) => {
+	const addFolder = (name: string) => {
 		if (!preferences || disabled) {
 			return;
 		}
@@ -453,25 +453,39 @@ export function useConversations(input: {
 			sort: "priority" as const,
 			spaceIds: [],
 		};
+		store.update((current) =>
+			current.groups.some((value) => value.id === group.id)
+				? current
+				: { ...current, groups: [...current.groups, group] }
+		);
+	};
+	const moveFolder = (id: string, before?: string) => {
+		const section = sections.find((item) => item.id === id);
+		const target = sections.find((item) => item.id === before);
+		const groupId = section?.groupId;
+		if (!groupId || (target && target.kind !== section.kind) || disabled) {
+			return;
+		}
+
 		store.update((current) => {
+			if (section.kind === "space") {
+				return {
+					...current,
+					groups: moveSidebarGroup(current.groups, groupId, target?.groupId),
+				};
+			}
 			const chats = mergeChatPreferences(
 				current,
 				directMessages.ordinaryAccountItems
 			);
-			const groups = kind === "space" ? current.groups : chats.groups;
-			if (groups.some((value) => value.id === group.id)) {
-				return current;
-			}
-			return kind === "space"
-				? { ...current, groups: [...groups, group] }
-				: {
-						...current,
-						messages: undefined,
-						chats: {
-							...chats,
-							groups: [...groups, group],
-						},
-					};
+			return {
+				...current,
+				messages: undefined,
+				chats: {
+					...chats,
+					groups: moveSidebarGroup(chats.groups, groupId, target?.groupId),
+				},
+			};
 		});
 	};
 	return {
@@ -486,7 +500,8 @@ export function useConversations(input: {
 		unpin,
 		canMove,
 		updateSection,
-		addGroup,
+		addFolder,
+		moveFolder,
 		disabled,
 	};
 }

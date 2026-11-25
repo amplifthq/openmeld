@@ -305,24 +305,13 @@ an attachment-open request. Opening a final-message attachment therefore retains
 its selected file revision while switching from Messages to Files.
 
 Web uses three navigation levels: a 64px application rail (52px in Icons only), a contextual
-list inside the inset surface, and the current work area. **Inbox / Spaces /
-Team / Routines** are the rail's primary destinations, in that order. Hovering Spaces offers
-Direct messages and Discover, using the existing Spaces view parameter. Both
-can be pinned; Direct messages appears as DMs in the rail. Personal workspaces
-hide Discover in the popover and pinned list. Hovering Team (or pressing
-Arrow Down/Space on it) offers Agents, Files, Skills, and Plugins
-with separate pin toggles. Routines is always a primary destination; old saved
-Routine pins are ignored so it never appears twice. A divider separates the creation shortcuts: Spaces
-offers New message and New Space; Team offers New Agent. These actions cannot be
-pinned. New message shares the rail-owned dialog with command search; New Space
-and New Agent use the existing Organization creation routes.
-Clicking Team still opens People. Pinned shortcuts appear below a short divider and
-persist in the browser; links always target the current Organization. A pinned
-current page selects its shortcut instead of also selecting Team. Icon tooltips
-open immediately. Desk is temporarily hidden
-from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
-switching remains at the top; the global Create entry is temporarily hidden.
-Creation is also available in the Spaces and Team contextual headers. Global search
+list inside the inset surface, and the current work area. **Inbox / Messages /
+Team / Routines** are the rail's primary destinations, in that order. Messages
+and Team open their respective home views. Organization workspaces can pin
+Discover from the public group directory. Pinned shortcuts persist in the
+browser and resolve against the current Organization. A pinned current page
+selects its shortcut. Desk is temporarily hidden from navigation and remains
+accessible at `/o/{orgSlug}/desk`. Global search
 and Settings are available in the footer account menu. Search has its own section
 and the shared Command K keycaps. Inbox
 retains the shared attention badge and active-route treatment. In the compact
@@ -334,66 +323,25 @@ Separate Fluid hover groups own account identity, Search, actions, and sign-out.
 A compact Light/Dark/System selector follows Download Desktop App without a divider and keeps the menu
 open when changed. Settings > Appearance uses three full-size theme cards with
 labels and descriptions. Both controls share the theme choices and icon set;
-the existing theme provider owns persistence and system appearance. The Spaces
-rail entry opens `/o/{orgSlug}/spaces` from another section. Reselecting it in a
-desktop conversation reveals the list if collapsed and keeps the current
-conversation and reading position. The contextual **Spaces** heading still opens
-home. This home displays the shared conversation list, with
-Spaces, Direct Messages, and Agent conversations interleaved in the default
-Recent view. Existing explicit Grouped, pin-layout, and preview preferences
-remain honored. The home list is primary content: it remains visible even if
-the contextual sidebar was hidden, and fills narrow screens rather than being
-placed behind a drawer. Wide screens show a selection prompt beside it; opening
-a row uses its canonical conversation route and the existing contextual list.
-Home search is visible without opening a menu and does not autofocus. The
-New conversation menu and wide-screen selection prompt expose Browse Spaces
-at `?view=spaces`. The directory retains Your Spaces, Direct messages, and
-Discover, with a leading Chats tab returning home. Discover is absent in
-personal workspaces. Home does not gate its list on the Organization Space
-directory query; it uses the existing authorized conversation read model.
+the existing theme provider owns persistence and system appearance. The
+Messages rail entry opens `/o/{orgSlug}/spaces`. Reselecting it in a desktop
+conversation reveals the contextual list if collapsed and keeps the conversation,
+draft, and reading position. The Messages heading links to the conversation home.
+The home interleaves group chats, direct messages, and Agent conversations in
+Recent. Pinned, personal folders, and preview preferences remain available.
+The list fills narrow screens. Wide screens show a selection prompt beside it.
+Each row opens its canonical conversation route. Home search is visible without
+opening a menu and does not autofocus.
 
-Your Spaces, Direct messages, and Discover default to Cards and offer Table in the directory toolbar.
-The tab body and navigation read the same immediate URL state, so switching
-panels does not wait for route loaders to commit the search parameter.
-All three tabs retain the same Space shell and sidebar. Switching the directory
-panel does not remount sidebar avatars, subscriptions, or resize controls.
-The sidebar's View and filters menu includes Show message previews. It defaults
-to on and persists per Human Profile and Organization in the browser preference
-store. One setting controls the sidebar and both directory card views; it does
-not change Table previews or suppress actionable needs-input status. Hidden or
-absent message previews reserve no sidebar line or card footer. Single-line
-sidebar rows center their icon, title, and actions, and title tooltips anchor
-to the full row's trailing edge rather than the avatar.
-Both presentations consume the same saved sections, ordering, filters,
-membership previews, unread destinations, and current work indicators. Cards
-use eight 40px member slots, reducing to six, four or two on narrow cards. The avatar
-area reserves two rows, and cards stretch to equal height within each grid row.
-Overflow occupies the final slot; at least one avatar remains. The title truncates
-before its unread count; the title, lock, and count share one vertical center.
-Cards omit activity timestamps and show only the latest message
-as plain text, with its message link and full-text
-hover previews. Empty conversations have no preview footer. The opt-in directory
-projection reads eight members and two message previews from the authorized account
-index, with no per-card Space history fan-out. Member previews and action menus
-keep independent targets.
-Card member previews open only over an avatar or the overflow count. Gaps and
-unused avatar slots remain part of the Space navigation target. The member
-popover also has a primary Open Space link in its header; keyboard activation
-of the member trigger remains available.
-The existing browser preference store remembers this choice per Human Profile
-and Organization, shared across all three tabs. Direct message
-cards keep peer and Center Agent session identity, unread destinations, groups,
-pinning, and archive actions. Their 56px peer avatar has no reserved multi-member
-grid height; the title follows directly, with one latest-message preview row
-only when messages exist. Discover cards and rows expose the same Preview and
-Join actions, pending state, and access checks. Cards place the primary Join
-action at the right of the member count in one row, separate from the card's
-preview target. Responsive member grids mount
-each avatar once; CSS changes visible slots without duplicating avatar drawing.
-The App's read-only Discover preview omits the Agent-facing Space context
-disclosure and structured JSON link. The standalone public reader retains them;
-the existing presentation context owns this distinction without changing read
-access or the context API.
+New message opens one recipient picker. One recipient opens a direct
+conversation. Selecting several people or agents starts a private group.
+Discover stays under View and filters for organization workspaces. It lists
+public groups the viewer can join and offers Cards and Table layouts. The
+account index excludes newly joined groups from Discover while the discovery
+snapshot refreshes. Messages uses the authorized conversation read model
+independently of the discovery query. Show message previews controls
+conversation rows and is saved per Human Profile and Organization.
+
 The Agents directory uses the same store to remember grouped versus expanded
 presentation per viewer, Organization, and person. Search and temporary filters
 do not become saved layout preferences.
@@ -402,16 +350,13 @@ The Team contextual header has an Add menu with Invite members and New Agent.
 It reuses the existing Organization invitation flow (absent in personal
 workspaces) and Agent creation route. Its adjacent Filter people menu retains
 connection, activity, and group filters. The compact search field uses the
-same size as Spaces and says "Search people..." without a close action.
-Direct messages uses `?view=messages`; the old `/chats` index redirects there.
-Individual chat, profile, thread, and session links retain their existing routes.
-The contextual heading has no aggregate attention dot; the rail and individual
-conversation rows retain their canonical indicators.
-Header actions move into one labeled overflow menu when the contextual list is
-narrow, keeping the title and controls on one row. Both layouts share the same
-creation, view, and filter menu contents.
+same size as Messages and says "Search people..." without a close action.
+The legacy `?view=messages` and `?view=spaces` URLs open the Messages home.
+The old `/chats` index redirects there. Individual chat, profile, thread, and
+session links retain their existing routes. The rail and conversation rows
+show their canonical unread and attention indicators.
 
-Spaces, direct messages, and Center Agent conversations share the Spaces
+Group chats, direct messages, and Agent chats share the Messages
 list in the middle column. Team uses content-specific navigation: People owns
 the member list; Agent detail shows the current Agent list, while the Agent
 directory uses its existing cards and filters without a duplicate sidebar.
@@ -445,10 +390,10 @@ the automatic rule. Legacy icon mode maps
 to a collapsed list. Scroll positions are isolated by account, Organization,
 and list family. Mobile presents application and contextual navigation in
 mutually exclusive drawers; a collapsed desktop preference never hides the
-mobile list. Recent is the default conversation view. Grouped offers a
-shared Pinned section, existing personal groups, Spaces, and Direct messages.
-Recent retains the same Pinned section and orders the remaining conversations
-by the latest message, creation, or joining timestamp across both kinds. Both views use the same rows,
+mobile list. Recent is the default conversation view. It keeps the shared
+Pinned section and orders remaining chats by most recent activity. Grouped
+shows both kinds of unfiled chat under Recent and keeps existing personal
+folders. A folder can contain group chats and direct messages. Both views use the same rows,
 previews, identities, indicators, and canonical destinations. The view menu
 changes only the sidebar; the open conversation, draft, and reading position
 remain mounted. View choice is remembered in this browser per account and
@@ -477,14 +422,12 @@ The browser preference store saves this choice per Human Profile and Organizatio
 Its settings action appears while the whole section is hovered or contains focus,
 while the menu is open, and on touch devices. Grid hover bridges small gaps but
 clears across empty last-row cells. List retains ordinary previews and timestamps.
-Spaces, People, and Agents are optional filters. The plus menu offers New message
-and New Space. The adjacent View and filters menu holds separate Conversation
-view and Filter conversations submenus. The Spaces title remains the link to
-the conversation home; Browse Spaces in the New conversation menu opens the
-Your Spaces / Discover directory. Conversation detail and People hide their sidebar search fields by default. Search in the
-header options menu reveals and focuses the field through the shared sidebar
-search disclosure. The compact Spaces field says "Find a space..." and searches
-existing conversations. In both sidebars, the trailing Close search icon and
+Groups, People, and Agents are optional filters. The New message button opens
+the recipient picker. The adjacent View and filters menu includes Conversation
+view, Filter conversations, and access to Discover in organization workspaces.
+Conversation detail and People hide their sidebar search fields by default.
+Search in the header menu reveals and focuses the field. The Messages field
+searches existing conversations. In both sidebars, the trailing Close search icon and
 Escape clear the query, hide the field, and return focus to the options trigger.
 The input reserves trailing padding so long queries do not cover that control.
 People options group computer filters in a
@@ -639,10 +582,9 @@ The same personal title is rendered in the conversation header. These preference
 are presentation only: archive hides a chat from the normal list, Unarchive returns
 it, and neither changes membership, execution or history. Generic Space
 management remains restricted; permanent deletion is not exposed.
-Archived chats can be found through the Agents group settings or a chat group's
-settings menu. Both controls share one filter state and the Archived badge.
-The conversation header and Direct messages directory also expose Archive and
-Unarchive for ordinary DMs and Center Agent sessions. These actions use the same
+Archived chats can be found under View and filters in Messages. The conversation
+header and row menus expose Archive and Unarchive for ordinary direct messages
+and Center Agent sessions. These actions use the same
 account preferences as the sidebar. The open conversation remains readable and
 the success message explains where to recover it. In a DM header, Archive lives
 inside the three-dot menu and opens a confirmation dialog before saving. Cancel
@@ -665,7 +607,7 @@ with its recovery action. Real results keep the same region height without its
 empty-state border or background; they remain top-aligned with normal padding,
 the shared Fluid moving hover highlight, and Fluid ScrollArea edge fading.
 
-Your Spaces and the sidebar render active memberships from the account Space
+Messages renders active memberships from the account Space
 index. The Organization discovery snapshot must not veto a newer account index
 entry. The account invalidation stream refreshes the index after membership or
 message-preview projection, including Spaces not currently open. A 30-second
@@ -731,10 +673,10 @@ settings; a static Plugin definition does not establish sign-in readiness.
 
 ### Organization Skills
 
-Team tabs are **People / Agents / Files / Skills / Plugins**. The Organization Skill
+The Organization Skill
 catalog at `/o/{orgSlug}/skills` and detail at `/o/{orgSlug}/skills/{skillId}`
-share Team's header, page padding, and rail highlight without a member sidebar. Pending
-and error states retain that ownership; neither route mounts Center Agent state.
+use a Skills header and the shared page padding without a member sidebar. Pending
+and error states keep that header, and neither route mounts Center Agent state.
 All members can discover and browse Skills, while Core-projected permissions
 control editing and management. Personal workspaces use this same model with
 appropriate copy, not a second scope selector or catalog.
@@ -742,7 +684,7 @@ appropriate copy, not a second scope selector or catalog.
 Legacy `/center-agent/skills` list and detail leaves redirect with replacement,
 preserving encoded identity, hash, and validated global `appSettings` state.
 They do not propagate Center Agent conversation selectors or Plugin scope.
-Team tab selection starts without inherited search/hash context. Switching
+Switching
 Organizations from a canonical or legacy Skills list/detail opens the target
 Organization's list without an old Skill identity. New links use Web route
 builders; API paths and Agent consumption contracts are unchanged.
@@ -1170,8 +1112,8 @@ OpenMeld brand row or outer-rail account entry. Account management stays nested
 inside the workspace switcher. The primary destinations are flat and fixed:
 
 - **Inbox** — opens the current workspace's attention feed.
-- **Spaces** — opens the existing chat directory, with Spaces and private
-  conversations available in its contextual list.
+- **Messages** — opens a single list of group chats, direct messages, and Agent
+  conversations.
 - **Team** — opens the people directory. Each person's profile owns their Agent list.
 - **Routines** — opens personal and shared scheduled work and Run history.
 
@@ -3410,24 +3352,23 @@ requires a private provider proof and confirmation by the intended signed-in
 account. Disconnecting this relationship never disconnects the Organization
 Channel.
 
-The top of the People sidebar owns one **Invite Members** button, parallel to
-**New Space** in Spaces. It opens a single dialog containing both invitation
-methods: email plus role plus **Send invitation**, and the Organization invite
-link with **Copy**, **Reset**, and **Revoke**. These lower-frequency controls do
-not consume permanent main-content space. Personal workspaces keep the button's
-position but show the existing Organization guidance instead of pretending an
-invitation is available.
+The workspace menu opens the Organization invitation dialog.
 
-Team is one flat primary destination opening the People directory. Person details
-use `/o/:orgSlug/people/:personId`; their Agent list lives at
-`/o/:orgSlug/people/:personId/agents`, and a selected Agent lives at its
-`:agentId` child route. Both Agent pages retain Team as the selected destination.
-The list shows only that person's Agents, reuses the existing Agent card, and has
-an explicit back link to the person. Agent details reuse the existing detail
-surface and return to the person's list. Unknown or mismatched Agent IDs never
-select a different Agent. The list keeps search and availability filtering;
-owner grouping and the standalone Agent sidebar are removed.
-The list header exposes **Create Agent** for the signed-in member and
+Team opens at `/o/:orgSlug/people` and has two tabs, **Members** and **Topics**.
+Members uses the Organization Profile Directory to show people and active
+Organization Agents as peer groups in a single searchable sidebar. The right
+pane shows a person's Agents and recent activity, or an Agent's recorded creator
+and recent activity. Agent links use `?agentId=` independently of who created or
+owns the Agent. Person links use `?profileId=`, and the legacy person route
+redirects to the same selection. Unknown IDs show an empty selection error.
+Activity uses authorized Organization evidence. An Agent's project activity
+requires an exact Inventory Binding match to the selected Profile. Team surfaces
+project names and timestamps and omits conversation contents and Computer details.
+Topics presents completed Organization Agent Activity digests with their Project
+and window end time, and marks failed refreshes without generating a new summary.
+
+Agent runtime configuration remains on the existing Agent settings surface.
+The Agent settings list exposes **Create Agent** for the signed-in member and
 **Creation history** in Organization contexts. The history uses the shared Fluid
 table to show Agent, result, start date, and actions. Incomplete creation remains
 recoverable against the same Profile. Errors briefly explain the failed step and

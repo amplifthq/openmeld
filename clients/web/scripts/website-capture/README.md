@@ -41,7 +41,7 @@ demo builds against the same output directory at once.
 
 - Shell: `AppSurfaceLayout`, `AppRailNavigationGroup`, `ConversationsSidebar`,
   `PeopleSidebar`, and `SpaceWindowHeader`. The harness composes their slots.
-- Spaces: `SpaceDirectory`, message primitives, `SpaceAttachmentFileCard`, and
+- Messages: `ConversationSelectionPrompt`, message primitives, `SpaceAttachmentFileCard`, and
   `SpaceComposer` with the real editor. Threads reuse `ThreadPanelHeader` and
   `SpaceInlineSidePanel`; the compact reply preview adapts the product's private
   `ThreadPreview` markup without its live queries.

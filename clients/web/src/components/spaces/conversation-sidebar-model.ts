@@ -98,13 +98,22 @@ export function conversationSectionId(
 	if (pinned) {
 		return "pinned";
 	}
+	const folders = sections.filter(
+		(section) => section.groupId && section.spaceIds.includes(item.spaceId)
+	);
 	return (
-		sections.find(
-			(section) =>
-				section.kind === item.kind &&
-				section.groupId &&
-				section.spaceIds.includes(item.spaceId)
-		)?.id ?? (item.kind === "space" ? "spaces" : "chats")
+		folders.find((section) => section.kind === item.kind)?.id ??
+		folders[0]?.id ??
+		(item.kind === "space" ? "spaces" : "chats")
+	);
+}
+
+export function canMoveToConversationSection(
+	kind: Conversation["kind"],
+	target: ConversationSection
+) {
+	return (
+		target.kind === "pinned" || Boolean(target.groupId) || target.kind === kind
 	);
 }
 
@@ -139,7 +148,7 @@ export function moveConversationPreferences(input: {
 	beforeId?: string;
 }): AccountSidebarPreferences {
 	const { preferences, conversation, target } = input;
-	if (target.kind !== "pinned" && target.kind !== conversation.kind) {
+	if (!canMoveToConversationSection(conversation.kind, target)) {
 		return preferences;
 	}
 	const id = conversation.spaceId;
@@ -171,25 +180,26 @@ export function moveConversationPreferences(input: {
 		}
 		return { ...next, pinned: { sort: "manual", spaceIds: ids } };
 	}
-	const owner = conversation.kind === "space" ? next : chats;
-	const updated = {
-		...owner,
-		spaces: target.groupId
-			? {
-					...owner.spaces,
-					spaceIds: owner.spaces.spaceIds.filter((value) => value !== id),
-				}
-			: { sort: "manual" as const, spaceIds: ids },
+	const place = (
+		owner: Pick<AccountSidebarPreferences, "spaces" | "groups">,
+		kind: Conversation["kind"]
+	) => ({
+		spaces:
+			kind === target.kind && !target.groupId
+				? { sort: owner.spaces.sort, spaceIds: ids }
+				: {
+						...owner.spaces,
+						spaceIds: owner.spaces.spaceIds.filter((value) => value !== id),
+					},
 		groups: owner.groups.map((group) =>
-			group.id === target.groupId
+			kind === target.kind && group.id === target.groupId
 				? { ...group, sort: "manual" as const, spaceIds: ids }
 				: { ...group, spaceIds: group.spaceIds.filter((value) => value !== id) }
 		),
+	});
+	return {
+		...next,
+		...place(next, "space"),
+		chats: { ...chats, ...place(chats, "direct-message") },
 	};
-	return conversation.kind === "space"
-		? { ...next, spaces: updated.spaces, groups: updated.groups }
-		: {
-				...next,
-				chats: { ...chats, spaces: updated.spaces, groups: updated.groups },
-			};
 }

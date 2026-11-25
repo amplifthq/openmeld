@@ -19,9 +19,7 @@ import { buildOrganizationDirectoryAddCandidates } from "./people-agent-picker-m
 import { useCreatedPickerAgents } from "./use-created-picker-agents";
 
 export function NewChatDialog(input: {
-	groupId?: string;
 	initialQuery?: string;
-	onCreated?: (spaceId: string) => void | Promise<void>;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
@@ -109,7 +107,6 @@ export function NewChatDialog(input: {
 					await navigate({
 						to: buildOrganizationCenterAgentChatPath(org.slug, {
 							draft: "new",
-							group: input.groupId,
 						}),
 					});
 				} else {
@@ -117,7 +114,6 @@ export function NewChatDialog(input: {
 						organizationId: org.id,
 						targetProfileId: target.profileId,
 					});
-					await input.onCreated?.(response.spaceId);
 					await client.invalidateQueries({
 						queryKey: accountSpaceQueryKeys.all,
 						refetchType: "none",
@@ -137,7 +133,7 @@ export function NewChatDialog(input: {
 				setError(
 					cause instanceof Error
 						? cause.message
-						: "Couldn’t finish opening the Space. Try again."
+						: "Couldn’t start the group chat. Try again."
 				);
 			} else {
 				setError(resolveDirectMessageOpenErrorMessage(cause));
@@ -147,10 +143,6 @@ export function NewChatDialog(input: {
 			setSubmitting(false);
 		}
 	};
-	let submitLabel = multiple ? "Create Space" : "Start chat";
-	if (submitting) {
-		submitLabel = "Opening…";
-	}
 	return (
 		<PeopleAgentPickerDialog
 			candidateGroups={groups}
@@ -159,7 +151,7 @@ export function NewChatDialog(input: {
 				selection.length > 0 &&
 				!createSpace.isPending
 			}
-			description="Choose people or agents. Select more than one to start a Space."
+			description="Choose one or more people or agents."
 			emptyMessage={
 				query
 					? "No matching people or agents. Try another search."
@@ -178,7 +170,7 @@ export function NewChatDialog(input: {
 						candidate.profileKind === "agent" && !candidate.isCenterAgent
 				) && (
 					<p className="text-muted-foreground text-xs">
-						Agent owners will also join the Space.
+						Agent owners will also join the conversation.
 					</p>
 				)
 			}
@@ -193,7 +185,11 @@ export function NewChatDialog(input: {
 			onClear={() => {
 				setSelected(new Set());
 			}}
-			onOpenChange={input.onOpenChange}
+			onOpenChange={(open) => {
+				if (!open) {
+					close();
+				}
+			}}
 			onQueryChange={setQuery}
 			onRetry={
 				directory.isError
@@ -220,7 +216,7 @@ export function NewChatDialog(input: {
 			open={input.open}
 			query={query}
 			selectedProfileIds={selected}
-			submitLabel={submitLabel}
+			submitLabel={submitting ? "Opening…" : "Start conversation"}
 			title="New message"
 		/>
 	);

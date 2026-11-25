@@ -406,7 +406,7 @@ export function SpaceEntryState(input: {
 						href={input.backHref}
 					>
 						<ArrowLeftIcon aria-hidden="true" />
-						Back to Spaces
+						Back to Messages
 					</a>
 				) : null
 			}
@@ -494,7 +494,7 @@ function SpaceMembershipRequired(
 						href={input.backHref}
 					>
 						<ArrowLeftIcon aria-hidden="true" />
-						Back to Spaces
+						Back to Messages
 					</a>
 				) : null
 			}

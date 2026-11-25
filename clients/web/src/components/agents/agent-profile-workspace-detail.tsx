@@ -463,7 +463,9 @@ export function AgentProfileWorkspaceDetail(input: {
 				recoveryActionKind={projectedRecoveryAction?.kind ?? null}
 				workload={taskActivity.activity?.workload}
 			/>
-			{input.configurationContent}
+			{input.configurationContent ? (
+				<div id="agent-runtime-settings">{input.configurationContent}</div>
+			) : null}
 			{input.supportingContent ? (
 				<div className="max-w-3xl">{input.supportingContent}</div>
 			) : null}

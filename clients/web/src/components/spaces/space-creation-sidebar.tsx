@@ -63,7 +63,7 @@ export function SpaceCreationSidebar(input: {
 					? String(creation.id)
 					: active;
 			}, null)}
-			aria-label="New Spaces"
+			aria-label="New conversations"
 			className="mb-2"
 		>
 			{visible.map((creation, index) => (

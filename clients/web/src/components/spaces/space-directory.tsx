@@ -1,21 +1,5 @@
-import { normalizeMessagePreview } from "@openmeld/protocol";
-import type { AccountSidebarPreferences } from "@openmeld/schemas";
-import type {
-	AuthProfileView,
-	OrganizationSpaceDirectoryWithMemberCountsItem,
-} from "@openmeld/schemas/types";
-import { Badge } from "@openmeld/ui/components/badge";
+import type { OrganizationSpaceDirectoryWithMemberCountsItem } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import {
-	DropdownMenu,
-	DropdownMenuTrigger,
-} from "@openmeld/ui/components/dropdown-menu";
-import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from "@openmeld/ui/components/popover";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	Table,
 	TableBody,
@@ -25,310 +9,80 @@ import {
 	TableRow,
 } from "@openmeld/ui/components/table";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
-import { FluidContextMenuScope } from "@openmeld/ui/fluid/context-menu";
-import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
-import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
-import { SidebarMenuButton } from "@openmeld/ui/fluid/sidebar-menu";
-import {
-	ChatCircleTextIcon,
-	FunnelSimpleIcon,
-	UsersThreeIcon,
-} from "@phosphor-icons/react";
+import { ChatCircleTextIcon, UsersThreeIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import {
-	type ReactNode,
-	useDeferredValue,
-	useLayoutEffect,
-	useRef,
-	useState,
-} from "react";
-import {
-	resolveInboxAttentionLabel,
-	resolveInboxAttentionTone,
-	resolveInboxIndicatorClassName,
-} from "#/lib/inbox/attention";
+import { useDeferredValue, useState } from "react";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
-import { buildProfilePath } from "#/lib/profile-routes";
-import {
-	type AccountSpaceItem,
-	resolveAccountSpaceRecency,
-} from "#/lib/spaces/account-spaces";
-import { spaceInboxSummaryQueryOptions } from "#/query/organizations/inbox";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
-import { AppSidebarGroup } from "../app/app-sidebar-group";
-import { DirectoryRowActions } from "../app/directory-row-actions";
 import { DirectorySearch } from "../app/directory-search";
-import { SidebarSectionActions } from "../app/sidebar-section-actions";
-import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 import {
 	DirectoryCardGrid,
 	DirectoryCardItem,
 } from "../directory/directory-card-grid";
-import {
-	resolveConversationTimestamp,
-	SidebarConversationTime,
-} from "./sidebar-conversation-time";
-import { sortSidebarSpaces } from "./sidebar-space-order";
-import {
-	resolveSpaceActiveWakePresentation,
-	type SpaceSidebarActiveWakeSummary,
-} from "./space-active-wake-presentation";
-import { SpaceAgentOrb } from "./space-agent-orb";
-import { spaceDirectoryGroups } from "./space-directory-groups";
 import { SpaceDirectoryPreview } from "./space-directory-preview";
-import { SpaceDirectorySummary } from "./space-directory-summary";
 import { SpaceLayoutSwitch, useSpaceLayout } from "./space-layout-switch";
 import {
 	resolveSpaceMemberAppearances,
-	type SpaceMemberAppearance,
 	SpaceMemberAvatars,
 } from "./space-member-avatars";
-import { SpaceUnreadLink } from "./space-unread-link";
-import { useMessagePreviews } from "./use-message-previews";
-import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
-import { useSpaceListIndicators } from "./use-space-list-indicators";
-import { WelcomeSpaceLabel } from "./welcome-space-guide";
 
 type DirectorySpace = OrganizationSpaceDirectoryWithMemberCountsItem;
-export function SpaceDirectory(input: {
-	accountProfiles: readonly AuthProfileView[];
-	tab: number;
-	accountSpaceItemsById: ReadonlyMap<string, AccountSpaceItem>;
+type DirectoryLayout = "cards" | "table";
+type DirectoryInput = {
+	joinedSpaceIds: ReadonlySet<string>;
 	canJoinSpaces: boolean;
 	joinError: { message: string; spaceId: string } | null;
 	onJoinSpace: (spaceId: string) => void;
-	onTogglePinned: (item: AccountSpaceItem) => void;
-	orgSlug: string;
 	pendingJoinSpaceId: string | null;
-	pinActionsPending: boolean;
 	profileId: string;
 	spaces: readonly DirectorySpace[];
 	savedViewWarning: { isRetrying: boolean; onRetry: () => void } | null;
-}) {
+};
+
+export function SpaceDirectory(input: DirectoryInput) {
 	const { currentOrganization } = useAppOrganization();
 	const { layout, setLayout } = useSpaceLayout(
 		input.profileId,
 		currentOrganization.id
 	);
-	const sidebar = useSidebarPreferences(currentOrganization.id);
-	const inbox = useQuery(
-		spaceInboxSummaryQueryOptions({ organizationId: currentOrganization.id })
-	);
-	const attentionById = new Map(
-		(inbox.data?.attention ?? []).map((item) => [
-			item.spaceId,
-			resolveInboxAttentionTone(item),
-		])
-	);
-	const { showMessagePreviews } = useMessagePreviews(
-		input.profileId,
-		currentOrganization.id
-	);
-	const preferences = sidebar.preferences;
-	const [searches, setSearches] = useState(["", ""]);
-	const [searchOpen, setSearchOpen] = useState([false, false]);
+	const [search, setSearch] = useState("");
+	const [searchOpen, setSearchOpen] = useState(false);
 	const [preview, setPreview] = useState<DirectorySpace | null>(null);
-	const viewportRef = useRef<HTMLDivElement>(null);
-	const scrollPositions = useRef([0, 0]);
-	useLayoutEffect(() => {
-		if (viewportRef.current) {
-			viewportRef.current.scrollTop = scrollPositions.current[input.tab] ?? 0;
-		}
-	}, [input.tab]);
-	const search = searches[input.tab] ?? "";
 	const searchTerm = useDeferredValue(search.trim().toLowerCase());
-	// The account index already contains the viewer's active memberships. The
-	// discovery snapshot can be older and must not hide a newly joined Space.
-	const items = [...input.accountSpaceItemsById.values()];
-	const sections = {
-		pinnedItems: items.filter((item) => item.pinnedAt !== null),
-		spaceItems: items.filter((item) => item.pinnedAt === null),
-	};
-	const indicators = useSpaceListIndicators({
-		currentProfileId: input.profileId,
-		currentSpaceId: "",
-		organizationId: currentOrganization.id,
-		sections,
-	});
 	const directory = useQuery(
 		organizationProfileDirectoryQueryOptions({
 			organizationId: currentOrganization.id,
 			enabled: true,
 		})
 	);
-	const appearances = resolveSpaceMemberAppearances(directory.data);
-	const previews = new Map(
-		items.map((item) => [item.spaceId, item.messagePreview])
-	);
-	const activity = new Map(
-		items.map((item) => [item.spaceId, resolveAccountSpaceRecency(item)])
-	);
-	const attention = new Set(
-		[...indicators.activeWakeSummaryBySpaceId]
-			.filter(([, value]) =>
-				value.statuses?.some(
-					(status) =>
-						status.kind === "needs_input" || status.kind === "waiting_for_owner"
-				)
-			)
-			.map(([id]) => id)
-	);
-	const unreadActivity = new Map(
-		[...indicators.unreadBySpaceId]
-			.filter(([, value]) => value.unreadCount > 0)
-			.map(([id, value]) => [id, value.latestUnreadOccurredAtMs])
-	);
-	const working = new Set(
-		[...indicators.activeWakeSummaryBySpaceId]
-			.filter(([, value]) => value.activeWakeCount > 0)
-			.map(([id]) => id)
-	);
-	const groups = spaceDirectoryGroups(items, preferences);
-	const grouped =
-		(preferences?.groups.length ?? 0) > 0 || sections.pinnedItems.length > 0;
-	const groupFilter = useSpaceDirectoryFilters(groups, () =>
-		setSearchOpen((current) =>
-			current.map((value, index) => (index === input.tab ? true : value))
-		)
-	);
-	const statusFilters = groupFilter.statuses;
-	const unindexed = input.spaces.filter(
-		(space) =>
-			space.joined &&
-			!input.accountSpaceItemsById.has(space.spaceId) &&
-			space.name.toLowerCase().includes(searchTerm) &&
-			statusFilters.length === 0
-	);
-	const matches = (item: AccountSpaceItem) =>
-		item.spaceName.toLowerCase().includes(searchTerm) &&
-		groupFilter.matchesStatus(
-			indicators.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0,
-			indicators.activeWakeSummaryBySpaceId.get(item.spaceId)
-		);
-	const entries = groups
-		.map((group) => {
-			const { section } = group;
-			return {
-				...group,
-				section,
-				unindexed: group.id === "spaces" ? unindexed : [],
-				items: sortSidebarSpaces(
-					group.items.filter(matches),
-					section ?? { sort: "priority", spaceIds: [] },
-					attention,
-					unreadActivity,
-					working,
-					activity
-				),
-			};
-		})
-		.filter((group) => groupFilter.includes(group.id));
-	const discovering = input.tab === 1;
+	// The account index can recognize a new membership before discovery does.
 	const discoverable = input.spaces.filter(
 		(space) =>
-			!(space.joined || input.accountSpaceItemsById.has(space.spaceId)) &&
+			!(space.joined || input.joinedSpaceIds.has(space.spaceId)) &&
 			space.visibility === "public" &&
 			space.name.toLowerCase().includes(searchTerm)
 	);
-	const { loading, blockingError } = resolveDirectoryLoadingState(
-		discovering,
-		sidebar
-	);
-	const changeSection = (
-		id: string,
-		update: {
-			sort?: AccountSidebarPreferences["spaces"]["sort"];
-			name?: string;
-		}
-	) => {
-		if (!preferences) {
-			return;
-		}
-		if (id === "pinned" || id === "spaces") {
-			sidebar.save({ ...preferences, [id]: { ...preferences[id], ...update } });
-		} else {
-			sidebar.save({
-				...preferences,
-				groups: preferences.groups.map((group) =>
-					group.id === id ? { ...group, ...update } : group
-				),
-			});
-		}
-	};
 	return (
-		<div
-			aria-label={discovering ? "Discover" : "Your Spaces"}
-			aria-labelledby={`spaces-directory-tab-${input.tab === 1 ? 2 : 0}`}
+		<section
+			aria-label="Discover public groups"
 			className="flex h-full min-h-0 flex-col"
-			id={`spaces-directory-panel-${input.tab === 1 ? 2 : 0}`}
-			role="tabpanel"
 		>
 			<div className="flex min-h-16 shrink-0 items-center justify-end gap-3 px-[var(--app-page-inline-padding)] py-3">
 				<div className="flex min-h-10 min-w-0 flex-wrap items-center justify-end gap-1">
 					<SpaceLayoutSwitch layout={layout} setLayout={setLayout} />
 					<DirectorySearch
-						label="Search Spaces"
-						onChange={(next) =>
-							setSearches((current) =>
-								current.map((value, index) =>
-									index === input.tab ? next : value
-								)
-							)
-						}
-						onOpenChange={(next) =>
-							setSearchOpen((current) =>
-								current.map((value, index) =>
-									index === input.tab ? next : value
-								)
-							)
-						}
-						open={searchOpen[input.tab] ?? false}
+						label="Search public groups"
+						onChange={setSearch}
+						onOpenChange={setSearchOpen}
+						open={searchOpen}
 						value={search}
 					/>
-					{!discovering && (
-						<DropdownMenu>
-							<DropdownMenuTrigger
-								render={
-									<Button
-										aria-label="Filter Spaces"
-										size="icon-sm"
-										variant="ghost"
-									/>
-								}
-							>
-								<FunnelSimpleIcon />
-							</DropdownMenuTrigger>
-							<FluidDropdownMenuContent align="end" className="w-56">
-								{groupFilter.menu}
-							</FluidDropdownMenuContent>
-						</DropdownMenu>
-					)}
-					{!(discovering || grouped) && (
-						<DirectoryGroupActions
-							alwaysVisible
-							group={{
-								id: "spaces",
-								label: "Spaces",
-								section: preferences?.spaces,
-							}}
-							onSort={(sort) => changeSection("spaces", { sort })}
-							sidebar={sidebar}
-						/>
-					)}
 				</div>
 			</div>
-			{!discovering &&
-				(groupFilter.selected.length > 0 || statusFilters.length > 0) && (
-					<div className="flex flex-wrap items-center gap-1 px-[var(--app-page-inline-padding)] pb-3">
-						{groupFilter.badges}
-					</div>
-				)}
 			{input.savedViewWarning && (
 				<output className="flex items-center justify-between px-[var(--app-page-inline-padding)] pb-3 text-muted-foreground text-sm">
-					Couldn't refresh Spaces. Showing the last saved view.
+					Couldn't refresh public groups. Showing the last saved view.
 					<Button
 						disabled={input.savedViewWarning.isRetrying}
 						onClick={input.savedViewWarning.onRetry}
@@ -342,154 +96,15 @@ export function SpaceDirectory(input: {
 			<ScrollArea
 				className="min-h-0 flex-1"
 				contentClassName="px-[calc(var(--app-page-inline-padding)_-_0.5rem)] pb-8"
-				viewportProps={{
-					onScroll: (event) => {
-						scrollPositions.current[input.tab] = event.currentTarget.scrollTop;
-					},
-				}}
-				viewportRef={viewportRef}
 			>
-				{blockingError && (
-					<div className="p-6 text-sm" role="alert">
-						Couldn't load the saved Space order.
-						<Button
-							onClick={() => {
-								sidebar.retry();
-							}}
-							variant="ghost"
-						>
-							Retry
-						</Button>
-					</div>
-				)}
-				{!blockingError && loading && (
-					<section
-						aria-busy="true"
-						aria-label="Loading Spaces"
-						className="space-y-4 p-3"
-					>
-						{[0, 1, 2, 3].map((id) => (
-							<Skeleton className="h-16 w-full" key={id} />
-						))}
-					</section>
-				)}
-				{discovering && (
-					<DiscoverList
-						appearances={appearances}
-						input={input}
-						layout={layout}
-						onPreview={setPreview}
-						searching={Boolean(searchTerm)}
-						spaces={discoverable}
-					/>
-				)}
-				{!(discovering || blockingError || loading) && (
-					<div className="space-y-6">
-						{entries
-							.filter(
-								(group) =>
-									group.id === "spaces" ||
-									groupFilter.selected.includes(group.id) ||
-									group.items.length > 0 ||
-									(!searchTerm &&
-										statusFilters.length === 0 &&
-										group.id !== "pinned")
-							)
-							.map((group) => (
-								<AppSidebarGroup
-									contentOnly={!grouped}
-									groupClassName="p-0"
-									groupId={`directory-${group.id}`}
-									key={group.id}
-									label={<span>{group.label}</span>}
-									labelAccessory={
-										<DirectoryGroupActions
-											group={group}
-											onSort={(sort) => changeSection(group.id, { sort })}
-											sidebar={sidebar}
-										/>
-									}
-									labelClassName="px-2"
-									labelText={group.label}
-									onRename={
-										group.id !== "pinned" && group.id !== "spaces"
-											? (name) => changeSection(group.id, { name })
-											: undefined
-									}
-								>
-									<DirectoryGroupLayout label={group.label} layout={layout}>
-										{layout === "table" && (
-											<TableHeader>
-												<TableRow>
-													<TableHead className="w-auto">Space</TableHead>
-													<TableHead className="hidden w-48 lg:table-cell">
-														Status
-													</TableHead>
-													<TableHead className="hidden w-28 md:table-cell">
-														Members
-													</TableHead>
-													<TableHead className="w-28">Activity</TableHead>
-													<TableHead className="w-20">
-														<span className="sr-only">Actions</span>
-													</TableHead>
-												</TableRow>
-											</TableHeader>
-										)}
-										<DirectoryGroupItems layout={layout}>
-											{group.items.map((item, index) => (
-												<JoinedRow
-													appearances={appearances}
-													attentionTone={
-														attentionById.get(item.spaceId) ?? null
-													}
-													disabled={sidebar.disabled}
-													index={index}
-													input={input}
-													item={item}
-													key={item.spaceId}
-													layout={layout}
-													messageUnreadCount={
-														indicators.unreadBySpaceId.get(item.spaceId)
-															?.messageUnreadCount
-													}
-													preferences={preferences}
-													preview={previews.get(item.spaceId)}
-													save={sidebar.save}
-													showMessagePreviews={showMessagePreviews}
-													summary={indicators.activeWakeSummaryBySpaceId.get(
-														item.spaceId
-													)}
-													unread={
-														indicators.unreadBySpaceId.get(item.spaceId)
-															?.unreadCount ?? 0
-													}
-												/>
-											))}
-											{group.unindexed.map((space, index) => (
-												<UnindexedJoinedRow
-													index={group.items.length + index}
-													key={space.spaceId}
-													layout={layout}
-													orgSlug={input.orgSlug}
-													profileId={input.profileId}
-													space={space}
-												/>
-											))}
-										</DirectoryGroupItems>
-									</DirectoryGroupLayout>
-									{group.items.length + group.unindexed.length === 0 && (
-										<p className="px-3 py-6 text-muted-foreground text-sm">
-											{searchTerm ||
-											statusFilters.length ||
-											groupFilter.selected.length
-												? "No Spaces match your search or filters."
-												: "No Spaces in this group yet."}
-										</p>
-									)}
-								</AppSidebarGroup>
-							))}
-					</div>
-				)}
+				<DiscoverList
+					appearances={resolveSpaceMemberAppearances(directory.data)}
+					input={input}
+					layout={layout}
+					onPreview={setPreview}
+					searching={Boolean(searchTerm)}
+					spaces={discoverable}
+				/>
 			</ScrollArea>
 			<SpaceDirectoryPreview
 				joinPending={input.pendingJoinSpaceId === preview?.spaceId}
@@ -502,587 +117,7 @@ export function SpaceDirectory(input: {
 				profileId={input.profileId}
 				space={preview}
 			/>
-		</div>
-	);
-}
-
-function resolveDirectoryLoadingState(
-	discovering: boolean,
-	sidebar: ReturnType<typeof useSidebarPreferences>
-) {
-	if (discovering) {
-		return { loading: false, blockingError: false };
-	}
-	return {
-		loading: sidebar.isPending,
-		blockingError: sidebar.isError && !sidebar.preferences,
-	};
-}
-
-function DirectoryGroupActions({
-	alwaysVisible,
-	group,
-	sidebar,
-	onSort,
-}: {
-	alwaysVisible?: boolean;
-	group: {
-		id: string;
-		label: string;
-		section?: AccountSidebarPreferences["spaces"];
-	};
-	sidebar: ReturnType<typeof useSidebarPreferences>;
-	onSort: (sort: AccountSidebarPreferences["spaces"]["sort"]) => void;
-}) {
-	const preferences = sidebar.preferences;
-	const custom = group.id !== "pinned" && group.id !== "spaces";
-	const removeGroup = () => {
-		if (preferences) {
-			sidebar.save({
-				...preferences,
-				groups: preferences.groups.filter((entry) => entry.id !== group.id),
-			});
-		}
-	};
-	const createGroup = (name: string) => {
-		if (preferences) {
-			sidebar.save({
-				...preferences,
-				groups: [
-					...preferences.groups,
-					{ id: crypto.randomUUID(), name, sort: "priority", spaceIds: [] },
-				],
-			});
-		}
-	};
-	return (
-		<SidebarSectionActions
-			alwaysVisible={alwaysVisible}
-			disabled={sidebar.disabled}
-			label={group.label}
-			onDelete={custom ? removeGroup : undefined}
-			onNewGroup={group.id === "spaces" ? createGroup : undefined}
-			onSort={onSort}
-			sort={group.section?.sort ?? "priority"}
-		/>
-	);
-}
-
-type DirectoryLayout = "cards" | "table";
-
-function DirectoryGroupLayout(input: {
-	layout: DirectoryLayout;
-	label: string;
-	children: ReactNode;
-}) {
-	return input.layout === "table" ? (
-		<Table className="w-full table-fixed">{input.children}</Table>
-	) : (
-		<DirectoryCardGrid
-			aria-label={input.label === "Spaces" ? "Spaces" : `${input.label} Spaces`}
-			className="grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] px-2 lg:grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))]"
-		>
-			{input.children}
-		</DirectoryCardGrid>
-	);
-}
-
-function DirectoryGroupItems(input: {
-	layout: DirectoryLayout;
-	children: ReactNode;
-}) {
-	return input.layout === "table" ? (
-		<TableBody>{input.children}</TableBody>
-	) : (
-		input.children
-	);
-}
-
-function UnindexedJoinedRow(input: {
-	layout: DirectoryLayout;
-	space: DirectorySpace;
-	index: number;
-	orgSlug: string;
-	profileId: string;
-}) {
-	if (input.layout === "cards") {
-		return (
-			<DirectoryCardItem
-				className="border border-border"
-				itemId={input.space.spaceId}
-			>
-				<Link
-					aria-label={`Open ${input.space.name}`}
-					className="flex min-h-52 flex-col justify-end gap-3 rounded-md p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-					search={{ profileId: input.profileId }}
-					to={buildOrganizationSpacePath({
-						orgSlug: input.orgSlug,
-						spaceId: input.space.spaceId,
-					})}
-				>
-					<UsersThreeIcon className="mb-auto size-10 text-muted-foreground" />
-					<span className="line-clamp-2 font-medium text-sm">
-						{input.space.name}{" "}
-						<WelcomeSpaceLabel spaceId={input.space.spaceId} />
-					</span>
-					<span className="text-muted-foreground text-xs">
-						{input.space.activeMemberCount === null
-							? "Member count unavailable"
-							: `${input.space.activeMemberCount} members`}
-					</span>
-				</Link>
-			</DirectoryCardItem>
-		);
-	}
-	return (
-		<TableRow className="border-0" index={input.index}>
-			<TableCell className="py-4">
-				<Link
-					aria-label={`Open ${input.space.name}`}
-					className="flex items-center gap-2 font-medium text-sm"
-					search={{ profileId: input.profileId }}
-					to={buildOrganizationSpacePath({
-						orgSlug: input.orgSlug,
-						spaceId: input.space.spaceId,
-					})}
-				>
-					<ChatCircleTextIcon className="size-4 shrink-0 text-muted-foreground" />
-					{input.space.name}
-					<WelcomeSpaceLabel spaceId={input.space.spaceId} />
-				</Link>
-			</TableCell>
-			<TableCell className="hidden lg:table-cell" />
-			<TableCell className="hidden md:table-cell">
-				{input.space.activeMemberCount ?? "—"}
-			</TableCell>
-			<TableCell />
-			<TableCell />
-		</TableRow>
-	);
-}
-
-type DirectoryInput = React.ComponentProps<typeof SpaceDirectory>;
-function JoinedRow(input: {
-	attentionTone: ReturnType<typeof resolveInboxAttentionTone>;
-	showMessagePreviews: boolean;
-	layout: DirectoryLayout;
-	item: AccountSpaceItem;
-	index: number;
-	preview: { text: string; timestamp: number } | null | undefined;
-	summary?: SpaceSidebarActiveWakeSummary;
-	unread: number;
-	messageUnreadCount?: number;
-	appearances: ReadonlyMap<string, SpaceMemberAppearance>;
-	input: DirectoryInput;
-	preferences?: AccountSidebarPreferences;
-	save: (value: AccountSidebarPreferences) => void;
-	disabled: boolean;
-}) {
-	const item = input.item;
-	const route = {
-		to: buildOrganizationSpacePath({
-			orgSlug: input.input.orgSlug,
-			spaceId: item.spaceId,
-		}),
-		search: { profileId: item.openProfileId },
-	};
-	const status = input.summary
-		? resolveSpaceActiveWakePresentation(input.summary)
-		: null;
-	const timestamp = resolveConversationTimestamp(
-		input.preview?.timestamp,
-		item.spaceCreatedAt
-	);
-	const actions = <JoinedSpaceActions {...input} />;
-	const messagePreviews =
-		item.recentMessagePreviews ??
-		(item.messagePreview
-			? [
-					{
-						...item.messagePreview,
-						text: normalizeMessagePreview(item.messagePreview.text),
-					},
-				]
-			: []);
-	if (input.layout === "cards") {
-		return (
-			<DirectoryCardItem className="border border-border" itemId={item.spaceId}>
-				<FluidContextMenuScope
-					target={
-						<div
-							className="@container/space-card group/directory-row relative flex h-full min-w-0 flex-col gap-3 rounded-md p-4"
-							data-space-id={item.spaceId}
-						>
-							<div className="pointer-events-none absolute top-2 right-2 z-20 [&_button]:pointer-events-auto">
-								{actions}
-							</div>
-							<div className="pointer-events-none relative z-10 w-fit">
-								<MemberPreview
-									appearances={input.appearances}
-									item={item}
-									layout="card"
-									orgSlug={input.input.orgSlug}
-								/>
-							</div>
-							<div className="flex min-w-0 items-center gap-2">
-								<Link
-									aria-label={`Open ${item.spaceName}`}
-									className="block min-w-0 flex-1 outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-ring"
-									{...route}
-								>
-									<SpaceDirectorySummary
-										item={item}
-										layout="card"
-										preview={input.preview}
-										unread={input.unread > 0}
-									/>
-								</Link>
-								{(input.unread > 0 || input.attentionTone) && (
-									<span className="relative z-10 flex shrink-0 items-center">
-										<DirectoryAttention
-											attentionTone={input.attentionTone}
-											compact
-											count={input.unread}
-											messageUnreadCount={input.messageUnreadCount}
-											spaceId={item.spaceId}
-											url={`${route.to}?${new URLSearchParams(route.search)}`}
-										/>
-									</span>
-								)}
-							</div>
-							{status && (
-								<div className="relative z-10">
-									<RowStatus
-										route={route}
-										spaceId={item.spaceId}
-										status={status}
-										unread={0}
-									/>
-								</div>
-							)}
-							{input.showMessagePreviews && messagePreviews.length > 0 && (
-								<div className="relative z-10 flex min-w-0 flex-col gap-1">
-									{messagePreviews.slice(0, 1).map((message) => (
-										<TooltipHint content={message.text} key={message.signalId}>
-											<Link
-												aria-label={`Preview message in ${item.spaceName}: ${message.text}`}
-												className="block truncate rounded-sm text-muted-foreground text-xs outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
-												search={{
-													...route.search,
-													focusSignalId: message.signalId,
-												}}
-												to={route.to}
-											>
-												{message.text}
-											</Link>
-										</TooltipHint>
-									))}
-								</div>
-							)}
-						</div>
-					}
-				/>
-			</DirectoryCardItem>
-		);
-	}
-	return (
-		<TableRow
-			className="group/directory-row border-0"
-			contextMenu
-			data-space-id={item.spaceId}
-			index={input.index}
-		>
-			<TableCell className="whitespace-normal py-4">
-				<Link
-					aria-label={`Open ${item.spaceName}`}
-					className="block min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-					{...route}
-				>
-					<SpaceDirectorySummary
-						item={item}
-						preview={input.preview}
-						unread={input.unread > 0}
-					/>
-				</Link>
-				<div className="mt-1 pl-6 lg:hidden">
-					<RowStatus
-						attentionTone={input.attentionTone}
-						messageUnreadCount={input.messageUnreadCount}
-						route={route}
-						spaceId={item.spaceId}
-						status={status}
-						unread={input.unread}
-					/>
-				</div>
-			</TableCell>
-			<TableCell className="hidden lg:table-cell">
-				<RowStatus
-					attentionTone={input.attentionTone}
-					messageUnreadCount={input.messageUnreadCount}
-					route={route}
-					spaceId={item.spaceId}
-					status={status}
-					unread={input.unread}
-				/>
-			</TableCell>
-			<TableCell className="hidden md:table-cell">
-				<MemberPreview
-					appearances={input.appearances}
-					item={item}
-					orgSlug={input.input.orgSlug}
-				/>
-			</TableCell>
-			<TableCell>
-				{timestamp !== null && (
-					<SidebarConversationTime timestamp={timestamp} />
-				)}
-			</TableCell>
-			<TableCell>{actions}</TableCell>
-		</TableRow>
-	);
-}
-
-function JoinedSpaceActions(input: React.ComponentProps<typeof JoinedRow>) {
-	const item = input.item;
-	const url = buildOrganizationSpacePath({
-		orgSlug: input.input.orgSlug,
-		spaceId: item.spaceId,
-	});
-	return (
-		<DirectoryRowActions
-			disabled={input.disabled || input.input.pinActionsPending}
-			groupId={
-				input.preferences?.groups.find((group) =>
-					group.spaceIds.includes(item.spaceId)
-				)?.id ?? "spaces"
-			}
-			groups={[
-				{ id: "spaces", name: "Spaces" },
-				...(input.preferences?.groups ?? []),
-			]}
-			href={`${url}?profileId=${encodeURIComponent(item.openProfileId)}`}
-			moveDisabledReason={
-				item.pinnedAt !== null
-					? "Unpin this Space to move it to a group."
-					: undefined
-			}
-			name={item.spaceName}
-			onMove={(groupId) => {
-				const preferences = input.preferences;
-				if (!preferences) {
-					return;
-				}
-				input.save({
-					...preferences,
-					groups: preferences.groups.map((entry) => ({
-						...entry,
-						spaceIds: [
-							...entry.spaceIds.filter((id) => id !== item.spaceId),
-							...(entry.id === groupId ? [item.spaceId] : []),
-						],
-					})),
-				});
-			}}
-			onTogglePinned={() => input.input.onTogglePinned(item)}
-			pinned={item.pinnedAt !== null}
-		/>
-	);
-}
-
-function DirectoryAttention(input: {
-	attentionTone?: ReturnType<typeof resolveInboxAttentionTone>;
-	compact?: boolean;
-	count: number;
-	messageUnreadCount?: number;
-	spaceId: string;
-	url: string;
-}) {
-	if (input.attentionTone && input.compact) {
-		const label = resolveInboxAttentionLabel(input.attentionTone);
-		return (
-			<TooltipHint content={label}>
-				<span
-					aria-label={label ?? undefined}
-					className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
-					role="img"
-				/>
-			</TooltipHint>
-		);
-	}
-	return input.attentionTone ? (
-		<Badge className="gap-1.5 px-1.5" variant="secondary">
-			<span
-				aria-hidden="true"
-				className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
-			/>
-			{resolveInboxAttentionLabel(input.attentionTone)}
-		</Badge>
-	) : (
-		<SpaceUnreadLink
-			count={input.count}
-			messageUnreadCount={input.messageUnreadCount}
-			spaceId={input.spaceId}
-			url={input.url}
-			variant="badge"
-		/>
-	);
-}
-
-function RowStatus(input: {
-	attentionTone?: ReturnType<typeof resolveInboxAttentionTone>;
-	messageUnreadCount?: number;
-	spaceId: string;
-	status: ReturnType<typeof resolveSpaceActiveWakePresentation> | null;
-	unread: number;
-	route: { to: string; search: { profileId: string } };
-}) {
-	return (
-		<div className="flex flex-col gap-1 text-xs">
-			{input.status && (
-				<TooltipHint content={input.status.label}>
-					<Link className="flex items-center gap-2" {...input.route}>
-						{input.status.orbState && (
-							<SpaceAgentOrb state={input.status.orbState} />
-						)}
-						<span className="truncate">{input.status.label}</span>
-					</Link>
-				</TooltipHint>
-			)}
-			{(input.unread > 0 || input.attentionTone) && (
-				<span className="flex items-center gap-2 text-muted-foreground">
-					<DirectoryAttention
-						attentionTone={input.attentionTone}
-						count={input.unread}
-						messageUnreadCount={input.messageUnreadCount}
-						spaceId={input.spaceId}
-						url={`${input.route.to}?${new URLSearchParams(input.route.search)}`}
-					/>
-				</span>
-			)}
-		</div>
-	);
-}
-
-function MemberPreview(input: {
-	layout?: "card";
-	item: AccountSpaceItem;
-	appearances: ReadonlyMap<string, SpaceMemberAppearance>;
-	orgSlug: string;
-}) {
-	const triggerProps = {
-		"aria-label": `Preview members of ${input.item.spaceName}`,
-		"aria-description":
-			input.item.activeMemberCount === null
-				? undefined
-				: `${input.item.activeMemberCount} members`,
-	};
-	return (
-		<Popover>
-			<PopoverTrigger
-				delay={250}
-				openOnHover
-				render={
-					input.layout === "card" ? (
-						<button
-							{...triggerProps}
-							className="pointer-events-none rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring [&_[data-slot=space-member-avatar]]:pointer-events-auto"
-							type="button"
-						/>
-					) : (
-						<Button
-							{...triggerProps}
-							className="max-w-full gap-1 px-0"
-							size="sm"
-							variant="ghost"
-						/>
-					)
-				}
-			>
-				{input.item.memberPreviews?.length ? (
-					<SpaceMemberAvatars
-						appearances={input.appearances}
-						layout={input.layout === "card" ? "grid" : "horizontal"}
-						memberCount={input.item.activeMemberCount}
-						members={input.item.memberPreviews}
-					/>
-				) : (
-					<span
-						className={
-							input.layout === "card"
-								? "grid size-24 place-items-center text-muted-foreground"
-								: undefined
-						}
-					>
-						<UsersThreeIcon
-							className={input.layout === "card" ? "size-10" : undefined}
-						/>
-					</span>
-				)}
-			</PopoverTrigger>
-			<PopoverContent align="start" className="w-64 rounded-lg" side="top">
-				<div className="flex items-center justify-between gap-2 px-2">
-					<p className="font-medium">
-						Members {input.item.activeMemberCount ?? ""}
-					</p>
-					<Button
-						render={
-							<Link
-								search={{ profileId: input.item.openProfileId }}
-								to={buildOrganizationSpacePath({
-									orgSlug: input.orgSlug,
-									spaceId: input.item.spaceId,
-								})}
-							/>
-						}
-						size="xs"
-						variant="default"
-					>
-						Open Space
-					</Button>
-				</div>
-				<FluidNavMenu activeValue={null} aria-label="Space members">
-					{input.item.memberPreviews?.map((member, index) => (
-						<FluidNavMenuItem
-							index={index}
-							key={member.profileId}
-							value={member.profileId}
-						>
-							<SidebarMenuButton
-								className="h-auto gap-3 p-2 text-xs"
-								render={
-									<Link
-										to={buildProfilePath({
-											orgSlug: input.orgSlug,
-											profileId: member.profileId,
-											profileKind: member.profileKind,
-										})}
-									/>
-								}
-							>
-								<SpaceMemberAvatars
-									appearances={input.appearances}
-									members={[member]}
-								/>
-								<span className="min-w-0 truncate">{member.profileName}</span>
-							</SidebarMenuButton>
-						</FluidNavMenuItem>
-					))}
-				</FluidNavMenu>
-				{(input.item.activeMemberCount ?? 0) >
-					(input.item.memberPreviews?.length ?? 0) && (
-					<Link
-						className="p-2 text-muted-foreground"
-						search={{ profileId: input.item.openProfileId }}
-						to={buildOrganizationSpacePath({
-							orgSlug: input.orgSlug,
-							spaceId: input.item.spaceId,
-						})}
-					>
-						Open Space to see all {input.item.activeMemberCount} members
-					</Link>
-				)}
-			</PopoverContent>
-		</Popover>
+		</section>
 	);
 }
 
@@ -1105,14 +140,17 @@ function DiscoverList({
 		return (
 			<p className="px-3 py-12 text-center text-muted-foreground text-sm">
 				{searching
-					? "No Spaces match your search."
-					: "No public Spaces to discover right now."}
+					? "No public groups match your search."
+					: "No public groups to discover right now."}
 			</p>
 		);
 	}
 	if (layout === "cards") {
 		return (
-			<DirectoryGroupLayout label="Discover" layout="cards">
+			<DirectoryCardGrid
+				aria-label="Public groups"
+				className="grid-cols-[repeat(auto-fill,minmax(min(100%,14rem),1fr))] px-2"
+			>
 				{spaces.map((space) => (
 					<DirectoryCardItem
 						className="border border-border"
@@ -1154,14 +192,14 @@ function DiscoverList({
 						</div>
 					</DirectoryCardItem>
 				))}
-			</DirectoryGroupLayout>
+			</DirectoryCardGrid>
 		);
 	}
 	return (
 		<Table className="table-fixed">
 			<TableHeader>
 				<TableRow>
-					<TableHead>Space</TableHead>
+					<TableHead>Group</TableHead>
 					<TableHead className="hidden w-28 sm:table-cell">Members</TableHead>
 					<TableHead className="w-44">Explore</TableHead>
 				</TableRow>

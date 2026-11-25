@@ -55,10 +55,11 @@ import {
 	buildOrganizationComputersPath,
 	buildOrganizationConnectPath,
 	buildOrganizationDirectMessagePath,
-	buildOrganizationDirectMessagesPath,
+	buildOrganizationFilesPath,
 	buildOrganizationInboxPath,
-	buildOrganizationNewSpacePath,
 	buildOrganizationPeoplePath,
+	buildOrganizationPluginsPath,
+	buildOrganizationSkillsPath,
 	buildOrganizationSpacePath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
@@ -76,7 +77,7 @@ const EMPTY_SECTIONS: AccountSpaceSections = {
 	spaceItems: [],
 };
 
-export function AppCommandCenter(input: { onNewMessage: () => void }) {
+export function AppCommandCenter() {
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const toggleCommandCenter = useCallback(() => {
@@ -147,10 +148,6 @@ export function AppCommandCenter(input: { onNewMessage: () => void }) {
 						close={() => setOpen(false)}
 						currentSpaceId={currentSpaceId}
 						key={key}
-						newMessage={() => {
-							setOpen(false);
-							input.onNewMessage();
-						}}
 						onQueryChange={setQuery}
 						profileId={profileId}
 						query={query}
@@ -169,7 +166,6 @@ function CommandCenterContents(input: {
 	query: string;
 	onQueryChange: (value: string) => void;
 	close: () => void;
-	newMessage: () => void;
 }) {
 	const { currentOrganization } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
@@ -232,7 +228,7 @@ function CommandCenterContents(input: {
 		return {
 			id: conversation.spaceId,
 			label: conversation.title,
-			group: searching ? "Direct messages" : "Recent conversations",
+			group: searching ? "Conversations" : "Recent conversations",
 			leading: (
 				<ChatIcon
 					chat={conversation.chat}
@@ -273,25 +269,11 @@ function CommandCenterContents(input: {
 	});
 	entries.push(
 		link(
-			"New Space",
-			buildOrganizationNewSpacePath(orgSlug),
-			"Quick actions",
-			"create add"
-		),
-		link(
 			"New Agent",
 			buildOrganizationAgentCreationPath(orgSlug),
 			"Quick actions",
 			"create add"
 		),
-		{
-			id: "new-message",
-			label: "New message",
-			group: "Quick actions",
-			keywords: "chat dm private",
-			leading: <ChatCircleTextIcon className="size-4" />,
-			run: input.newMessage,
-		},
 		link(
 			"Connect a computer",
 			buildOrganizationConnectPath({ orgSlug }),
@@ -316,14 +298,9 @@ function CommandCenterContents(input: {
 		});
 	}
 	for (const [label, to, destination] of [
-		["Spaces", buildOrganizationSpacesPath(orgSlug), "spaces"],
-		[
-			"Direct messages",
-			buildOrganizationDirectMessagesPath(orgSlug),
-			"messages",
-		],
-		["People", buildOrganizationPeoplePath(orgSlug), "people"],
-		["Agents", buildOrganizationAgentsPath(orgSlug), "agents"],
+		["Messages", buildOrganizationSpacesPath(orgSlug), "messages"],
+		["Team", buildOrganizationPeoplePath(orgSlug), "people"],
+		["Agent settings", buildOrganizationAgentsPath(orgSlug), "agents"],
 		["Inbox", buildOrganizationInboxPath(orgSlug), "inbox"],
 		["Computers", buildOrganizationComputersPath(orgSlug), "computers"],
 	] as const) {
@@ -332,6 +309,11 @@ function CommandCenterContents(input: {
 			shortcut: navigationShortcutKeys(destination),
 		});
 	}
+	entries.push(
+		link("Files", buildOrganizationFilesPath(orgSlug), "Go to"),
+		link("Skills", buildOrganizationSkillsPath(orgSlug), "Go to"),
+		link("Plugins", buildOrganizationPluginsPath(orgSlug), "Go to")
+	);
 	entries.push({
 		id: "toggle-theme",
 		label: "Toggle light/dark theme",
@@ -494,10 +476,10 @@ function spaceCommandEntry(
 		(indicators.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0) > 0;
 	return {
 		id: item.spaceId,
-		group: searching ? "Spaces" : "Recent conversations",
+		group: searching ? "Conversations" : "Recent conversations",
 		label: item.spaceName,
 		keywords: item.spacePurpose ?? "",
-		actionLabel: "Open Space",
+		actionLabel: "Open conversation",
 		leading: item.memberPreviews?.length ? (
 			<SpaceMemberAvatars
 				appearances={appearances}

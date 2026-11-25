@@ -53,7 +53,6 @@ const ACTIVE_NAME_PATTERN_5 = /^Alpha, .*Wakes are active/;
 const ACTIVE_NAME_PATTERN_6 = /^Working, unread updates, .*Wake/;
 
 const OTHER_JOINED_PROFILE_TEXT = /Other joined profile/;
-const BROWSE_SPACES_TEXT = /Browse Spaces/;
 
 vi.mock("../app/use-sidebar-preferences", () => ({
 	useSidebarPreferences: () => ({
@@ -1018,7 +1017,7 @@ describe("ConversationsSidebar", () => {
 		expect(screen.queryByText("Welcome Regular")).toBeNull();
 		expect(screen.queryByText("Welcoming")).toBeNull();
 		const pinnedHeading = getSidebarGroupLabel("Pinned");
-		const spacesHeading = getSidebarGroupLabel("Spaces");
+		const spacesHeading = getSidebarGroupLabel("Recent");
 
 		expect(pinnedHeading.compareDocumentPosition(spacesHeading)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
@@ -1033,7 +1032,7 @@ describe("ConversationsSidebar", () => {
 		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 	});
 
-	it("[S14] keeps DMs out of the Spaces group while showing them once in shared navigation", async () => {
+	it("[S14] lists each group and direct conversation once with the correct destination", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1045,6 +1044,12 @@ describe("ConversationsSidebar", () => {
 				}),
 			],
 			spaceItems: [
+				createAccountSpaceItem({
+					activeMemberCount: 2,
+					spaceId: "space-dm-unpinned",
+					spaceName: "Felix and Mira",
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				}),
 				createAccountSpaceItem({
 					activeMemberCount: 3,
 					directMessageConvertedAt: "2026-04-29T00:00:00.000Z",
@@ -1067,7 +1072,7 @@ describe("ConversationsSidebar", () => {
 		await screen.findByRole("link", {
 			name: "Felix and Center Agent plus Ada",
 		});
-		const spaces = within(screen.getByRole("region", { name: "Spaces" }));
+		const spaces = within(screen.getByRole("region", { name: "Recent" }));
 		expect(
 			spaces.queryByRole("link", { name: "Felix and Center Agent" })
 		).toBeNull();
@@ -1075,6 +1080,9 @@ describe("ConversationsSidebar", () => {
 			spaces.getByRole("link", { name: "Felix and Center Agent plus Ada" })
 		).toBeTruthy();
 		expect(spaces.getByRole("link", { name: "Ordinary Pair" })).toBeTruthy();
+		expect(
+			spaces.getByRole("link", { name: "Felix and Mira" }).getAttribute("href")
+		).toContain("/chats/space-dm-unpinned");
 		expect(
 			within(screen.getByRole("region", { name: "Pinned" })).getByRole("link", {
 				name: "Felix and Center Agent",
@@ -1201,7 +1209,7 @@ describe("ConversationsSidebar", () => {
 		expect(screen.queryByRole("link", { name: "Acme Project" })).toBeNull();
 	});
 
-	it("[S18] renders the Spaces title without repeating the OpenMeld brand", () => {
+	it("[S18] renders Messages without repeating the OpenMeld brand", () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [],
@@ -1215,7 +1223,7 @@ describe("ConversationsSidebar", () => {
 		);
 
 		expect(sidebarHeader).toBeNull();
-		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Messages" })).toBeTruthy();
 		expect(screen.queryByText("Chatroom for agents & humans")).toBeNull();
 		expect(
 			screen.queryByRole("heading", { name: "OpenMeld Spaces" })
@@ -2257,7 +2265,7 @@ describe("ConversationsSidebar", () => {
 		});
 	});
 
-	it("[S38] removes the redundant discovery section outside a conversation", async () => {
+	it("[S38] shows one New message entry on an empty list", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [],
@@ -2267,20 +2275,18 @@ describe("ConversationsSidebar", () => {
 			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const createSpace = await screen.findByRole("link", {
-			name: "New Space",
-		});
-		expect(createSpace.getAttribute("href")).toContain("/new-space");
+		await screen.findByText("No conversations yet.");
+		expect(screen.getAllByRole("button", { name: "New message" })).toHaveLength(
+			1
+		);
 		expect(
 			screen.queryByRole("region", { name: "Direct messages" })
 		).toBeNull();
-		expect(
-			screen.queryByRole("button", { name: BROWSE_SPACES_TEXT })
-		).toBeNull();
+		expect(screen.queryByRole("link", { name: "New Space" })).toBeNull();
 		expect(screen.queryByText("Explore")).toBeNull();
 	});
 
-	it("[S39] offers creation from the Spaces section in a personal organization", async () => {
+	it("[S39] offers New message and hides public discovery in personal workspaces", async () => {
 		appOrganizationMock.currentOrganization = {
 			id: "org-personal",
 			isPersonal: true,
@@ -2296,19 +2302,13 @@ describe("ConversationsSidebar", () => {
 			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		const createButton = await screen.findByRole("button", {
-			name: "Add Space or group",
-		});
-		fireEvent.click(createButton);
-		fireEvent.click(
-			await screen.findByText("New Space", { selector: "button" })
-		);
-		expect(navigateMock).toHaveBeenCalledWith({ to: "/o/mira/new-space" });
-		expect(screen.queryByText("Open your Spaces")).toBeNull();
-		expect(screen.queryByText("Find public Spaces")).toBeNull();
+		expect(screen.getByRole("button", { name: "New message" })).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "View and filters" }));
+		await screen.findByRole("menuitem", { name: "Search" });
+		expect(screen.queryByRole("menuitem", { name: "Discover" })).toBeNull();
 	});
 
-	it("[S40] places the create-space action in the Spaces section after pinned spaces", async () => {
+	it("[S40] keeps Pinned above Recent under a single New message action", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -2332,13 +2332,13 @@ describe("ConversationsSidebar", () => {
 		expect(
 			await screen.findByRole("link", { name: "Pinned Alpha" })
 		).toBeTruthy();
-		expect(
-			screen.getByRole("button", { name: "Add Space or group" })
-		).toBeTruthy();
+		expect(screen.getAllByRole("button", { name: "New message" })).toHaveLength(
+			1
+		);
 		expect(container.querySelector('[data-slot="sidebar-header"]')).toBeNull();
 		expect(
 			getSidebarGroupLabel("Pinned").compareDocumentPosition(
-				getSidebarGroupLabel("Spaces")
+				getSidebarGroupLabel("Recent")
 			)
 		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 	});

@@ -1,5 +1,4 @@
 import type { AuthProfileView } from "@openmeld/schemas/types";
-import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
 import { onlineManager } from "@tanstack/react-query";
 import {
 	cleanup,
@@ -7,7 +6,6 @@ import {
 	render,
 	screen,
 	waitFor,
-	within,
 } from "@testing-library/react";
 import { NuqsTestingAdapter } from "nuqs/adapters/testing";
 import type { ReactNode } from "react";
@@ -27,12 +25,7 @@ import {
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
 
-const PLANNING_ROW = /Open Planning/;
-const WORKING_ROW = /Open Working.*2 unread/;
-const UNREAD_ROW = /Open Unread.*1 unread/;
-const IDLE_ROW = /Open Idle/;
 const SUPPORT_ROW = /Support.*Join/;
-const UNREAD_TEXT = /unread/;
 
 const {
 	appOrganizationMock,
@@ -237,7 +230,7 @@ vi.mock("#/lib/organizations/organization-directory", () => ({
 import { AppSpacesIndexContent } from "./index";
 
 vi.mock("#/components/spaces/conversations-home", () => ({
-	ConversationsHome: () => <main aria-label="Spaces">Conversation home</main>,
+	ConversationsHome: () => <main aria-label="Messages">Conversation home</main>,
 }));
 
 describe("app spaces index route", () => {
@@ -298,15 +291,19 @@ describe("app spaces index route", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("opens the combined conversation home by default without waiting for the Space directory", () => {
+	it.each([
+		"conversations",
+		"spaces",
+		"messages",
+	] as const)("opens the same Messages home for %s without waiting for Discover", (initialView) => {
 		listOrganizationSpacesMock.mockRejectedValue(createGenericFailure());
-		renderSpacesIndex({ initialView: "conversations" });
-		expect(screen.getByRole("main", { name: "Spaces" })).toBeTruthy();
+		renderSpacesIndex({ initialView });
+		expect(screen.getByRole("main", { name: "Messages" })).toBeTruthy();
 		expect(screen.queryByRole("tab", { name: "Your Spaces" })).toBeNull();
 		expect(listOrganizationSpacesMock).not.toHaveBeenCalled();
 	});
 
-	it("renders the Space sidebar shell with the selected active human profile", async () => {
+	it("opens Discover with the selected human profile and links back to Messages", async () => {
 		listStartProfilesMock.mockResolvedValue([
 			createProfile({
 				openMeldProfileId: "default-human",
@@ -319,20 +316,6 @@ describe("app spaces index route", () => {
 				profileName: "Selected Human",
 			}),
 		]);
-		getCurrentSpaceInboxSummaryMock.mockResolvedValue({
-			organizationId: "org-acme",
-			spaces: [
-				{
-					latestUnreadOccurredAtMs: 3000,
-					spaceId: "space-planning",
-					unreadCount: 2,
-				},
-			],
-		});
-		getAccountSpaceActiveWakeSummaryMock.mockResolvedValue({
-			generatedAtMs: Date.now(),
-			items: [{ activeWakeCount: 1, spaceId: "space-planning" }],
-		});
 		window.sessionStorage.setItem(
 			resolveStartFlowStorageKey("user-123"),
 			serializeStartFlowState({
@@ -344,234 +327,47 @@ describe("app spaces index route", () => {
 		renderSpacesIndex();
 
 		expect(
-			await screen.findByRole("heading", { level: 1, name: "Spaces" })
+			await screen.findByRole("heading", { level: 1, name: "Discover" })
 		).toBeTruthy();
-		expect(await screen.findByText("Planning")).toBeTruthy();
-		expect(
-			screen
-				.getByRole("tab", { name: "Your Spaces" })
-				.getAttribute("aria-selected")
-		).toBe("true");
-		expect(screen.getByRole("tab", { name: "Discover" })).toBeTruthy();
-		expect(screen.getAllByRole("tab")).toEqual(
-			["Chats", "Your Spaces", "Direct messages", "Discover"].map((name) =>
-				screen.getByRole("tab", { name })
-			)
-		);
-		expect(
-			screen.getByRole("link", { name: PLANNING_ROW }).getAttribute("href")
-		).toBe("/o/acme/spaces/space-planning?profileId=selected-human");
-		expect(screen.getByRole("button", { name: "Pin Planning" })).toBeTruthy();
-		const shell = screen.getByTestId("app-space-shell");
-		fireEvent.click(screen.getByRole("tab", { name: "Direct messages" }));
-		await waitFor(() =>
-			expect(
-				screen
-					.getByRole("tab", { name: "Direct messages" })
-					.getAttribute("aria-selected")
-			).toBe("true")
-		);
-		expect(screen.queryByRole("searchbox")).toBeNull();
-		expect(screen.queryByRole("link", { name: PLANNING_ROW })).toBeNull();
-		expect(screen.getByTestId("app-space-shell")).toBe(shell);
-		expect(screen.queryByText("Support")).toBeNull();
-		fireEvent.click(screen.getByRole("tab", { name: "Discover" }));
 		expect(
 			await screen.findByRole("button", { name: "Join Support" })
 		).toBeTruthy();
-		expect(screen.getByRole("button", { name: "Support" })).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Join Planning" })).toBeNull();
 		expect(screen.queryByText("Finance")).toBeNull();
-		expect(joinOrganizationSpaceMock).not.toHaveBeenCalled();
-
-		expect(screen.getByTestId("app-space-shell")).toBeTruthy();
-		await waitFor(() => {
-			expect(appSpaceShellMock).toHaveBeenLastCalledWith(
-				expect.objectContaining({
-					currentProfileId: "selected-human",
-					currentSpaceId: "",
-				}),
-				undefined
-			);
-		});
-		expect(screen.queryByTestId("space-landing")).toBeNull();
+		expect(screen.queryByRole("tab", { name: "Direct messages" })).toBeNull();
+		expect(
+			screen
+				.getByRole("link", { name: "Back to Messages" })
+				.getAttribute("href")
+		).toBe("/o/acme/spaces");
+		expect(appSpaceShellMock).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				currentProfileId: "selected-human",
+				currentSpaceId: "",
+			}),
+			undefined
+		);
 	});
 
-	it("groups joined Spaces with Priority order without leaking status into Discover", async () => {
+	it("pins and unpins Discover from the public groups page", async () => {
 		listStartProfilesMock.mockResolvedValue([
-			createProfile({
-				openMeldProfileId: "selected-human",
-				isDefault: true,
-				profileName: "Selected Human",
-			}),
+			createProfile({ isDefault: true, openMeldProfileId: "selected-human" }),
 		]);
-		listOrganizationSpacesMock.mockResolvedValue(
-			createOrganizationSpacesResponse({
-				spaces: [
-					createOrganizationSpace({
-						joined: true,
-						name: "Idle",
-						spaceId: "space-idle",
-						visibility: "public",
-					}),
-					createOrganizationSpace({
-						joined: true,
-						name: "Working",
-						spaceId: "space-working",
-						visibility: "private",
-					}),
-					createOrganizationSpace({
-						joined: true,
-						name: "Unread",
-						spaceId: "space-unread",
-						visibility: "public",
-					}),
-					createOrganizationSpace({
-						joined: false,
-						name: "Support",
-						spaceId: "space-support",
-						visibility: "public",
-					}),
-				],
-			})
-		);
-		listAccountSpaceItemsMock.mockResolvedValue({
-			pinnedItems: [
-				createAccountSpaceItem({
-					pinnedAt: "2026-08-24T01:00:00.000Z",
-					pinnedProfileIds: ["selected-human", "other-human"],
-					spaceId: "space-working",
-					spaceName: "Working",
-					spacePurpose: null,
-				}),
-			],
-			spaceItems: [
-				createAccountSpaceItem({
-					spaceId: "space-idle",
-					spaceName: "Idle",
-					spacePurpose: null,
-				}),
-				createAccountSpaceItem({
-					spaceId: "space-unread",
-					spaceName: "Unread",
-					spacePurpose: null,
-				}),
-			],
-		});
-		getCurrentSpaceInboxSummaryMock.mockResolvedValue({
-			organizationId: "org-acme",
-			spaces: [
-				{
-					latestUnreadOccurredAtMs: 3000,
-					spaceId: "space-working",
-					unreadCount: 2,
-				},
-				{
-					latestUnreadOccurredAtMs: 2000,
-					spaceId: "space-unread",
-					unreadCount: 1,
-				},
-				{
-					latestUnreadOccurredAtMs: 1000,
-					spaceId: "space-support",
-					unreadCount: 4,
-				},
-			],
-		});
-		getAccountSpaceActiveWakeSummaryMock.mockResolvedValue({
-			generatedAtMs: Date.now(),
-			items: [
-				{ activeWakeCount: 1, spaceId: "space-working" },
-				{ activeWakeCount: 1, spaceId: "space-idle" },
-				{ activeWakeCount: 1, spaceId: "space-support" },
-			],
-		});
-		setAccountSpaceItemPinnedMock.mockReturnValue(new Promise(() => undefined));
 
 		renderSpacesIndex();
 
-		fireEvent.click(await screen.findByRole("button", { name: "Table" }));
-		const workingRow = await screen.findByRole("row", {
-			name: WORKING_ROW,
-		});
-		const unreadRow = screen.getByRole("row", { name: UNREAD_ROW });
-		const idleRow = screen.getByRole("row", { name: IDLE_ROW });
-		expect(workingRow.compareDocumentPosition(unreadRow)).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
-		);
-		expect(unreadRow.compareDocumentPosition(idleRow)).toBe(
-			Node.DOCUMENT_POSITION_FOLLOWING
-		);
-		expect(within(workingRow).getAllByText("2 unread").length).toBeGreaterThan(
-			0
-		);
-		const unpin = within(workingRow).getByRole("button", {
-			name: "Unpin Working",
-		});
-		fireEvent.click(unpin);
-		await waitFor(() =>
-			expect(setAccountSpaceItemPinnedMock).toHaveBeenCalledWith({
-				pinnedAt: null,
-				profileIds: ["selected-human", "other-human"],
-				spaceId: "space-working",
-			})
-		);
-		fireEvent.click(screen.getByRole("tab", { name: "Discover" }));
-		const support = await screen.findByRole("row", {
-			name: SUPPORT_ROW,
-		});
-		expect(within(support).queryByText(UNREAD_TEXT)).toBeNull();
-		expect(
-			within(support).queryByRole("button", { name: "Pin Support" })
-		).toBeNull();
-	});
-
-	it("pins a joined Space from the default card view and updates the shared index", async () => {
-		listStartProfilesMock.mockResolvedValue([
-			createProfile({
-				openMeldProfileId: "selected-human",
-				isDefault: true,
-				profileName: "Selected Human",
-			}),
-		]);
-		listAccountSpaceItemsMock.mockResolvedValue({
-			pinnedItems: [],
-			spaceItems: [
-				createAccountSpaceItem({
-					spaceId: "space-private",
-					spaceName: "Finance",
-					spacePurpose: null,
-				}),
-				createAccountSpaceItem({
-					spaceId: "space-planning",
-					spaceName: "Planning",
-					spacePurpose: null,
-				}),
-			],
-		});
-		setAccountSpaceItemPinnedMock.mockReturnValue(new Promise(() => undefined));
-
-		renderSpacesIndex();
-
-		expect(
-			(await screen.findByRole("button", { name: "Cards" })).getAttribute(
-				"aria-pressed"
-			)
-		).toBe("true");
 		fireEvent.click(
-			await screen.findByRole("button", { name: "Pin Planning" })
-		);
-		await waitFor(() =>
-			expect(setAccountSpaceItemPinnedMock).toHaveBeenCalledWith({
-				pinnedAt: expect.any(String),
-				profileIds: ["selected-human"],
-				spaceId: "space-planning",
-			})
+			await screen.findByRole("button", { name: "Pin Discover to sidebar" })
 		);
 		expect(
-			await screen.findByRole("button", { name: "Unpin Planning" })
-		).toBeTruthy();
-		const pinned = screen.getByRole("heading", { name: "Pinned" });
-		expect(pinned).toBeTruthy();
+			window.localStorage.getItem("openmeld.appearance.sidebar-shortcuts")
+		).toBe("discover");
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Unpin Discover from sidebar" })
+		);
+		expect(
+			window.localStorage.getItem("openmeld.appearance.sidebar-shortcuts")
+		).toBe("");
 	});
 
 	it("remembers the selected Space layout when returning to the directory", async () => {
@@ -592,102 +388,38 @@ describe("app spaces index route", () => {
 				"aria-pressed"
 			)
 		).toBe("true");
-		expect(await screen.findByRole("row", { name: PLANNING_ROW })).toBeTruthy();
+		expect(await screen.findByRole("row", { name: SUPPORT_ROW })).toBeTruthy();
 	});
 
-	it("shows a newly joined Space while the discovery snapshot is still older", async () => {
+	it("excludes a group Discover has not yet recognized as joined", async () => {
 		listStartProfilesMock.mockResolvedValue([
 			createProfile({ isDefault: true, openMeldProfileId: "selected-human" }),
-		]);
-		listOrganizationSpacesMock.mockResolvedValue(
-			createOrganizationSpacesResponse({ spaces: [] })
-		);
-		renderSpacesIndex();
-		expect(
-			await screen.findByRole("link", { name: PLANNING_ROW })
-		).toBeTruthy();
-		expect(screen.queryByRole("button", { name: "Join Planning" })).toBeNull();
-	});
-
-	it("keeps joined Spaces openable when account-specific index facts are missing", async () => {
-		listStartProfilesMock.mockResolvedValue([
-			createProfile({ isDefault: true, openMeldProfileId: "selected-human" }),
-		]);
-		listAccountSpaceItemsMock.mockResolvedValue({
-			pinnedItems: [],
-			spaceItems: [],
-		});
-		renderSpacesIndex();
-		expect(
-			await screen.findByRole("link", { name: "Open Planning" })
-		).toBeTruthy();
-		expect(screen.queryByRole("button", { name: "Pin Planning" })).toBeNull();
-		expect(screen.queryByText("Support")).toBeNull();
-	});
-
-	it("keeps current Direct Messages out of the Spaces directory", async () => {
-		listStartProfilesMock.mockResolvedValue([
-			createProfile({
-				openMeldProfileId: "selected-human",
-				isDefault: true,
-				profileName: "Selected Human",
-			}),
 		]);
 		listOrganizationSpacesMock.mockResolvedValue(
 			createOrganizationSpacesResponse({
 				spaces: [
 					createOrganizationSpace({
-						activeMemberCount: 8,
-						joined: true,
+						joined: false,
 						name: "Planning",
 						spaceId: "space-planning",
 						visibility: "public",
 					}),
 					createOrganizationSpace({
-						activeMemberCount: 2,
-						joined: true,
-						name: "Selected Human and Helper",
-						spaceId: "space-direct-message",
-						visibility: "private",
-					}),
-					createOrganizationSpace({
-						activeMemberCount: 3,
-						joined: true,
-						name: "Expanded conversation",
-						spaceId: "space-expanded-conversation",
-						visibility: "private",
+						joined: false,
+						name: "Support",
+						spaceId: "space-support",
+						visibility: "public",
 					}),
 				],
 			})
 		);
-		listAccountSpaceItemsMock.mockResolvedValue({
-			pinnedItems: [],
-			spaceItems: [
-				createAccountSpaceItem({
-					spaceId: "space-planning",
-					spaceName: "Planning",
-				}),
-				createAccountSpaceItem({
-					activeMemberCount: 2,
-					spaceId: "space-direct-message",
-					spaceName: "Selected Human and Helper",
-					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
-				}),
-				createAccountSpaceItem({
-					activeMemberCount: 3,
-					directMessageConvertedAt: "2026-07-06T00:00:00.000Z",
-					spaceId: "space-expanded-conversation",
-					spaceName: "Expanded conversation",
-					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
-				}),
-			],
-		});
 
 		renderSpacesIndex();
 
-		expect(await screen.findByText("Planning")).toBeTruthy();
-		expect(screen.queryByText("Selected Human and Helper")).toBeNull();
-		expect(screen.getByText("Expanded conversation")).toBeTruthy();
+		expect(
+			await screen.findByRole("button", { name: "Join Support" })
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Join Planning" })).toBeNull();
 	});
 
 	it("does not flash the inner Spaces sidebar while the Space directory is loading", async () => {
@@ -734,18 +466,19 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex({ queryClient });
 
-		expect(await screen.findByText("Planning")).toBeTruthy();
+		expect(
+			await screen.findByRole("button", { name: "Join Support" })
+		).toBeTruthy();
 		expect(
 			await screen.findByText(
-				"Couldn't refresh Spaces. Showing the last saved view."
+				"Couldn't refresh public groups. Showing the last saved view."
 			)
 		).toBeTruthy();
-		fireEvent.click(screen.getByRole("tab", { name: "Discover" }));
 		expect(
 			(
-				screen.getByRole("button", {
+				(await screen.findByRole("button", {
 					name: "Join Support",
-				}) as HTMLButtonElement
+				})) as HTMLButtonElement
 			).disabled
 		).toBe(true);
 		expect(
@@ -776,13 +509,11 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex({ queryClient });
 
-		await screen.findByRole("tab", { name: "Discover" });
-		fireEvent.click(screen.getByRole("tab", { name: "Discover" }));
 		expect(
 			(
-				screen.getByRole("button", {
+				(await screen.findByRole("button", {
 					name: "Join Support",
-				}) as HTMLButtonElement
+				})) as HTMLButtonElement
 			).disabled
 		).toBe(true);
 		expect(joinOrganizationSpaceMock).not.toHaveBeenCalled();
@@ -826,7 +557,7 @@ describe("app spaces index route", () => {
 			}),
 		]);
 		expect(
-			await screen.findByRole("heading", { level: 1, name: "Spaces" })
+			await screen.findByRole("heading", { level: 1, name: "Discover" })
 		).toBeTruthy();
 	});
 
@@ -844,11 +575,10 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
-		fireEvent.click(await screen.findByRole("tab", { name: "Discover" }));
 		expect(
-			await screen.findByText("No public Spaces to discover right now.")
+			await screen.findByText("No public groups to discover right now.")
 		).toBeTruthy();
-		expect(screen.getByRole("link", { name: "New Space" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Back to Messages" })).toBeTruthy();
 
 		expect(screen.queryByTestId("new-space-view")).toBeNull();
 		expect(screen.queryByTestId("route-redirect")).toBeNull();
@@ -883,12 +613,11 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
-		fireEvent.click(await screen.findByRole("tab", { name: "Discover" }));
 		expect(await screen.findByText("Member count unavailable")).toBeTruthy();
 		expect(
 			screen.getByRole("button", { name: "Cards" }).getAttribute("aria-pressed")
 		).toBe("true");
-		expect(screen.getByRole("list", { name: "Discover Spaces" })).toBeTruthy();
+		expect(screen.getByRole("list", { name: "Public groups" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Join Support" })).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Table" }));
 		expect(await screen.findByText("—")).toBeTruthy();
@@ -896,35 +625,18 @@ describe("app spaces index route", () => {
 		expect(screen.queryByText("0 members")).toBeNull();
 	});
 
-	it("shows a create-first empty state in a solo context", async () => {
+	it("opens Messages when a personal workspace follows a Discover link", () => {
 		appOrganizationMock.currentOrganization = {
 			id: "org-solo",
 			isPersonal: true,
 			name: "Solo",
 			slug: "solo",
 		};
-		listStartProfilesMock.mockResolvedValue([
-			createProfile({
-				openMeldProfileId: "selected-human",
-				isDefault: true,
-				profileName: "Selected Human",
-			}),
-		]);
-		listOrganizationSpacesMock.mockResolvedValue(
-			createOrganizationSpacesResponse({ spaces: [] })
-		);
 
 		renderSpacesIndex({ orgSlug: "solo" });
 
-		expect(
-			await screen.findByText("No Spaces in this group yet.")
-		).toBeTruthy();
-		expect(screen.getByRole("link", { name: "New Space" })).toBeTruthy();
-		expect(screen.queryByRole("tab", { name: "Discover" })).toBeNull();
-
-		expect(screen.queryByTestId("new-space-view")).toBeNull();
-		expect(screen.queryByTestId("route-redirect")).toBeNull();
-		expect(navigateComponentMock).not.toHaveBeenCalled();
+		expect(screen.getByRole("main", { name: "Messages" })).toBeTruthy();
+		expect(listOrganizationSpacesMock).not.toHaveBeenCalled();
 	});
 
 	it.each([
@@ -1001,7 +713,6 @@ describe("app spaces index route", () => {
 
 		renderSpacesIndex();
 
-		fireEvent.click(await screen.findByRole("tab", { name: "Discover" }));
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Join Support" })
 		);
@@ -1010,28 +721,28 @@ describe("app spaces index route", () => {
 		expect(alert.textContent).toBe("This Space is no longer public.");
 	});
 
-	it("expands search on demand and keeps each tab search independent", async () => {
+	it("expands search on demand across public groups", async () => {
 		listStartProfilesMock.mockResolvedValue([
 			createProfile({ isDefault: true, openMeldProfileId: "selected-human" }),
 		]);
 
 		renderSpacesIndex();
 
-		await screen.findByText("Planning");
+		await screen.findByRole("button", { name: "Join Support" });
 		expect(screen.queryByRole("searchbox")).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Search Spaces" }));
-		fireEvent.change(screen.getByRole("searchbox", { name: "Search Spaces" }), {
-			target: { value: "planning" },
-		});
-		await waitFor(() => expect(screen.queryByText("Finance")).toBeNull());
-		fireEvent.click(screen.getByRole("tab", { name: "Discover" }));
-		expect(await screen.findByText("Support")).toBeTruthy();
-		expect(screen.queryByRole("searchbox")).toBeNull();
-		fireEvent.click(screen.getByRole("tab", { name: "Your Spaces" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Search public groups" })
+		);
+		fireEvent.change(
+			screen.getByRole("searchbox", { name: "Search public groups" }),
+			{
+				target: { value: "missing" },
+			}
+		);
 		expect(
-			((await screen.findByRole("searchbox")) as HTMLInputElement).value
-		).toBe("planning");
-		expect(screen.queryByText("Finance")).toBeNull();
+			await screen.findByText("No public groups match your search.")
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Join Support" })).toBeNull();
 	});
 
 	it("falls back to the default human profile when no selected profile is active", async () => {
@@ -1046,7 +757,7 @@ describe("app spaces index route", () => {
 		renderSpacesIndex();
 
 		expect(
-			await screen.findByRole("heading", { level: 1, name: "Spaces" })
+			await screen.findByRole("heading", { level: 1, name: "Discover" })
 		).toBeTruthy();
 		expect(appSpaceShellMock).toHaveBeenLastCalledWith(
 			expect.objectContaining({
@@ -1097,9 +808,11 @@ describe("app spaces index route", () => {
 		renderSpacesIndex();
 
 		expect(
-			await screen.findByRole("heading", { level: 1, name: "Spaces" })
+			await screen.findByRole("heading", { level: 1, name: "Discover" })
 		).toBeTruthy();
-		expect(await screen.findByText("Planning")).toBeTruthy();
+		expect(
+			await screen.findByRole("button", { name: "Join Support" })
+		).toBeTruthy();
 		expect(listOrganizationsMock).toHaveBeenCalledTimes(1);
 		expect(
 			screen.queryByText("OpenMeld could not load your Spaces.")
@@ -1206,7 +919,7 @@ describe("app spaces index route", () => {
 
 function renderSpacesIndex(
 	input: {
-		initialView?: "conversations" | "spaces" | "discover";
+		initialView?: "conversations" | "spaces" | "messages" | "discover";
 		orgSlug?: string;
 		queryClient?: ReturnType<typeof createTestQueryClient>;
 	} = {}
@@ -1218,7 +931,7 @@ function renderSpacesIndex(
 			searchParams={
 				input.initialView === "conversations"
 					? {}
-					: { view: input.initialView ?? "spaces" }
+					: { view: input.initialView ?? "discover" }
 			}
 		>
 			<TestQueryClientProvider queryClient={input.queryClient}>

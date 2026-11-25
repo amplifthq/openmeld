@@ -128,7 +128,7 @@ describe("new Space route", () => {
 			undefined
 		);
 
-		const backLink = screen.getByRole("link", { name: "Back to Spaces" });
+		const backLink = screen.getByRole("link", { name: "Back to Messages" });
 		expect(backLink.getAttribute("href")).toBe("/o/acme/spaces");
 		const header = document.querySelector(
 			'[data-slot="app-main-content-header"]'
@@ -171,7 +171,9 @@ describe("new Space route", () => {
 			undefined
 		);
 		expect(
-			screen.getByRole("link", { name: "Back to Spaces" }).getAttribute("href")
+			screen
+				.getByRole("link", { name: "Back to Messages" })
+				.getAttribute("href")
 		).toBe("/o/acme/spaces");
 		expect(
 			document

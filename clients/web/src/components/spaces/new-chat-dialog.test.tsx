@@ -233,7 +233,7 @@ it("finds a person from the organization directory with a prefilled query, witho
 	).toHaveProperty("value", "Mira");
 	expect(screen.queryByRole("checkbox", { name: "Center Agent" })).toBeNull();
 	fireEvent.click(screen.getByRole("checkbox", { name: "Mira" }));
-	fireEvent.click(screen.getByRole("button", { name: "Start chat" }));
+	fireEvent.click(screen.getByRole("button", { name: "Start conversation" }));
 	await waitFor(() =>
 		expect(mocks.dm).toHaveBeenCalledWith({
 			organizationId: "org",
@@ -248,7 +248,7 @@ it("opens a private chat for one explicit Agent without selecting its owner", as
 	expect(
 		screen.getByRole("checkbox", { name: "Mira" }).getAttribute("aria-checked")
 	).toBe("false");
-	fireEvent.click(screen.getByRole("button", { name: "Start chat" }));
+	fireEvent.click(screen.getByRole("button", { name: "Start conversation" }));
 	await waitFor(() =>
 		expect(mocks.dm).toHaveBeenCalledWith({
 			organizationId: "org",
@@ -260,7 +260,7 @@ it("opens a private chat for one explicit Agent without selecting its owner", as
 it("opens Center Agent draft when it is the only selection", async () => {
 	await openPicker();
 	fireEvent.click(screen.getByRole("checkbox", { name: "Center Agent" }));
-	fireEvent.click(screen.getByRole("button", { name: "Start chat" }));
+	fireEvent.click(screen.getByRole("button", { name: "Start conversation" }));
 	await waitFor(() =>
 		expect(mocks.navigate).toHaveBeenCalledWith({
 			to: "/o/acme/chats/center-agent?draft=new",
@@ -281,7 +281,7 @@ it("enters a multi-target Space before creation finishes and adds the selected m
 	const closed = await openPicker();
 	fireEvent.click(screen.getByRole("checkbox", { name: "Mira" }));
 	fireEvent.click(screen.getByRole("checkbox", { name: "Center Agent" }));
-	fireEvent.click(screen.getByRole("button", { name: "Create Space" }));
+	fireEvent.click(screen.getByRole("button", { name: "Start conversation" }));
 	await waitFor(() => expect(closed).toHaveBeenCalledWith(false));
 	expect(mocks.navigate).toHaveBeenCalledWith({
 		to: expect.stringContaining("/o/acme/spaces/creating-"),
