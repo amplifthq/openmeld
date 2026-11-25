@@ -1,4 +1,6 @@
-import { Button } from "@openmeld/ui/components/button";
+import type { InboxGitHubIssue } from "@openmeld/schemas/types";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
+import { GithubLogoIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -87,7 +89,7 @@ export function useInboxGitHubIssues(input: { enabled: boolean }) {
 	return { ...query, visibleIssues, defer, ignore };
 }
 
-export function InboxGitHubIssues({
+export function InboxGitHubNotice({
 	query,
 }: {
 	query: ReturnType<typeof useInboxGitHubIssues>;
@@ -119,78 +121,79 @@ export function InboxGitHubIssues({
 			</div>
 		);
 	}
-	if (
-		result?.status !== "ready" ||
-		!(query.visibleIssues.length || result.partial)
-	) {
-		return null;
+	if (result?.status === "ready" && result.partial) {
+		return (
+			<p className="text-muted-foreground text-sm">
+				Some GitHub items couldn’t be loaded.{" "}
+				<Button onClick={() => query.refetch()} size="sm" variant="ghost">
+					Retry
+				</Button>
+			</p>
+		);
 	}
+	return null;
+}
+
+export function InboxGitHubTodoRow({
+	issue,
+	query,
+}: {
+	issue: InboxGitHubIssue;
+	query: ReturnType<typeof useInboxGitHubIssues>;
+}) {
 	return (
-		<section aria-label="Assigned GitHub issues" className="space-y-2">
-			<div className="flex flex-wrap items-center justify-between gap-2">
-				<h2 className="font-medium text-sm">Assigned GitHub issues</h2>
-				<Button
-					disabled={query.isFetching}
-					onClick={() => query.refetch()}
-					size="sm"
-					variant="secondary"
+		<li className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+			<div className="flex min-w-0 items-start gap-3 px-3 py-3">
+				<span aria-hidden="true" className="w-2 shrink-0" />
+				<span className="grid size-8 shrink-0 place-items-center rounded-md border border-border/60 bg-background">
+					<GithubLogoIcon
+						aria-hidden="true"
+						className="size-4 text-muted-foreground"
+					/>
+				</span>
+				<div className="min-w-0">
+					<a
+						className="block break-words font-medium text-sm hover:underline"
+						href={issue.url}
+						rel="noopener noreferrer"
+						target="_blank"
+					>
+						{issue.title}
+					</a>
+					<p className="mt-1 text-muted-foreground text-xs">
+						{issue.repository} #{issue.number} ·{" "}
+						<InboxTimestamp occurredAt={issue.updatedAt} />
+					</p>
+				</div>
+			</div>
+			<div className="flex flex-wrap items-center justify-end gap-1 pe-4 pb-2 sm:pb-0">
+				<a
+					aria-label={`Open: ${issue.title}`}
+					className={buttonVariants({ size: "sm", variant: "secondary" })}
+					href={issue.url}
+					rel="noopener noreferrer"
+					target="_blank"
 				>
-					Refresh GitHub
+					Open
+				</a>
+				<Button
+					aria-label={`Later: ${issue.title}`}
+					onClick={() => query.defer(issueRevision(issue))}
+					size="sm"
+					variant="ghost"
+				>
+					Later
+				</Button>
+				<Button
+					aria-label={`Ignore: ${issue.title}`}
+					onClick={() => query.ignore(issueRevision(issue))}
+					size="sm"
+					title="Hide this version in this browser without changing GitHub"
+					variant="ghost"
+				>
+					Ignore
 				</Button>
 			</div>
-			{result.partial ? (
-				<p className="text-muted-foreground text-sm">
-					Showing a partial list. Open GitHub for all assignments.
-				</p>
-			) : null}
-			<ul className="divide-y divide-border/70 rounded-md border border-border/70 bg-card">
-				{query.visibleIssues.map((issue) => (
-					<li
-						className="flex flex-wrap items-center justify-between gap-2 p-3"
-						key={issue.id}
-					>
-						<div className="min-w-0">
-							<a
-								className="font-medium text-sm hover:underline"
-								href={issue.url}
-								rel="noopener noreferrer"
-								target="_blank"
-							>
-								{issue.title}
-							</a>
-							<p className="text-muted-foreground text-xs">
-								{issue.repository} #{issue.number} · Opened{" "}
-								<InboxTimestamp occurredAt={issue.createdAt} />
-							</p>
-						</div>
-						<div className="flex flex-wrap items-center gap-2">
-							<a
-								className="text-sm underline underline-offset-4"
-								href={issue.url}
-								rel="noopener noreferrer"
-								target="_blank"
-							>
-								Reassign or close in GitHub
-							</a>
-							<Button
-								onClick={() => query.defer(issueRevision(issue))}
-								size="sm"
-								variant="ghost"
-							>
-								Later
-							</Button>
-							<Button
-								onClick={() => query.ignore(issueRevision(issue))}
-								size="sm"
-								title="Hide this version in this browser without changing GitHub"
-								variant="ghost"
-							>
-								Ignore
-							</Button>
-						</div>
-					</li>
-				))}
-			</ul>
-		</section>
+		</li>
 	);
 }

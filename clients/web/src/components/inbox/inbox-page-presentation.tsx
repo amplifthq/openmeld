@@ -5,7 +5,6 @@ import type {
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
-import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { resolveStatusToneSurfaceClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { TrayIcon, WarningCircleIcon } from "@phosphor-icons/react";
@@ -28,30 +27,8 @@ type InboxLoadMoreState = "error" | "idle" | "loading";
 export function InboxPagePending() {
 	return (
 		<div className="flex min-w-0 flex-col gap-6">
-			<AppPageHeader
-				description="Updates, actions, and reviews in one place."
-				eyebrow="Workspace"
-				id="inbox-heading"
-				title="Inbox"
-			/>
-			<div className="flex min-w-0 flex-col gap-4">
-				<TabsSubtle
-					className="w-fit max-w-full"
-					idPrefix="inbox-view-pending"
-					onSelect={() => undefined}
-					selectedIndex={0}
-				>
-					{INBOX_TABS.map((tab, index) => (
-						<TabsSubtleItem
-							disabled
-							index={index}
-							key={tab.view}
-							label={tab.label}
-						/>
-					))}
-				</TabsSubtle>
-				<InboxListSkeleton />
-			</div>
+			<AppPageHeader description={undefined} id="inbox-heading" title="TODO" />
+			<InboxListSkeleton />
 		</div>
 	);
 }

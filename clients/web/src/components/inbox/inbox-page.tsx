@@ -44,7 +44,7 @@ import {
 	resolveInboxFeedLoadMoreState,
 } from "./inbox-feed-view";
 import { InboxFilterMenu } from "./inbox-filter-menu";
-import { InboxGitHubIssues, useInboxGitHubIssues } from "./inbox-github-issues";
+import { InboxGitHubNotice, useInboxGitHubIssues } from "./inbox-github-issues";
 import { InboxItemsList } from "./inbox-list";
 import {
 	InboxEmptyState,
@@ -57,6 +57,7 @@ import {
 } from "./inbox-page-presentation";
 import { INBOX_TABS } from "./inbox-page-tabs";
 import { useInboxRemoval } from "./inbox-removal-dialog";
+import { InboxTodoList } from "./inbox-todo-list";
 import { InvitationReview } from "./invitation-review";
 import { PluginActionRequest } from "./plugin-action-request";
 import { useInboxExpansion } from "./use-inbox-expansion";
@@ -179,7 +180,7 @@ export function InboxPage(input: {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const expansion = useInboxExpansion(currentUserId, currentOrganization.id);
 	const filters = {
-		grouping: "space" as const,
+		grouping: input.view === "todo" ? undefined : ("space" as const),
 		category: input.view,
 		unreadOnly: input.view !== "todo" && input.unreadOnly === true,
 		agentsOnly: input.agentsOnly ?? false,
@@ -329,6 +330,82 @@ export function InboxPage(input: {
 		setAnnouncement(`${item.title} deferred for one hour on this device.`);
 	};
 	const confirmationLabel = markReadLabel(confirmation?.unreadCount ?? null);
+	const workspaceLabel = currentOrganization.isPersonal
+		? "Personal workspace"
+		: currentOrganization.name;
+	const renderToolbar = () => {
+		if (isTodo) {
+			return null;
+		}
+		return (
+			<div className="flex min-w-0 flex-col gap-3">
+				<div className="flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-3">
+					<TabsSubtle
+						className="w-fit max-w-full"
+						idPrefix="inbox-view"
+						onSelect={(index) => {
+							const tab = INBOX_TABS[index];
+							if (tab && tab.view !== input.view) {
+								input.onViewChange(tab.view);
+							}
+						}}
+						selectedIndex={selectedIndex}
+					>
+						{INBOX_TABS.map((tab, index) => (
+							<TabsSubtleItem index={index} key={tab.view} label={tab.label} />
+						))}
+					</TabsSubtle>
+
+					<label
+						className="ml-auto flex shrink-0 cursor-pointer items-center gap-2 text-muted-foreground text-sm"
+						htmlFor="inbox-unread-only"
+					>
+						<Switch
+							checked={filters.unreadOnly}
+							id="inbox-unread-only"
+							onCheckedChange={(value) => input.onUnreadOnlyChange?.(value)}
+						/>
+						Unread only
+					</label>
+				</div>
+				<div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
+					<div className="flex flex-wrap items-center gap-2">
+						<InboxFilterMenu
+							filters={filters}
+							onChange={input.onFiltersChange}
+						/>
+						<MessageSearchButton enabled={input.searchEnabled} scope="inbox" />
+					</div>
+					<InboxExpansionAction expansion={expansion} rows={rows} />
+				</div>
+			</div>
+		);
+	};
+	const renderLegacyFeed = () => {
+		if (isTodo || !firstPage || visibleRows.length === 0) {
+			return null;
+		}
+		return (
+			<InboxFeedView
+				accountId={currentUserId}
+				expansion={expansion}
+				filters={filters}
+				isMutating={selectionPending}
+				onDefer={deferTodo}
+				onDismiss={requestRemoval}
+				onOpenItem={openItem}
+				onSelection={requestSelection}
+				onSetRead={setRead}
+				organizationId={currentOrganization.id}
+				organizationSlug={currentOrganization.slug}
+				refreshWarningShown={savedViewNotice === "failed"}
+				rows={visibleRows}
+				sectionAction={selectionAction}
+				snapshotExpired={snapshotExpired}
+				snapshotId={firstPage.snapshotId}
+			/>
+		);
+	};
 	const renderFeedPanel = () => {
 		const githubPreventsEmpty =
 			isTodo &&
@@ -343,169 +420,118 @@ export function InboxPage(input: {
 			!sourceItem &&
 			!feed.hasNextPage;
 		return (
-			<TabsSubtlePanel
-				idPrefix="inbox-view"
-				index={selectedIndex}
-				selectedIndex={selectedIndex}
-			>
-				<div className="flex min-w-0 flex-col gap-4">
-					{isTodo ? <InboxGitHubIssues query={githubIssues} /> : null}
-					{feed.isPending ? <InboxListSkeleton /> : null}
-					{feed.isError && !feed.data ? (
-						<InboxInitialError onRetry={() => feed.refetch()} />
-					) : null}
-					{firstPage && visibleRows.length > 0 ? (
-						<InboxFeedView
-							accountId={currentUserId}
-							expansion={expansion}
-							filters={filters}
-							isMutating={selectionPending}
-							onDefer={deferTodo}
-							onDismiss={requestRemoval}
-							onOpenItem={openItem}
-							onSelection={requestSelection}
-							onSetRead={setRead}
-							organizationId={currentOrganization.id}
-							organizationSlug={currentOrganization.slug}
-							refreshWarningShown={savedViewNotice === "failed"}
-							rows={visibleRows}
-							sectionAction={isTodo ? null : selectionAction}
-							snapshotExpired={snapshotExpired}
-							snapshotId={firstPage.snapshotId}
-						/>
-					) : null}
-					{showEmpty ? (
-						<InboxEmptyState
-							deferred={deferredCount > 0}
-							filtered={hasFilters}
-							unreadOnly={filters.unreadOnly}
-							view={input.view}
-						/>
-					) : null}
-					{loadMoreState ? (
-						<InboxInfiniteScrollTrigger
-							onLoadMore={async () => {
-								if (!feed.isFetching) {
-									await feed.fetchNextPage();
-								}
-							}}
-							state={loadMoreState}
-						/>
-					) : null}
-				</div>
-			</TabsSubtlePanel>
+			<div className="flex min-w-0 flex-col gap-4">
+				{isTodo ? <InboxGitHubNotice query={githubIssues} /> : null}
+				{feed.isPending ? <InboxListSkeleton /> : null}
+				{feed.isError && !feed.data ? (
+					<InboxInitialError onRetry={() => feed.refetch()} />
+				) : null}
+				{isTodo ? (
+					<InboxTodoList
+						github={githubIssues}
+						onDefer={deferTodo}
+						onIgnore={requestRemoval}
+						onOpen={openItem}
+						onSetRead={setRead}
+						organizationSlug={currentOrganization.slug}
+						rows={visibleRows}
+					/>
+				) : null}
+				{renderLegacyFeed()}
+				{showEmpty ? (
+					<InboxEmptyState
+						deferred={deferredCount > 0}
+						filtered={hasFilters}
+						unreadOnly={filters.unreadOnly}
+						view={input.view}
+					/>
+				) : null}
+				{loadMoreState ? (
+					<InboxInfiniteScrollTrigger
+						onLoadMore={async () => {
+							if (!feed.isFetching) {
+								await feed.fetchNextPage();
+							}
+						}}
+						state={loadMoreState}
+					/>
+				) : null}
+			</div>
 		);
 	};
+	const renderDeepLink = () => (
+		<>
+			{input.requestId ? (
+				<section
+					aria-label="Invitation request"
+					className="rounded-md border border-border/70 p-4"
+				>
+					<InvitationReview requestId={input.requestId} />
+					<Link
+						className="mt-3 inline-block text-muted-foreground text-xs hover:underline"
+						params={{ orgSlug: currentOrganization.slug }}
+						search={{}}
+						to="/o/$orgSlug/inbox"
+					>
+						Back to TODO
+					</Link>
+				</section>
+			) : null}
+			{sourceItem ? (
+				<section aria-label="Selected update" className="min-w-0">
+					<h2 className="mb-2 text-muted-foreground text-xs">
+						Selected update
+					</h2>
+					<InboxItemsList
+						focusedItemId={sourceItem.id}
+						items={[sourceItem]}
+						onDismiss={requestRemoval}
+						onOpenItem={openItem}
+						onSetRead={setRead}
+						organizationSlug={currentOrganization.slug}
+						registerItemElement={registerItem}
+					/>
+					<InboxSourceDetails target={sourceItem.sourceTarget} />
+				</section>
+			) : null}
+			{input.itemId && deepLink.isPending ? <InboxListSkeleton /> : null}
+			{deepLink.error?.status === 404 ? (
+				<output className="rounded-md border border-border/70 bg-muted/40 px-3 py-2 text-muted-foreground text-sm">
+					This Inbox item isn’t available. It may have been removed or you may
+					no longer have access.
+				</output>
+			) : null}
+			{deepLink.isError && deepLink.error.status !== 404 ? (
+				<InboxItemLookupWarning onRetry={() => deepLink.refetch()} />
+			) : null}
+		</>
+	);
 	return (
 		<div className="flex min-w-0 flex-col gap-6">
 			<AppPageHeader
-				description="See what needs you, without sorting through updates."
-				eyebrow={
-					currentOrganization.isPersonal
-						? "Personal workspace"
-						: currentOrganization.name
-				}
+				description={isTodo ? undefined : "Updates, actions, and reviews."}
+				eyebrow={isTodo ? undefined : workspaceLabel}
 				id="inbox-heading"
-				title="Inbox"
+				title={isTodo ? "TODO" : "Inbox"}
 			/>
 			<div className="flex min-w-0 flex-col gap-4">
-				<div className="flex min-w-0 flex-col gap-3">
-					<div className="flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-3">
-						<TabsSubtle
-							className="w-fit max-w-full"
-							idPrefix="inbox-view"
-							onSelect={(index) => {
-								const tab = INBOX_TABS[index];
-								if (tab && tab.view !== input.view) {
-									input.onViewChange(tab.view);
-								}
-							}}
-							selectedIndex={selectedIndex}
-						>
-							{INBOX_TABS.map((tab, index) => (
-								<TabsSubtleItem
-									index={index}
-									key={tab.view}
-									label={tab.label}
-								/>
-							))}
-						</TabsSubtle>
-						{isTodo ? null : (
-							<label
-								className="ml-auto flex shrink-0 cursor-pointer items-center gap-2 text-muted-foreground text-sm"
-								htmlFor="inbox-unread-only"
-							>
-								<Switch
-									checked={filters.unreadOnly}
-									id="inbox-unread-only"
-									onCheckedChange={(value) => input.onUnreadOnlyChange?.(value)}
-								/>
-								Unread only
-							</label>
-						)}
-					</div>
-					<div className="flex min-h-8 flex-wrap items-center justify-between gap-3">
-						<div className="flex flex-wrap items-center gap-2">
-							<InboxFilterMenu
-								filters={filters}
-								onChange={input.onFiltersChange}
-							/>
-							<MessageSearchButton
-								enabled={input.searchEnabled}
-								scope="inbox"
-							/>
-						</div>
-						<InboxExpansionAction expansion={expansion} rows={rows} />
-					</div>
-				</div>
-				{input.requestId ? (
-					<section
-						aria-label="Invitation request"
-						className="rounded-md border border-border/70 p-4"
-					>
-						<InvitationReview requestId={input.requestId} />
-						<Link
-							className="mt-3 inline-block text-muted-foreground text-xs hover:underline"
-							params={{ orgSlug: currentOrganization.slug }}
-							search={{ view: "needs-review" }}
-							to="/o/$orgSlug/inbox"
-						>
-							Back to reviews
-						</Link>
-					</section>
-				) : null}
-				{sourceItem ? (
-					<section aria-label="Selected update" className="min-w-0">
-						<h2 className="mb-2 text-muted-foreground text-xs">
-							Selected update
-						</h2>
-						<InboxItemsList
-							focusedItemId={sourceItem.id}
-							items={[sourceItem]}
-							onDismiss={requestRemoval}
-							onOpenItem={openItem}
-							onSetRead={setRead}
-							organizationSlug={currentOrganization.slug}
-							registerItemElement={registerItem}
-						/>
-						<InboxSourceDetails target={sourceItem.sourceTarget} />
-					</section>
-				) : null}
-				{input.itemId && deepLink.isPending ? <InboxListSkeleton /> : null}
-				{deepLink.error?.status === 404 ? (
-					<output className="rounded-md border border-border/70 bg-muted/40 px-3 py-2 text-muted-foreground text-sm">
-						This Inbox item isn’t available. It may have been removed or you may
-						no longer have access.
-					</output>
-				) : null}
-				{deepLink.isError && deepLink.error.status !== 404 ? (
-					<InboxItemLookupWarning onRetry={() => deepLink.refetch()} />
-				) : null}
+				{renderToolbar()}
+				{renderDeepLink()}
 				<InboxSavedViewNotice
 					kind={savedViewNotice}
 					onRefresh={() => feed.refetch()}
 				/>
-				{renderFeedPanel()}
+				{isTodo ? (
+					renderFeedPanel()
+				) : (
+					<TabsSubtlePanel
+						idPrefix="inbox-view"
+						index={selectedIndex}
+						selectedIndex={selectedIndex}
+					>
+						{renderFeedPanel()}
+					</TabsSubtlePanel>
+				)}
 			</div>
 			{removalDialog}
 			<AlertDialog

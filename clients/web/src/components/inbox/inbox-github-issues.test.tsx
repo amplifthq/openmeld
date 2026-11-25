@@ -11,7 +11,10 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { InboxGitHubIssues, useInboxGitHubIssues } from "./inbox-github-issues";
+import {
+	InboxGitHubTodoRow,
+	useInboxGitHubIssues,
+} from "./inbox-github-issues";
 
 const mocks = vi.hoisted(() => ({ list: vi.fn() }));
 vi.mock("#/lib/organizations/inbox-github-issues", () => ({
@@ -51,7 +54,18 @@ function githubResult(issues: InboxGitHubIssue[]): InboxGitHubIssuesResponse {
 
 function TodoGitHubPanel() {
 	const query = useInboxGitHubIssues({ enabled: true });
-	return <InboxGitHubIssues query={query} />;
+	return (
+		<>
+			<button onClick={() => query.refetch()} type="button">
+				Refetch
+			</button>
+			<ul>
+				{query.visibleIssues.map((issue) => (
+					<InboxGitHubTodoRow issue={issue} key={issue.id} query={query} />
+				))}
+			</ul>
+		</>
+	);
 }
 
 function renderPanel() {
@@ -76,11 +90,11 @@ describe("GitHub assignments in To do", () => {
 			.mockResolvedValueOnce(githubResult([]));
 		renderPanel();
 		const handoff = await screen.findByRole("link", {
-			name: "Reassign or close in GitHub",
+			name: `Open: ${assignment.title}`,
 		});
 		expect(handoff.getAttribute("href")).toBe(assignment.url);
 		expect(screen.getByText(sourceLabel)).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Refresh GitHub" }));
+		fireEvent.click(screen.getByRole("button", { name: "Refetch" }));
 		await waitFor(() =>
 			expect(screen.queryByText(assignment.title)).toBeNull()
 		);
@@ -91,7 +105,9 @@ describe("GitHub assignments in To do", () => {
 		mocks.list.mockResolvedValue(githubResult([assignment]));
 		const first = renderPanel();
 		await screen.findByText(assignment.title);
-		fireEvent.click(screen.getByRole("button", { name: "Ignore" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: `Ignore: ${assignment.title}` })
+		);
 		expect(screen.queryByText(assignment.title)).toBeNull();
 		expect(mocks.list).toHaveBeenCalledOnce();
 		first.unmount();

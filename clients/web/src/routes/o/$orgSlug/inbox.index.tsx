@@ -1,14 +1,6 @@
-import type {
-	InboxFeedCategory,
-	InboxFeedQuery,
-} from "@openmeld/schemas/types";
+import type { InboxFeedQuery } from "@openmeld/schemas/types";
 import { createFileRoute } from "@tanstack/react-router";
-import {
-	parseAsBoolean,
-	parseAsString,
-	parseAsStringLiteral,
-	useQueryStates,
-} from "nuqs";
+import { parseAsString, useQueryStates } from "nuqs";
 import { InboxAvatarProvider } from "#/components/inbox/inbox-avatars";
 import { InboxPage } from "#/components/inbox/inbox-page";
 import { prefetchInboxRouteData } from "#/lib/organizations/app-route-prefetch";
@@ -59,14 +51,12 @@ export const Route = createFileRoute("/o/$orgSlug/inbox/")({
 					: undefined,
 		};
 	},
-	loaderDeps: ({ search }) => ({
-		grouping: "space" as const,
-		category: parseInboxRouteView(search.view),
-		unreadOnly:
-			parseInboxRouteView(search.view) !== "todo" && search.unread === true,
-		agentsOnly: search.agents === true,
-		peopleOnly: search.people === true,
-		conversationType: search.conversation ?? "all",
+	loaderDeps: () => ({
+		category: "todo" as const,
+		unreadOnly: false,
+		agentsOnly: false,
+		peopleOnly: false,
+		conversationType: "all" as const,
 	}),
 	loader: ({ context, params, location, deps }) => {
 		prefetchInboxRouteData({
@@ -83,79 +73,26 @@ export const Route = createFileRoute("/o/$orgSlug/inbox/")({
 });
 
 function InboxIndexRoute() {
-	// Read the same immediate URL state that the controls update. Router search
-	// can lag behind while unrelated route loaders are still in flight.
 	const [search, setSearch] = useQueryStates({
-		// Keep the legacy view=unread spelling readable; category validation below
-		// still uses the canonical Inbox view parser.
-		view: parseAsString
-			.withDefault("todo")
-			.withOptions({ history: "push", scroll: false }),
-		unread: parseAsBoolean.withDefault(false),
-		agents: parseAsBoolean.withDefault(false),
-		people: parseAsBoolean.withDefault(false),
-		conversation: parseAsStringLiteral([
-			"all",
-			"direct_messages",
-			"spaces",
-		]).withDefault("all"),
 		item: parseAsString,
 		requestId: parseAsString,
 	});
-	const view =
-		search.view === "unread" ? "all" : resolveInboxRouteView(search.view);
-	const unreadOnly = search.unread || search.view === "unread";
 	const itemId = resolveInboxItemId(search.item);
 	return (
 		<InboxAvatarProvider>
 			<InboxPage
-				agentsOnly={search.agents === true}
-				conversationType={search.conversation}
 				itemId={itemId}
-				onFiltersChange={({ agentsOnly, peopleOnly, conversationType }) => {
-					setSearch(
-						{
-							item: null,
-							requestId: null,
-							agents: agentsOnly,
-							people: peopleOnly,
-							conversation: conversationType,
-						},
-						{ history: "replace", scroll: false }
-					);
-				}}
 				onItemDismissed={(dismissedItemId) => {
-					if (itemId !== dismissedItemId) {
-						return;
+					if (itemId === dismissedItemId) {
+						setSearch(
+							{ item: null, requestId: null },
+							{ history: "replace", scroll: false }
+						);
 					}
-					setSearch(
-						{ item: null, requestId: null },
-						{ history: "replace", scroll: false }
-					);
 				}}
-				onUnreadOnlyChange={(unreadOnly) => {
-					setSearch(
-						{
-							view: view ?? "todo",
-							item: null,
-							requestId: null,
-							unread: unreadOnly,
-						},
-						{ history: "replace", scroll: false }
-					);
-				}}
-				onViewChange={(view) => {
-					setSearch({
-						view: buildInboxRouteView(view),
-						unread: view !== "todo" && unreadOnly,
-						item: null,
-						requestId: null,
-					});
-				}}
-				peopleOnly={!search.agents && search.people}
+				onViewChange={() => undefined}
 				requestId={resolveInboxItemId(search.requestId)}
-				unreadOnly={unreadOnly}
-				view={parseInboxRouteView(view)}
+				view="todo"
 			/>
 		</InboxAvatarProvider>
 	);
@@ -175,17 +112,4 @@ function resolveInboxItemId(value: unknown): string | undefined {
 	return normalized.length > 0 && normalized.length <= 256
 		? normalized
 		: undefined;
-}
-
-function parseInboxRouteView(
-	view: InboxRouteView | undefined
-): InboxFeedCategory {
-	if (view === "needs-review") {
-		return "needs_review";
-	}
-	return view === "needs-action" ? "needs_action" : (view ?? "todo");
-}
-
-function buildInboxRouteView(view: InboxFeedCategory): InboxRouteView {
-	return view.replace("_", "-") as InboxRouteView;
 }

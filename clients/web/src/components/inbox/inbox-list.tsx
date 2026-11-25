@@ -259,7 +259,7 @@ export function InboxItemRow(input: InboxItemRowProps) {
 					<SharedLayoutItem
 						className={cn(
 							"group/inbox-row relative transition-colors motion-reduce:transition-none",
-							unread && "bg-foreground/[0.025]",
+							!input.todo && unread && "bg-foreground/[0.025]",
 							input.focused && "bg-muted/50"
 						)}
 						data-inbox-focused={input.focused ? "true" : undefined}
@@ -308,7 +308,7 @@ export function InboxItemRow(input: InboxItemRowProps) {
 											{input.titleOverride ?? item.title}
 										</span>
 										{unread ? <span className="sr-only">Unread.</span> : null}
-										<InboxItemBadges item={item} />
+										{input.todo ? null : <InboxItemBadges item={item} />}
 										{inlineInvitation ? (
 											<span className="text-muted-foreground text-xs">
 												<InboxTimestamp occurredAt={item.occurredAt} />
@@ -318,7 +318,7 @@ export function InboxItemRow(input: InboxItemRowProps) {
 									<span
 										className={cn(
 											"mt-1 line-clamp-2 break-words text-muted-foreground text-sm leading-5",
-											inlineInvitation && "hidden",
+											(inlineInvitation || input.todo) && "hidden",
 											densityStyles.preview
 										)}
 									>
@@ -640,7 +640,6 @@ function InboxRowMetadata({
 			) : null}
 			<InboxTimestamp
 				occurredAt={feedRow?.latestOccurredAt ?? item.occurredAt}
-				waiting={todo}
 			/>
 			{feedRow && feedRow.itemCount > 1 ? (
 				<>

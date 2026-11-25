@@ -429,7 +429,7 @@ function InboxFeedItem(input: FeedViewProps & { row: InboxFeedRow }) {
 	);
 }
 
-function InboxTodoActions({
+export function InboxTodoActions({
 	item,
 	onDefer,
 	onIgnore,
@@ -443,7 +443,7 @@ function InboxTodoActions({
 	return (
 		<div className="flex flex-wrap items-center gap-1">
 			<Button onClick={onOpen} size="sm" variant="secondary">
-				Open to complete
+				Open
 			</Button>
 			<Button
 				aria-label={`Later: ${item.title}`}
