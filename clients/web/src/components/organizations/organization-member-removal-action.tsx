@@ -16,13 +16,22 @@ import {
 } from "@openmeld/ui/components/alert-dialog";
 import { Button } from "@openmeld/ui/components/button";
 import {
+	DropdownMenu,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
+import {
 	Select,
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
+import { DotsThreeIcon } from "@phosphor-icons/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { removeOrganizationMember } from "#/lib/organizations/auth-organizations";
 import {
 	prepareOrganizationMemberRemoval,
@@ -48,10 +57,12 @@ export function OrganizationMemberRemovalAction(input: {
 	onRemoved?: () => void;
 	onStarted?: () => void;
 	organizationId: string;
+	presentation?: "menu";
 	variant?: "outline" | "destructive";
 }) {
 	const queryClient = useQueryClient();
 	const [open, setOpen] = useState(false);
+	const menuTrigger = useRef<HTMLButtonElement>(null);
 	const [selectedSuccessorUserId, setSelectedSuccessorUserId] = useState<
 		string | null
 	>(null);
@@ -151,26 +162,57 @@ export function OrganizationMemberRemovalAction(input: {
 		(member) => member.userId === successorUserId
 	);
 
+	const startReview = () => {
+		input.onStarted?.();
+		removeMutation.reset();
+		input.onError(null);
+		setSelectedSuccessorUserId(null);
+		removalPreview.reset();
+		removalPreview.mutate();
+		setOpen(true);
+	};
+	const actionDisabled = input.disabled || removeMutation.isPending;
+
 	return (
 		<>
-			<Button
-				aria-label={`Remove ${memberName}`}
-				disabled={input.disabled || removeMutation.isPending}
-				onClick={() => {
-					input.onStarted?.();
-					removeMutation.reset();
-					input.onError(null);
-					setSelectedSuccessorUserId(null);
-					removalPreview.reset();
-					removalPreview.mutate();
-					setOpen(true);
-				}}
-				size="sm"
-				type="button"
-				variant={input.variant ?? "destructive"}
-			>
-				{input.label ?? "Remove"}
-			</Button>
+			{input.presentation === "menu" ? (
+				<DropdownMenu>
+					<DropdownMenuTrigger
+						render={
+							<Button
+								aria-label={`More actions for ${memberName}`}
+								disabled={actionDisabled}
+								ref={menuTrigger}
+								size="icon-sm"
+								type="button"
+								variant="ghost"
+							>
+								<DotsThreeIcon aria-hidden="true" />
+							</Button>
+						}
+					/>
+					<FluidDropdownMenuContent align="end">
+						<FluidDropdownMenuItem
+							index={0}
+							onClick={startReview}
+							variant="destructive"
+						>
+							{input.label ?? "Remove member"}
+						</FluidDropdownMenuItem>
+					</FluidDropdownMenuContent>
+				</DropdownMenu>
+			) : (
+				<Button
+					aria-label={`Remove ${memberName}`}
+					disabled={actionDisabled}
+					onClick={startReview}
+					size="sm"
+					type="button"
+					variant={input.variant ?? "destructive"}
+				>
+					{input.label ?? "Remove"}
+				</Button>
+			)}
 			<AlertDialog
 				onOpenChange={(open) => {
 					if (!removeMutation.isPending) {
@@ -182,7 +224,10 @@ export function OrganizationMemberRemovalAction(input: {
 				}}
 				open={open}
 			>
-				<AlertDialogContent className="max-h-[85dvh] overflow-y-auto">
+				<AlertDialogContent
+					className="max-h-[85dvh] overflow-y-auto"
+					finalFocus={input.presentation === "menu" ? menuTrigger : undefined}
+				>
 					<AlertDialogHeader>
 						<AlertDialogTitle>Remove {memberName}?</AlertDialogTitle>
 						<AlertDialogDescription>

@@ -64,6 +64,16 @@ function renderAction(
 	);
 }
 
+async function openMemberRemoval() {
+	const more = screen.getByRole("button", {
+		name: "More actions for Casey Fixture",
+	});
+	fireEvent.click(more);
+	fireEvent.click(
+		await screen.findByRole("menuitem", { name: "Remove member" })
+	);
+}
+
 afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
@@ -80,7 +90,7 @@ it.each([
 	});
 	mocks.remove.mockResolvedValue(undefined);
 	renderAction(role);
-	fireEvent.click(screen.getByRole("button", { name: "Remove Casey Fixture" }));
+	await openMemberRemoval();
 	const dialog = await screen.findByRole("alertdialog", {
 		name: "Remove Casey Fixture?",
 	});
@@ -119,7 +129,7 @@ it.each([
 }) => {
 	renderAction(role, user, target);
 	expect(
-		screen.queryByRole("button", { name: "Remove Casey Fixture" })
+		screen.queryByRole("button", { name: "More actions for Casey Fixture" })
 	).toBeNull();
 	expect(mocks.preview).not.toHaveBeenCalled();
 	expect(mocks.remove).not.toHaveBeenCalled();
@@ -128,7 +138,7 @@ it.each([
 it("does not remove the member when preview is denied", async () => {
 	mocks.preview.mockRejectedValue(new Error("Not permitted"));
 	renderAction("admin");
-	fireEvent.click(screen.getByRole("button", { name: "Remove Casey Fixture" }));
+	await openMemberRemoval();
 	const dialog = await screen.findByRole("alertdialog");
 	expect((await within(dialog).findByRole("alert")).textContent).toContain(
 		"Not permitted"
@@ -162,7 +172,7 @@ it("reviews the configured recipient before preparing transfer and removing the 
 	mocks.prepare.mockResolvedValue({ prepared: true });
 	mocks.remove.mockResolvedValue(undefined);
 	renderAction("admin");
-	fireEvent.click(screen.getByRole("button", { name: "Remove Casey Fixture" }));
+	await openMemberRemoval();
 	const dialog = await screen.findByRole("alertdialog");
 	expect(await within(dialog).findByText(DEFAULT_RECIPIENT_COPY)).toBeTruthy();
 	expect(within(dialog).queryByText(EXPLICIT_PRIVATE_ACCESS_COPY)).toBeNull();
@@ -195,7 +205,7 @@ it("requires an explicit choice when Core did not offer the organization default
 		spaces: [sharedSpaceTransfer],
 	});
 	renderAction("owner");
-	fireEvent.click(screen.getByRole("button", { name: "Remove Casey Fixture" }));
+	await openMemberRemoval();
 	const dialog = await screen.findByRole("alertdialog");
 	expect(
 		await within(dialog).findByText(EXPLICIT_PRIVATE_ACCESS_COPY)
@@ -217,7 +227,7 @@ it("does not remove the member if the reviewed default is no longer eligible", a
 	});
 	mocks.prepare.mockRejectedValue(new Error("Space ownership changed."));
 	renderAction("admin");
-	fireEvent.click(screen.getByRole("button", { name: "Remove Casey Fixture" }));
+	await openMemberRemoval();
 	const dialog = await screen.findByRole("alertdialog");
 	await within(dialog).findByText(DEFAULT_RECIPIENT_COPY);
 	fireEvent.click(

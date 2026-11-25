@@ -56,7 +56,7 @@ export function DirectoryMemberRemoval(input: {
 				});
 			}}
 			organizationId={input.organization.id}
-			variant="outline"
+			presentation="menu"
 		/>
 	);
 }
