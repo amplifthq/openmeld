@@ -19,7 +19,9 @@ import type {
   SpaceTaskPhase,
   SpaceTaskResponse,
 } from "@openmeld/schemas/types";
+import type { GitHubPullRequestHeadEvidence } from "../infrastructure/postgresql/github-app-webhook-delivery-repo";
 import type { SpaceTaskRepository } from "../infrastructure/sql/space-task-repo";
+import { resolveGitHubPullRequestHead } from "./space-task-pull-request-observation";
 import {
   applyGitHubIssueProviderObservation,
   mutateSpaceTask,
@@ -49,6 +51,23 @@ export type ApplyGitHubIssueObservationResult = {
   task: SpaceTask | null;
 };
 
+export type ApplyGitHubPullRequestObservationInput = {
+  identity: {
+    number: number;
+    owner: string;
+    repo: string;
+  };
+
+  spaceId: string;
+  taskId: string;
+};
+
+export type ApplyGitHubPullRequestObservationResult = {
+  updated: boolean;
+  skipReason: "pending" | "not_found" | "not_linked" | "stale" | null;
+  task: SpaceTask | null;
+};
+
 export type CreateSpaceTaskContext = SpaceTaskMutationContext & {
   requestedBy: SpaceTaskActor;
 };
@@ -60,8 +79,10 @@ export type SpaceTaskRepositoryPort = Pick<
   | "listEvents"
   | "listTasks"
   | "readOperation"
+  | "readPullRequestCursor"
   | "readTask"
   | "recordOperation"
+  | "recordPullRequestCursor"
   | "updateTask"
 >;
 
@@ -231,6 +252,18 @@ export class SpaceTaskService {
           status: 404,
         });
       }
+      if (
+        body.action === "review" &&
+        current.pullRequest &&
+        this.input.repository.readPullRequestCursor(taskId)?.pending
+      ) {
+        throw new SpaceTaskWorkflowError({
+          code: "space_task.result_revision_conflict",
+          status: 409,
+          message:
+            "GitHub reported conflicting heads. Refresh the Task after the latest commit is confirmed.",
+        });
+      }
       const transition = mutateSpaceTask({
         task: current,
         command: body,
@@ -251,6 +284,19 @@ export class SpaceTaskService {
         applied: true,
       });
       this.input.repository.updateTask(transition.task, current.revision);
+      if (body.action === "submit_result" && body.pullRequest) {
+        const previousObservation = isLinkedPullRequest(
+          current.pullRequest,
+          body.pullRequest
+        )
+          ? this.input.repository.readPullRequestCursor(taskId)
+          : undefined;
+        this.input.repository.recordPullRequestCursor(taskId, {
+          observedAtMs: previousObservation?.observedAtMs ?? 0,
+          evidenceCount: 0,
+          pending: false,
+        });
+      }
       this.input.repository.appendEvent(event);
       this.input.repository.recordOperation({
         operationId: body.operationId,
@@ -345,6 +391,121 @@ export class SpaceTaskService {
     });
   }
 
+  applyGitHubPullRequestObservation(
+    input: Omit<ApplyGitHubPullRequestObservationInput, "spaceId"> & {
+      observedAtMs: number;
+      heads: readonly GitHubPullRequestHeadEvidence[];
+      priorHeadSha?: string | null;
+      earlierShas?: ReadonlySet<string>;
+      evidenceCount?: number;
+    }
+  ): ApplyGitHubPullRequestObservationResult {
+    return this.input.runTransaction(() => {
+      const current = this.input.repository.readTask(input.taskId);
+      if (!current) {
+        return { updated: false, skipReason: "not_found", task: null };
+      }
+      const pr = current.pullRequest;
+      if (!isLinkedPullRequest(pr, input.identity)) {
+        return { updated: false, skipReason: "not_linked", task: current };
+      }
+      const resolution = this.resolvePullRequestSnapshot(input, pr.headSha);
+      if ("skipReason" in resolution) {
+        return {
+          updated: false,
+          skipReason: resolution.skipReason,
+          task: current,
+        };
+      }
+      const { headSha } = resolution;
+      const observeOperationId = `github-pr:${pr.owner.toLowerCase()}:${pr.repo.toLowerCase()}:${pr.number}:${input.taskId}:${input.observedAtMs}:${input.heads.length}:${current.revision}`;
+      if (pr.headSha === headSha) {
+        return { updated: false, skipReason: "stale", task: current };
+      }
+      const now = new Date().toISOString();
+      const needsReverification =
+        current.phase === "done" && current.review?.decision === "accepted";
+      const next: SpaceTask = {
+        ...current,
+        pullRequest: { ...pr, headSha },
+        phase: needsReverification ? "in_review" : current.phase,
+        updatedAt: now,
+        revision: current.revision + 1,
+        review: needsReverification ? null : current.review,
+      };
+      const event: SpaceTaskEvent = this.buildEvent({
+        task: next,
+        operationId: observeOperationId,
+        type: "pull_request_head_changed",
+        actor: { provider: "github" },
+        fromPhase: current.phase,
+        detail: needsReverification
+          ? `Pull request head changed; re-verification required for ${pr.owner}/${pr.repo}#${pr.number} (${headSha.slice(0, 7)}).`
+          : `Pull request head observed: ${pr.owner}/${pr.repo}#${pr.number} (${headSha.slice(0, 7)}).`,
+      });
+      this.input.repository.updateTask(next, current.revision);
+      this.input.repository.appendEvent(event);
+      this.input.repository.recordOperation({
+        operationId: observeOperationId,
+        requestJson: JSON.stringify({
+          body: {
+            headSha,
+            number: input.identity.number,
+            owner: input.identity.owner,
+            repo: input.identity.repo,
+          },
+          kind: "github_pr_observe",
+          taskId: input.taskId,
+        }),
+        receipt: { applied: true, task: next, event },
+      });
+      this.input.onMutation?.({ applied: true, task: next, event }, current);
+      return { updated: true, skipReason: null, task: next };
+    });
+  }
+
+  private resolvePullRequestSnapshot(
+    input: {
+      taskId: string;
+      observedAtMs: number;
+      heads: readonly GitHubPullRequestHeadEvidence[];
+      priorHeadSha?: string | null;
+      earlierShas?: ReadonlySet<string>;
+      evidenceCount?: number;
+    },
+    currentHead: string
+  ): { headSha: string } | { skipReason: "pending" | "stale" } {
+    const cursor = this.input.repository.readPullRequestCursor(input.taskId);
+    const lastTime = cursor?.observedAtMs ?? 0;
+    const evidenceCount = input.evidenceCount ?? input.heads.length;
+    if (
+      input.observedAtMs < lastTime ||
+      (input.observedAtMs === lastTime &&
+        evidenceCount <= (cursor?.evidenceCount ?? 0))
+    ) {
+      return { skipReason: cursor?.pending ? "pending" : "stale" };
+    }
+    const anchored =
+      (cursor?.evidenceCount && !cursor.pending) ||
+      input.earlierShas?.has(currentHead) ||
+      input.heads.some(
+        (h) => h.headSha === currentHead || h.beforeSha === currentHead
+      );
+    const headSha = anchored
+      ? resolveGitHubPullRequestHead(input.heads, input.priorHeadSha ?? null)
+      : null;
+    this.input.repository.recordPullRequestCursor(input.taskId, {
+      observedAtMs: input.observedAtMs,
+      evidenceCount,
+      pending: headSha === null,
+    });
+    if (!headSha) {
+      return { skipReason: "pending" };
+    }
+
+    return { headSha };
+  }
+
   private requireActiveMember(
     context: SpaceTaskMutationContext,
     profileId: string
@@ -405,4 +566,16 @@ export class SpaceTaskService {
       createdAt: input.task.updatedAt,
     });
   }
+}
+
+function isLinkedPullRequest(
+  pr: SpaceTask["pullRequest"],
+  identity: ApplyGitHubPullRequestObservationInput["identity"]
+): pr is NonNullable<SpaceTask["pullRequest"]> {
+  return (
+    !!pr &&
+    pr.number === identity.number &&
+    pr.owner.toLowerCase() === identity.owner.toLowerCase() &&
+    pr.repo.toLowerCase() === identity.repo.toLowerCase()
+  );
 }

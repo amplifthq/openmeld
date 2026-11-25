@@ -1,11 +1,11 @@
 {
-  "version": "0.3.292",
+  "version": "0.3.297",
   "cli": {
     "updatePolicy": "available",
-    "reason": "Packages diagnostic correlation for Computer controls. Existing CLI commands, output and setup remain compatible."
+    "reason": "Checks the selected Cursor CLI on macOS without opening Keychain authorization dialogs."
   },
   "service": {
     "updatePolicy": "available",
-    "reason": "Records the receipt, local execution and return of Computer controls using the existing frame request ID. Existing Services and Core versions can interoperate through the same transport."
+    "reason": "Keeps background Cursor sign-in and installation checks noninteractive and cleans up their child processes."
   }
 }

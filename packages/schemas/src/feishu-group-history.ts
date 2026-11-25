@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { channelContextSchema } from "./schemas/runtime/channel-context";
 
 const providerId = z.string().trim().min(1).max(512);

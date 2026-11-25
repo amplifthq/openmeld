@@ -15,6 +15,7 @@ export {
 } from "./ai-usage";
 export {
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  SERVICE_PREVIOUS_CONNECTION_ID_HEADER,
   serviceConnectionDiagnosticIdSchema,
 } from "./daemon/service-connection-correlation";
 export {
@@ -2984,6 +2985,7 @@ export {
   spaceTaskIdSchema,
   spaceTaskMutationReceiptSchema,
   spaceTaskPhaseSchema,
+  spaceTaskPullRequestSchema,
   spaceTaskRequesterRepresentationSchema,
   spaceTaskResponseSchema,
   spaceTaskResultSchema,
@@ -3069,6 +3071,7 @@ export {
 } from "./http/worker-health";
 export {
   findOpenMeldToolsUpdateFailureCode,
+  findOpenMeldToolsUpdateStep,
   formatLocalComponentsSummaryDescription,
   formatLocalComponentsSummaryLabel,
   formatLocalSetupActionDescription,
@@ -3096,18 +3099,21 @@ export {
   localSkillsComponentProjectionSchema,
   localSkillsComponentUpdateProjectionSchema,
   OPEN_MELD_TOOLS_UPDATE_FAILURE_DETAIL_MAX_CHARS,
+  type OpenMeldToolsUpdateStep,
   openMeldToolsControlCapabilitySchema,
   openMeldToolsControlRequestSchema,
   openMeldToolsControlResultSchema,
   openMeldToolsMaintenanceMutationResultSchema,
   openMeldToolsMaintenanceProjectionSchema,
   openMeldToolsUpdateAttemptSchema,
+  openMeldToolsUpdateCheckpointSchema,
   openMeldToolsUpdateFailureCodeSchema,
   openMeldToolsUpdateOperationPhaseSchema,
   openMeldToolsUpdateOperationSchema,
   openMeldToolsUpdateProcessFailureFrameSchema,
   openMeldToolsUpdateRequestResultSchema,
   openMeldToolsUpdateRequestSourceSchema,
+  openMeldToolsUpdateStepCode,
   resolveOpenMeldToolsUpdateTargetVersions,
 } from "./local-components";
 export {
@@ -3525,6 +3531,7 @@ export {
   REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS,
   readGitHubAppWebhookIssueObservation,
+  readGitHubAppWebhookPullRequestObservation,
   remoteAgentAdmissionAttemptEvidenceSchema,
   remoteAgentAdmissionStageOperationSchema,
   remoteAgentConversationContinuityContextSchema,

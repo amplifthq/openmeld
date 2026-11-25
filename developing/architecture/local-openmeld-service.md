@@ -711,6 +711,16 @@ probes remain in discovery/Prepare; a slow version probe must not be turned into
 an invalid execution contract. This does not bypass permission capability
 attestation or the actual controller startup and execution errors.
 
+OpenCode installation discovery coalesces concurrent version checks and reuses
+successful checks for up to 15 minutes while the launch arguments, environment,
+working directory, and installation fingerprint remain unchanged. Fingerprints
+cover resolved launch files, file identity and permissions, Node package metadata,
+and installed official platform payloads. Failed checks and files that change
+during a probe are not retained. Explicit launch checks remain fresh by default;
+this installation cache does not cache authentication or controller readiness.
+Executable contracts with prefix arguments always run fresh checks because those
+arguments can delegate to files outside the executable fingerprint.
+
 Concurrent controller cleanup shares an unfinished macOS process-table read,
 even after the short snapshot age has elapsed. Once the read settles, its
 original capture time still determines freshness; the existing bounded cleanup
@@ -1504,7 +1514,7 @@ Cursor dispatch uses only the official Agent Client Protocol exposed by
 `cursor-agent acp`; OpenMeld does not maintain a second Cursor print-mode
 adapter. ACI detects the `cursor-agent` executable itself, never the generic
 `agent` command or the presence of Cursor IDE state. It reports the CLI build,
-`cursor-agent status --format json` authentication evidence, ACP as the native
+Cursor CLI sign-in evidence, ACP as the native
 interface, model selection, permission-mode selection, native event streaming,
 cancellation, interruption, permission requests, structured questions, and
 plan review. OpenMeld maps blocking ACP requests into the shared Agent
@@ -1618,6 +1628,31 @@ that the Service process can actually use. `AGENT_CLI_CREDENTIAL_STORE=file`
 may be offered only as an explicit diagnostic escape hatch for environments
 where macOS Keychain access is unavailable; it stores credentials outside the
 Keychain and must never become a silent automatic fallback.
+
+On macOS, the default-store sign-in check uses the Service's noninteractive
+Keychain reader for Cursor's access and refresh tokens. The Keychain stores the
+items separately. The Service reports signed in when it reads the same complete
+pair twice, and signed out when both reads of each item return missing. A
+partial pair, a difference the reads detect, or an inaccessible store leaves
+sign-in unknown. An explicit `CURSOR_API_KEY` or `CURSOR_AUTH_TOKEN` takes
+precedence on macOS. The offline
+check reports that the environment credential is configured and its validity
+is unknown. Only sign-in evidence enters the snapshot. Other platforms, and
+macOS file or memory stores without an environment credential, use the native
+`cursor-agent status --format json` command. The Keychain pair supplies no
+stable account identifier for reusing older quota observations.
+
+Cursor's `--version` command can initialize credentials before parsing its
+arguments. Install and inventory version checks request the memory store. On
+macOS, those probe processes run offline with Keychain files and Mach services
+blocked, including for older builds that ignore the store setting. If macOS
+cannot start the isolated probe or the CLI returns no recognizable version,
+inventory records an incomplete check. The Service reaps owned probe descendants
+on exit and timeout. After stopping a POSIX process group, the supervisor scans
+for detached helpers even if the group leader has exited. Cleanup retries use
+fresh invocation markers until a scan confirms that the helpers have stopped.
+Login and ACP task execution use the selected installation and its normal
+credential store.
 
 ACI must distinguish a completed negative result from a check that did not
 complete. A completed check may prove that a controller needs repair or is not
@@ -3611,6 +3646,12 @@ not silently repair, reinstall, stop, start, or mutate runtime state.
 Setup and repair exist to restore local infrastructure for the current intended
 account, device, and lane.
 
+Before cleanup and after a failure, Service repair captures local logs, state,
+and process information. On macOS it also attempts to capture launchd
+diagnostics. Both phases leave the optional observed status snapshot null so a
+stalled cloud status request cannot block local recovery. An explicit
+`openmeld service snapshot` includes the full status observation or its error.
+
 An already-running repair may report healthy only after an authenticated local
 control response, a fresh Host control round trip, and the Core-owned current
 device projection agree on the device and lane. The Host must be responsive,
@@ -3855,14 +3896,42 @@ computer. Register and heartbeat triggers both pass that manifest explicitly;
 a missing manifest cannot infer an automatic target from local defaults. The
 request requires the Service's explicit `requestAutomaticUpdate` capability,
 obeys the Service-owned automatic update preference, and coalesces by computer
-daemon session, and release target while the request is in flight. It retains
-that marker only when the same Service session reports `current` at or above
-the release, or reports a `started` or `already_running` operation targeting at
-least that release. A replacement Service session or a newer release target
-can request immediately. An `unavailable` response clears the in-flight marker
-and records a hibernation-safe retry throttle in Durable Object storage: retry
+daemon session, and the selected CLI and Service target versions while the
+request is in flight. For a `current` result, the Hub checks the reported CLI
+version and the registered Service version against their respective targets.
+For `started` and `already_running`, it checks the operation's two targets
+(older operations use their single target version for both). A replacement Service session or a newer release target
+can request immediately. A reported `needs_help` or `restored` operation
+stays visible as failure history. Core can request a fresh check for an
+actionable release when its selected CLI and Service targets are both at least
+the failed targets and at least one is newer. Unknown versions, the same target,
+and active operations keep their existing guard. The Service's coordinator
+still checks the preference and serializes the actual request.
+
+For an update that stays in `updating`, the production Hub decision logs
+include `operationRequestedAt`, `operationUpdatedAt`, the reported CLI and
+installed Service bundle versions, and the running `serviceVersion`. A retained
+npm carrier can report its own CLI version. Treat these versions as observations.
+Updated workers also expose `operationStep`, the last entered checkpoint. The
+tools attempt covers worker pickup, CLI download, verification, installation
+and handoff. For npm, the single `npm_install` step covers the package manager's
+fetch and install. The Service job covers the safe-switch wait and individual
+lifecycle phases, including stopping, installing the bundle and verifying startup.
+
+Each owner atomically replaces one bounded local diagnostic record. The
+reporter matches its operation ID, request timestamp and both component targets
+to the selected job or attempt before projecting the step. It carries one
+allowlisted `cli.update.step.*` code in the existing CLI reason codes. Core logs
+the decoded step on registration and when an observed step changes on heartbeat.
+Older senders omit it. Short steps can finish between observations, and the
+next live Service can report a retained checkpoint after a disconnect. A
+checkpoint never acknowledges an update or authorizes a retry or replacement.
+
+An `unavailable` response clears the in-flight marker and records a
+hibernation-safe retry throttle in Durable Object storage: retry
 after 5 minutes, then 15 minutes, then 60 minutes, capped at 60 minutes while
-the same computer, daemon session, and release target remain current. `disabled`,
+the same computer, daemon session, and both component targets remain current.
+Existing single-target retry records apply to that version of both components. `disabled`,
 an invalid response, or a reported current or operation target below the
 release clears the marker so the next register or heartbeat can retry. A
 disconnected request is failed immediately so a
@@ -4151,6 +4220,21 @@ credentials. Safe native network codes and observed phase are retained when
 available. Unknown runtime errors remain unknown. Retry scheduling delay does
 not prove OS sleep, a DNS problem, or a provider outage.
 
+For a Service process that has received a heartbeat acknowledgement, later
+handshakes carry its last acknowledged connection ID in the optional
+`x-openmeld-previous-connection-id` header. Failed attempts keep that same
+reference. A new process starts without one. Gateway observes daemon WebSocket
+requests with a valid current `connectionId` before authentication and records
+their HTTP result. Find `gateway.daemon_stream.handshake` events whose
+`previousConnectionDiagnosticId` equals the closed socket's
+`connectionDiagnosticId`, then follow the new attempt's
+`connectionDiagnosticId` through Core's `register_received`, `register_rejected`,
+`socket_connected` and `socket_closed` events. Core close observations include
+the age of the last heartbeat and whether the socket was current. Older
+Services can supply the current ID alone. These IDs are client-provided
+diagnostics and grant no authority. Attempts that never reach Gateway are
+observable only from the device.
+
 Reply reconsideration retains its existing exact-conversation behavior. Its
 existing dispatch journal additionally records the relevant signal IDs/count,
 typed reason, start and duration, without signal text or prompts. A finished
@@ -4160,7 +4244,13 @@ Registration and heartbeat never await optional local-component inspection.
 One Service-lifetime observation coalesces that inspection across reconnects
 and may reuse a result for at most 30 seconds; absent or expired observations are omitted rather than
 renewed as fresh component evidence. A completed observation can schedule a
-heartbeat after registration. Missing component evidence does not grant
+heartbeat after registration. If a heartbeat is already awaiting its response,
+the Service coalesces that notification with pending admission changes and
+publishes fresh evidence after the heartbeat settles. The local registration
+log distinguishes cold, expired, pending, empty and failed inspections. Hub
+update decisions record the observation timestamp and the allowlisted failure
+code when available, including a skipped decision on the first heartbeat
+that restores missing component evidence. Missing component evidence does not grant
 component readiness or bypass the Core-owned update projection.
 
 `agentReplyContextReview: true` is an additive Runtime Transport capability.

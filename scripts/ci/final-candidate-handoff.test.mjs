@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { settleHostedCandidateRuns } from "./final-candidate-handoff.mjs";
+import { ResultListingChangedError } from "./final-candidate-run-context.mjs";
 
 const captured = JSON.parse(
   readFileSync(
@@ -101,6 +102,41 @@ test("another source or old attempt cannot acknowledge the latest publisher", as
   }
 });
 
+test("an old source rerun searches from the current attempt's start", async () => {
+  // GitHub's run 42265619006 kept its original creation date on attempt 2.
+  const source = {
+    ...splitSource,
+    id: 42_265_619_006,
+    run_attempt: 2,
+    created_at: "2026-11-06T17:52:40Z",
+    run_started_at: "2026-11-11T04:20:34Z",
+  };
+  let resultReads = 0;
+  let waits = 0;
+  await settleHostedCandidateRuns(input, {
+    read: (args) => {
+      const endpoint = args.at(-1);
+      if (!endpoint.includes("final-candidate-result.yml")) {
+        return page([source]);
+      }
+      const query = new URL(endpoint, "https://api.github.com").searchParams;
+      assert.equal(query.get("created"), `>=${source.run_started_at}`);
+      resultReads++;
+      return page([
+        resultRun({ ...source, run_attempt: 1 }, "completed"),
+        resultRun(
+          source,
+          "completed",
+          resultReads === 1 ? "queued" : "completed"
+        ),
+      ]);
+    },
+    wait: () => assert.equal(++waits, 1),
+    report: ignore,
+  });
+  assert.equal(resultReads, 2);
+});
+
 test("a newly queued source is cancelled and its own result must finish too", async () => {
   const newer = { ...splitSource, id: splitSource.id + 1 };
   let iteration = 0;
@@ -130,18 +166,55 @@ test("a newly queued source is cancelled and its own result must finish too", as
 });
 
 test("missing or incomplete result API evidence fails closed", async () => {
-  for (const results of [{}, [{ total_count: 2, workflow_runs: [] }]]) {
-    await assert.rejects(
-      settleHostedCandidateRuns(input, {
-        read: (args) =>
-          args.at(-1).includes("final-candidate-result.yml")
-            ? results
-            : page([splitSource]),
-        cancel: ignore,
-        report: ignore,
-      }),
-      RESULT_INCOMPLETE
-    );
+  const firstPage = Array.from({ length: 100 }, (_, index) =>
+    resultRun({ ...splitSource, id: splitSource.id + index + 1 }, "completed")
+  );
+  for (const [results, changed] of [
+    [{}, false],
+    [[{ total_count: 2, workflow_runs: [] }], false],
+    [[{ total_count: 1000, workflow_runs: [] }], false],
+    [
+      [
+        { total_count: 101, workflow_runs: firstPage },
+        {
+          total_count: 102,
+          workflow_runs: [resultRun(splitSource, "completed")],
+        },
+      ],
+      true,
+    ],
+    [
+      [
+        { total_count: 101, workflow_runs: firstPage },
+        { total_count: 101, workflow_runs: [] },
+      ],
+      true,
+    ],
+  ]) {
+    let waits = 0;
+    const handoff = settleHostedCandidateRuns(input, {
+      read: (args) => {
+        if (!args.at(-1).includes("final-candidate-result.yml")) {
+          return page([splitSource]);
+        }
+        return waits > 0
+          ? page([resultRun(splitSource, "completed")])
+          : results;
+      },
+      cancel: ignore,
+      report: ignore,
+      wait: () => assert.equal(++waits, 1),
+    });
+    if (changed) {
+      await handoff;
+      assert.equal(waits, 1);
+      continue;
+    }
+    await assert.rejects(handoff, (error) => {
+      assert.match(error.message, RESULT_INCOMPLETE);
+      assert.equal(error instanceof ResultListingChangedError, changed);
+      return true;
+    });
   }
 });
 

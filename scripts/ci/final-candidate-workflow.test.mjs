@@ -261,9 +261,9 @@ test("keeps status credentials out of candidate commands", () => {
   assert.ok(finalJob.includes('"$VERIFIER_RESULT" = success'));
   // A finished result is bound to its exact base; main advancing is not a failure.
   assert.ok(!finalJob.includes("commits/main"));
-  assert.ok(!finalJob.includes("state=pending"));
   const verifier = readJob(finalJob, "verify", "publish");
   assert.ok(!verifier.includes(": write"));
+  assert.ok(!verifier.includes("post_status pending"));
   assert.ok(verifier.includes("--output-only true"));
   assert.ok(verifier.includes("--no-recurse-submodules"));
   assert.ok(finalJob.includes('"$latest_id" != "$CANDIDATE_RUN_ID"'));

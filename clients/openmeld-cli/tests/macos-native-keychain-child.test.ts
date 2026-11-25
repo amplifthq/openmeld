@@ -107,6 +107,23 @@ describe("macOS native Keychain child boundary", () => {
     vi.restoreAllMocks();
   });
 
+  it("reports a failed spawn with no stdio before the Keychain deadline", async () => {
+    const child = new EventEmitter();
+    spawnMock.mockReturnValue(child);
+    const request = runMacOsNativeKeychainRequestInChild({
+      operation: "read",
+      service: "test-service",
+      account: "test-account",
+    });
+    child.emit(
+      "error",
+      Object.assign(new Error("spawn EMFILE"), { code: "EMFILE" })
+    );
+    await expect(request).rejects.toThrow(
+      "macOS Keychain helper could not start: spawn EMFILE"
+    );
+  });
+
   it("kills a Keychain helper that does not return before the deadline", async () => {
     vi.useFakeTimers();
     const child = createMockChild();

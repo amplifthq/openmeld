@@ -79,6 +79,84 @@ export function resolveRunContext({
   };
 }
 
+export function expectsResultPublication(run, prNumber, headSha) {
+  const title = RUN_TITLE.exec(run?.display_title ?? "");
+  return Boolean(
+    title && Number(title[1]) === prNumber && title[2] === headSha
+  );
+}
+
+export class ResultListingChangedError extends Error {
+  constructor() {
+    super(
+      "Cannot establish complete Final Candidate result state. The result listing changed between pages."
+    );
+    this.name = "ResultListingChangedError";
+  }
+}
+
+export function resultPublicationFinished(repository, source, read) {
+  if (
+    !Number.isSafeInteger(source.id) ||
+    source.id < 1 ||
+    !Number.isSafeInteger(source.run_attempt) ||
+    source.run_attempt < 1
+  ) {
+    throw new Error("Missing Final Candidate source run identity.");
+  }
+  const since =
+    source.run_attempt === 1 ? source.created_at : source.run_started_at;
+  const createdAt = Date.parse(source.created_at);
+  const sinceMs = Date.parse(since);
+  if (
+    !(Number.isFinite(createdAt) && Number.isFinite(sinceMs)) ||
+    sinceMs < createdAt
+  ) {
+    throw new Error(
+      "Missing or invalid Final Candidate source attempt timestamp."
+    );
+  }
+  const created = encodeURIComponent(`>=${since}`);
+  const pages = read([
+    "api",
+    "--paginate",
+    "--slurp",
+    `repos/${repository}/actions/workflows/final-candidate-result.yml/runs?event=workflow_run&created=${created}&per_page=100`,
+  ]);
+  if (
+    !Array.isArray(pages) ||
+    pages.length === 0 ||
+    pages.some(
+      (page) =>
+        !Number.isInteger(page?.total_count) ||
+        page.total_count < 0 ||
+        page.total_count >= 1000 ||
+        !Array.isArray(page.workflow_runs)
+    )
+  ) {
+    throw new Error("Cannot establish complete Final Candidate result state.");
+  }
+  const runs = pages.flatMap((page) => page.workflow_runs);
+  const expectedCount = pages[0].total_count;
+  if (
+    runs.length !== expectedCount ||
+    pages.some((page) => page.total_count !== expectedCount)
+  ) {
+    if (pages.length > 1) {
+      throw new ResultListingChangedError();
+    }
+    throw new Error("Cannot establish complete Final Candidate result state.");
+  }
+  const prefix = `Final Candidate Result ${source.id}:${source.run_attempt} `;
+  const results = runs.filter((run) => run.display_title?.startsWith(prefix));
+  // An empty list is not acknowledgement: GitHub may deliver the event later.
+  // A failed/cancelled verifier is settled too; local checks still run afresh.
+  return (
+    results.some((run) => run.display_title === `${prefix}completed`) &&
+    results.every((run) => run.status === "completed")
+  );
+}
+
 function api(endpoint) {
   return JSON.parse(
     execFileSync("gh", ["api", endpoint], { encoding: "utf8" })

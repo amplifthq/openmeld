@@ -15,6 +15,9 @@ export type SpaceTaskEventType = z.infer<
   SchemaModule["spaceTaskEventTypeSchema"]
 >;
 export type SpaceTaskEvent = z.infer<SchemaModule["spaceTaskEventSchema"]>;
+export type SpaceTaskPullRequest = z.infer<
+  SchemaModule["spaceTaskPullRequestSchema"]
+>;
 export type SpaceTaskExternalWorkItem = z.infer<
   SchemaModule["spaceTaskExternalWorkItemSchema"]
 >;

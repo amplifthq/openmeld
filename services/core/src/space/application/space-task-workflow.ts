@@ -450,6 +450,8 @@ function submitTaskResult({
         submittedBy: context.actor,
       },
       review: null,
+      // Optionally record a linked pull request at result submission.
+      ...(command.pullRequest ? { pullRequest: command.pullRequest } : {}),
       needsHumanDecision: false,
     },
     eventType: "result_submitted",
@@ -481,6 +483,17 @@ function reviewTaskResult({
       "This Task does not have a result awaiting review."
     );
   }
+  if (
+    task.pullRequest &&
+    command.expectedPullRequestHeadSha !== task.pullRequest.headSha
+  ) {
+    return fail(
+      "space_task.result_revision_conflict",
+      command.expectedPullRequestHeadSha
+        ? "The pull request head changed. Review the current commit before recording a decision."
+        : "This Task is linked to a pull request. Supply the expected head commit SHA to review it."
+    );
+  }
   if (command.expectedResultRevision !== task.result.resultRevision) {
     fail(
       "space_task.result_revision_conflict",
@@ -500,6 +513,9 @@ function reviewTaskResult({
     resultRevision: task.result.resultRevision,
     reviewedAt: now,
     reviewedBy: context.actor,
+    ...(task.pullRequest
+      ? { pullRequestHeadSha: task.pullRequest.headSha }
+      : {}),
   } as const;
   if (command.decision === "accepted") {
     return finishMutation({

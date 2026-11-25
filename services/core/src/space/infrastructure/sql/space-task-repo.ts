@@ -14,6 +14,12 @@ import type {
 type StoredTaskRow = { task_json: string };
 type StoredEventRow = { event_json: string };
 type StoredOperationRow = { request_json: string; response_json: string };
+export type SpaceTaskPullRequestCursor = {
+  observedAtMs: number;
+
+  evidenceCount: number;
+  pending: boolean;
+};
 
 export function ensureSpaceTaskTables(sql: SqlStorage): void {
   sql.exec(`CREATE TABLE IF NOT EXISTS space_tasks (
@@ -39,6 +45,13 @@ export function ensureSpaceTaskTables(sql: SqlStorage): void {
     response_json TEXT NOT NULL,
     created_at_ms INTEGER NOT NULL
   )`);
+  sql.exec(`CREATE TABLE IF NOT EXISTS space_task_github_pr_observations (
+    task_id TEXT PRIMARY KEY REFERENCES space_tasks(task_id) ON DELETE CASCADE,
+    observed_at_ms INTEGER NOT NULL,
+
+    evidence_count INTEGER NOT NULL,
+    pending INTEGER NOT NULL
+  )`);
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_tasks_phase_updated ON space_tasks (phase, updated_at_ms DESC, task_id)"
   );
@@ -52,6 +65,46 @@ export class SpaceTaskRepository {
 
   constructor(sql: SqlStorage) {
     this.sql = sql;
+  }
+
+  readPullRequestCursor(
+    taskId: string
+  ): SpaceTaskPullRequestCursor | undefined {
+    const row = this.sql
+      .exec<{
+        observed_at_ms: number;
+
+        evidence_count: number;
+        pending: number;
+      }>(
+        "SELECT observed_at_ms, evidence_count, pending FROM space_task_github_pr_observations WHERE task_id = ?",
+        taskId
+      )
+      .toArray()[0];
+    return (
+      row && {
+        observedAtMs: row.observed_at_ms,
+
+        evidenceCount: row.evidence_count,
+        pending: row.pending === 1,
+      }
+    );
+  }
+
+  recordPullRequestCursor(
+    taskId: string,
+    cursor: SpaceTaskPullRequestCursor
+  ): void {
+    this.sql.exec(
+      `INSERT INTO space_task_github_pr_observations (task_id, observed_at_ms, evidence_count, pending) VALUES (?, ?, ?, ?)
+       ON CONFLICT(task_id) DO UPDATE SET observed_at_ms = excluded.observed_at_ms,
+         evidence_count = excluded.evidence_count, pending = excluded.pending`,
+      taskId,
+      cursor.observedAtMs,
+
+      cursor.evidenceCount,
+      Number(cursor.pending)
+    );
   }
 
   readTask(taskId: string): SpaceTask | null {

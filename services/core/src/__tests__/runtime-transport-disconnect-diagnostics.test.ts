@@ -85,6 +85,7 @@ const createDisconnectDiagnosticsHarness = (): {
   const hub = Object.create(
     RuntimeTransportHub.prototype
   ) as RuntimeTransportHubDisconnectDiagnosticsHarness;
+  Object.defineProperty(hub, "env", { value: {} });
   Object.defineProperty(hub, "state", {
     value: createRuntimeTransportMutableState(),
   });
@@ -318,7 +319,7 @@ describe("RuntimeTransportHub disconnect diagnostics", () => {
       socket,
     });
 
-    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const session = hub.state.sessionsById.get("session-1");
     if (!session) {
       throw new Error("expected registered session");
@@ -340,6 +341,14 @@ describe("RuntimeTransportHub disconnect diagnostics", () => {
     ).json()) as { recentSessions: unknown[] };
 
     expect(response.recentSessions).toHaveLength(20);
+    expect(info).toHaveBeenCalledWith(
+      "[core.runtime_transport.socket_closed]",
+      expect.objectContaining({
+        currentSocket: true,
+        heartbeatAgeMs: 5000,
+        closeCode: 1006,
+      })
+    );
     expect(response.recentSessions[0]).toEqual({
       closeCode: 1006,
       closeReasonCode: "abnormal_closure",

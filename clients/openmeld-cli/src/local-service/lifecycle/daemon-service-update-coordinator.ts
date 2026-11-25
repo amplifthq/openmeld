@@ -14,6 +14,7 @@ import {
   LocalDaemonControlPlaneClientError,
   requestLocalDaemonServiceUpdateReadiness,
 } from "../control-plane/client";
+import { recordUpdateStep } from "../maintenance/openmeld-tools-update-checkpoint";
 import type { DaemonActiveBundleState } from "./daemon-service-bundle";
 import { prepareDaemonServiceBundle } from "./daemon-service-bundle";
 import type {
@@ -138,12 +139,22 @@ async function scheduleDaemonServiceUpdateLocked(
     });
   }
 
+  const operation =
+    input.operationId && input.requestedAt
+      ? {
+          ...input,
+          operationId: input.operationId,
+          requestedAt: input.requestedAt,
+        }
+      : null;
+  await recordUpdateStep(operation, "preparing_service_bundle");
   const preparedBundle = await deps.prepareBundle({
     activate: false,
     daemonVersion: input.targetVersion,
     ...(input.binaryRelease ? { binaryRelease: input.binaryRelease } : {}),
     ...(input.cliScriptPath ? { cliScriptPath: input.cliScriptPath } : {}),
   });
+  await recordUpdateStep(operation, "scheduling_service");
   const now = deps.now();
   const job: DaemonServiceUpdateJob = {
     v: 2,
@@ -282,6 +293,7 @@ export async function runPendingDaemonServiceUpdate(
     }
     if (pending.urgency === "available") {
       try {
+        await recordUpdateStep(pending, "waiting_to_replace_service");
         await deps.waitUntilSafeToSwitch(pending);
       } catch (waitError) {
         try {
@@ -405,20 +417,17 @@ async function runPreparedPendingUpdate(
       operation: "upgrade_reconcile",
       preparedBundle: running.preparedBundle,
       shouldStartAfterLifecycle: running.desiredState === "background",
-      ...(onlyIfIdle
-        ? {
-            onlyIfIdle: true as const,
-            onPhase: async (phase: DaemonServiceLifecyclePhase) => {
-              if (phase === "wait_stopped") {
-                await deps.persistPendingJob({
-                  ...running,
-                  phase: "updating",
-                  updatedAt: deps.now(),
-                });
-              }
-            },
-          }
-        : {}),
+      ...(onlyIfIdle ? { onlyIfIdle: true as const } : {}),
+      onPhase: async (phase: DaemonServiceLifecyclePhase) => {
+        await recordUpdateStep(running, `service_${phase}`);
+        if (onlyIfIdle && phase === "wait_stopped") {
+          await deps.persistPendingJob({
+            ...running,
+            phase: "updating",
+            updatedAt: deps.now(),
+          });
+        }
+      },
     });
     if (
       lifecycle.status !== "aligned" &&

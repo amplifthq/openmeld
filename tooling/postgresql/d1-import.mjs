@@ -34,6 +34,7 @@ const postgresqlOnlyTables = [
   { name: "cloud_computers" },
   { name: "account_deletion_requests" },
   { name: "space_task_project_links" },
+  { name: "space_task_github_pr_links" },
   { name: "space_task_project_projection_states" },
   { name: "user_time_contexts" },
   { name: "conversation_history_deletions" },
@@ -322,6 +323,7 @@ function newNullableIntegerColumns(table) {
       // No historical session is known to be CLI-held. The first Bearer use
       // marks it (member-agent-program.md §4.7).
       sessions: ["cli_credential_at"],
+      github_app_webhook_deliveries: ["pr_observed_at_ms"],
       // Historical receipts predate credit holds and count only a reported
       // cost (migration 0048).
       ai_usage_records: ["credit_hold_nano_usd", "credit_hold_admitted_at_ms"],
@@ -331,6 +333,7 @@ function newNullableIntegerColumns(table) {
 
 function nativeColumns(table, targetColumns) {
   const newNullableColumns = {
+    github_app_webhook_deliveries: ["pr_head_sha", "pr_before_sha"],
     plugin_action_requests: ["continuation_json"],
     // Historical member and Organization subjects have no Space owner (0053).
     center_agent_memory_subjects: ["space_id"],

@@ -393,6 +393,13 @@ webhook processing on the existing `OPENMELD_DAEMON_DISPATCH_QUEUE`. Duplicate
 `X-GitHub-Delivery` ids are ignored after a successful claim. Missing link
 rows mean no Space is scanned. Webhook callbacks grant no execution authority.
 
+For a linked pull request, the Space Task stores the head SHA and any accepted
+review records the SHA it covered. Space SQLite retains the latest GitHub
+observation time with the Task transaction, including newer observations of
+the same head. Migration 0057 retains the signed head, its synchronize predecessor and the provider timestamp in the existing delivery ledger. At the newest timestamp, Space reconciles all retained transitions, including force-push round trips. Conflicting evidence without a provable head stays pending and blocks review. Both queue delivery and a newly committed link projection read the same evidence. The PostgreSQL
+`space_task_github_pr_links` table indexes the current link for webhook
+fan-out. Replacing a link detaches its predecessor in the same transaction.
+
 ## Center Agent generated session titles
 
 Space owns the generated default title in `space_meta.name`; the existing
@@ -2067,6 +2074,9 @@ The backstop is the Space-owned membership liveness reconcile:
 - The Space background alarm removes an agent member only after the evidence
   threshold is met (two independent observations, at least 30 minutes apart)
   AND a fresh auth re-verification still answers `profile.not_found`.
+- Only evidence for an active agent member with enough observations schedules
+  this check. Removing the member clears its evidence. Older evidence for
+  removed members contributes no alarm deadline.
 - A `found` re-verification clears the evidence. A transient auth failure
   keeps the evidence and retries on a later alarm. Space creators are never
   auto-removed.

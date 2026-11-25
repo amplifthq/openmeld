@@ -112,8 +112,11 @@ describe("local service evidence", () => {
     vi.useRealTimers();
   });
 
-  it("records before_cleanup and after_failure captures in a single manifest", async () => {
+  it("records cleanup and failure evidence without querying cloud status", async () => {
     await withTempHome(async () => {
+      resolveDaemonStatusSnapshotMock.mockRejectedValue(
+        new Error("Cloud status is unavailable")
+      );
       const runtimeRootPath = daemonRuntimeRootPath();
       const runtimeLogsPath = join(runtimeRootPath, "logs");
       const runtimeStatePath = daemonRuntimeStateRootPath();
@@ -140,6 +143,7 @@ describe("local service evidence", () => {
         phase: "after_failure",
       });
 
+      expect(resolveDaemonStatusSnapshotMock).not.toHaveBeenCalled();
       expect(afterFailure.evidencePath).toBe(beforeCleanup.evidencePath);
 
       const manifest = JSON.parse(
@@ -154,6 +158,7 @@ describe("local service evidence", () => {
               runtimeLogs: { status: string };
               runtimeState: { status: string };
             };
+            observedStatusSnapshot: unknown;
             phase: "after_failure" | "before_cleanup";
           }
         >;
@@ -165,6 +170,10 @@ describe("local service evidence", () => {
       expect(manifest.v).toBe(3);
       expect(manifest.captures.before_cleanup.phase).toBe("before_cleanup");
       expect(manifest.captures.after_failure.phase).toBe("after_failure");
+      expect(
+        manifest.captures.before_cleanup.observedStatusSnapshot
+      ).toBeNull();
+      expect(manifest.captures.after_failure.observedStatusSnapshot).toBeNull();
       expect(
         manifest.captures.before_cleanup.artifacts.lifecycleJournal.status
       ).toBe("captured");
@@ -253,7 +262,7 @@ describe("local service evidence", () => {
     });
   });
 
-  it("records successful system service diagnostics output when launchctl exits", async () => {
+  it("records observed status and system service diagnostics in an explicit snapshot", async () => {
     await withTempHome(async () => {
       setProcessPlatform("darwin");
       spawnMock.mockImplementation(() =>
@@ -262,14 +271,13 @@ describe("local service evidence", () => {
         })
       );
 
-      const capture = await captureDaemonServiceEvidence({
-        phase: "snapshot",
-      });
+      const capture = await captureDaemonServiceEvidence();
       const manifest = JSON.parse(
         await readFile(capture.manifestPath, "utf8")
       ) as {
         captures: {
           snapshot: {
+            observedStatusSnapshot: unknown;
             artifacts: {
               systemServiceDiagnostics: {
                 errorMessage: string | null;
@@ -294,6 +302,9 @@ describe("local service evidence", () => {
         manifest.captures.snapshot.artifacts.systemServiceDiagnostics
           .errorMessage
       ).toBeNull();
+      expect(manifest.captures.snapshot.observedStatusSnapshot).toMatchObject({
+        currentReplyReadiness: { daemonStatus: { installed: false } },
+      });
       expect(diagnosticsText).toContain("exitCode: 0");
       expect(diagnosticsText).toContain("service is loaded");
 

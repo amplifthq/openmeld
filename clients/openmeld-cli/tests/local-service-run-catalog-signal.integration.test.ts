@@ -3292,6 +3292,51 @@ describe("daemon stream keepalive", () => {
     await sessionPromise;
   });
 
+  it("publishes fresh component evidence after an outstanding heartbeat is acknowledged", async () => {
+    vi.useFakeTimers();
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    const inspection =
+      Promise.withResolvers<ReturnType<typeof createLocalComponentsStatus>>();
+    resolveLocalComponentsStatusMock.mockReturnValue(inspection.promise);
+    let hold = true;
+    const socket = createMockSocket({
+      executionAdmissionConfirmation: false,
+      respondToHeartbeat: () => !hold,
+    });
+    const session = runDaemonSocketSession(
+      buildKeepaliveSessionInput(socket, [], 60_000)
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    expect(socket.heartbeatSendCount).toBe(1);
+    inspection.resolve(createLocalComponentsStatus("0.7.94"));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(socket.heartbeatSendCount).toBe(1);
+    hold = false;
+    socket.emitServerFrame({
+      v: 1,
+      code: "daemon.session.heartbeat",
+      payload: { ok: true, serverNowMs: Date.now(), staleLeases: [] },
+    });
+    await vi.advanceTimersByTimeAsync(2);
+    try {
+      expect(socket.sentFrames).toContainEqual(
+        expect.objectContaining({
+          code: "daemon.session.heartbeat",
+          payload: expect.objectContaining({
+            capabilities: expect.objectContaining({
+              localComponents: expect.objectContaining({
+                cli: expect.objectContaining({ packageVersion: "0.7.94" }),
+              }),
+            }),
+          }),
+        })
+      );
+    } finally {
+      socket.close(1000, "shutdown");
+      await session;
+    }
+  });
+
   it("ignores a keepalive PONG without logging an invalid daemon frame", async () => {
     vi.useFakeTimers();
     const lines: Array<{ code: string; text: string }> = [];

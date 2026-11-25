@@ -5,16 +5,14 @@ import {
 import type {
   ListSpaceTasksResponse,
   SpaceTask,
+  SpaceTaskDetailOptions,
   SpaceTaskEvent,
   SpaceTaskMutationReceipt,
   SpaceTaskResponse,
 } from "@openmeld/schemas/types";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 
-type TaskContractVersion =
-  | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION
-  | 2
-  | undefined;
+type TaskContractVersion = SpaceTaskDetailOptions["taskContractVersion"];
 
 export function projectSpaceTasksForClient(
   listed: ListSpaceTasksResponse,
@@ -27,7 +25,7 @@ export function projectSpaceTasksForClient(
     ...listed,
     tasks: listed.tasks.map((task) => {
       assertSpaceTaskClientCanRead(task, [], taskContractVersion);
-      return taskContractVersion === 2 ? task : omitSpaceTaskProjectIds(task);
+      return projectOlderTask(task, taskContractVersion);
     }),
   };
 }
@@ -40,9 +38,17 @@ export function projectSpaceTaskDetailForClient(
     return detail;
   }
   assertSpaceTaskClientCanRead(detail.task, detail.events, taskContractVersion);
-  return taskContractVersion === 2
-    ? detail
-    : { ...detail, task: omitSpaceTaskProjectIds(detail.task) };
+  if (
+    detail.pendingActions?.some(
+      (action) => action.kind === "github_pr_projection"
+    )
+  ) {
+    throw spaceTaskContractUpdateRequiredError();
+  }
+  return {
+    ...detail,
+    task: projectOlderTask(detail.task, taskContractVersion),
+  };
 }
 
 export function projectSpaceTaskReceiptForClient(
@@ -57,9 +63,10 @@ export function projectSpaceTaskReceiptForClient(
     [receipt.event],
     taskContractVersion
   );
-  return taskContractVersion === 2
-    ? receipt
-    : { ...receipt, task: omitSpaceTaskProjectIds(receipt.task) };
+  return {
+    ...receipt,
+    task: projectOlderTask(receipt.task, taskContractVersion),
+  };
 }
 
 export function assertSpaceTaskClientCanRead(
@@ -68,6 +75,16 @@ export function assertSpaceTaskClientCanRead(
   version?: TaskContractVersion
 ): void {
   if (version === SPACE_TASK_WORKFLOW_CONTRACT_VERSION) {
+    return;
+  }
+  if (
+    task.pullRequest ||
+    task.review?.pullRequestHeadSha ||
+    events.some((event) => event.type === "pull_request_head_changed")
+  ) {
+    throw spaceTaskContractUpdateRequiredError();
+  }
+  if (version === 3) {
     return;
   }
   if (
@@ -94,10 +111,19 @@ export function assertLegacySpaceTaskCanRead(
   }
 }
 
-function omitSpaceTaskProjectIds(task: SpaceTask): SpaceTask {
-  const { projectIds: _projectIds, ...legacyTask } = task;
-  // Only the legacy wire projection omits this new field. Core keeps the
-  // complete Task internally and rejects unsupported current facts above.
+function projectOlderTask(
+  task: SpaceTask,
+  version: TaskContractVersion
+): SpaceTask {
+  const { pullRequest: _pullRequest, ...compatible } = task;
+  if (compatible.review && "pullRequestHeadSha" in compatible.review) {
+    const { pullRequestHeadSha: _sha, ...review } = compatible.review;
+    compatible.review = review;
+  }
+  if (version !== undefined) {
+    return compatible;
+  }
+  const { projectIds: _projectIds, ...legacyTask } = compatible;
   return legacyTask as SpaceTask;
 }
 

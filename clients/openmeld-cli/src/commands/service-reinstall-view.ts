@@ -383,6 +383,7 @@ export async function attachDaemonReinstallEvidence(input: {
     return input.outcome;
   }
   const evidencePath = await captureDaemonServiceEvidenceBestEffort({
+    phase: "after_failure",
     runtime: input.runtime,
   });
   if (!evidencePath) {

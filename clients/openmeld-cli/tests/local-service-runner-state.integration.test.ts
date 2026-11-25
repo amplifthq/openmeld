@@ -1332,6 +1332,16 @@ describe("local service runner dual-write", () => {
     await waitForFakeTimerCondition("second outage", () => sessions === 2);
     await vi.advanceTimersByTimeAsync(1000);
     await loop;
+    const dials = connectWebSocketMock.mock.calls.map(([url, options]) => ({
+      id: new URL(url).searchParams.get("connectionId"),
+      previous: options.headers["x-openmeld-previous-connection-id"],
+    }));
+    expect(new Set(dials.map((dial) => dial.id)).size).toBe(3);
+    expect(dials.map((dial) => dial.previous)).toEqual([
+      undefined,
+      dials[0]?.id,
+      dials[1]?.id,
+    ]);
     expect(
       runDaemonSocketSessionMock.mock.calls.map(
         ([input]) => input.reconnectAttempt

@@ -37,11 +37,18 @@ import { OPENCODE_OPENROUTER_PROVIDER_LIST_RESPONSE } from "./fixtures/opencode-
 
 const STARTUP_TIMEOUT_EVIDENCE_RE =
   /pid=\d+, elapsedMs=\d+, stdoutBytes=0, stderrBytes=[1-9]\d*, load1m=/u;
+const LINUX_ZOMBIE_STATE_RE = /^State:\s+Z\b/mu;
 const nativeFetch = globalThis.fetch;
 
-const { createOpencodeClientMock, warnDaemonEventMock } = vi.hoisted(() => ({
-  createOpencodeClientMock: vi.fn(),
-  warnDaemonEventMock: vi.fn(),
+const { createOpencodeClientMock, readKeychainMock, warnDaemonEventMock } =
+  vi.hoisted(() => ({
+    createOpencodeClientMock: vi.fn(),
+    readKeychainMock: vi.fn(),
+    warnDaemonEventMock: vi.fn(),
+  }));
+
+vi.mock("../src/config/macos-native-keychain", () => ({
+  readMacOsNativeKeychainToken: readKeychainMock,
 }));
 
 const probeProcessObserver = vi.hoisted(() => ({
@@ -98,6 +105,7 @@ beforeEach(() => {
 
 afterEach(() => {
   createOpencodeClientMock.mockReset();
+  readKeychainMock.mockReset();
   resetAgentControllerInterfaceKeeperForTests();
   warnDaemonEventMock.mockReset();
   vi.unstubAllGlobals();
@@ -105,6 +113,275 @@ afterEach(() => {
 });
 
 describe("agent controller interface inventory", () => {
+  it.each([
+    {
+      name: "locked",
+      failure: new Error("OSStatus -25308"),
+      access: null,
+      refresh: null,
+      status: "unknown",
+    },
+    {
+      name: "denied",
+      failure: new Error("OSStatus -25293"),
+      access: null,
+      refresh: null,
+      status: "unknown",
+    },
+    {
+      name: "missing",
+      failure: null,
+      access: null,
+      refresh: null,
+      status: "unauthenticated",
+    },
+    {
+      name: "missing the refresh token",
+      failure: null,
+      access: "access-secret",
+      refresh: null,
+      status: "unknown",
+    },
+    {
+      name: "missing the access token",
+      failure: null,
+      access: null,
+      refresh: "refresh-secret",
+      status: "unknown",
+    },
+    {
+      name: "signed in",
+      failure: null,
+      access: "access-secret",
+      refresh: "refresh-secret",
+      status: "authenticated",
+    },
+    ...["cursor-access-token", "cursor-refresh-token"].map((rotating) => ({
+      name: `rotating ${rotating}`,
+      failure: null,
+      access: "access-secret",
+      refresh: "refresh-secret",
+      status: "unknown",
+      rotating,
+    })),
+    ...(["CURSOR_API_KEY", "CURSOR_AUTH_TOKEN"] as const).map((credential) => ({
+      name: `overridden by ${credential}`,
+      failure: null,
+      access: null,
+      refresh: null,
+      status: "unknown",
+      credential,
+    })),
+  ])(
+    "checks Cursor without interactive credential access when the Keychain is $name",
+    { skip: process.platform !== "darwin" },
+    async (fixture) => {
+      const { failure, access, refresh, status } = fixture;
+      const home = await mkdtemp(
+        join(tmpdir(), "openmeld-aci-cursor-passive-")
+      );
+      try {
+        vi.stubEnv("AGENT_CLI_CREDENTIAL_STORE", "");
+        if ("credential" in fixture) {
+          vi.stubEnv(fixture.credential, "explicit-secret");
+        }
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(() => Response.json({ version: "2026.10.19-6bbf2c4" }))
+        );
+        let revision = 0;
+        readKeychainMock.mockImplementation(({ service }) => {
+          if (failure) {
+            return Promise.reject(failure);
+          }
+          if ("rotating" in fixture && fixture.rotating === service) {
+            return Promise.resolve(`rotating-secret-${++revision}`);
+          }
+          return Promise.resolve(
+            service === "cursor-access-token" ? access : refresh
+          );
+        });
+        const binPath = join(home, "cursor-agent");
+        const interactivePath = join(home, "interactive-access");
+        await writeFile(
+          binPath,
+          [
+            "#!/bin/sh",
+            // Model the observed provider behavior: even --version initializes
+            // the native credential store before handling command arguments.
+            `if [ "$AGENT_CLI_CREDENTIAL_STORE" != "memory" ]; then touch '${interactivePath}'; fi`,
+            'if [ "$1" = "--version" ]; then echo "2026.10.19-6bbf2c4"; exit 0; fi',
+            `touch '${interactivePath}'`,
+            "exit 1",
+          ].join("\n")
+        );
+        await chmod(binPath, 0o755);
+        const input = {
+          agentControllerRef: "builtin:cursor",
+          state: createBuiltinAgentTargetState("cursor", "Cursor", binPath),
+        };
+        const snapshots = await Promise.all([
+          resolveAgentControllerInterfaceSnapshot({
+            ...input,
+            probePolicy: "background",
+          }),
+          resolveAgentControllerInterfaceSnapshot({
+            ...input,
+            probePolicy: "fresh",
+          }),
+        ]);
+        snapshots.push(
+          await resolveAgentControllerInterfaceSnapshot({
+            ...input,
+            probePolicy: "fresh",
+          })
+        );
+        for (const snapshot of snapshots) {
+          expect(snapshot.auth.status).toBe(status);
+          expect(snapshot.version).toBe("2026.10.19-6bbf2c4");
+          expect(snapshot.check?.status).toBe(
+            status === "unknown" ? "failed" : "succeeded"
+          );
+          expect(JSON.stringify(snapshot)).not.toContain("access-secret");
+          expect(JSON.stringify(snapshot)).not.toContain("refresh-secret");
+          expect(JSON.stringify(snapshot)).not.toContain("rotating-secret");
+          expect(JSON.stringify(snapshot)).not.toContain("explicit-secret");
+        }
+        if ("credential" in fixture) {
+          expect(readKeychainMock).not.toHaveBeenCalled();
+        }
+        await expect(stat(interactivePath)).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+      } finally {
+        await rm(home, { force: true, recursive: true });
+      }
+    }
+  );
+
+  it.each([
+    {
+      name: "a login starts between two missing-item reads",
+      bin: process.execPath,
+      first: [null, null],
+      later: "starting-login",
+      auth: "unknown",
+      message: "OpenMeld could not read Cursor CLI authentication status.",
+    },
+    {
+      name: "the version command succeeds without output",
+      bin: "/usr/bin/true",
+      first: [],
+      later: "stable-login",
+      auth: "authenticated",
+      message: "Cursor CLI did not report a recognizable version.",
+    },
+  ])(
+    "keeps a Cursor check incomplete when $name",
+    { skip: process.platform !== "darwin" },
+    async (fixture) => {
+      vi.stubEnv("AGENT_CLI_CREDENTIAL_STORE", "");
+      readKeychainMock.mockResolvedValue(fixture.later);
+      for (const value of fixture.first) {
+        readKeychainMock.mockResolvedValueOnce(value);
+      }
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:cursor",
+        state: createBuiltinAgentTargetState("cursor", "Cursor", fixture.bin),
+      });
+      expect(snapshot).toMatchObject({
+        auth: { status: fixture.auth },
+        check: { status: "failed", lastSucceededAt: null },
+        message: fixture.message,
+      });
+    }
+  );
+
+  it.each(["exit", "timeout"])(
+    "cleans up detached Cursor helpers after parent %s",
+    { skip: process.platform === "win32" },
+    async (mode) => {
+      const home = await mkdtemp(
+        join(tmpdir(), "openmeld-aci-process-cleanup-")
+      );
+      const pidPath = join(home, "descendant.pid");
+      let descendantPid: number | undefined;
+      let helperStopped = false;
+      try {
+        const descendantPath = join(home, "descendant.cjs");
+        await writeFile(
+          descendantPath,
+          [
+            'require("node:fs").writeFileSync(process.argv[2], String(process.pid));',
+            'process.on("SIGTERM", () => {});',
+            'process.send("ready");',
+            "setInterval(() => {}, 1000);",
+          ].join("\n")
+        );
+        const binPath = join(home, "cursor-agent");
+        await writeFile(
+          binPath,
+          [
+            `#!${process.execPath}`,
+            'if (process.argv[2] === "status") { console.log(JSON.stringify({status:"unauthenticated"})); process.exit(0); }',
+            `const child = require("node:child_process").spawn(process.execPath, [${JSON.stringify(descendantPath)}, ${JSON.stringify(pidPath)}], { detached: true, stdio: ["ignore", "inherit", "inherit", "ipc"] });`,
+            'child.once("message", () => {',
+            '  console.log("1.0.0");',
+            mode === "exit"
+              ? "  process.exit(0);"
+              : "  setInterval(() => {}, 1000);",
+            "});",
+          ].join("\n")
+        );
+        await chmod(binPath, 0o755);
+        const snapshot = await resolveAgentControllerInterfaceSnapshot({
+          agentControllerRef: "builtin:cursor",
+          state: createBuiltinAgentTargetState("cursor", "Cursor", binPath),
+        });
+        const observedPid = Number(await readFile(pidPath, "utf8"));
+        descendantPid = observedPid;
+        expect(snapshot.check?.status).toBe(
+          mode === "exit" ? "succeeded" : "failed"
+        );
+        await expect
+          .poll(async () => {
+            try {
+              if (process.platform === "linux") {
+                // An unreaped orphan still has a PID but cannot run or hold pipes.
+                const status = await readFile(
+                  `/proc/${observedPid}/status`,
+                  "utf8"
+                );
+                return !LINUX_ZOMBIE_STATE_RE.test(status);
+              }
+              process.kill(observedPid, 0);
+              return true;
+            } catch (error) {
+              const code = (error as NodeJS.ErrnoException).code;
+              if (code === "ESRCH" || code === "ENOENT") {
+                return false;
+              }
+              throw error;
+            }
+          })
+          .toBe(false);
+        helperStopped = true;
+      } finally {
+        const pid =
+          descendantPid ??
+          Number(await readFile(pidPath, "utf8").catch(() => "0"));
+        if (!helperStopped && pid > 0) {
+          try {
+            process.kill(pid, "SIGKILL");
+          } catch {
+            // The assertion normally proves that the owned process is gone.
+          }
+        }
+        await rm(home, { force: true, recursive: true });
+      }
+    }
+  );
+
   it("never enters Antigravity authentication during repeated or concurrent status checks", async () => {
     const home = await mkdtemp(join(tmpdir(), "openmeld-aci-antigravity-"));
     try {
