@@ -207,11 +207,11 @@ function AgentProfileWorkingFolderDialog(input: {
 	const queryClient = useQueryClient();
 	const afterFailedTask = !(request.folderMissing || request.fromReadiness);
 	const device = current?.runtimeDeviceDisplayName ?? "its computer";
-	let recoveryMessage = `This Agent could not use its working folder on ${device}. Set up its folder again or choose another one for new work. This does not move files or restart the failed task.`;
+	let recoveryMessage = `This Agent couldn’t use its folder on ${device}.`;
 	if (request.folderMissing) {
-		recoveryMessage = `Choose the folder on ${device} where this Agent starts new work.`;
+		recoveryMessage = "";
 	} else if (request.fromReadiness) {
-		recoveryMessage = `This Agent can’t use its working folder on ${device}. It may have been moved or deleted. Set it up again or choose another folder for new work. This does not move files.`;
+		recoveryMessage = `This Agent’s folder on ${device} may have moved or been deleted.`;
 	}
 	// The fix usually clears the problem, so the action that opened this goes
 	// away. The check and its result go through the query client and one

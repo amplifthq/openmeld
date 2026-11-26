@@ -21,7 +21,7 @@ import {
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
 import {
-	AgentProfileFoldersDialog,
+	SavedAgentProfileFoldersDialog,
 	type WorkingFolderRecovery,
 } from "./agent-profile-folders-dialog";
 import { buildAgentProfileFolderRows } from "./agent-profile-folders-model";
@@ -52,23 +52,10 @@ vi.mock("#/lib/organizations/projects", async () => ({
 	)),
 	listCurrentProjects: listProjectsMock,
 }));
-// The source chooser is covered by its own tests; here it only picks a source.
-vi.mock("./agent-profile-project-selector", () => ({
-	AgentProfileProjectSelector: (input: {
-		onUseManagedWorkspace?: () => void;
-	}) => (
-		<button onClick={() => input.onUseManagedWorkspace?.()} type="button">
-			Use the OpenMeld folder
-		</button>
-	),
-}));
-
 const MAKE_ANOTHER_DEFAULT = /Make another folder/;
-const NO_FOLDERS_YET = /No folders yet/;
 const COMPUTER_CHANGED_MESSAGE = /Computer or local agent changed/;
 const DEFAULT_FOLDER_REASON = /default folder/;
-const SETTINGS_UNREADABLE =
-	/saved folder settings on its computer can’t be read/;
+const SETTINGS_UNREADABLE = /saved folders can’t be read/;
 const CUSTOM_ID = "6f1f1d0e-8f8e-4a59-9c39-7d2b8c1e4a11";
 const OTHER_ID = "3c2e8f8a-6b55-4b8e-9a43-0f3f2c9d7e21";
 const PROJECT_ID = "0397cc3e-6689-4a06-a6c3-1ca0e265606b";
@@ -149,7 +136,7 @@ function renderDialog(
 	const onOpenChange = vi.fn();
 	const view = (target: typeof BINDING_TARGET, open = true) => (
 		<TestQueryClientProvider queryClient={queryClient}>
-			<AgentProfileFoldersDialog
+			<SavedAgentProfileFoldersDialog
 				actorProfileId={null}
 				agentControllerRef="builtin:codex"
 				executionTargetChangeEligibilityStatus="allowed"
@@ -302,11 +289,9 @@ describe("Agent folders dialog", () => {
 		).toBeNull();
 	});
 
-	it("is titled Working folder, like the card and menu entry that open it", () => {
+	it("identifies the secondary saved-folder controls", () => {
 		renderDialog();
-		expect(
-			screen.getByRole("heading", { name: "Working folder" })
-		).toBeTruthy();
+		expect(screen.getByRole("heading", { name: "Saved folders" })).toBeTruthy();
 	});
 
 	it("makes a Project folder the default through Default Project", async () => {
@@ -352,79 +337,26 @@ describe("Agent folders dialog", () => {
 		);
 	});
 
-	it("adds a folder from the folder source chooser", async () => {
-		renderDialog();
-		await findRow("openmeld");
-		fireEvent.click(screen.getByRole("button", { name: "Add folder" }));
-		fireEvent.click(
-			screen.getByRole("button", { name: "Use the OpenMeld folder" })
-		);
-		fireEvent.click(screen.getByRole("button", { name: "Add folder" }));
-		await waitFor(() =>
-			expect(manageFoldersMock).toHaveBeenCalledWith(
-				expect.objectContaining({
-					operation: { operation: "add_openmeld_managed" },
-				})
-			)
-		);
-	});
-
-	it("makes the first folder added to an Agent with none its default", async () => {
-		const added = {
-			displayName: "OpenMeld folder",
-			folderId: OTHER_ID,
-			isDefault: false,
-			kind: "openmeld_managed" as const,
-		};
+	it("offers a direct managed fallback without resurrecting the source chooser", async () => {
 		readFoldersMock.mockResolvedValue(
 			current({ ...PROJECTION, defaultFolderId: null, folders: [] })
 		);
-		manageFoldersMock.mockImplementation(({ operation }) =>
-			Promise.resolve({
-				agentProfileId: "profile-agent",
-				folderId: operation.folderId ?? OTHER_ID,
-				observedAtMs: 2,
-				projection: {
-					defaultFolderId: operation.folderId ?? null,
-					folders: [
-						{ ...added, isDefault: operation.operation === "set_default" },
-					],
-					revision: 5,
-				},
-				target: TARGET,
-			})
-		);
 		renderDialog();
-		await screen.findByText(NO_FOLDERS_YET);
-		fireEvent.click(screen.getByRole("button", { name: "Add folder" }));
 		fireEvent.click(
-			screen.getByRole("button", { name: "Use the OpenMeld folder" })
+			await screen.findByRole("button", { name: "Use OpenMeld folder" })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Add folder" }));
 		await waitFor(() =>
-			expect(manageFoldersMock).toHaveBeenLastCalledWith(
+			expect(manageFoldersMock).toHaveBeenCalledWith(
 				expect.objectContaining({
-					operation: { folderId: OTHER_ID, operation: "set_default" },
+					operation: {
+						folder: { kind: "openmeld_managed" },
+						operation: "repair",
+					},
 				})
 			)
 		);
-		await waitFor(() =>
-			expect(updateDefaultProjectMock).toHaveBeenCalledWith(
-				expect.objectContaining({ defaultProjectId: null })
-			)
-		);
-	});
-
-	it("keeps the current default when another folder is added", async () => {
-		renderDialog();
-		await findRow("openmeld");
-		fireEvent.click(screen.getByRole("button", { name: "Add folder" }));
-		fireEvent.click(
-			screen.getByRole("button", { name: "Use the OpenMeld folder" })
-		);
-		fireEvent.click(screen.getByRole("button", { name: "Add folder" }));
-		await waitFor(() => expect(manageFoldersMock).toHaveBeenCalledTimes(1));
-		expect(updateDefaultProjectMock).not.toHaveBeenCalled();
+		expect(screen.queryByText("Folder source")).toBeNull();
+		expect(screen.queryByText("Add folder")).toBeNull();
 	});
 
 	it("keeps a recorded list read-only while the computer is offline", async () => {
@@ -438,11 +370,7 @@ describe("Agent folders dialog", () => {
 		expect(
 			row.getByRole("button", { name: "Make default" }).hasAttribute("disabled")
 		).toBe(true);
-		expect(
-			screen
-				.getByRole("button", { name: "Add folder" })
-				.hasAttribute("disabled")
-		).toBe(true);
+		expect(screen.queryByRole("button", { name: "Add folder" })).toBeNull();
 	});
 
 	it("prepares the saved default folder again before clearing the Default Project", async () => {
@@ -520,9 +448,8 @@ describe("Agent folders dialog", () => {
 		// Ordinary changes can't apply to settings that can't be read.
 		expect(screen.queryByRole("button", { name: "Add folder" })).toBeNull();
 		fireEvent.click(
-			screen.getByRole("button", { name: "Use the OpenMeld folder" })
+			screen.getByRole("button", { name: "Use OpenMeld folder" })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Use this folder" }));
 		await waitFor(() => expect(updateDefaultProjectMock).toHaveBeenCalled());
 		expect(manageFoldersMock).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -602,11 +529,7 @@ describe("Agent folders dialog", () => {
 				.getByRole("button", { name: "Make default" })
 				.hasAttribute("disabled")
 		).toBe(true);
-		expect(
-			screen
-				.getByRole("button", { name: "Add folder" })
-				.hasAttribute("disabled")
-		).toBe(true);
+		expect(screen.queryByRole("button", { name: "Add folder" })).toBeNull();
 	});
 
 	it("blocks repair while the Agent's Computer can't be confirmed", async () => {
@@ -624,11 +547,11 @@ describe("Agent folders dialog", () => {
 		});
 		await screen.findByText(SETTINGS_UNREADABLE);
 		fireEvent.click(
-			screen.getByRole("button", { name: "Use the OpenMeld folder" })
+			screen.getByRole("button", { name: "Use OpenMeld folder" })
 		);
 		expect(
 			screen
-				.getByRole("button", { name: "Use this folder" })
+				.getByRole("button", { name: "Use OpenMeld folder" })
 				.hasAttribute("disabled")
 		).toBe(true);
 	});
@@ -646,12 +569,11 @@ describe("Agent folders dialog", () => {
 		renderDialog();
 		await screen.findByText(SETTINGS_UNREADABLE);
 		fireEvent.click(
-			screen.getByRole("button", { name: "Use the OpenMeld folder" })
+			screen.getByRole("button", { name: "Use OpenMeld folder" })
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Use this folder" }));
 		// The repaired list replaces the form; the partial failure stays.
 		expect((await screen.findByRole("alert")).textContent).toContain(
-			"couldn’t confirm that the Default Project was cleared"
+			"couldn’t clear the Default Project"
 		);
 		expect(updateDefaultProjectMock).toHaveBeenCalledWith(
 			expect.objectContaining({ defaultProjectId: null })

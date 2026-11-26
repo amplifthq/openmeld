@@ -212,17 +212,20 @@ describe("AgentProfileWorkingFolderRecoveryAction", () => {
 		expect(readReadinessMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("asks to choose a folder when none is set, without talking about a failure", async () => {
+	it("hands off to the folder flow without explaining the happy path", async () => {
 		readReadinessMock.mockResolvedValue(readiness("unavailable_for_wake"));
 		renderAction();
 		fireEvent.click(
 			screen.getByRole("button", { name: "Choose working folder" })
 		);
 		expect(
-			await screen.findByText(
+			await screen.findByRole("button", { name: "Save folder" })
+		).toBeTruthy();
+		expect(
+			screen.queryByText(
 				"Choose the folder on Felix’s MacBook Pro where this Agent starts new work."
 			)
-		).toBeTruthy();
+		).toBeNull();
 	});
 
 	it("says a folder found unusable by readiness may have moved, without a failed task", async () => {
@@ -233,7 +236,7 @@ describe("AgentProfileWorkingFolderRecoveryAction", () => {
 		);
 		expect(
 			await screen.findByText(
-				"This Agent can’t use its working folder on Felix’s MacBook Pro. It may have been moved or deleted. Set it up again or choose another folder for new work. This does not move files."
+				"This Agent’s folder on Felix’s MacBook Pro may have moved or been deleted."
 			)
 		).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Save folder" }));

@@ -434,9 +434,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 		expect(screen.queryByRole("menuitem", { name: "Edit Agent" })).toBeNull();
 		// The Working folder card is the one entry to folders here.
-		expect(
-			screen.queryByRole("menuitem", { name: "Working folder" })
-		).toBeNull();
+		expect(screen.queryByRole("menuitem", { name: "Folder" })).toBeNull();
 	});
 
 	it("shows current activity before configuration and keeps the details dialog concise", () => {
@@ -947,7 +945,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			.closest("[data-fluid-card-item]");
 		const cardOrder = [
 			"Model",
-			"Working folder",
+			"Folder",
 			"Usage limits",
 			"Permissions",
 			"Collaboration mode",
@@ -1039,9 +1037,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		const overview = screen.getByTestId("agent-configuration-overview");
 		expect(within(overview).getByText("Needs attention")).toBeTruthy();
 		expect(
-			within(overview).getByRole("button", { name: "Review working folder" })
+			within(overview).getByRole("button", { name: "Folder" })
 		).toBeTruthy();
-		expect(within(overview).getByText("Review working folder")).toBeTruthy();
+		expect(within(overview).queryByText("Review working folder")).toBeNull();
 		expect(within(overview).queryByText("OpenMeld managed")).toBeNull();
 	});
 
@@ -2090,9 +2088,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			})
 		);
 		expect(screen.getByRole("menuitem", { name: "More details" })).toBeTruthy();
-		expect(
-			screen.getByRole("menuitem", { name: "Working folder" })
-		).toBeTruthy();
+		expect(screen.getByRole("menuitem", { name: "Folder" })).toBeTruthy();
 		expect(
 			screen.getByRole("menuitem", { name: "Unbind controller" })
 		).toBeTruthy();
@@ -2265,9 +2261,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				name: "Agent options for Research Agent",
 			})
 		);
-		expect(
-			screen.queryByRole("menuitem", { name: "Working folder" })
-		).toBeNull();
+		expect(screen.queryByRole("menuitem", { name: "Folder" })).toBeNull();
 	});
 
 	it("only highlights the dangerous permission mode value", async () => {
