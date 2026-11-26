@@ -527,13 +527,13 @@ describe("Lark-platform Webhook verification", () => {
   });
   it("describes an unmentioned group image as shared, not as a request to review it", async () => {
     const harness = await createPostgresHarness();
-    await applyConnectionMigration(harness);
-    await seedConnection(harness, {
-      encryptKey: null,
-      provider: "feishu",
-      verificationToken: VERIFICATION_TOKEN,
-    });
     try {
+      await applyConnectionMigration(harness);
+      await seedConnection(harness, {
+        encryptKey: null,
+        provider: "feishu",
+        verificationToken: VERIFICATION_TOKEN,
+      });
       const fixture = structuredClone(
         MESSAGE_FIXTURE
       ) as typeof MESSAGE_FIXTURE & {

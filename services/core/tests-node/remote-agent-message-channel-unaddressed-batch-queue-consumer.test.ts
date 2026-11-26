@@ -111,7 +111,7 @@ describe("unaddressed Channel batch queue consumer without Lark or Feishu", () =
   });
 
   it("retries a Feishu batch, which cannot be submitted without the registry", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const message = createQueueMessage("feishu");
     await expect(
       handleUnaddressedChannelBatchQueueMessage({ env, message })
@@ -119,6 +119,15 @@ describe("unaddressed Channel batch queue consumer without Lark or Feishu", () =
     expect(message.retry).toHaveBeenCalledWith({ delaySeconds: 5 });
     expect(message.ack).not.toHaveBeenCalled();
     expect(processRemoteAgentSlackEvent).not.toHaveBeenCalled();
+    // Classification ran; the missing registry is what stopped submission.
+    expect(classifyUnaddressedChannelBatch).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      "[core.message_channel.unaddressed_batch_flush_failed]",
+      expect.objectContaining({
+        error: "Message Channel provider registry is unavailable",
+      })
+    );
+    warn.mockRestore();
   });
 });
 

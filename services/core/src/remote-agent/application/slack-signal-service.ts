@@ -56,6 +56,7 @@ import {
   upsertSlackUserIdentityLinkForSameUser,
 } from "../infrastructure/postgresql/slack-user-identity-link-repo";
 import { readRemoteAgentSlackWorkspaceBinding } from "../infrastructure/postgresql/slack-workspace-binding-repo";
+import { readSlackWorkspaceToken } from "../infrastructure/postgresql/slack-workspace-token-repo";
 import {
   CENTER_AGENT_CHANNEL_MODEL_UNAVAILABLE_TEXT,
   CENTER_AGENT_CHANNEL_UNAVAILABLE_TEXT,
@@ -1161,11 +1162,12 @@ function resolveSlackEventProcessingFailureCode(error: unknown): string {
 /**
  * Reads the workspace binding a turn is started under. For a routed batch of
  * archived messages it returns null unless the binding still matches the
- * Organization and state they were archived under. The turn uses the binding
- * returned here, so there is no gap in which the workspace could move to
- * another Organization.
+ * Organization and state they were archived under, which covers both the
+ * binding and the installed token. The turn uses the binding returned here,
+ * so there is no gap in which the workspace could move to another
+ * Organization.
  */
-async function readSlackWorkspaceBindingForTurn(input: {
+export async function readSlackWorkspaceBindingForTurn(input: {
   archivedUnder: {
     connectionGeneration: number;
     organizationId: string;
@@ -1178,11 +1180,19 @@ async function readSlackWorkspaceBindingForTurn(input: {
     db: input.db,
     slackTeamId: input.slackTeamId,
   });
+  if (!(binding && input.archivedUnder)) {
+    return binding;
+  }
+  const token = await readSlackWorkspaceToken({
+    db: input.db,
+    slackTeamId: input.slackTeamId,
+  });
   if (
-    binding &&
-    input.archivedUnder &&
-    (binding.organizationId !== input.archivedUnder.organizationId ||
-      binding.updatedAtMs > input.archivedUnder.connectionGeneration)
+    !token ||
+    binding.organizationId !== input.archivedUnder.organizationId ||
+    token.organizationId !== binding.organizationId ||
+    Math.max(binding.updatedAtMs, token.updatedAtMs) !==
+      input.archivedUnder.connectionGeneration
   ) {
     console.warn("[core.remote_agent.slack_event.archived_binding_changed]", {
       eventId: input.eventId ?? null,

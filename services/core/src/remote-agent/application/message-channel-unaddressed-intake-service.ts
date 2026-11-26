@@ -22,6 +22,7 @@ import {
   recordUnaddressedChannelBatchAdmission,
   type recordUnaddressedChannelMessage,
   releaseUnaddressedChannelBatch,
+  returnClaimedUnaddressedChannelMessages,
   settleUnaddressedChannelBatch,
   settleUnaddressedChannelMessagesForMention,
   type UnaddressedChannelBatchClaim,
@@ -118,6 +119,10 @@ export type UnaddressedChannelIntakeDependencies = {
   ): Promise<number>;
   releaseBatch(
     input: Parameters<typeof releaseUnaddressedChannelBatch>[0]
+  ): Promise<number>;
+  /** Puts some messages of a new claim back to wait for a later batch. */
+  returnClaimedMessages(
+    input: Parameters<typeof returnClaimedUnaddressedChannelMessages>[0]
   ): Promise<number>;
   settleBatch(
     input: Parameters<typeof settleUnaddressedChannelBatch>[0]
@@ -305,6 +310,7 @@ export function createUnaddressedChannelIntakeDependencies(input: {
     readCurrentConnection: input.readCurrentConnection,
     recordBatchAdmission: recordUnaddressedChannelBatchAdmission,
     releaseBatch: releaseUnaddressedChannelBatch,
+    returnClaimedMessages: returnClaimedUnaddressedChannelMessages,
     settleBatch: settleUnaddressedChannelBatch,
     submitRequest: input.submitRequest,
   };
@@ -522,126 +528,134 @@ export async function flushUnaddressedChannelBatch(
     await scheduleFlush(message, claim.dueAtMs);
     return { status: "rescheduled" };
   }
-  const { batchId } = claim;
+  // Every write below names this claim, so a worker whose lease ran out
+  // cannot change a batch that another worker has claimed since.
+  const held: HeldUnaddressedChannelBatch = {
+    batchId: claim.batchId,
+    claimExpiresAtMs: claim.claimExpiresAtMs,
+    db: input.db,
+  };
+  let routed: RoutedUnaddressedChannelBatch;
   try {
-    const result = await routeClaimedUnaddressedChannelBatch({
-      batchId,
-      db: input.db,
+    routed = await routeClaimedUnaddressedChannelBatch({
       dependencies,
+      held,
       messages: claim.messages,
       provider: message.provider,
     });
-    if (claim.mayHaveMore) {
-      // A batch holds a bounded number of messages, and a retried batch keeps
-      // its original ones. Whatever else is waiting gets its own flush.
-      await scheduleFlush(
-        { ...message, scheduledByObservedAtMs: input.nowMs },
-        input.nowMs
-      );
-    }
-    return result;
   } catch (error) {
-    if (input.queueAttempts >= UNADDRESSED_CHANNEL_BATCH_MAX_QUEUE_ATTEMPTS) {
-      // Routing could not be decided. The messages stay archived and start
-      // nothing, because nobody asked the Center Agent to act.
-      await dependencies.settleBatch({
-        batchId,
-        db: input.db,
-        nativeDeliveryId: null,
-        nowMs: Date.now(),
-        route: "unrouted",
-        state: "archived",
-      });
-      console.error("[core.message_channel.unaddressed_batch_unrouted]", {
-        batchId,
-        connectionId: message.connectionId,
-        error: error instanceof Error ? error.message : String(error),
-        provider: message.provider,
-        queueAttempts: input.queueAttempts,
-      });
-      return { batchId, route: "unrouted", status: "archived" };
+    if (input.queueAttempts < UNADDRESSED_CHANNEL_BATCH_MAX_QUEUE_ATTEMPTS) {
+      await dependencies.releaseBatch({ ...held, nowMs: Date.now() });
+      throw error;
     }
-    await dependencies.releaseBatch({
-      batchId,
-      db: input.db,
-      nowMs: Date.now(),
-    });
-    throw error;
-  }
-}
-
-async function routeClaimedUnaddressedChannelBatch(input: {
-  batchId: string;
-  db: PostgresDatabase;
-  dependencies: UnaddressedChannelIntakeDependencies;
-  messages: readonly UnaddressedChannelMessageRecord[];
-  provider: UnaddressedChannelBatchQueueMessage["provider"];
-}): Promise<UnaddressedChannelBatchFlushResult> {
-  const { batchId, db, dependencies } = input;
-  const claimed = input.messages.at(-1);
-  if (!claimed) {
-    throw new Error("A claimed unaddressed batch has no messages");
-  }
-  // Authorization may have changed while these messages waited in the queue.
-  // Check every claimed row before its content can leave Core. A single claim
-  // can contain messages observed on either side of a reconnect: the ones
-  // from before it are archived, and the ones after it are still routed.
-  const current = await dependencies.readCurrentConnection({
-    connectionId: claimed.connectionId,
-    db,
-    provider: input.provider,
-  });
-  const messages = current
-    ? input.messages.filter(
-        (message) =>
-          message.connectionGeneration === current.connectionGeneration &&
-          message.organizationId === current.organizationId
-      )
-    : [];
-  const trigger = messages.at(-1);
-  if (!trigger) {
+    // Routing could not be decided. The messages stay archived and start
+    // nothing, because nobody asked the Center Agent to act.
     await dependencies.settleBatch({
-      batchId,
-      db,
+      ...held,
       nativeDeliveryId: null,
       nowMs: Date.now(),
       route: "unrouted",
       state: "archived",
     });
-    return { batchId, route: "unrouted", status: "archived" };
+    console.error("[core.message_channel.unaddressed_batch_unrouted]", {
+      batchId: held.batchId,
+      connectionId: message.connectionId,
+      error: error instanceof Error ? error.message : String(error),
+      provider: message.provider,
+      queueAttempts: input.queueAttempts,
+    });
+    routed = {
+      // Routing may have put messages back before it failed.
+      hasMore: true,
+      result: { batchId: held.batchId, route: "unrouted", status: "archived" },
+    };
   }
-  if (messages.length < input.messages.length) {
-    const currentIds = new Set(messages.map((message) => message.messageId));
-    await dependencies.archiveClaimedMessages({
-      batchId,
-      db,
-      messageIds: input.messages
-        .map((message) => message.messageId)
-        .filter((messageId) => !currentIds.has(messageId)),
+  if (claim.mayHaveMore || routed.hasMore) {
+    // A batch holds a bounded number of messages, and a retried batch keeps
+    // its original ones. Whatever else is waiting gets its own flush. This
+    // runs after the batch is settled: if the send fails, the queue retries
+    // this flush, which then finds only the waiting messages.
+    await scheduleFlush(
+      { ...message, scheduledByObservedAtMs: input.nowMs },
+      input.nowMs
+    );
+  }
+  return routed.result;
+}
+
+type HeldUnaddressedChannelBatch = {
+  batchId: string;
+  claimExpiresAtMs: number;
+  db: PostgresDatabase;
+};
+
+type RoutedUnaddressedChannelBatch = {
+  /** True when messages of the claim were put back to wait for a later batch. */
+  hasMore: boolean;
+  result: UnaddressedChannelBatchFlushResult;
+};
+
+async function routeClaimedUnaddressedChannelBatch(input: {
+  dependencies: UnaddressedChannelIntakeDependencies;
+  held: HeldUnaddressedChannelBatch;
+  messages: readonly UnaddressedChannelMessageRecord[];
+  provider: UnaddressedChannelBatchQueueMessage["provider"];
+}): Promise<RoutedUnaddressedChannelBatch> {
+  const { dependencies, held } = input;
+  const { batchId, db } = held;
+  const authorized = await keepCurrentlyAuthorizedMessages(input);
+  const admittedRoute = readAdmittedRoute(authorized);
+  // A batch admitted by an earlier attempt is repeated as it was. A new one
+  // is cut to what one request can carry, so the classifier reads exactly
+  // the words that are then submitted.
+  const messages = admittedRoute
+    ? authorized
+    : takeMessagesFittingOneRequest(authorized);
+  const trigger = messages.at(-1);
+  if (!trigger) {
+    await dependencies.settleBatch({
+      ...held,
+      nativeDeliveryId: null,
       nowMs: Date.now(),
       route: "unrouted",
+      state: "archived",
+    });
+    return {
+      hasMore: false,
+      result: { batchId, route: "unrouted", status: "archived" },
+    };
+  }
+  const hasMore = messages.length < authorized.length;
+  if (hasMore) {
+    await dependencies.returnClaimedMessages({
+      ...held,
+      messageIds: authorized
+        .slice(messages.length)
+        .map((message) => message.messageId),
+      nowMs: Date.now(),
     });
   }
   const route =
-    readAdmittedRoute(messages) ??
+    admittedRoute ??
     (await classifyClaimedUnaddressedChannelBatch({
-      batchId,
-      db,
       dependencies,
+      held,
       messages,
       provider: input.provider,
       trigger,
     }));
   if (route === "chatter") {
     await dependencies.settleBatch({
-      batchId,
-      db,
+      ...held,
       nativeDeliveryId: null,
       nowMs: Date.now(),
       route: "chatter",
       state: "archived",
     });
-    return { batchId, route: "chatter", status: "archived" };
+    return {
+      hasMore,
+      result: { batchId, route: "chatter", status: "archived" },
+    };
   }
   const submission = await dependencies.submitRequest({
     db,
@@ -651,8 +665,7 @@ async function routeClaimedUnaddressedChannelBatch(input: {
   });
   if (submission.status === "not_submitted") {
     await dependencies.settleBatch({
-      batchId,
-      db,
+      ...held,
       nativeDeliveryId: null,
       nowMs: Date.now(),
       route,
@@ -665,22 +678,89 @@ async function routeClaimedUnaddressedChannelBatch(input: {
       reasonCode: submission.reasonCode,
       route,
     });
-    return { batchId, route, status: "archived" };
+    return { hasMore, result: { batchId, route, status: "archived" } };
   }
   await dependencies.settleBatch({
-    batchId,
-    db,
+    ...held,
     nativeDeliveryId: submission.deliveryId,
     nowMs: Date.now(),
     route,
     state: "routed",
   });
   return {
-    batchId,
-    deliveryId: submission.deliveryId,
-    route,
-    status: "routed",
+    hasMore,
+    result: {
+      batchId,
+      deliveryId: submission.deliveryId,
+      route,
+      status: "routed",
+    },
   };
+}
+
+/**
+ * Authorization may have changed while these messages waited in the queue.
+ * Every claimed row is checked before its content can leave Core. A single
+ * claim can contain messages observed on either side of a reconnect: the ones
+ * from before it are archived here, and the ones after it are returned.
+ */
+async function keepCurrentlyAuthorizedMessages(input: {
+  dependencies: UnaddressedChannelIntakeDependencies;
+  held: HeldUnaddressedChannelBatch;
+  messages: readonly UnaddressedChannelMessageRecord[];
+  provider: UnaddressedChannelBatchQueueMessage["provider"];
+}): Promise<UnaddressedChannelMessageRecord[]> {
+  const claimed = input.messages.at(-1);
+  if (!claimed) {
+    throw new Error("A claimed unaddressed batch has no messages");
+  }
+  const current = await input.dependencies.readCurrentConnection({
+    connectionId: claimed.connectionId,
+    db: input.held.db,
+    provider: input.provider,
+  });
+  if (!current) {
+    return [];
+  }
+  const authorized = input.messages.filter(
+    (message) =>
+      message.connectionGeneration === current.connectionGeneration &&
+      message.organizationId === current.organizationId
+  );
+  if (authorized.length > 0 && authorized.length < input.messages.length) {
+    const authorizedIds = new Set(
+      authorized.map((message) => message.messageId)
+    );
+    await input.dependencies.archiveClaimedMessages({
+      ...input.held,
+      messageIds: input.messages
+        .map((message) => message.messageId)
+        .filter((messageId) => !authorizedIds.has(messageId)),
+      nowMs: Date.now(),
+      route: "unrouted",
+    });
+  }
+  return authorized;
+}
+
+/**
+ * The oldest messages whose joined text fits one request. The first message
+ * is always taken, even when it alone is longer than a request.
+ */
+function takeMessagesFittingOneRequest(
+  messages: readonly UnaddressedChannelMessageRecord[]
+): UnaddressedChannelMessageRecord[] {
+  const taken: UnaddressedChannelMessageRecord[] = [];
+  let length = 0;
+  for (const message of messages) {
+    const next = length + (taken.length > 0 ? 1 : 0) + message.text.length;
+    if (taken.length > 0 && next > MESSAGE_CHANNEL_EVENT_TEXT_MAX_CHARS) {
+      break;
+    }
+    taken.push(message);
+    length = next;
+  }
+  return taken;
 }
 
 /**
@@ -701,14 +781,14 @@ function readAdmittedRoute(
 }
 
 async function classifyClaimedUnaddressedChannelBatch(input: {
-  batchId: string;
-  db: PostgresDatabase;
   dependencies: UnaddressedChannelIntakeDependencies;
+  held: HeldUnaddressedChannelBatch;
   messages: readonly UnaddressedChannelMessageRecord[];
   provider: UnaddressedChannelBatchQueueMessage["provider"];
   trigger: UnaddressedChannelMessageRecord;
 }): Promise<UnaddressedChannelBatchRoute> {
-  const { batchId, db, dependencies, messages, trigger } = input;
+  const { dependencies, held, messages, trigger } = input;
+  const { batchId, db } = held;
   const hasPriorAgentTurn = await dependencies.hasPriorAgentTurn({
     db,
     trigger,
@@ -746,8 +826,7 @@ async function classifyClaimedUnaddressedChannelBatch(input: {
       ? "new_request"
       : classified;
   await dependencies.recordBatchAdmission({
-    batchId,
-    db,
+    ...held,
     nowMs: Date.now(),
     route,
   });
@@ -758,9 +837,13 @@ async function classifyClaimedUnaddressedChannelBatch(input: {
 function buildUnaddressedChannelRequestText(
   messages: readonly UnaddressedChannelMessageRecord[]
 ): string {
-  return messages
-    .map((message) => message.text)
-    .join("\n")
-    .slice(-MESSAGE_CHANNEL_EVENT_TEXT_MAX_CHARS)
-    .trim();
+  return (
+    messages
+      .map((message) => message.text)
+      .join("\n")
+      // Only a single message longer than a request is cut here, to the part
+      // the classifier read.
+      .slice(0, MESSAGE_CHANNEL_EVENT_TEXT_MAX_CHARS)
+      .trim()
+  );
 }

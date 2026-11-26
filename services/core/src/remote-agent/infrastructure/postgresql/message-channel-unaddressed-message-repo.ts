@@ -94,6 +94,12 @@ export type UnaddressedChannelBatchClaim =
   | {
       /** The id the batch keeps across retries, not always the one offered. */
       batchId: string;
+      /**
+       * Identifies this claim. A batch keeps its id when it is claimed again,
+       * but every claim gets a later lease, so a worker whose lease ran out
+       * cannot change rows that another worker has since claimed.
+       */
+      claimExpiresAtMs: number;
       messages: UnaddressedChannelMessageRecord[];
       /** True when other waiting messages of the scope may remain. */
       mayHaveMore: boolean;
@@ -249,6 +255,7 @@ export async function claimDueUnaddressedChannelBatch(
   if (reclaimedBatchId) {
     return {
       batchId: reclaimedBatchId,
+      claimExpiresAtMs: input.claimExpiresAtMs,
       messages: reclaimed.rows
         .map(mapUnaddressedChannelMessageRow)
         .sort(compareBySentTime),
@@ -330,6 +337,7 @@ export async function claimDueUnaddressedChannelBatch(
     });
     return {
       batchId: input.batchId,
+      claimExpiresAtMs: input.claimExpiresAtMs,
       messages: claimed.rows
         .map(mapUnaddressedChannelMessageRow)
         .sort(compareBySentTime),
@@ -347,11 +355,13 @@ export async function claimDueUnaddressedChannelBatch(
     text: `
       SELECT
         max(observed_at_ms) FILTER (
-          WHERE state = 'pending' AND batch_id IS NULL
+          WHERE state = 'pending' AND batch_id IS NULL AND observed_at_ms >= $6
         ) AS newest_observed_at_ms,
         min(observed_at_ms) FILTER (
-          WHERE state = 'pending' AND batch_id IS NULL
+          WHERE state = 'pending' AND batch_id IS NULL AND observed_at_ms >= $6
         ) AS oldest_observed_at_ms,
+        -- A live lease is reported whatever its messages' age, so a flush
+        -- still comes back at its end to expire or reclaim them.
         max(claim_expires_at_ms) FILTER (
           WHERE state = 'routing' AND claim_expires_at_ms > $5
         ) AS leased_until_ms
@@ -360,7 +370,6 @@ export async function claimDueUnaddressedChannelBatch(
         AND connection_id = $2
         AND conversation_key = $3
         AND batch_key = $4
-        AND observed_at_ms >= $6
     `,
     values: [...scopeValues, input.nowMs, input.observedAtOrAfterMs],
   });
@@ -506,6 +515,7 @@ export async function settleUnaddressedChannelMessagesForMention(input: {
  */
 export async function releaseUnaddressedChannelBatch(input: {
   batchId: string;
+  claimExpiresAtMs: number;
   db: PostgresDatabase;
   nowMs: number;
 }): Promise<number> {
@@ -517,8 +527,9 @@ export async function releaseUnaddressedChannelBatch(input: {
           updated_at_ms = greatest(updated_at_ms, $2)
       WHERE batch_id = $1
         AND state = 'routing'
+        AND claim_expires_at_ms = $3
     `,
-    values: [input.batchId, input.nowMs],
+    values: [input.batchId, input.nowMs, input.claimExpiresAtMs],
   });
   return Number(result.rowCount ?? 0);
 }
@@ -530,6 +541,7 @@ export async function releaseUnaddressedChannelBatch(input: {
  */
 export async function recordUnaddressedChannelBatchAdmission(input: {
   batchId: string;
+  claimExpiresAtMs: number;
   db: PostgresDatabase;
   nowMs: number;
   route: "follow_up" | "new_request";
@@ -541,8 +553,9 @@ export async function recordUnaddressedChannelBatchAdmission(input: {
           updated_at_ms = greatest(updated_at_ms, $3)
       WHERE batch_id = $1
         AND state = 'routing'
+        AND claim_expires_at_ms = $4
     `,
-    values: [input.batchId, input.route, input.nowMs],
+    values: [input.batchId, input.route, input.nowMs, input.claimExpiresAtMs],
   });
   return Number(result.rowCount ?? 0);
 }
@@ -550,6 +563,7 @@ export async function recordUnaddressedChannelBatchAdmission(input: {
 /** Records the routing decision for a claimed batch. Settling is final. */
 export async function settleUnaddressedChannelBatch(input: {
   batchId: string;
+  claimExpiresAtMs: number;
   db: PostgresDatabase;
   nativeDeliveryId: string | null;
   nowMs: number;
@@ -566,6 +580,7 @@ export async function settleUnaddressedChannelBatch(input: {
           updated_at_ms = greatest(updated_at_ms, $5)
       WHERE batch_id = $1
         AND state = 'routing'
+        AND claim_expires_at_ms = $6
     `,
     values: [
       input.batchId,
@@ -573,6 +588,7 @@ export async function settleUnaddressedChannelBatch(input: {
       input.route,
       input.nativeDeliveryId,
       input.nowMs,
+      input.claimExpiresAtMs,
     ],
   });
   return Number(result.rowCount ?? 0);
@@ -585,6 +601,7 @@ export async function settleUnaddressedChannelBatch(input: {
  */
 export async function archiveClaimedUnaddressedChannelMessages(input: {
   batchId: string;
+  claimExpiresAtMs: number;
   db: PostgresDatabase;
   messageIds: readonly string[];
   nowMs: number;
@@ -602,6 +619,7 @@ export async function archiveClaimedUnaddressedChannelMessages(input: {
           updated_at_ms = greatest(updated_at_ms, $3)
       WHERE batch_id = $1
         AND state = 'routing'
+        AND claim_expires_at_ms = $5
         AND message_id IN (SELECT jsonb_array_elements_text($4::jsonb))
     `,
     values: [
@@ -609,6 +627,44 @@ export async function archiveClaimedUnaddressedChannelMessages(input: {
       input.route,
       input.nowMs,
       JSON.stringify(input.messageIds),
+      input.claimExpiresAtMs,
+    ],
+  });
+  return Number(result.rowCount ?? 0);
+}
+
+/**
+ * Puts some messages of a newly claimed batch back to waiting, as if they
+ * had never been claimed, so a later batch takes them. The rest of the batch
+ * keeps its claim.
+ */
+export async function returnClaimedUnaddressedChannelMessages(input: {
+  batchId: string;
+  claimExpiresAtMs: number;
+  db: PostgresDatabase;
+  messageIds: readonly string[];
+  nowMs: number;
+}): Promise<number> {
+  if (input.messageIds.length === 0) {
+    return 0;
+  }
+  const result = await input.db.query({
+    text: `
+      UPDATE ${TABLE}
+      SET state = 'pending',
+          batch_id = NULL,
+          claim_expires_at_ms = NULL,
+          updated_at_ms = greatest(updated_at_ms, $2)
+      WHERE batch_id = $1
+        AND state = 'routing'
+        AND claim_expires_at_ms = $4
+        AND message_id IN (SELECT jsonb_array_elements_text($3::jsonb))
+    `,
+    values: [
+      input.batchId,
+      input.nowMs,
+      JSON.stringify(input.messageIds),
+      input.claimExpiresAtMs,
     ],
   });
   return Number(result.rowCount ?? 0);

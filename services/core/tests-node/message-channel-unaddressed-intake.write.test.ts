@@ -33,6 +33,7 @@ import {
   recordUnaddressedChannelBatchAdmission,
   recordUnaddressedChannelMessage,
   releaseUnaddressedChannelBatch,
+  returnClaimedUnaddressedChannelMessages,
   settleUnaddressedChannelBatch,
 } from "../src/remote-agent/infrastructure/postgresql/message-channel-unaddressed-message-repo";
 import { handleUnaddressedChannelBatchQueueMessage } from "../src/remote-agent/transport/queue/message-channel-unaddressed-batch-queue-consumer";
@@ -550,6 +551,227 @@ describe("unaddressed Channel message intake", () => {
     }
   });
 
+  it("lets only the worker that holds the current claim release or settle a batch", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await fixture.observe({
+        id: "om_1",
+        sender: "ou_ari",
+        text: "Login is broken",
+        atMs: START_MS,
+      });
+      const dueAtMs = START_MS + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS;
+      const claim = (nowMs: number, batchId: string) =>
+        claimDueUnaddressedChannelBatch({
+          batchId,
+          batchKey: ARI_THREAD_BATCH,
+          claimExpiresAtMs: nowMs + 120_000,
+          connectionId: fixture.connection.connectionId,
+          conversationKey: CHAT_ID,
+          db: fixture.db,
+          maxMessages: UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES,
+          maxWaitMs: UNADDRESSED_CHANNEL_MAX_WAIT_MS,
+          nowMs,
+          observedAtOrAfterMs: 0,
+          provider: "feishu",
+          quietWindowMs: UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+        });
+      // Worker A claims, stalls past its lease, and worker B claims again.
+      await expect(claim(dueAtMs, "batch_a")).resolves.toMatchObject({
+        batchId: "batch_a",
+        claimExpiresAtMs: dueAtMs + 120_000,
+      });
+      const secondAtMs = dueAtMs + 120_000;
+      await expect(claim(secondAtMs, "batch_b")).resolves.toMatchObject({
+        batchId: "batch_a",
+        claimExpiresAtMs: secondAtMs + 120_000,
+      });
+
+      // Worker A wakes up. Nothing it writes touches worker B's claim.
+      const stale = {
+        batchId: "batch_a",
+        claimExpiresAtMs: dueAtMs + 120_000,
+        db: fixture.db,
+        nowMs: secondAtMs + 1000,
+      };
+      await expect(releaseUnaddressedChannelBatch(stale)).resolves.toBe(0);
+      await expect(
+        settleUnaddressedChannelBatch({
+          ...stale,
+          nativeDeliveryId: null,
+          route: "unrouted",
+          state: "archived",
+        })
+      ).resolves.toBe(0);
+      await expect(
+        recordUnaddressedChannelBatchAdmission({
+          ...stale,
+          route: "new_request",
+        })
+      ).resolves.toBe(0);
+      await expect(fixture.states()).resolves.toEqual([
+        { id: "om_1", route: null, state: "routing" },
+      ]);
+      // Worker B settles its own claim.
+      await expect(
+        settleUnaddressedChannelBatch({
+          ...stale,
+          claimExpiresAtMs: secondAtMs + 120_000,
+          nativeDeliveryId: "delivery_1",
+          route: "new_request",
+          state: "routed",
+        })
+      ).resolves.toBe(1);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("submits exactly the words the classifier read when one person's messages exceed one request", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      const request = `Please restart staging. ${"a".repeat(3000)}`;
+      const later = `Status so far: ${"b".repeat(3000)}`;
+      await fixture.observe({
+        id: "om_1",
+        sender: "ou_ari",
+        text: request,
+        atMs: START_MS,
+      });
+      await fixture.observe({
+        id: "om_2",
+        sender: "ou_ari",
+        text: later,
+        atMs: START_MS + 1000,
+      });
+      fixture.queue.send.mockClear();
+      const dueAtMs = START_MS + 1000 + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS;
+
+      await expect(
+        fixture.flush({ scheduledBy: START_MS + 1000, atMs: dueAtMs })
+      ).resolves.toMatchObject({ status: "routed" });
+      expect(
+        fixture.classifyBatch.mock.calls[0]?.[0].messages.map(
+          (message) => message.messageId
+        )
+      ).toEqual(["om_1"]);
+      expect(fixture.submitRequest.mock.calls[0]?.[0].text).toBe(request);
+      await expect(fixture.states()).resolves.toEqual([
+        { id: "om_1", route: "new_request", state: "routed" },
+        { id: "om_2", route: null, state: "pending" },
+      ]);
+      // The second message is routed by a flush of its own.
+      expect(fixture.queue.send).toHaveBeenCalledOnce();
+      await expect(
+        fixture.flush({ scheduledBy: dueAtMs, atMs: dueAtMs + 1000 })
+      ).resolves.toMatchObject({ status: "routed" });
+      expect(fixture.submitRequest.mock.calls[1]?.[0].text).toBe(later);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("keeps the rest of a long burst moving when its first batch fails for good or its follow-up cannot be queued", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      const total = UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES + 1;
+      for (let index = 0; index < total; index += 1) {
+        await fixture.observe({
+          id: `om_${String(index).padStart(2, "0")}`,
+          sender: "ou_ari",
+          text: `Detail ${index}`,
+          atMs: START_MS + index * 10,
+        });
+      }
+      const lastAtMs = START_MS + (total - 1) * 10;
+      const dueAtMs = lastAtMs + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS;
+      fixture.queue.send.mockClear();
+      // The request starts, but the follow-up flush cannot be queued.
+      fixture.queue.send.mockRejectedValueOnce(new Error("queue unavailable"));
+
+      await expect(
+        fixture.flush({
+          scheduledBy: lastAtMs,
+          atMs: dueAtMs,
+          queueAttempts: 4,
+        })
+      ).rejects.toThrow("queue unavailable");
+      // The started batch keeps its real outcome; it is not marked unrouted.
+      const routed = (await fixture.states()).filter(
+        (state) => state.state === "routed"
+      );
+      expect(routed).toHaveLength(UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES);
+      expect(fixture.submitRequest).toHaveBeenCalledOnce();
+
+      // The queue retries the flush. Routing now fails on the last attempt:
+      // the message is archived, and a flush for anything left still follows.
+      fixture.classifyBatch.mockRejectedValue(new Error("model unavailable"));
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      await expect(
+        fixture.flush({
+          scheduledBy: lastAtMs,
+          atMs: dueAtMs + 5000,
+          queueAttempts: 4,
+        })
+      ).resolves.toMatchObject({ route: "unrouted", status: "archived" });
+      expect(fixture.submitRequest).toHaveBeenCalledOnce();
+      expect(fixture.queue.send).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.restoreAllMocks();
+      await fixture.close();
+    }
+  });
+
+  it("comes back for a claim whose worker stopped even after its message passed the age limit", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await fixture.observe({
+        id: "om_1",
+        sender: "ou_ari",
+        text: "Login is broken",
+        atMs: START_MS,
+      });
+      // A delayed flush claims the message late, and its worker stops.
+      const claimedAtMs =
+        START_MS + UNADDRESSED_CHANNEL_MAX_PENDING_AGE_MS - 50_000;
+      await claimDueUnaddressedChannelBatch({
+        batchId: "batch_stopped",
+        batchKey: ARI_THREAD_BATCH,
+        claimExpiresAtMs: claimedAtMs + 120_000,
+        connectionId: fixture.connection.connectionId,
+        conversationKey: CHAT_ID,
+        db: fixture.db,
+        maxMessages: UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES,
+        maxWaitMs: UNADDRESSED_CHANNEL_MAX_WAIT_MS,
+        nowMs: claimedAtMs,
+        observedAtOrAfterMs: 0,
+        provider: "feishu",
+        quietWindowMs: UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+      });
+      fixture.queue.send.mockClear();
+
+      // The redelivered flush runs after the age limit, inside the lease.
+      const redeliveredAtMs =
+        START_MS + UNADDRESSED_CHANNEL_MAX_PENDING_AGE_MS + 10_000;
+      await expect(
+        fixture.flush({ scheduledBy: START_MS, atMs: redeliveredAtMs })
+      ).resolves.toEqual({ status: "rescheduled" });
+      expect(fixture.queue.send.mock.calls[0]?.[1]).toEqual({
+        delaySeconds: 60,
+      });
+      // At the end of the lease the old message is expired, never routed.
+      await expect(
+        fixture.flush({ scheduledBy: START_MS, atMs: claimedAtMs + 120_000 })
+      ).resolves.toEqual({ status: "empty" });
+      await expect(fixture.states()).resolves.toEqual([
+        { id: "om_1", route: "expired", state: "archived" },
+      ]);
+      expect(fixture.submitRequest).not.toHaveBeenCalled();
+    } finally {
+      await fixture.close();
+    }
+  });
+
   it("repeats an admitted request unchanged even if a mention arrives or the classifier would now disagree", async () => {
     const fixture = await createFixture({ route: "new_request" });
     try {
@@ -694,6 +916,7 @@ describe("unaddressed Channel message intake", () => {
       // The first worker then fails and releases the row.
       await releaseUnaddressedChannelBatch({
         batchId: "batch_slow",
+        claimExpiresAtMs: lateMs + 60_000,
         db: fixture.db,
         nowMs: lateMs,
       });
@@ -1439,6 +1662,7 @@ async function createFixture(input: {
     readCurrentConnection,
     recordBatchAdmission: recordUnaddressedChannelBatchAdmission,
     releaseBatch: releaseUnaddressedChannelBatch,
+    returnClaimedMessages: returnClaimedUnaddressedChannelMessages,
     settleBatch: settleUnaddressedChannelBatch,
     submitRequest,
   };

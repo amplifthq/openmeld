@@ -2385,8 +2385,9 @@ message subtypes are never input.
 2. **Batch.** A batch is one sender's messages: their replies in one thread,
    or their top-level messages in the conversation. A batch closes after 8
    seconds without a new message, or 30 seconds after its first message, so a
-   burst becomes one input. A batch holds at most 20 messages; the rest wait
-   for the next batch. A batch keeps its messages and its request identity
+   burst becomes one input. A batch holds at most 20 messages and no more
+   text than one request carries (4,000 characters); the rest wait for the
+   next batch, so the classifier reads exactly the words that are submitted. A batch keeps its messages and its request identity
    across retries, so a retry repeats the same request. A mention settles the
    waiting messages it covers (the sender's own top-level messages, or every
    waiting message in its thread) so they do not start a second turn; the
