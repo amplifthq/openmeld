@@ -184,7 +184,9 @@ export async function recordUnaddressedChannelMessage(input: {
  * id and the same messages, so a retry repeats the same request. Otherwise
  * the oldest waiting messages, up to `maxMessages`, become a new batch once
  * the burst has gone quiet or its oldest message has waited the maximum
- * time. Messages observed before `observedAtOrAfterMs` are never claimed.
+ * time. Messages observed before `observedAtOrAfterMs` are never claimed,
+ * except as part of an earlier batch that still has a newer message: a
+ * batch is claimed again whole or not at all.
  */
 export async function claimDueUnaddressedChannelBatch(
   input: BatchScope & {
@@ -214,7 +216,6 @@ export async function claimDueUnaddressedChannelBatch(
         AND message.connection_id = $2
         AND message.conversation_key = $3
         AND message.batch_key = $4
-        AND message.observed_at_ms >= $7
         AND (
           message.state = 'pending'
           OR (message.state = 'routing' AND message.claim_expires_at_ms <= $5)
@@ -390,7 +391,9 @@ export async function claimDueUnaddressedChannelBatch(
 
 /**
  * Archives the waiting messages of one batch scope that are too old to route.
- * A row still being routed under a live claim is left alone.
+ * A row still being routed under a live claim is left alone. Messages that
+ * were claimed into a batch expire together, once the newest of them is too
+ * old, so a batch waiting for a retry never loses part of its request.
  */
 export async function expireStaleUnaddressedChannelMessages(
   input: BatchScope & {
@@ -401,19 +404,31 @@ export async function expireStaleUnaddressedChannelMessages(
 ): Promise<number> {
   const result = await input.db.query({
     text: `
-      UPDATE ${TABLE}
+      UPDATE ${TABLE} AS message
       SET state = 'archived',
           route = 'expired',
           claim_expires_at_ms = NULL,
-          updated_at_ms = greatest(updated_at_ms, $6)
-      WHERE provider = $1
-        AND connection_id = $2
-        AND conversation_key = $3
-        AND batch_key = $4
-        AND observed_at_ms < $5
+          updated_at_ms = greatest(message.updated_at_ms, $6)
+      WHERE message.provider = $1
+        AND message.connection_id = $2
+        AND message.conversation_key = $3
+        AND message.batch_key = $4
+        AND message.observed_at_ms < $5
         AND (
-          state = 'pending'
-          OR (state = 'routing' AND claim_expires_at_ms <= $6)
+          message.state = 'pending'
+          OR (message.state = 'routing' AND message.claim_expires_at_ms <= $6)
+        )
+        AND (
+          message.batch_id IS NULL
+          OR NOT EXISTS (
+            SELECT 1
+            FROM ${TABLE} AS newer
+            WHERE newer.provider = message.provider
+              AND newer.connection_id = message.connection_id
+              AND newer.batch_id = message.batch_id
+              AND newer.state IN ('pending', 'routing')
+              AND newer.observed_at_ms >= $5
+          )
         )
     `,
     values: [

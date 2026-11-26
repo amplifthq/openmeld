@@ -610,6 +610,50 @@ describe("unaddressed Channel message intake", () => {
     }
   });
 
+  it("keeps a batch whole when only its older message has passed the age limit before the retry", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await fixture.observe({
+        id: "om_1",
+        sender: "ou_ari",
+        text: "Login is broken",
+        atMs: START_MS,
+      });
+      await fixture.observe({
+        id: "om_2",
+        sender: "ou_ari",
+        text: "It started this morning",
+        atMs: START_MS + 20_000,
+      });
+      const dueAtMs = START_MS + 20_000 + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS;
+      const settleBatch = fixture.dependencies.settleBatch;
+      fixture.dependencies.settleBatch = () =>
+        Promise.reject(new Error("database unavailable"));
+      await expect(
+        fixture.flush({ scheduledBy: START_MS + 20_000, atMs: dueAtMs })
+      ).rejects.toThrow("database unavailable");
+      fixture.dependencies.settleBatch = settleBatch;
+
+      // The retry runs after om_1 passed the age limit but before om_2 did.
+      const retryAtMs =
+        START_MS + UNADDRESSED_CHANNEL_MAX_PENDING_AGE_MS + 5000;
+      await expect(
+        fixture.flush({ scheduledBy: START_MS + 20_000, atMs: retryAtMs })
+      ).resolves.toMatchObject({ route: "new_request", status: "routed" });
+      const [first, retry] = fixture.submitRequest.mock.calls.map(
+        ([request]) => ({ id: request.requestEventId, text: request.text })
+      );
+      expect(retry).toEqual(first);
+      expect(first?.text).toBe("Login is broken\nIt started this morning");
+      await expect(fixture.states()).resolves.toEqual([
+        { id: "om_1", route: "new_request", state: "routed" },
+        { id: "om_2", route: "new_request", state: "routed" },
+      ]);
+    } finally {
+      await fixture.close();
+    }
+  });
+
   it("never routes a message that outlived the age limit while claimed and was then released", async () => {
     const fixture = await createFixture({ route: "new_request" });
     try {
