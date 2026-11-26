@@ -106,3 +106,66 @@ export async function requireOrganizationMemberRemovalSuccessor(
   }
   return { ...successor, ownerUserId: successor.ownerUserId };
 }
+
+/** An explicitly configured native membership, never a name or provider identity. */
+export async function readOrganizationMemberRemovalDefaultSuccessor(
+  env: CoreBindings,
+  authorized: Awaited<
+    ReturnType<typeof requireOrganizationMemberRemovalManager>
+  >
+) {
+  const raw = env.OPENMELD_ORGANIZATION_MEMBER_REMOVAL_RECIPIENTS;
+  if (!raw) {
+    return null;
+  }
+  let recipients: unknown;
+  try {
+    recipients = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (
+    !recipients ||
+    typeof recipients !== "object" ||
+    Array.isArray(recipients) ||
+    !Object.hasOwn(recipients, authorized.organizationId)
+  ) {
+    return null;
+  }
+  const memberId = (recipients as Record<string, unknown>)[
+    authorized.organizationId
+  ];
+  if (typeof memberId !== "string" || !memberId || memberId.length > 255) {
+    return null;
+  }
+  const member = (
+    await authorized.db.query<{ user_id: string; role: string }>({
+      text: 'SELECT user_id, role FROM "openmeld"."members" WHERE id = $1 AND organization_id = $2',
+      values: [memberId, authorized.organizationId],
+    })
+  ).rows[0];
+  if (
+    !member ||
+    member.user_id === authorized.userId ||
+    !member.role.split(",").includes("owner")
+  ) {
+    return null;
+  }
+  const successor = await readResolvedOrganizationOwnerHumanSpaceMember({
+    db: authorized.db,
+    organizationId: authorized.organizationId,
+    ownerUserId: member.user_id,
+  });
+  return successor?.ownerUserId
+    ? { ...successor, ownerUserId: successor.ownerUserId }
+    : null;
+}
+
+export function organizationMemberRemovalDefaultSuccessorChanged(): Error {
+  return createCoreRpcHttpError({
+    status: 409,
+    code: "organization.member_removal_changed",
+    reason:
+      "The default successor changed. Review Space ownership again before removing this member.",
+  });
+}

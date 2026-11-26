@@ -375,6 +375,163 @@ describe("Organization member removal Space preparation", () => {
     expect(await f.departingMembershipExists()).toBe(true);
   });
 
+  it("lets owners and admins review removal, but denies members, self-removal, and owner targets", async () => {
+    const f = await fixture();
+    await f.db.query({
+      text: 'UPDATE "openmeld"."members" SET role = $1 WHERE id = $2',
+      values: ["admin", f.collaborator.memberId],
+    });
+    await f.db.query({
+      text: 'UPDATE "openmeld"."members" SET role = $1 WHERE id = $2',
+      values: ["owner", f.successor.memberId],
+    });
+    const plan = await f.preview();
+    await expect(
+      previewOrganizationMemberRemoval(core, {
+        context: f.context(f.collaborator),
+        memberId: f.departing.memberId,
+      })
+    ).resolves.toEqual(plan);
+
+    for (const [actor, target, code] of [
+      [f.departing, f.collaborator, "organization.role_required"],
+      [f.collaborator, f.collaborator, "organization.member_removal_forbidden"],
+      [f.collaborator, f.manager, "organization.member_removal_forbidden"],
+      [f.manager, f.successor, "organization.member_removal_forbidden"],
+    ] as const) {
+      const input = { context: f.context(actor), memberId: target.memberId };
+      await expect(
+        previewOrganizationMemberRemoval(core, input)
+      ).rejects.toMatchObject({ status: 403, code });
+      await expect(
+        prepareOrganizationMemberRemoval(core, { ...input, spaces: [] })
+      ).rejects.toMatchObject({ status: 403, code });
+    }
+
+    expect(await f.departingMembershipExists()).toBe(true);
+    expect((await f.state()).meta?.ownerUserIds).toEqual([f.departing.userId]);
+  });
+
+  it("defaults to a configured organization owner who already belongs to the transfer Space", async () => {
+    const f = await fixture();
+    await f.addCollaborator("active");
+    await f.db.query({
+      text: 'UPDATE "openmeld"."members" SET role = $1 WHERE id = $2',
+      values: ["owner", f.collaborator.memberId],
+    });
+    const configured = await f.configureDefault(f.collaborator.memberId);
+    const request = {
+      context: f.context(f.manager),
+      memberId: f.departing.memberId,
+    };
+    const plan = await previewOrganizationMemberRemoval(configured, {
+      ...request,
+      includeDefaultSuccessor: true,
+    });
+    expect(plan.defaultSuccessor).toEqual({
+      userId: f.collaborator.userId,
+      profileName: f.collaborator.name,
+    });
+    expect(plan.spaces).toEqual([
+      { spaceId: f.spaceId, name: "Welcome Space", action: "transfer" },
+    ]);
+    await expect(
+      previewOrganizationMemberRemoval(configured, request)
+    ).resolves.toEqual({
+      memberId: request.memberId,
+      userId: f.departing.userId,
+      spaces: plan.spaces,
+    });
+    await expect(
+      prepareOrganizationMemberRemoval(configured, {
+        ...request,
+        spaces: plan.spaces,
+        successorUserId: f.manager.userId,
+        useDefaultSuccessor: true,
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "organization.member_removal_changed",
+    });
+    await expect(
+      prepareOrganizationMemberRemoval(configured, {
+        ...request,
+        spaces: plan.spaces,
+        successorUserId: f.collaborator.userId,
+        useDefaultSuccessor: true,
+      })
+    ).resolves.toEqual({ prepared: true });
+    const retained = await f.state();
+    expect(retained.meta?.ownerUserIds).toEqual([f.collaborator.userId]);
+    expect(retained.history?.data.text).toBe(f.message);
+    expect(
+      retained.members
+        .filter((member) => member.status === "active")
+        .map((member) => member.profileId)
+        .sort()
+    ).toEqual([f.departing.profileId, f.collaborator.profileId].sort());
+  });
+
+  it("omits invalid, foreign, and nonmember defaults and rechecks eligibility when preparing a reviewed transfer", async () => {
+    const f = await fixture();
+    await f.addCollaborator("active");
+    const request = {
+      context: f.context(f.manager),
+      memberId: f.departing.memberId,
+    };
+    const previewRequest = {
+      ...request,
+      includeDefaultSuccessor: true as const,
+    };
+    const foreign = await fixture();
+    for (const memberId of [
+      foreign.manager.memberId,
+      f.collaborator.memberId,
+      f.manager.memberId,
+    ]) {
+      const configured = await f.configureDefault(memberId);
+      expect(
+        (await previewOrganizationMemberRemoval(configured, previewRequest))
+          .defaultSuccessor
+      ).toBeUndefined();
+    }
+    await f.db.query({
+      text: 'UPDATE "openmeld"."members" SET role = $1 WHERE id = $2',
+      values: ["owner", f.collaborator.memberId],
+    });
+    const configured = await f.configureDefault(f.collaborator.memberId);
+    const plan = await previewOrganizationMemberRemoval(
+      configured,
+      previewRequest
+    );
+    expect(plan.defaultSuccessor?.userId).toBe(f.collaborator.userId);
+    await f.addCollaborator("removed");
+    const expected = plan.spaces[0];
+    if (!expected) {
+      throw new Error("Missing fixture transfer plan");
+    }
+    await expect(
+      (async () =>
+        await f.stub.rpcPrepareOrganizationMemberRemovalSpace({
+          ...request,
+          spaceId: f.spaceId,
+          expected,
+          successorUserId: f.collaborator.userId,
+          useDefaultSuccessor: true,
+        }))()
+    ).rejects.toThrow("organization.member_removal_changed");
+    expect(
+      (await previewOrganizationMemberRemoval(configured, previewRequest))
+        .defaultSuccessor
+    ).toBeUndefined();
+    expect((await f.state()).meta?.ownerUserIds).toEqual([f.departing.userId]);
+    // Explicitly chosen transfers still retain the old access-grant behavior.
+    await expect(f.prepare(plan.spaces, f.successor.userId)).resolves.toEqual({
+      prepared: true,
+    });
+    expect((await f.state()).meta?.ownerUserIds).toEqual([f.successor.userId]);
+  });
+
   it.each([
     "pending Wake",
     "pending invitation",
@@ -560,6 +717,20 @@ async function fixture() {
     context,
     preview,
     prepare,
+    configureDefault: async (memberId: string) => {
+      const value = JSON.stringify({ [organizationId]: memberId });
+      const configured = {
+        ...core,
+        OPENMELD_ORGANIZATION_MEMBER_REMOVAL_RECIPIENTS: value,
+      };
+      await runInDurableObject(stub, (instance) => {
+        Reflect.set(instance, "bindings", {
+          ...Reflect.get(instance, "bindings"),
+          OPENMELD_ORGANIZATION_MEMBER_REMOVAL_RECIPIENTS: value,
+        });
+      });
+      return configured;
+    },
     deleteDepartingMembership: () =>
       db.query({
         text: 'DELETE FROM "openmeld"."members" WHERE id = $1',

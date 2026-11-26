@@ -41,6 +41,13 @@ export const organizationMemberRemovalActionSchema = z.strictObject({
   memberIdOrEmail: id,
   organizationId: id,
 });
+export const organizationReviewedMemberRemovalActionSchema =
+  organizationMemberRemovalActionSchema.extend({
+    expectedMemberRole: id.refine(
+      (role) => !role.split(",").some((segment) => segment.trim() === "owner"),
+      "Use organization ownership controls for an Owner."
+    ),
+  });
 export const organizationCreatedActionResponseSchema =
   organizationSummarySchema;
 export const organizationInvitationAcceptedSchema = z.strictObject({

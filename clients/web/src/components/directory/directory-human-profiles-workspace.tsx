@@ -5,13 +5,14 @@ import type {
 	CenterAgentMemberResearchTask,
 	ModelCatalog,
 } from "@openmeld/schemas/types";
-import { Button } from "@openmeld/ui/components/button";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	SkeletonRegion,
 	SkeletonRows,
 } from "@openmeld/ui/components/skeleton-content";
-import { PlusIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon, PlusIcon } from "@phosphor-icons/react";
+import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
@@ -32,6 +33,7 @@ import type {
 } from "#/components/directory/directory-human-profile-model";
 import { useHumanPresence } from "#/components/profiles/human-presence";
 import { localPeopleSidebarFixtures } from "#/lib/dev/people-sidebar-fixtures";
+import { buildOrganizationPeoplePath } from "#/lib/organizations/organization-routes";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { PeopleSidebar } from "./people-sidebar";
 import { TeamHeader } from "./team-header";
@@ -65,6 +67,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 	computerGroups: readonly OrganizationComputerGroup[];
 	directoryError: string | null;
 	directoryIsPending: boolean;
+	memberActions?: ReactNode;
 	emptyMessage: string;
 	errorMessage: string | null;
 	initialSidebarStates?: AppSidebarPersistedStates;
@@ -159,7 +162,19 @@ export function DirectoryHumanProfilesWorkspace(input: {
 			defaultModuleSidebarOpen={!!input.selectedProfileId}
 			initialOuterSidebarState={input.initialSidebarStates?.outer}
 			mainHeader={
-				input.selectedProfileId ? undefined : (
+				input.selectedProfileId ? (
+					<div className="flex h-full items-center justify-between gap-2 px-3 sm:px-4">
+						<Link
+							className={buttonVariants({ size: "sm", variant: "ghost" })}
+							search={{}}
+							to={buildOrganizationPeoplePath(input.orgSlug)}
+						>
+							<ArrowLeftIcon aria-hidden="true" data-icon="inline-start" />
+							Back to Team
+						</Link>
+						{selectedMember && input.memberActions}
+					</div>
+				) : (
 					<TeamHeader
 						actions={
 							input.onInviteMembers ? (
@@ -183,7 +198,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 					</TeamSidebarHeaderActionsProvider>
 				),
 			}}
-			showMainHeader={!input.selectedProfileId}
+			showMainHeader
 		>
 			{input.researchErrorMessage ? (
 				<p className="m-4 rounded-md border border-destructive/50 px-4 py-3 text-destructive text-sm">

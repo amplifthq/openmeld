@@ -9,6 +9,8 @@ import type { CoreBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { resolveSpaceStub } from "../rpc/space-ref";
 import {
+  organizationMemberRemovalDefaultSuccessorChanged,
+  readOrganizationMemberRemovalDefaultSuccessor,
   requireOrganizationMemberRemovalManager,
   requireOrganizationMemberRemovalSuccessor,
 } from "./member-removal-authorization";
@@ -31,20 +33,47 @@ export async function previewOrganizationMemberRemoval(
     values: [authorized.memberId],
   });
   const spaces: OrganizationMemberRemovalPlan["spaces"] = [];
+  const defaultSuccessor =
+    input.includeDefaultSuccessor && rows.rows.length
+      ? await readOrganizationMemberRemovalDefaultSuccessor(env, authorized)
+      : null;
+  let hasTransfers = false;
+  let allTransfersEligibleForDefault = true;
   for (const row of rows.rows) {
     const stub = resolveSpaceStub(env.OPENMELD_SPACES, row.space_id);
     if (!stub) {
       throw new Error("Couldn't review Space ownership. Try again.");
     }
     const space = await stub.rpcPreviewOrganizationMemberRemovalSpace({
-      ...input,
+      context: input.context,
+      memberId: input.memberId,
       spaceId: row.space_id,
+      ...(defaultSuccessor
+        ? { defaultSuccessorProfileId: defaultSuccessor.profileId }
+        : {}),
     });
     if (space) {
-      spaces.push(space);
+      const { defaultSuccessorEligible, ...summary } = space;
+      if (summary.action === "transfer") {
+        hasTransfers = true;
+        allTransfersEligibleForDefault &&= defaultSuccessorEligible === true;
+      }
+      spaces.push(summary);
     }
   }
-  return { memberId: input.memberId, userId: authorized.userId, spaces };
+  return {
+    memberId: input.memberId,
+    userId: authorized.userId,
+    spaces,
+    ...(defaultSuccessor && hasTransfers && allTransfersEligibleForDefault
+      ? {
+          defaultSuccessor: {
+            userId: defaultSuccessor.ownerUserId,
+            profileName: defaultSuccessor.profileName,
+          },
+        }
+      : {}),
+  };
 }
 
 export async function prepareOrganizationMemberRemoval(
@@ -64,7 +93,10 @@ export async function prepareOrganizationMemberRemoval(
     env,
     previewInput
   );
-  const current = await previewOrganizationMemberRemoval(env, previewInput);
+  const current = await previewOrganizationMemberRemoval(env, {
+    ...previewInput,
+    ...(input.useDefaultSuccessor ? { includeDefaultSuccessor: true } : {}),
+  });
   const expected = [...input.spaces].sort((a, b) =>
     a.spaceId.localeCompare(b.spaceId)
   );
@@ -76,7 +108,14 @@ export async function prepareOrganizationMemberRemoval(
         "Space ownership changed. Review this member's Spaces again before removing them.",
     });
   }
-  if (current.spaces.some((space) => space.action === "transfer")) {
+  if (input.useDefaultSuccessor) {
+    if (
+      !current.defaultSuccessor ||
+      current.defaultSuccessor.userId !== input.successorUserId
+    ) {
+      throw organizationMemberRemovalDefaultSuccessorChanged();
+    }
+  } else if (current.spaces.some((space) => space.action === "transfer")) {
     await requireOrganizationMemberRemovalSuccessor(
       authorized,
       input.successorUserId
@@ -98,6 +137,9 @@ export async function prepareOrganizationMemberRemoval(
       expected: space,
       ...(input.successorUserId
         ? { successorUserId: input.successorUserId }
+        : {}),
+      ...(input.useDefaultSuccessor && space.action === "transfer"
+        ? { useDefaultSuccessor: true }
         : {}),
     });
   }

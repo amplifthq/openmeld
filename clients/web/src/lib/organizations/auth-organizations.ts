@@ -12,6 +12,7 @@ import {
 	organizationInviteActionSchema,
 	organizationMemberRemovalActionSchema,
 	organizationMemberRoleActionSchema,
+	organizationReviewedMemberRemovalActionSchema,
 	organizationUpdateActionSchema,
 	previewOrganizationJoinLinkResponseSchema,
 	revokeOrganizationJoinLinkResponseSchema,
@@ -134,12 +135,17 @@ export async function updateOrganizationMemberRole(
 }
 
 export async function removeOrganizationMember(
-	input: z.infer<typeof organizationMemberRemovalActionSchema>
+	input:
+		| z.infer<typeof organizationMemberRemovalActionSchema>
+		| z.infer<typeof organizationReviewedMemberRemovalActionSchema>
 ) {
 	await requestAuthBusiness({
 		path: "/v1/organizations/remove-member",
 		method: "POST",
-		body: organizationMemberRemovalActionSchema.parse(input),
+		body: ("expectedMemberRole" in input
+			? organizationReviewedMemberRemovalActionSchema
+			: organizationMemberRemovalActionSchema
+		).parse(input),
 		schema: organizationActionSuccessSchema,
 	});
 }
