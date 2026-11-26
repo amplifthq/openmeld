@@ -219,6 +219,13 @@ type SlackEventFailureContext = {
   threadTs: string;
 };
 type SlackReplyPlacement = "conversation" | "thread";
+export type SlackEventOutcomeDetail = {
+  duplicateOf?: {
+    outcomeStatus: string | null;
+    state: "completed" | "failed" | "processing" | "queued";
+  };
+  nativeDelivery?: "failed" | "submitted";
+};
 type RemoteAgentSlackConversationEvent =
   | RemoteAgentSlackAppMentionEvent
   | RemoteAgentSlackDirectMessageEvent;
@@ -240,6 +247,13 @@ export async function processRemoteAgentSlackEvent(
      * Organization.
      */
     archivedUnder?: { connectionGeneration: number; organizationId: string };
+    /**
+     * Receives what the returned status alone does not say. For `duplicate`:
+     * the earlier handling of the same event, which tells a finished event
+     * apart from one still running or stopped. For `processed`: whether a
+     * worker accepted the turn.
+     */
+    onDetail?: (detail: SlackEventOutcomeDetail) => void;
     finalAttempt?: boolean;
     gatewayRequestId?: string;
     nowMs?: number;
@@ -300,6 +314,7 @@ export async function processRemoteAgentSlackEvent(
     slackTeamId,
   });
   if (duplicate) {
+    context.onDetail?.({ duplicateOf: duplicate });
     return { status: "duplicate" };
   }
   try {
@@ -324,7 +339,8 @@ export async function processRemoteAgentSlackEvent(
         outcomeStatus: outcome.status,
       });
     }
-    return outcome;
+    context.onDetail?.({ nativeDelivery: outcome.nativeDelivery });
+    return { status: outcome.status };
   } catch (error) {
     const settlement = await settleFailedSlackEventIngress({
       claimId,
@@ -1051,9 +1067,12 @@ async function claimSlackEventIngress(input: {
   eventKey: string;
   nowMs: number;
   slackTeamId: string;
-}): Promise<boolean> {
+}): Promise<{
+  outcomeStatus: string | null;
+  state: "completed" | "failed" | "processing" | "queued";
+} | null> {
   if (!input.db) {
-    return false;
+    return null;
   }
   const claim = await claimRemoteAgentSlackEventIngress({
     claimExpiresAtMs: input.nowMs + REMOTE_AGENT_SLACK_EVENT_CLAIM_LEASE_MS,
@@ -1071,7 +1090,7 @@ async function claimSlackEventIngress(input: {
     slackTeamId: input.slackTeamId,
   });
   if (claim.status !== "duplicate") {
-    return false;
+    return null;
   }
   console.info("[core.remote_agent.slack_event.duplicate]", {
     deliveryAttemptCount: claim.record.deliveryAttemptCount,
@@ -1082,7 +1101,10 @@ async function claimSlackEventIngress(input: {
     slackRetryReason: input.context.slackRetryReason ?? null,
     slackTeamId: input.slackTeamId,
   });
-  return true;
+  return {
+    outcomeStatus: claim.record.outcomeStatus,
+    state: claim.record.state,
+  };
 }
 async function settleFailedSlackEventIngress(input: {
   claimId: string;
@@ -1217,6 +1239,7 @@ async function processRemoteAgentSlackAppMention(input: {
   slackTeamId: string;
   threadTs: string;
 }): Promise<{
+  nativeDelivery?: "failed" | "submitted";
   status: "ignored" | "processed" | "replied";
 }> {
   const {
@@ -1492,7 +1515,7 @@ async function processRemoteAgentSlackAppMention(input: {
       });
     }
   }
-  return { status: "processed" };
+  return { nativeDelivery: submission.status, status: "processed" };
 }
 function buildSlackTurnParticipant(input: {
   memberResolution: SlackMemberResolution;

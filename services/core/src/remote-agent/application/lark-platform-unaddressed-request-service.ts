@@ -76,6 +76,7 @@ export async function submitUnaddressedLarkPlatformRequest(
       connectionId: connection.connectionId,
       provider: trigger.provider,
       providerEventId: request.requestEventId,
+      sourceProofText: trigger.text,
     },
   });
   if ("deliveryId" in submission) {

@@ -95,6 +95,12 @@ export type AdmittedMessageChannelEventSource = {
   connectionId: string;
   provider: "feishu" | "lark";
   providerEventId: string;
+  /**
+   * The trigger message's own text, when the event text is a whole batch.
+   * The source proof is later rebuilt from that one message as the provider
+   * returns it, so it must be made from the same words.
+   */
+  sourceProofText?: string;
 };
 export type RemoteAgentMessageChannelEventProcessingResult =
   | {
@@ -697,7 +703,7 @@ export async function submitAdmittedMessageChannelEvent(input: {
               provider: locator.provider,
               messageId: admittedEvent.messageId,
               providerUserId: admittedEvent.senderId,
-              text: admittedEvent.text,
+              text: resolveSourceProofText(input.source, admittedEvent),
               resourceIds: admittedEvent.resources.map(
                 (resource) => resource.fileKey
               ),
@@ -871,6 +877,12 @@ function resolveEventAdmission(
     reasonCode: "message_channel.event_kind_not_admitted",
     status: "ignored",
   };
+}
+function resolveSourceProofText(
+  source: AdmittedMessageChannelEventSource,
+  event: MessageChannelMessageEvent
+): string {
+  return source.sourceProofText ?? event.text;
 }
 /** The message history was read through, or null when it was not read. */
 function resolveContextCursorTarget(

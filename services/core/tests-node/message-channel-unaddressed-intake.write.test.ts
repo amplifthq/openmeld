@@ -1294,13 +1294,13 @@ describe("unaddressed Channel message intake", () => {
             files: [{ id: "F123", name: "trace.png" }],
           },
         },
-        {
+        expect.objectContaining({
           addressed: false,
           archivedUnder: {
             connectionGeneration: SLACK_CONNECTION_GENERATION,
             organizationId: "org_1",
           },
-        }
+        })
       );
     } finally {
       await fixture.close();
@@ -1343,6 +1343,70 @@ describe("unaddressed Channel message intake", () => {
     } finally {
       await fixture.close();
     }
+  });
+
+  it.each([
+    {
+      expected: { deliveryId: null, status: "submitted" },
+      name: "a turn a worker accepted",
+      detail: { nativeDelivery: "submitted" as const },
+      status: "processed",
+    },
+    {
+      expected: {
+        reasonCode: "slack.unaddressed_request_delivery_failed",
+        status: "not_submitted",
+      },
+      name: "a turn no worker accepted",
+      detail: { nativeDelivery: "failed" as const },
+      status: "processed",
+    },
+    {
+      expected: { deliveryId: null, status: "submitted" },
+      name: "a retry of an event that already finished as processed",
+      detail: {
+        duplicateOf: { outcomeStatus: "processed", state: "completed" },
+      },
+      status: "duplicate",
+    },
+    {
+      expected: {
+        reasonCode: "slack.unaddressed_request_ignored",
+        status: "not_submitted",
+      },
+      name: "a retry of an event that already finished as ignored",
+      detail: {
+        duplicateOf: { outcomeStatus: "ignored", state: "completed" },
+      },
+      status: "duplicate",
+    },
+  ])("reports $name as $expected.status for a Slack batch", async ({
+    detail,
+    expected,
+    status,
+  }) => {
+    await expect(
+      submitUnaddressedSlackRequest(createSlackRequest(), {
+        processSlackEvent: (_payload, context) => {
+          context.onDetail(detail);
+          return Promise.resolve({ status });
+        },
+      })
+    ).resolves.toEqual(expected);
+  });
+
+  it("keeps a Slack batch retryable while an earlier handling of its event has not finished", async () => {
+    // A worker claimed the event and stopped before starting the turn.
+    await expect(
+      submitUnaddressedSlackRequest(createSlackRequest(), {
+        processSlackEvent: (_payload, context) => {
+          context.onDetail({
+            duplicateOf: { outcomeStatus: null, state: "processing" },
+          });
+          return Promise.resolve({ status: "duplicate" });
+        },
+      })
+    ).rejects.toThrow("slack.unaddressed_request_in_progress");
   });
 
   it("leaves a Slack channel that is not listed on the mention-only path, archiving nothing", async () => {
@@ -1498,6 +1562,8 @@ describe("routed Lark-platform unaddressed request", () => {
         connectionId: "connection_feishu_1",
         provider: "feishu",
         providerEventId: "unaddressed-batch:om_3",
+        // The source proof is made from the trigger message's own text.
+        sourceProofText: "Login is broken",
       },
     });
   });
@@ -1860,6 +1926,25 @@ function createLarkRequest(): UnaddressedChannelBatchRequest {
       state: "routing",
       text: "Login is broken",
       threadId: null,
+    },
+  };
+}
+
+function createSlackRequest(): UnaddressedChannelBatchRequest {
+  const request = createLarkRequest();
+  return {
+    ...request,
+    requestEventId: "unaddressed-batch:1710000000.000100",
+    trigger: {
+      ...request.trigger,
+      batchKey: "sender:U123",
+      connectionId: SLACK_TEAM_ID,
+      conversationKey: SLACK_CHANNEL_ID,
+      messageId: "1710000000.000100",
+      provider: "slack",
+      rootMessageId: "1710000000.000100",
+      senderId: "U123",
+      senderTenantKey: SLACK_TEAM_ID,
     },
   };
 }

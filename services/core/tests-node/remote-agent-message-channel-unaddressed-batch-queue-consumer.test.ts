@@ -101,10 +101,10 @@ describe("unaddressed Channel batch queue consumer without Lark or Feishu", () =
         }),
         team_id: "T123",
       }),
-      {
+      expect.objectContaining({
         addressed: false,
         archivedUnder: { connectionGeneration: 7, organizationId: "org_1" },
-      }
+      })
     );
     expect(message.ack).toHaveBeenCalledOnce();
     expect(message.retry).not.toHaveBeenCalled();

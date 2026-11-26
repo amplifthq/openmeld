@@ -12,6 +12,7 @@ import {
   type settleUnaddressedChannelMessagesAnsweredByMention,
   type UnaddressedChannelBatchRequest,
   type UnaddressedChannelBatchSubmission,
+  UnaddressedChannelIntakeRetryableError,
   type UnaddressedChannelObservationDependencies,
   type UnaddressedChannelObservationResult,
 } from "./message-channel-unaddressed-intake-service";
@@ -214,11 +215,19 @@ export async function submitUnaddressedSlackRequest(
           connectionGeneration: number;
           organizationId: string;
         };
+        onDetail: (detail: {
+          duplicateOf?: { outcomeStatus: string | null; state: string };
+          nativeDelivery?: "failed" | "submitted";
+        }) => void;
       }
     ): Promise<{ status: string }>;
   }
 ): Promise<UnaddressedChannelBatchSubmission> {
   const { trigger } = request;
+  const detail: {
+    duplicateOf?: { outcomeStatus: string | null; state: string };
+    nativeDelivery?: "failed" | "submitted";
+  } = {};
   const outcome = await dependencies.processSlackEvent(
     {
       type: "event_callback",
@@ -238,6 +247,7 @@ export async function submitUnaddressedSlackRequest(
     },
     {
       addressed: false,
+      onDetail: (reported) => Object.assign(detail, reported),
       ...(trigger.connectionGeneration === null
         ? {}
         : {
@@ -248,11 +258,27 @@ export async function submitUnaddressedSlackRequest(
           }),
     }
   );
-  if (outcome.status === "processed" || outcome.status === "duplicate") {
+  // A retry repeats the same event id. Only a finished earlier handling says
+  // what happened; one still running, or stopped, has started no turn yet.
+  const settled =
+    outcome.status === "duplicate" ? detail.duplicateOf : undefined;
+  if (outcome.status === "duplicate" && settled?.state !== "completed") {
+    throw new UnaddressedChannelIntakeRetryableError(
+      "slack.unaddressed_request_in_progress"
+    );
+  }
+  const status = settled
+    ? (settled.outcomeStatus ?? "unknown")
+    : outcome.status;
+  // `processed` also covers a turn that no worker accepted.
+  if (status === "processed" && detail.nativeDelivery !== "failed") {
     return { deliveryId: null, status: "submitted" };
   }
   return {
-    reasonCode: `slack.unaddressed_request_${outcome.status}`,
+    reasonCode:
+      status === "processed"
+        ? "slack.unaddressed_request_delivery_failed"
+        : `slack.unaddressed_request_${status}`,
     status: "not_submitted",
   };
 }
