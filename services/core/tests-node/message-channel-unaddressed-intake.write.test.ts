@@ -485,6 +485,71 @@ describe("unaddressed Channel message intake", () => {
     }
   });
 
+  it("still reclaims a batch held by a stopped worker when a newer message of the same sender was routed meanwhile", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await fixture.observe({
+        id: "om_1",
+        sender: "ou_ari",
+        text: "Login is broken",
+        atMs: START_MS,
+      });
+      const dueAtMs = START_MS + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS;
+      // A worker claims the batch and then stops without settling it.
+      await claimDueUnaddressedChannelBatch({
+        batchId: "batch_stopped",
+        batchKey: ARI_THREAD_BATCH,
+        claimExpiresAtMs: dueAtMs + 120_000,
+        connectionId: fixture.connection.connectionId,
+        conversationKey: CHAT_ID,
+        db: fixture.db,
+        maxMessages: UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES,
+        maxWaitMs: UNADDRESSED_CHANNEL_MAX_WAIT_MS,
+        nowMs: dueAtMs,
+        observedAtOrAfterMs: 0,
+        provider: "feishu",
+        quietWindowMs: UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+      });
+      // The same person writes again before the lease ends.
+      const laterAtMs = dueAtMs + 10_000;
+      await fixture.observe({
+        id: "om_2",
+        sender: "ou_ari",
+        text: "Also the export job fails",
+        atMs: laterAtMs,
+      });
+      fixture.queue.send.mockClear();
+      const laterDueAtMs = laterAtMs + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS;
+
+      await expect(
+        fixture.flush({ scheduledBy: laterAtMs, atMs: laterDueAtMs })
+      ).resolves.toMatchObject({ status: "routed" });
+      expect(fixture.submitRequest.mock.calls.at(-1)?.[0].text).toBe(
+        "Also the export job fails"
+      );
+      // The held batch is not forgotten: another flush follows...
+      expect(fixture.queue.send).toHaveBeenCalledOnce();
+      fixture.queue.send.mockClear();
+      // ...which waits for the lease to end...
+      await expect(
+        fixture.flush({ scheduledBy: laterDueAtMs, atMs: laterDueAtMs + 1000 })
+      ).resolves.toEqual({ status: "rescheduled" });
+      expect(fixture.queue.send.mock.calls[0]?.[1]).toEqual({
+        delaySeconds: 101,
+      });
+      // ...and then routes the held batch under its first id.
+      await expect(
+        fixture.flush({ scheduledBy: laterDueAtMs, atMs: dueAtMs + 120_000 })
+      ).resolves.toMatchObject({ batchId: "batch_stopped", status: "routed" });
+      await expect(fixture.states()).resolves.toEqual([
+        { id: "om_1", route: "new_request", state: "routed" },
+        { id: "om_2", route: "new_request", state: "routed" },
+      ]);
+    } finally {
+      await fixture.close();
+    }
+  });
+
   it("repeats an admitted request unchanged even if a mention arrives or the classifier would now disagree", async () => {
     const fixture = await createFixture({ route: "new_request" });
     try {

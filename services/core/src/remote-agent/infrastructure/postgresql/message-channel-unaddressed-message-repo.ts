@@ -310,12 +310,31 @@ export async function claimDueUnaddressedChannelBatch(
     ],
   });
   if (claimed.rows.length > 0) {
+    // An older batch of the scope may still be held by a worker that
+    // stopped. Reporting it here keeps a flush coming until its lease ends.
+    const heldElsewhere = await input.db.query({
+      text: `
+        SELECT 1
+        FROM ${TABLE}
+        WHERE provider = $1
+          AND connection_id = $2
+          AND conversation_key = $3
+          AND batch_key = $4
+          AND state = 'routing'
+          AND batch_id <> $5
+          AND claim_expires_at_ms > $6
+        LIMIT 1
+      `,
+      values: [...scopeValues, input.batchId, input.nowMs],
+    });
     return {
       batchId: input.batchId,
       messages: claimed.rows
         .map(mapUnaddressedChannelMessageRow)
         .sort(compareBySentTime),
-      mayHaveMore: claimed.rows.length >= input.maxMessages,
+      mayHaveMore:
+        claimed.rows.length >= input.maxMessages ||
+        heldElsewhere.rows.length > 0,
       status: "claimed",
     };
   }
