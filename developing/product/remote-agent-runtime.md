@@ -2391,7 +2391,9 @@ message subtypes are never input.
    waiting messages it covers (the sender's own top-level messages, or every
    waiting message in its thread) so they do not start a second turn; the
    mention's turn reads them as Channel context. Three cases can still start
-   a second turn: a batch already being routed when the mention arrives, a
+   a second turn: a batch already claimed for routing when the mention arrives
+   (including one waiting for a retry, whose admitted request is repeated
+   unchanged), a
    mention whose settlement failed on every queue attempt (the mention still
    gets its turn), and a covered message that is first archived after the
    mention settled. A message still waiting after 10 minutes, for example

@@ -19,6 +19,7 @@ import {
   archiveClaimedUnaddressedChannelMessages,
   claimDueUnaddressedChannelBatch,
   expireStaleUnaddressedChannelMessages,
+  recordUnaddressedChannelBatchAdmission,
   type recordUnaddressedChannelMessage,
   releaseUnaddressedChannelBatch,
   settleUnaddressedChannelBatch,
@@ -111,6 +112,10 @@ export type UnaddressedChannelIntakeDependencies = {
     connectionGeneration: number;
     organizationId: string;
   } | null>;
+  /** Stores an admitted batch's route before its request is submitted. */
+  recordBatchAdmission(
+    input: Parameters<typeof recordUnaddressedChannelBatchAdmission>[0]
+  ): Promise<number>;
   releaseBatch(
     input: Parameters<typeof releaseUnaddressedChannelBatch>[0]
   ): Promise<number>;
@@ -298,6 +303,7 @@ export function createUnaddressedChannelIntakeDependencies(input: {
       return cursor !== null;
     },
     readCurrentConnection: input.readCurrentConnection,
+    recordBatchAdmission: recordUnaddressedChannelBatchAdmission,
     releaseBatch: releaseUnaddressedChannelBatch,
     settleBatch: settleUnaddressedChannelBatch,
     submitRequest: input.submitRequest,
@@ -616,34 +622,17 @@ async function routeClaimedUnaddressedChannelBatch(input: {
       route: "unrouted",
     });
   }
-  const hasPriorAgentTurn = await dependencies.hasPriorAgentTurn({
-    db,
-    trigger,
-  });
-  const classified = await dependencies.classifyBatch({
-    batchId,
-    // A claim never holds more messages than the classifier reads, so every
-    // message settled below was seen by it.
-    messages: messages.map((message) => ({
-      attachmentCount: Math.min(
-        message.resources.length + message.slackFiles.length,
-        10
-      ),
-      messageId: message.messageId,
-      senderId: message.senderId,
-      text: message.text.slice(
-        0,
-        UNADDRESSED_CHANNEL_BATCH_MESSAGE_TEXT_MAX_CHARS
-      ),
-    })),
-    organizationId: trigger.organizationId,
-    provider: input.provider,
-    thread: {
-      hasPriorAgentTurn,
-      isThreadReply: trigger.rootMessageId !== trigger.messageId,
-    },
-  });
-  if (classified === "chatter") {
+  const route =
+    readAdmittedRoute(messages) ??
+    (await classifyClaimedUnaddressedChannelBatch({
+      batchId,
+      db,
+      dependencies,
+      messages,
+      provider: input.provider,
+      trigger,
+    }));
+  if (route === "chatter") {
     await dependencies.settleBatch({
       batchId,
       db,
@@ -654,12 +643,6 @@ async function routeClaimedUnaddressedChannelBatch(input: {
     });
     return { batchId, route: "chatter", status: "archived" };
   }
-  // A follow-up needs earlier Center Agent work in the same thread. Without
-  // it the batch is still a request, so it is routed as a new one.
-  const route =
-    classified === "follow_up" && !hasPriorAgentTurn
-      ? "new_request"
-      : classified;
   const submission = await dependencies.submitRequest({
     db,
     requestEventId: `unaddressed-batch:${trigger.messageId}`,
@@ -698,6 +681,77 @@ async function routeClaimedUnaddressedChannelBatch(input: {
     route,
     status: "routed",
   };
+}
+
+/**
+ * An earlier attempt may already have admitted this batch and submitted its
+ * request. The retry must repeat that decision: asking the classifier again
+ * could label the same messages chatter and leave the submitted request
+ * unrecorded.
+ */
+function readAdmittedRoute(
+  messages: readonly UnaddressedChannelMessageRecord[]
+): "follow_up" | "new_request" | null {
+  for (const message of messages) {
+    if (message.route === "follow_up" || message.route === "new_request") {
+      return message.route;
+    }
+  }
+  return null;
+}
+
+async function classifyClaimedUnaddressedChannelBatch(input: {
+  batchId: string;
+  db: PostgresDatabase;
+  dependencies: UnaddressedChannelIntakeDependencies;
+  messages: readonly UnaddressedChannelMessageRecord[];
+  provider: UnaddressedChannelBatchQueueMessage["provider"];
+  trigger: UnaddressedChannelMessageRecord;
+}): Promise<UnaddressedChannelBatchRoute> {
+  const { batchId, db, dependencies, messages, trigger } = input;
+  const hasPriorAgentTurn = await dependencies.hasPriorAgentTurn({
+    db,
+    trigger,
+  });
+  const classified = await dependencies.classifyBatch({
+    batchId,
+    // A claim never holds more messages than the classifier reads, so every
+    // message settled afterwards was seen by it.
+    messages: messages.map((message) => ({
+      attachmentCount: Math.min(
+        message.resources.length + message.slackFiles.length,
+        10
+      ),
+      messageId: message.messageId,
+      senderId: message.senderId,
+      text: message.text.slice(
+        0,
+        UNADDRESSED_CHANNEL_BATCH_MESSAGE_TEXT_MAX_CHARS
+      ),
+    })),
+    organizationId: trigger.organizationId,
+    provider: input.provider,
+    thread: {
+      hasPriorAgentTurn,
+      isThreadReply: trigger.rootMessageId !== trigger.messageId,
+    },
+  });
+  if (classified === "chatter") {
+    return "chatter";
+  }
+  // A follow-up needs earlier Center Agent work in the same thread. Without
+  // it the batch is still a request, so it is routed as a new one.
+  const route =
+    classified === "follow_up" && !hasPriorAgentTurn
+      ? "new_request"
+      : classified;
+  await dependencies.recordBatchAdmission({
+    batchId,
+    db,
+    nowMs: Date.now(),
+    route,
+  });
+  return route;
 }
 
 /** Every message in a batch has the same sender, the requester. */

@@ -412,7 +412,8 @@ export async function expireStaleUnaddressedChannelMessages(
 /**
  * Archives the waiting messages that an addressed mention answers, so their
  * batch never starts a second turn. Only messages sent up to the mention are
- * taken; a batch already being routed keeps its claim.
+ * taken. A message that was ever claimed into a batch is left alone, even
+ * while that batch waits for a retry, so the batch repeats the same request.
  */
 export async function settleUnaddressedChannelMessagesForMention(input: {
   connectionId: string;
@@ -440,6 +441,7 @@ export async function settleUnaddressedChannelMessagesForMention(input: {
         AND connection_id = $2
         AND conversation_key = $3
         AND state = 'pending'
+        AND batch_id IS NULL
         AND (
           sent_at_ms < $5
           OR (
@@ -483,6 +485,30 @@ export async function releaseUnaddressedChannelBatch(input: {
         AND state = 'routing'
     `,
     values: [input.batchId, input.nowMs],
+  });
+  return Number(result.rowCount ?? 0);
+}
+
+/**
+ * Records that a claimed batch was admitted as a request, before the request
+ * is submitted. A retry reads this back and repeats the same decision instead
+ * of asking the classifier again.
+ */
+export async function recordUnaddressedChannelBatchAdmission(input: {
+  batchId: string;
+  db: PostgresDatabase;
+  nowMs: number;
+  route: "follow_up" | "new_request";
+}): Promise<number> {
+  const result = await input.db.query({
+    text: `
+      UPDATE ${TABLE}
+      SET route = $2,
+          updated_at_ms = greatest(updated_at_ms, $3)
+      WHERE batch_id = $1
+        AND state = 'routing'
+    `,
+    values: [input.batchId, input.route, input.nowMs],
   });
   return Number(result.rowCount ?? 0);
 }

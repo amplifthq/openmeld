@@ -30,6 +30,7 @@ import {
   claimDueUnaddressedChannelBatch,
   expireStaleUnaddressedChannelMessages,
   listUnaddressedChannelMessages,
+  recordUnaddressedChannelBatchAdmission,
   recordUnaddressedChannelMessage,
   releaseUnaddressedChannelBatch,
   settleUnaddressedChannelBatch,
@@ -479,6 +480,138 @@ describe("unaddressed Channel message intake", () => {
         requestEventId: "unaddressed-batch:om_2",
         text: "Also the export job fails",
       });
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("repeats an admitted request unchanged even if a mention arrives or the classifier would now disagree", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await fixture.observe({
+        id: "om_1",
+        sender: "ou_ari",
+        text: "Login is broken",
+        atMs: START_MS,
+      });
+      await fixture.observe({
+        id: "om_2",
+        sender: "ou_ari",
+        text: "It started this morning",
+        atMs: START_MS + 2000,
+      });
+      const dueAtMs = START_MS + 2000 + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS;
+      const settleBatch = fixture.dependencies.settleBatch;
+      fixture.dependencies.settleBatch = () =>
+        Promise.reject(new Error("database unavailable"));
+      await expect(
+        fixture.flush({ scheduledBy: START_MS + 2000, atMs: dueAtMs })
+      ).rejects.toThrow("database unavailable");
+      fixture.dependencies.settleBatch = settleBatch;
+
+      // A mention sent between the two messages is processed late. The
+      // request was already submitted, so it must not take om_1 away.
+      await expect(
+        settleUnaddressedChannelMessagesAnsweredByMention({
+          connectionId: fixture.connection.connectionId,
+          conversationKey: CHAT_ID,
+          db: fixture.db,
+          messageId: "om_mention",
+          nowMs: dueAtMs + 1000,
+          provider: "feishu",
+          rootMessageId: ROOT_ID,
+          senderId: "ou_bo",
+          sentAtMs: START_MS + 1000,
+        })
+      ).resolves.toBe(0);
+      // The classifier would now call the same messages chatter.
+      fixture.classifyBatch.mockResolvedValue("chatter");
+
+      await expect(
+        fixture.flush({ scheduledBy: START_MS + 2000, atMs: dueAtMs + 5000 })
+      ).resolves.toMatchObject({ route: "new_request", status: "routed" });
+      expect(fixture.classifyBatch).toHaveBeenCalledOnce();
+      const [first, retry] = fixture.submitRequest.mock.calls.map(
+        ([request]) => ({ id: request.requestEventId, text: request.text })
+      );
+      expect(retry).toEqual(first);
+      expect(first?.text).toBe("Login is broken\nIt started this morning");
+      await expect(fixture.states()).resolves.toEqual([
+        { id: "om_1", route: "new_request", state: "routed" },
+        { id: "om_2", route: "new_request", state: "routed" },
+      ]);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("never routes a message that outlived the age limit while claimed and was then released", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await fixture.observe({
+        id: "om_1",
+        sender: "ou_ari",
+        text: "Login is broken",
+        atMs: START_MS,
+      });
+      const dueAtMs = START_MS + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS;
+      const lateMs = START_MS + UNADDRESSED_CHANNEL_MAX_PENDING_AGE_MS + 1000;
+      const scope = {
+        batchKey: ARI_THREAD_BATCH,
+        connectionId: fixture.connection.connectionId,
+        conversationKey: CHAT_ID,
+        db: fixture.db,
+        provider: "feishu" as const,
+      };
+      // A worker claims the batch and holds it past the age limit.
+      await claimDueUnaddressedChannelBatch({
+        ...scope,
+        batchId: "batch_slow",
+        claimExpiresAtMs: lateMs + 60_000,
+        maxMessages: UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES,
+        maxWaitMs: UNADDRESSED_CHANNEL_MAX_WAIT_MS,
+        nowMs: dueAtMs,
+        observedAtOrAfterMs: 0,
+        quietWindowMs: UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+      });
+      // Expiry runs while the claim is live and leaves the row alone.
+      await expect(
+        expireStaleUnaddressedChannelMessages({
+          ...scope,
+          nowMs: lateMs,
+          observedBeforeMs: lateMs - UNADDRESSED_CHANNEL_MAX_PENDING_AGE_MS,
+        })
+      ).resolves.toBe(0);
+      // The first worker then fails and releases the row.
+      await releaseUnaddressedChannelBatch({
+        batchId: "batch_slow",
+        db: fixture.db,
+        nowMs: lateMs,
+      });
+      // A second worker's claim must not take the old row.
+      await expect(
+        claimDueUnaddressedChannelBatch({
+          ...scope,
+          batchId: "batch_second",
+          claimExpiresAtMs: lateMs + 120_000,
+          maxMessages: UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES,
+          maxWaitMs: UNADDRESSED_CHANNEL_MAX_WAIT_MS,
+          nowMs: lateMs,
+          observedAtOrAfterMs: lateMs - UNADDRESSED_CHANNEL_MAX_PENDING_AGE_MS,
+          quietWindowMs: UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+        })
+      ).resolves.toEqual({ status: "empty" });
+      await expect(fixture.states()).resolves.toEqual([
+        { id: "om_1", route: null, state: "pending" },
+      ]);
+      // The queue retry that follows a release cleans the row up.
+      await expect(
+        fixture.flush({ scheduledBy: START_MS, atMs: lateMs + 5000 })
+      ).resolves.toEqual({ status: "empty" });
+      await expect(fixture.states()).resolves.toEqual([
+        { id: "om_1", route: "expired", state: "archived" },
+      ]);
+      expect(fixture.submitRequest).not.toHaveBeenCalled();
     } finally {
       await fixture.close();
     }
@@ -1195,6 +1328,7 @@ async function createFixture(input: {
     expireStaleMessages: expireStaleUnaddressedChannelMessages,
     hasPriorAgentTurn: () => Promise.resolve(false),
     readCurrentConnection,
+    recordBatchAdmission: recordUnaddressedChannelBatchAdmission,
     releaseBatch: releaseUnaddressedChannelBatch,
     settleBatch: settleUnaddressedChannelBatch,
     submitRequest,
