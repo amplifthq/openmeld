@@ -83,10 +83,44 @@ evidence path. Do not copy restricted material into generally readable Team
 Files, Skills, another member's memory, debug telemetry, or a model prompt.
 Approved Skills remain separate, versioned work methods and never grant
 source or action permissions. No personal account fallback is allowed.
-If the Organization separately authorizes specific native session evidence,
-use the existing authenticated provider boundary, verify the exact Project
-binding, and open only explicitly approved thread IDs. Agent Activity
-metadata permission does not authorize transcript reads or a history scan.
+The first live entry should be a new one-to-one Direct Message from the
+owner's Human Profile to their existing local Codex Profile. The draft
+includes the policy for this boundary, with fixture validation, not a new
+production reader. It accepts only one explicitly selected learning digest
+for one existing Organization, Project, owner and Profile. It reuses the
+canonical Agent DM pair predicate and additionally requires exactly two
+active Profiles owned by that same verified account in a current
+members-only DM. The current direct Human Wake, exact source message and
+approved, active Project must match. A converted chat, colleague or observer,
+delegated or Routine Wake, changed execution or recalled message grants no
+access. No unset selection, route parameter, or model-supplied identifier can
+select a source. A changed note is not a substitute for the reviewed digest.
+
+Two existing readers cannot serve as that authority. The workstation
+`read_documents` tool authorizes the Agent in the Organization and reads the
+current approved body; it does not bind the document to the specific Project,
+Wake audience, or approved revision. The local Computer session-history
+reader has a per-connection grant and can read an exact Codex thread, but
+that grant is not a review of one work-only thread. Its current result
+carries paginated transcript text through Core and its local requester can
+include delegated Wakes. Do not use that transport or Agent Activity
+inventory to supply counterpart context.
+
+The missing adapter must bind the existing RuntimeCoordinator execution token
+and frozen request chain to the current canonical Space state and active
+Project. Then it must reopen a single approved, organization-managed work
+source with immutable revision, work author attribution, and live access for
+this exact owner. For an initial trial, prefer an independently verified
+review note tied to an exact OpenMeld repository artifact under the
+Organization's existing credential. For native evidence, require separate
+explicit approval of the exact work-only thread ID and Project connection
+generation, confirm metadata through the authenticated Codex boundary before
+loading anything, and never send provider turns through Core.
+The model should only get the short exact reviewed note and citations after
+the current checks, not a transcript, arbitrary history tool, personal
+credential fallback, or a path to discover more sources. Re-check the live
+execution, grant and source at retrieval; revoked or ambiguous sources should
+leave ordinary review available without counterpart context.
 
 To release that trial, first run synthetic negative fixtures and a second
 read-only, authorized replay of the same OpenMeld review question with context
