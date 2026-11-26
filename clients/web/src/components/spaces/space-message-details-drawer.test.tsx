@@ -401,8 +401,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(
 			screen.getByText("You've hit your usage limit. Try again at 2:03 AM.")
 		).toBeTruthy();
-		const technicalDetails = openTechnicalDetails();
-		expect(within(technicalDetails).queryByText("Original error")).toBeNull();
+		expect(screen.queryByText("Technical details")).toBeNull();
 	});
 
 	it("renders a human message from the backend Message Details model", () => {
@@ -423,7 +422,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 			formatMessageDetailsTestTime(details.message.sentAtMs)
 		);
 		expect(screen.queryByText("Support details")).toBeNull();
-		expect(screen.getByText(REPORT_POINTER_COPY_PATTERN)).toBeTruthy();
+		expect(screen.queryByText(REPORT_POINTER_COPY_PATTERN)).toBeNull();
 		expect(getQueryOptions().queryKey).toEqual([
 			"spaces",
 			"message-details",
@@ -432,9 +431,10 @@ describe("SpaceMessageDetailsDrawer", () => {
 			null,
 		]);
 
-		openTechnicalDetails();
-		expect(screen.getAllByText("Message ID").length).toBeGreaterThan(0);
-		expect(screen.getAllByText("sig-human").length).toBeGreaterThan(0);
+		expect(screen.queryByText("Technical details")).toBeNull();
+		expect(screen.queryByText("Message ID")).toBeNull();
+		expect(screen.queryByText("Report issue")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Send report" })).toBeNull();
 	});
 
 	it("opens Graph focused on the selected message", () => {
@@ -461,13 +461,8 @@ describe("SpaceMessageDetailsDrawer", () => {
 		renderMessageDetailsPanel({
 			item: createTimelineItem({ id: "sig-agent-manual" }),
 		});
-		const technicalSection = openTechnicalDetails();
-
-		expect(within(technicalSection).getByText("Agent profile")).toBeTruthy();
-		expect(within(technicalSection).getByText("OpenMeld CLI Bot")).toBeTruthy();
-		expect(
-			within(technicalSection).queryByText("Agent Controller Conversation ID")
-		).toBeNull();
+		expect(screen.getByRole("heading", { name: "Activity" })).toBeTruthy();
+		expect(screen.queryByText("Agent Controller Conversation ID")).toBeNull();
 	});
 
 	it("renders Wake success replies with agent and Wake context together", () => {
@@ -483,16 +478,8 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(screen.queryByRole("heading", { name: "Reply" })).toBeNull();
 		expect(screen.getByText("In reply to")).toBeTruthy();
 
-		const technicalSection = openTechnicalDetails();
-		expect(
-			within(technicalSection).getByText(
-				"Message author Agent Controller Conversation ID"
-			)
-		).toBeTruthy();
-		expect(within(technicalSection).getByText("conv-1")).toBeTruthy();
-		expect(
-			within(technicalSection).getByText("/Users/felix/.openmeld/workspace")
-		).toBeTruthy();
+		expect(screen.queryByText("conv-1")).toBeNull();
+		expect(screen.queryByText("/Users/felix/.openmeld/workspace")).toBeNull();
 	});
 
 	it("shows OpenMeld-measured Wake timing and copies it as structured data", async () => {
@@ -532,40 +519,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 				signalId: details.message.signalId,
 				targets: [{ targetProfileId: "agt_triage", timing }],
 			});
-		});
-	});
-
-	it("keeps drawer text selectable and copies individual or complete technical details", async () => {
-		copyTextToClipboardMock.mockResolvedValue(true);
-		useQueryMock.mockReturnValue(
-			createQueryResult({ data: createHumanMessageDetails() })
-		);
-
-		renderMessageDetailsPanel();
-
-		const scrollArea = screen.getByTestId("message-details-scroll-area");
-		expect(scrollArea.querySelector(".select-text")).not.toBeNull();
-		expect(scrollArea.hasAttribute("data-vaul-no-drag")).toBe(true);
-
-		const technicalDetails = openTechnicalDetails();
-		fireEvent.click(
-			within(technicalDetails).getByRole("button", {
-				name: "Copy Message ID",
-			})
-		);
-		await waitFor(() => {
-			expect(copyTextToClipboardMock).toHaveBeenCalledWith("sig-human");
-		});
-
-		fireEvent.click(
-			within(technicalDetails).getByRole("button", {
-				name: "Copy technical details",
-			})
-		);
-		await waitFor(() => {
-			expect(copyTextToClipboardMock).toHaveBeenLastCalledWith(
-				expect.stringContaining("Message ID: sig-human\nType: Message")
-			);
 		});
 	});
 
@@ -681,30 +634,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 			within(activitySection as HTMLElement).getByText("Failed")
 		).toBeTruthy();
 
-		const technicalSection = openTechnicalDetails();
-		expect(
-			within(technicalSection).getByText("Message author Agent profile")
-		).toBeTruthy();
-		expect(within(technicalSection).getByText("Codex 5.6 Sol")).toBeTruthy();
-		expect(
-			within(technicalSection).getByText("Wake target Agent profile")
-		).toBeTruthy();
-		expect(within(technicalSection).getByText("Center Agent")).toBeTruthy();
-		expect(
-			within(technicalSection).getByText("Wake target Binding ID")
-		).toBeTruthy();
-		expect(
-			within(technicalSection).getByText("binding-center-agent")
-		).toBeTruthy();
-		expect(
-			within(technicalSection).getByText("Message author Agent Controller")
-		).toBeTruthy();
-		expect(
-			within(technicalSection).getByText("Wake target Agent Controller")
-		).toBeTruthy();
-		expect(within(technicalSection).getAllByText("builtin:codex")).toHaveLength(
-			2
-		);
+		expect(screen.queryByText("binding-center-agent")).toBeNull();
 	});
 
 	it("renders Wake failure notices through the same Wake context model", () => {
@@ -715,24 +645,11 @@ describe("SpaceMessageDetailsDrawer", () => {
 		renderMessageDetailsPanel({
 			item: createTimelineItem({ id: "sig-failure-notice" }),
 		});
-		const technicalSection = openTechnicalDetails();
-
-		expect(within(technicalSection).getByText("System notice")).toBeTruthy();
-		expect(within(technicalSection).queryByText("Agent profile")).toBeNull();
-		expect(
-			within(technicalSection).getByText("Wake source message")
-		).toBeTruthy();
-		expect(within(technicalSection).queryByText("Not applicable")).toBeNull();
-		expect(
-			within(technicalSection).queryByText("space_action.valid_action_required")
-		).toBeNull();
-		expect(
-			within(technicalSection).queryByText("Agent Controller Conversation ID")
-		).toBeNull();
-		expect(within(technicalSection).queryByText("conv-failed-1")).toBeNull();
+		expect(screen.getByRole("heading", { name: "Activity" })).toBeTruthy();
+		expect(screen.queryByText("conv-failed-1")).toBeNull();
 	});
 
-	it("renders redacted local origin facts as hidden instead of missing", () => {
+	it("does not expose redacted local origin facts", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createRedactedAgentMessageDetails() })
 		);
@@ -740,29 +657,8 @@ describe("SpaceMessageDetailsDrawer", () => {
 		renderMessageDetailsPanel({
 			item: createTimelineItem({ id: "sig-redacted-agent" }),
 		});
-		const technicalSection = openTechnicalDetails();
-
-		expect(
-			within(technicalSection).getByText("Agent Controller Conversation ID")
-		).toBeTruthy();
-		expect(within(technicalSection).getByText("Workspace")).toBeTruthy();
-		expect(
-			within(technicalSection).getAllByText("Hidden").length
-		).toBeGreaterThanOrEqual(2);
+		expect(screen.queryByText("Workspace")).toBeNull();
 		expect(screen.queryByText("/Users/felix/private")).toBeNull();
-	});
-
-	it("uses the selected message when reporting an issue", () => {
-		useQueryMock.mockReturnValue(
-			createQueryResult({ data: createHumanMessageDetails() })
-		);
-		const onReportMessage = vi.fn().mockResolvedValue(undefined);
-		const item = createTimelineItem({ id: "sig-human" });
-
-		renderMessageDetailsPanel({ item, onReportMessage });
-		fireEvent.click(screen.getByRole("button", { name: "Send report" }));
-
-		expect(onReportMessage).toHaveBeenCalledWith(item);
 	});
 
 	it("shows loaded replies to the selected message and jumps to the reply", () => {
@@ -1109,13 +1005,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 				name: "Open diagnostics",
 			})
 		).toBeNull();
-		const technicalDetails = screen
-			.getByText("Technical details")
-			.closest("details") as HTMLDetailsElement;
-		expect(technicalDetails.open).toBe(false);
-		expect(
-			within(technicalDetails).getByText("dispatch.storage.schema_missing")
-		).toBeTruthy();
+		expect(screen.queryByText("dispatch.storage.schema_missing")).toBeNull();
 	});
 
 	it("does not bypass exact recovery inspection when the recovery handler is unavailable", () => {
@@ -1631,7 +1521,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		).toEqual(["Choose local agent"]);
 	});
 
-	it("keeps technical details without a duplicate diagnostics action", () => {
+	it("keeps diagnostics controls out of message details", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })
 		);
@@ -1656,7 +1546,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(
 			screen.queryByRole("button", { name: "Open diagnostics" })
 		).toBeNull();
-		expect(screen.getByText("Technical details")).toBeTruthy();
+		expect(screen.queryByText("Technical details")).toBeNull();
 	});
 
 	it("links a confirmed current local-service blocker to Computer recovery", () => {
@@ -1777,7 +1667,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(within(failureSection).queryByRole("link")).toBeNull();
 	});
 
-	it("shows one failed activity row and keeps reason-code facts in Technical details", () => {
+	it("shows one failed activity row without exposing reason-code facts", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createWakeFailureNoticeDetails() })
 		);
@@ -1813,21 +1703,14 @@ describe("SpaceMessageDetailsDrawer", () => {
 			screen.getAllByText("Original message is not loaded in this view.").length
 		).toBeGreaterThan(0);
 
-		const technicalSection = openTechnicalDetails();
-		expect(within(technicalSection).getByText("Reason code")).toBeTruthy();
-		expect(
-			within(technicalSection).getByText("controller.runtime.missing")
-		).toBeTruthy();
-		expect(within(technicalSection).getByText("Failure stage")).toBeTruthy();
-		expect(within(technicalSection).getByText("Execution")).toBeTruthy();
-		expect(within(technicalSection).getByText("Dispatch ID")).toBeTruthy();
-		expect(within(technicalSection).getByText("dispatch-1")).toBeTruthy();
+		expect(screen.queryByText("controller.runtime.missing")).toBeNull();
+		expect(screen.queryByText("dispatch-1")).toBeNull();
 		expect(
 			screen.queryByRole("button", { name: "Retry as new execution" })
 		).toBeNull();
 	});
 
-	it("shows a stopped activity status and its reason code for a wake_stopped notice", () => {
+	it("shows a stopped activity status without exposing its reason code", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createWakeFailureNoticeDetails() })
 		);
@@ -1849,30 +1732,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 		const stoppedBadge = screen.getByText("Stopped");
 		expect(stoppedBadge.className).toContain("text-muted-foreground");
 		expect(stoppedBadge.className).not.toContain("text-destructive");
-		const technicalSection = openTechnicalDetails();
-		expect(within(technicalSection).getByText("user_requested")).toBeTruthy();
-	});
-
-	it("omits reason-code facts from Technical details instead of showing an empty placeholder when none are recorded", () => {
-		useQueryMock.mockReturnValue(
-			createQueryResult({ data: createWakeFailureNoticeDetails() })
-		);
-
-		renderMessageDetailsPanel({
-			canJumpToMessage: () => true,
-			item: createTimelineItem({
-				id: "sig-failure-notice",
-				replyToSignalId: "sig-source",
-				signalType: "signal.system_notice",
-				systemNoticeType: "terminal_failure",
-				text: "Runner could not reply.",
-			}),
-		});
-
-		const technicalSection = openTechnicalDetails();
-		expect(within(technicalSection).queryByText("Reason code")).toBeNull();
-		expect(within(technicalSection).queryByText("Failure stage")).toBeNull();
-		expect(within(technicalSection).queryByText("Dispatch ID")).toBeNull();
+		expect(screen.queryByText("user_requested")).toBeNull();
 	});
 
 	it("shows no status badge for an ordinary text message with no Wake", () => {
@@ -2053,15 +1913,6 @@ describe("SpaceMessageDetailsDrawer", () => {
 	});
 });
 
-// Technical details fields are inside a native <details>, closed by default,
-// so their contents aren't in the accessibility tree until the <summary> is
-// clicked open. Returns the section so callers can scope queries to it.
-function openTechnicalDetails(): HTMLElement {
-	const summary = screen.getByText("Technical details");
-	fireEvent.click(summary);
-	return summary.closest("details") as HTMLElement;
-}
-
 function getActivityRegion(name: string): HTMLElement {
 	return screen.getByRole("region", { name: `${name} activity` });
 }
@@ -2167,7 +2018,7 @@ function renderMessageDetailsPanel(input?: {
 	onOpenChange?: (open: boolean) => void;
 	onViewInGraph?: (signalId: string) => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
-	onReportMessage?: (item: SpaceTimelineItem) => Promise<void>;
+
 	onWakeStopRequest?: (
 		target: SpaceWakeStopTargetResolution
 	) => Promise<PostSpaceWakeStopResponse>;
@@ -2195,13 +2046,10 @@ function renderMessageDetailsPanel(input?: {
 						signalId === "sig-source" || signalId === "sig-agent-reply")
 				}
 				canStartNewTask={input?.canStartNewTask}
-				diagnosticReportStatus="idle"
-				errorLogMessage="message details report failed"
 				item={item}
 				onJumpToMessage={input?.onJumpToMessage ?? vi.fn()}
 				onOpenChange={input?.onOpenChange ?? vi.fn()}
 				onRecoverExecution={input?.onRecoverExecution}
-				onReportMessage={input?.onReportMessage ?? vi.fn()}
 				onViewInGraph={input?.onViewInGraph}
 				onWakeStopRequest={input?.onWakeStopRequest}
 				open={true}

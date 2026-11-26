@@ -1,7 +1,7 @@
 import { ThinkingIndicator } from "@openmeld/ui/components/thinking-indicator";
 import { fontWeights } from "@openmeld/ui/lib/font-weight";
 import { cn } from "@openmeld/ui/lib/utils";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { SPACE_AGENT_WORKING_STATUS_TEXT } from "#/lib/spaces/message-state";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import type { SpaceMessageWakeThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
@@ -22,9 +22,10 @@ export function SpaceMessageWakeThinkingIndicator(input: {
 	className?: string;
 	control?: ReactNode;
 	entries: readonly SpaceMessageWakeThinkingEntry[];
-	onOpenMessageDetails?: () => void;
 	showAgentWorkingState?: boolean;
 }) {
+	const [progressOpen, setProgressOpen] = useState(false);
+	const progressId = useId();
 	const isEndAligned = input.align === "end";
 	const previewEntries = input.entries.filter(
 		(entry) => entry.kind === "preview"
@@ -50,8 +51,10 @@ export function SpaceMessageWakeThinkingIndicator(input: {
 				rawElapsedEntry ? resolveElapsedEntryIdentity(rawElapsedEntry) : "none"
 			}
 			latestPreviewEntry={latestPreviewEntry}
-			onOpenMessageDetails={input.onOpenMessageDetails}
+			onToggleProgress={() => setProgressOpen((value) => !value)}
 			progressEntries={progressEntries}
+			progressId={progressId}
+			progressOpen={progressOpen}
 			rawElapsedEntry={rawElapsedEntry}
 			showAgentWorkingState={input.showAgentWorkingState === true}
 		/>
@@ -92,11 +95,16 @@ function WakeThinkingIndicatorContent(input: {
 	className?: string;
 	isEndAligned: boolean;
 	latestPreviewEntry: SpaceMessageWakeThinkingEntry | null;
-	onOpenMessageDetails?: () => void;
 	progressEntries: readonly SpaceMessageWakeThinkingEntry[];
+	progressId: string;
+	progressOpen: boolean;
+	onToggleProgress: () => void;
 	rawElapsedEntry: SpaceMessageWakeThinkingEntry | null;
 	showAgentWorkingState: boolean;
 }) {
+	const hasProgress = input.progressEntries.some(
+		(entry) => entry.step.kind === "working" && entry.step.status === "active"
+	);
 	const [elapsedStartedAtMs] = useState(
 		() => input.rawElapsedEntry?.elapsedStartedAtMs ?? null
 	);
@@ -119,28 +127,54 @@ function WakeThinkingIndicatorContent(input: {
 		elapsedEntry,
 		latestPreviewEntry: input.latestPreviewEntry,
 		nowMs,
-		onOpenMessageDetails: input.onOpenMessageDetails !== undefined,
 		progressEntries: input.progressEntries,
 		showAgentWorkingState: input.showAgentWorkingState,
 		words,
 	});
 
-	return input.onOpenMessageDetails && indicator ? (
-		<button
-			aria-label="Open message details"
-			className={cn(
-				"w-fit min-w-0 max-w-full cursor-pointer appearance-none overflow-hidden border-0 bg-transparent p-0 text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-4",
-				input.isEndAligned ? "text-right" : "text-left"
-			)}
-			data-testid="space-wake-thinking-indicator"
-			onClick={input.onOpenMessageDetails}
-			type="button"
-		>
-			{indicator}
-		</button>
-	) : (
-		indicator
+	if (!(hasProgress && indicator)) {
+		return indicator;
+	}
+	return (
+		<>
+			<button
+				aria-controls={input.progressId}
+				aria-expanded={input.progressOpen}
+				aria-label="Show work progress"
+				className={cn(
+					"w-fit min-w-0 max-w-full cursor-pointer appearance-none overflow-hidden border-0 bg-transparent p-0 text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-4",
+					input.isEndAligned ? "text-right" : "text-left"
+				)}
+				onClick={input.onToggleProgress}
+				type="button"
+			>
+				{indicator}
+			</button>
+			<div hidden={!input.progressOpen} id={input.progressId}>
+				<ul
+					aria-label="Work progress"
+					className="space-y-1 text-muted-foreground text-xs"
+				>
+					{input.progressEntries.map((entry) => (
+						<li key={entry.key}>{formatConfirmedProgress(entry)}</li>
+					))}
+				</ul>
+			</div>
+		</>
 	);
+}
+
+function formatConfirmedProgress(entry: SpaceMessageWakeThinkingEntry): string {
+	if (entry.phase === "publishing") {
+		return "Publishing the result.";
+	}
+	if (entry.phase === "writing") {
+		return "Preparing the reply.";
+	}
+	if (entry.step.kind === "working") {
+		return "The Agent is working. No public update yet.";
+	}
+	return entry.step.description;
 }
 
 function buildWakeThinkingIndicator(input: {
@@ -148,14 +182,11 @@ function buildWakeThinkingIndicator(input: {
 	elapsedEntry: SpaceMessageWakeThinkingEntry | null;
 	latestPreviewEntry: SpaceMessageWakeThinkingEntry | null;
 	nowMs: number;
-	onOpenMessageDetails: boolean;
 	progressEntries: readonly SpaceMessageWakeThinkingEntry[];
 	showAgentWorkingState: boolean;
 	words: readonly string[];
 }): ReactNode {
-	const dataTestId = input.onOpenMessageDetails
-		? undefined
-		: "space-wake-thinking-indicator";
+	const dataTestId = "space-wake-thinking-indicator";
 	if (input.latestPreviewEntry) {
 		return (
 			<InlineWakePreviewIndicator

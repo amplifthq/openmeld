@@ -2678,8 +2678,6 @@ function SpaceLandingConversation({
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 			isAgentRecoveryPending={controller.isAgentRecoveryPending}
-			isDiagnosticReportPending={controller.isDiagnosticReportPending}
-			isDiagnosticReportSent={controller.isDiagnosticReportSent}
 			liveNotice={
 				<SpaceLiveNotice
 					hidden={Boolean(
@@ -2717,7 +2715,6 @@ function SpaceLandingConversation({
 			onRecoverExecution={controller.onRecoverExecution}
 			onRemoveComposerFile={controller.onRemoveComposerFile}
 			onReplyToMessage={controller.onReplyToMessage}
-			onReportMessage={controller.onReportMessage}
 			onRetryComposerFile={controller.onRetryComposerFile}
 			onRetryComposerFileCleanup={controller.onRetryComposerFileCleanup}
 			onRetryComposerFileRestoration={controller.onRetryComposerFileRestoration}
@@ -3396,8 +3393,6 @@ function SpaceLandingSecondaryPanels({
 					}
 					isAgentRecoveryPending={controller.isAgentRecoveryPending}
 					isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
-					isDiagnosticReportPending={controller.isDiagnosticReportPending}
-					isDiagnosticReportSent={controller.isDiagnosticReportSent}
 					isDirectMessage={state.isDirectMessage}
 					isPersonalContext={input.isPersonalContext === true}
 					isSendingMessage={controller.isSendingThreadMessage}
@@ -3424,7 +3419,6 @@ function SpaceLandingSecondaryPanels({
 					onRecoverExecution={controller.onRecoverExecution}
 					onRemoveComposerFile={controller.onRemoveThreadComposerFile}
 					onReplyToMessage={controller.onThreadReplyToMessage}
-					onReportMessage={controller.onReportMessage}
 					onRetryComposerFile={controller.onRetryThreadComposerFile}
 					onRetryComposerFileCleanup={
 						controller.onRetryThreadComposerFileCleanup

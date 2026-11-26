@@ -1,5 +1,5 @@
 import { createWakeProgressItem } from "@openmeld/space";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	resolveWakeProgressThinkingEntry,
@@ -18,6 +18,29 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 	afterEach(() => {
 		cleanup();
 		vi.useRealTimers();
+	});
+
+	it("opens live work progress in place and distinguishes confirmed phases", () => {
+		const entry = createThinkingEntry({ elapsedStartedAtMs: STARTED_AT_MS });
+		const view = render(
+			<SpaceMessageWakeThinkingIndicator entries={[entry]} />
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Show work progress" }));
+		expect(
+			screen.getByText("The Agent is working. No public update yet.")
+		).toBeTruthy();
+		view.rerender(
+			<SpaceMessageWakeThinkingIndicator
+				entries={[{ ...entry, phase: "publishing" }]}
+			/>
+		);
+		expect(
+			screen
+				.getByRole("button", { name: "Show work progress" })
+				.getAttribute("aria-expanded")
+		).toBe("true");
+		expect(screen.getByText("Publishing the result.")).toBeTruthy();
+		expect(screen.queryByRole("dialog")).toBeNull();
 	});
 
 	it("keeps elapsed time anchored when the same running entry receives progress updates", () => {

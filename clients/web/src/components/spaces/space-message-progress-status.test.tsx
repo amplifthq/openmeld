@@ -28,7 +28,7 @@ describe("SpaceMessageProgressStatus", () => {
 		"waiting",
 		"disabled",
 		"unavailable",
-	] as const)("keeps one compact starting status when reasoning is %s without content", (status) => {
+	] as const)("keeps the connecting status when reasoning is %s without content", (status) => {
 		const item = createStartingItem();
 		if (!item.activeWakeProgress) {
 			throw new Error("Expected active Wake progress.");
@@ -50,7 +50,7 @@ describe("SpaceMessageProgressStatus", () => {
 			/>
 		);
 		expect(screen.getByTestId("space-wake-thinking-row").textContent).toContain(
-			"Working…"
+			"Connecting…"
 		);
 		expect(screen.queryByTestId("space-agent-tool-activity")).toBeNull();
 		expect(screen.queryByText("Waiting for reasoning output…")).toBeNull();
@@ -381,16 +381,15 @@ describe("SpaceMessageProgressStatus", () => {
 		).toBeNull();
 	});
 
-	it("shows local Markdown reasoning in the same work disclosure", () => {
-		const item = createStreamingItem();
+	it("keeps safe tool progress and excludes private reasoning", () => {
+		const item = createStreamingToolActivityItem();
 		if (!item.agentStreamState) {
 			throw new Error("Expected a live Agent stream fixture.");
 		}
 		item.agentStreamState = {
 			...item.agentStreamState,
-			thinking: "**Checking** the current Space context.",
+			thinking: "private reasoning should not be rendered",
 			thinkingActive: true,
-			toolParts: createStreamingToolActivityItem().agentStreamState?.toolParts,
 		};
 		render(
 			<SpaceMessageProgressStatus
@@ -398,59 +397,42 @@ describe("SpaceMessageProgressStatus", () => {
 				item={item}
 			/>
 		);
+		expect(screen.getByRole("list", { name: "Work steps" })).toBeTruthy();
 		expect(
-			screen.getByRole("button", {
-				name: "Working…. Work summary: Reviewing source files…",
-			})
-		).toBeTruthy();
-		expect(
-			screen.getByRole("list", { name: "Work steps and reasoning" }).textContent
-		).toContain("Checking the current Space context.");
-		expect(screen.getByText("Checking", { selector: "strong" })).toBeTruthy();
-		expect(screen.getAllByTestId("space-agent-tool-activity")).toHaveLength(1);
+			screen.queryByText("private reasoning should not be rendered")
+		).toBeNull();
 	});
 
-	it("uses the shared disclosure when local reasoning has no tool steps", () => {
+	it("keeps work progress expandable when no public update has arrived", () => {
 		const item = createStreamingItem();
 		if (!item.agentStreamState) {
 			throw new Error("Expected a live Agent stream fixture.");
 		}
 		item.agentStreamState = {
 			...item.agentStreamState,
-			thinking: "Reviewing the request.",
+			thinking: "private reasoning should not be rendered",
 			thinkingActive: true,
 		};
-		const view = render(
+		render(
 			<SpaceMessageProgressStatus
 				entries={[createWakeProgressEntry()]}
 				item={item}
 			/>
 		);
-
-		const trigger = screen.getByRole("button", {
-			name: "Working…. Thinking process",
-		});
-		expect(trigger.getAttribute("aria-expanded")).toBe("true");
-		expect(screen.getByText("Reviewing the request.")).toBeTruthy();
-		expect(screen.getAllByTestId("space-agent-tool-activity")).toHaveLength(1);
-		fireEvent.click(trigger);
-		view.rerender(
-			<SpaceMessageProgressStatus
-				entries={[createWakeProgressEntry()]}
-				item={{
-					...item,
-					agentStreamState: {
-						...item.agentStreamState,
-						thinking: "Reviewing the request. Checking files.",
-					},
-				}}
-			/>
-		);
+		const trigger = screen.getByRole("button", { name: "Show work progress" });
 		expect(trigger.getAttribute("aria-expanded")).toBe("false");
 		fireEvent.click(trigger);
+		expect(trigger.getAttribute("aria-expanded")).toBe("true");
+		expect(screen.getByRole("list", { name: "Work progress" })).toBeTruthy();
 		expect(
-			screen.getByRole("list", { name: "Work steps and reasoning" }).textContent
-		).toContain("Reviewing the request. Checking files.");
+			screen.getByText("The Agent is working. No public update yet.")
+		).toBeTruthy();
+		expect(
+			screen.queryByText("private reasoning should not be rendered")
+		).toBeNull();
+		expect(
+			screen.queryByRole("dialog", { name: "Message details" })
+		).toBeNull();
 	});
 
 	it("shows live output without repeating a generic working label", () => {

@@ -656,7 +656,6 @@ const REVIEWER_OPTION_NAME = /Reviewer/;
 const RUNNER_OPTION_NAME = /Runner/;
 const SCOUT_OPTION_NAME = /Scout/;
 const WATCHER_OPTION_NAME = /Watcher/;
-const DIAGNOSTIC_REPORT_POINTER_COPY = /Message text is not included\./;
 const LOCAL_SETUP_PREFERENCE_TEXT = /Local setup preference/;
 const PREPARE_TEXT = /prepare/i;
 const DELETE_CONFIRMATION_LABEL_TEXT = /Type DELETE to confirm/i;
@@ -2863,7 +2862,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("submits a Diagnostic Report pointer without sending message text", async () => {
+	it("does not expose Diagnostic Reports in the main message details", async () => {
 		const createDiagnosticReportMock = vi.fn().mockResolvedValue({
 			createdAtMs: 1_774_979_200_000,
 			diagnosticReportId: "diag_reported-agent-reply",
@@ -2954,51 +2953,9 @@ describe("SpaceLanding", () => {
 		expect(
 			await screen.findByRole("heading", { name: "Message details" })
 		).toBeTruthy();
-		expect(screen.getByText("Report issue")).toBeTruthy();
-		expect(screen.getByText(DIAGNOSTIC_REPORT_POINTER_COPY)).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Send report" }));
-
-		await waitFor(() => {
-			expect(createDiagnosticReportMock).toHaveBeenCalledWith({
-				body: {
-					problemType: "reply_problem",
-					reportedSignalId: "sig-agent-reply",
-				},
-				spaceId: "space-123",
-			});
-		});
-		expect(JSON.stringify(createDiagnosticReportMock.mock.calls)).not.toContain(
-			"Agent answer text must stay out of diagnostics."
-		);
-		expect(screen.getByRole("button", { name: "Issue reported" })).toBeTruthy();
-		expect(
-			JSON.parse(
-				window.localStorage.getItem("openmeld.space.last-diagnostic-report") ??
-					"{}"
-			)
-		).toEqual({
-			createdAtMs: 1_774_979_200_000,
-			diagnosticReportId: "diag_reported-agent-reply",
-			reportedSignalId: "sig-agent-reply",
-			replyToSignalId: "sig-human-wake",
-			spaceId: "space-123",
-			threadId: null,
-			wakePointerDerivation: {
-				reasonCodes: ["diagnostic_report.reply_target_exact"],
-				status: "exact",
-			},
-			wakePointers: [
-				{
-					clientMessageId: "cm_wake_123",
-					sourceSignalId: "sig-human-wake",
-					spaceId: "space-123",
-					targetProfileId: DEFAULT_AGENT_PROFILE_ID,
-				},
-			],
-		});
-		expect(
-			window.localStorage.getItem("openmeld.space.last-diagnostic-report")
-		).not.toContain("Agent answer text must stay out of diagnostics.");
+		expect(screen.queryByText("Report issue")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Send report" })).toBeNull();
+		expect(createDiagnosticReportMock).not.toHaveBeenCalled();
 	});
 
 	it("shows the conversation notification control in the Space surface", () => {
@@ -16437,22 +16394,21 @@ describe("SpaceLanding", () => {
 			"space-wake-thinking-indicator"
 		);
 		expect(wakeThinkingIndicator.textContent).toContain("watcher · Working…");
-		fireEvent.click(wakeThinkingIndicator);
+		const working = screen.getByRole("button", { name: "Show work progress" });
+		fireEvent.click(working);
+		const workProgress = await screen.findByRole("list", {
+			name: "Work progress",
+		});
 		expect(
-			await screen.findByRole("heading", { name: "Message details" })
+			within(workProgress).getByText(
+				"The Agent is working. No public update yet."
+			)
 		).toBeTruthy();
-		const watcherActivity = await screen.findByRole("region", {
-			name: "Watcher activity",
-		});
-		expect(within(watcherActivity).getByText("Working")).toBeTruthy();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Close message details" })
-		);
-		await waitFor(() => {
-			expect(
-				screen.queryByRole("heading", { name: "Message details" })
-			).toBeNull();
-		});
+		expect(
+			screen.queryByRole("heading", { name: "Message details" })
+		).toBeNull();
+		fireEvent.click(working);
+		expect(screen.queryByRole("list", { name: "Work progress" })).toBeNull();
 		expect(
 			JSON.parse(
 				window.localStorage.getItem("openmeld.space.last-wake-diagnostic") ??
@@ -17622,7 +17578,6 @@ describe("SpaceLanding", () => {
 			await screen.findByRole("heading", { name: "Message details" })
 		).toBeTruthy();
 		expect(screen.getByRole("heading", { name: "Activity" })).toBeTruthy();
-		expect(screen.getAllByText("@runner").length).toBeGreaterThan(0);
 		expect(screen.getAllByText("Replied").length).toBeGreaterThan(0);
 		expect(screen.getAllByText("@watcher").length).toBeGreaterThan(0);
 		expect(screen.getAllByText("Failed").length).toBeGreaterThan(0);
@@ -17683,12 +17638,8 @@ describe("SpaceLanding", () => {
 		expect(screen.getByRole("heading", { name: "Activity" })).toBeTruthy();
 		expect(screen.queryByText("Wake details")).toBeNull();
 
-		fireEvent.click(screen.getByText("Technical details"));
-		expect(
-			screen.getAllByText("Message author Agent Controller Conversation ID")
-				.length
-		).toBeGreaterThan(0);
-		expect(screen.getAllByText("conv-runner").length).toBeGreaterThan(0);
+		expect(screen.queryByText("Technical details")).toBeNull();
+		expect(screen.queryByText("conv-runner")).toBeNull();
 		fireEvent.click(
 			screen.getByRole("button", { name: "Close message details" })
 		);
@@ -18025,7 +17976,7 @@ describe("SpaceLanding", () => {
 		).toBe("available_for_wake");
 	});
 
-	it("submits Diagnostic Reports from thread messages", async () => {
+	it("does not offer Diagnostic Reports from thread messages", async () => {
 		const createDiagnosticReportMock = vi.fn().mockResolvedValue({
 			createdAtMs: 1_774_979_200_000,
 			diagnosticReportId: "diag_thread-reply",
@@ -18134,9 +18085,9 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding();
 
-		const rootMessage = screen
-			.getByText("Can someone check the privacy page?")
-			.closest("[data-message-row-id]");
+		const rootMessage = document
+			.querySelector('[data-signal-id="sig-root"]')
+			?.closest("[data-message-row-id]");
 		expect(rootMessage).not.toBeNull();
 		fireEvent.click(
 			within(rootMessage as HTMLElement).getByRole("button", {
@@ -18156,31 +18107,9 @@ describe("SpaceLanding", () => {
 		expect(
 			await screen.findByRole("heading", { name: "Message details" })
 		).toBeTruthy();
-		expect(screen.getByText("Report issue")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Send report" }));
-
-		await waitFor(() => {
-			expect(createDiagnosticReportMock).toHaveBeenCalledWith({
-				body: {
-					problemType: "reply_problem",
-					reportedSignalId: "sig-thread-agent",
-				},
-				spaceId: "space-123",
-			});
-		});
-		expect(JSON.stringify(createDiagnosticReportMock.mock.calls)).not.toContain(
-			"Thread reply text must stay out of diagnostics."
-		);
-		expect(
-			JSON.parse(
-				window.localStorage.getItem("openmeld.space.last-diagnostic-report") ??
-					"{}"
-			)
-		).toMatchObject({
-			diagnosticReportId: "diag_thread-reply",
-			reportedSignalId: "sig-thread-agent",
-			threadId: "thread-1",
-		});
+		expect(screen.queryByText("Report issue")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Send report" })).toBeNull();
+		expect(createDiagnosticReportMock).not.toHaveBeenCalled();
 	});
 
 	it.each([

@@ -5360,9 +5360,10 @@ admission. Queue position, input requests, blocked states, and diagnostics keep
 their concrete meaning. When
 the latest admitted semantic tool step settles, the live Work summary keeps its
 concrete completed or failed meaning instead of inventing a generic
-response-preparation phase. The message toolbar owns Message details. The Work
-summary does not repeat that action. After completion, the durable message
-toolbar still owns it.
+response-preparation phase. The message toolbar owns Message details. **Working…** opens progress in
+place: confirmed lifecycle phases, safe work steps, and published progress
+updates. An active request with no update is labeled as such. The work
+disclosure does not expose private reasoning or open Message details.
 The Space bootstrap snapshot seeds active stream projections in the same room
 entry read as recent durable signals; Web must not issue a separate
 conversation-state request. Web requests
@@ -5373,7 +5374,8 @@ arrive. A missing presence field is a mixed-version response, not proof of an
 active stream. Live frames update the seeded projection without overwriting a
 newer sequence. A bounded reasoning tail can be replayed from the live Space
 instance, subject to the existing audience and Local Agent owner preferences;
-it is absent from durable bootstrap and browser caches.
+it is absent from durable bootstrap and browser caches. Web work progress
+does not render that reasoning tail.
 Thinking and public progress keep independent bounded replay tails and client
 sequence checks, so a later progress frame cannot suppress reasoning recovery
 or a privacy-disable update. The same mounted conversation keeps received work
@@ -5731,8 +5733,9 @@ the already-visible message identity rather than private detail content. Each
 Wake target receives one Activity row. Transient work updates that
 row in place while the target is active; the recorded reply, failure, stop, or
 other terminal outcome then replaces the transient content in the same row.
-The final status, reply preview, failure explanation, recovery action, and
-diagnostic context stay together on that target row. Web must not render a
+The final status, reply preview, failure explanation, and recovery action
+stay together on that target row. The drawer does not show raw technical
+identifiers or a Report issue action. Web must not render a
 separate Replies section, a detached `Why this failed` summary, or an extra
 `replied` event for the same final reply. Transient live progress can enrich
 that presentation model but cannot become a second status source or final

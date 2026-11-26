@@ -158,7 +158,6 @@ import { SpaceHistoryRail } from "./space-history-rail";
 import { SpaceInputQueue } from "./space-input-queue";
 import { SPACE_MESSAGE_ROW_LAYOUT_CLASS } from "./space-message-bubble-style";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
-import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
 import {
 	SpaceMessageEditingScope,
 	useOptimisticSpaceMessages,
@@ -273,8 +272,6 @@ type SpaceConversationPanelResolvedProps = {
 	isPersonalContext?: boolean;
 	isAgentRecoveryPending: (profileId: string) => boolean;
 	isLoadingEarlierHistory: boolean;
-	isDiagnosticReportPending: (signalId: string) => boolean;
-	isDiagnosticReportSent: (signalId: string) => boolean;
 	isSendingMessage: boolean;
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
@@ -305,7 +302,6 @@ type SpaceConversationPanelResolvedProps = {
 	onRetryComposerFileRestoration?: () => void;
 	composerFileCleanup?: readonly ComposerFileDraftCleanup[];
 	composerFileRestorationError?: unknown | null;
-	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onAddMessageToTasks?: (
 		item: SpaceTimelineItem,
 		threadId: string | null
@@ -563,7 +559,6 @@ function SpaceConversationPanelContent(
 		messageDetailsReplyItems,
 		messageDetailsWakeStopTarget,
 		onOpenThread,
-		onReportMessage,
 		onViewMessageInGraph,
 		profilePresentationsById,
 		setConversationTopOverlayElement,
@@ -932,11 +927,6 @@ function SpaceConversationPanelContent(
 						loadedMainTimelineSignalIds.has(signalId)
 					}
 					canStartNewTask={canSendMessage}
-					diagnosticReportStatus={resolveMessageDetailsDiagnosticReportStatus({
-						isPending: input.isDiagnosticReportPending(messageDetailsItem.id),
-						isSent: input.isDiagnosticReportSent(messageDetailsItem.id),
-					})}
-					errorLogMessage="Failed to report a space message."
 					isAgentRecoveryPending={input.isAgentRecoveryPending}
 					isPersonalContext={input.isPersonalContext}
 					item={messageDetailsItem}
@@ -951,7 +941,6 @@ function SpaceConversationPanelContent(
 						isReadOnly,
 						input.onRecoverExecution
 					)}
-					onReportMessage={onReportMessage}
 					onViewInGraph={onViewMessageInGraph}
 					onWakeStopRequest={input.onWakeStopRequest}
 					open={true}
@@ -1066,7 +1055,6 @@ function renderPanelConversationBody(input: {
 		onOpenSpaceFile: panel.onOpenSpaceFile,
 		onAddMessageToTasks: panel.onAddMessageToTasks,
 		onReplyToMessage: presentation.onReplyToMessage,
-		onReportMessage: presentation.onReportMessage,
 		onRecoverExecution: presentation.messageDetailsItem
 			? undefined
 			: panel.onRecoverExecution,
@@ -1308,7 +1296,6 @@ function useSpaceConversationPresentationController(
 	const onAgentRecoveryAction = useLatestCallback(input.onAgentRecoveryAction);
 	const onCreateThread = useLatestCallback(input.onCreateThread);
 	const onOpenThread = useLatestCallback(input.onOpenThread);
-	const onReportMessage = useLatestCallback(input.onReportMessage);
 	const onReplyToMessage = useLatestCallback(input.onReplyToMessage);
 	const onViewMessageInGraph = useLatestCallback((signalId: string) => {
 		graphFocusRequestIdRef.current += 1;
@@ -1462,7 +1449,6 @@ function useSpaceConversationPresentationController(
 		onAgentRecoveryAction,
 		onCreateThread,
 		onOpenThread,
-		onReportMessage,
 		onReplyToMessage,
 		onViewMessageInGraph,
 		onWakeStopRequest,
@@ -2488,7 +2474,6 @@ function renderConversationBody(input: {
 		threadId: string | null
 	) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
-	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onSendStarterPrompt: (prompt: string) => Promise<void>;
 	onStartComputerSetup: () => void;

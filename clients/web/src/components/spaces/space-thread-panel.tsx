@@ -107,7 +107,6 @@ import { SpaceInlineSidePanel } from "./space-inline-side-panel";
 import { SpaceInputQueue } from "./space-input-queue";
 import { SPACE_MESSAGE_ROW_LAYOUT_CLASS } from "./space-message-bubble-style";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
-import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
 import {
 	SpaceMessageEditingScope,
 	useOptimisticSpaceMessages,
@@ -235,8 +234,6 @@ type SpaceThreadPanelProps = {
 		WakeFailureTargetContext
 	>;
 	isAgentRecoveryPending: (profileId: string) => boolean;
-	isDiagnosticReportPending: (signalId: string) => boolean;
-	isDiagnosticReportSent: (signalId: string) => boolean;
 	isCenterAgentDirectMessage?: boolean;
 	isDirectMessage?: boolean;
 	initialFocusRequestId?: number | string;
@@ -270,7 +267,6 @@ type SpaceThreadPanelProps = {
 	composerFileCleanup?: readonly ComposerFileDraftCleanup[];
 	composerFileRestorationError?: unknown | null;
 	onMentionButtonClick: () => void;
-	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onSendText?: (text: string) => Promise<void>;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
@@ -683,13 +679,6 @@ function ThreadSelectedMessageDetails(input: {
 			canStartNewTask={
 				panelInput.readOnly !== true && panelInput.canSendMessage
 			}
-			diagnosticReportStatus={resolveMessageDetailsDiagnosticReportStatus({
-				isPending: panelInput.isDiagnosticReportPending(
-					input.messageDetailsItem.id
-				),
-				isSent: panelInput.isDiagnosticReportSent(input.messageDetailsItem.id),
-			})}
-			errorLogMessage="Failed to report a space thread message."
 			isAgentRecoveryPending={panelInput.isAgentRecoveryPending}
 			isPersonalContext={panelInput.isPersonalContext}
 			item={input.messageDetailsItem}
@@ -701,7 +690,6 @@ function ThreadSelectedMessageDetails(input: {
 				}
 			}}
 			onRecoverExecution={input.onRecoverExecution}
-			onReportMessage={panelInput.onReportMessage}
 			onWakeStopRequest={
 				panelInput.onWakeStopRequest ? input.onWakeStopRequest : undefined
 			}

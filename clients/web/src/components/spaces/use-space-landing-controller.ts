@@ -199,7 +199,6 @@ import {
 } from "./use-space-history-navigation";
 import { useSpaceInputQueue } from "./use-space-input-queue";
 import {
-	addSetValue,
 	areWakeProgressItemsEqual,
 	buildLocalWakeProgressItems,
 	createClientMessageId,
@@ -220,16 +219,13 @@ import {
 	readSpaceStatusName,
 	reconcileActiveWakeProgressSnapshot,
 	reconcilePolledWakeProgressItems,
-	recordDiagnosticReportPointer,
 	recordWakeDiagnosticIfNeeded,
 	refreshLanding,
-	removeSetValue,
 	removeWakeProgressItemsForClientMessageId,
 	resolveBlockedWakeProfileIdFromSubmissionError,
 	resolveComposerAddressingTargets,
 	resolveComposerWakeProgressTargetProfileIds,
 	resolveDeleteSpaceErrorMessage,
-	resolveDiagnosticReportProblemType,
 	resolveLeaveSpaceErrorMessage,
 	resolveQueryError,
 	resolveQueuedExecutionInput,
@@ -1159,8 +1155,6 @@ export type SpaceLandingConversationController = {
 	isCurrentAccessConfirmed: boolean;
 	currentProfileMembershipState: CurrentProfileSpaceMembershipState;
 	isSendingMessage: boolean;
-	isDiagnosticReportPending: (signalId: string) => boolean;
-	isDiagnosticReportSent: (signalId: string) => boolean;
 	leaveSpaceErrorMessage: string | null;
 	accessModeErrorMessage: string | null;
 	spaceNameErrorMessage: string | null;
@@ -1222,7 +1216,6 @@ export type SpaceLandingConversationController = {
 	onRetryThreadComposerFileCleanup: (localId: string) => Promise<void>;
 	onRetryThreadComposerFileRestoration: () => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
-	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution: (
 		input: SpaceExecutionRecoveryAttempt
 	) => Promise<SpaceExecutionRecoveryResolution>;
@@ -1583,12 +1576,6 @@ export function useSpaceLandingController(input: {
 	const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
 	const [pendingOutgoingSignals, setPendingOutgoingSignals] =
 		usePendingOutgoingSignals(input.spaceId, input.profileId, null);
-	const [
-		pendingDiagnosticReportSignalIds,
-		setPendingDiagnosticReportSignalIds,
-	] = useState<ReadonlySet<string>>(() => new Set());
-	const [sentDiagnosticReportSignalIds, setSentDiagnosticReportSignalIds] =
-		useState<ReadonlySet<string>>(() => new Set());
 	const [hasEarlierHistory, setHasEarlierHistory] = useState(true);
 	const [historyActionErrorMessage, setHistoryActionErrorMessage] = useState<
 		string | null
@@ -2214,8 +2201,6 @@ export function useSpaceLandingController(input: {
 		setIsLoadingEarlierHistory(false);
 		setIsLeavingSpace(false);
 		setLeaveSpaceErrorMessage(null);
-		setPendingDiagnosticReportSignalIds(new Set());
-		setSentDiagnosticReportSignalIds(new Set());
 		recoveredWakeProgressClientMessageIdsRef.current.clear();
 	}, [
 		composerSession.feedback.clear,
@@ -2421,50 +2406,6 @@ export function useSpaceLandingController(input: {
 		spaceId: input.spaceId,
 	});
 
-	const handleReportMessage = useCallback(
-		async (item: SpaceTimelineItem) => {
-			if (
-				pendingDiagnosticReportSignalIds.has(item.id) ||
-				sentDiagnosticReportSignalIds.has(item.id)
-			) {
-				return;
-			}
-
-			setPendingDiagnosticReportSignalIds((current) =>
-				addSetValue(current, item.id)
-			);
-
-			try {
-				const report = await createUnscopedWebSpaceApi({
-					openMeldProfileId: input.profileId,
-				}).createDiagnosticReport({
-					spaceId: input.spaceId,
-					body: {
-						reportedSignalId: item.id,
-						problemType: resolveDiagnosticReportProblemType(item),
-					},
-				});
-				recordDiagnosticReportPointer(report);
-				setSentDiagnosticReportSignalIds((current) =>
-					addSetValue(current, item.id)
-				);
-				toast.success("Report sent.");
-			} catch (error) {
-				const failure = toStructuredApiClientFailure(error);
-				toast.error(`OpenMeld couldn't send this report. ${failure.message}`);
-			} finally {
-				setPendingDiagnosticReportSignalIds((current) =>
-					removeSetValue(current, item.id)
-				);
-			}
-		},
-		[
-			input.profileId,
-			input.spaceId,
-			pendingDiagnosticReportSignalIds,
-			sentDiagnosticReportSignalIds,
-		]
-	);
 	const handleWakeStopRequest = useCallback(
 		async (
 			target: SpaceWakeStopTargetResolution
@@ -2645,15 +2586,6 @@ export function useSpaceLandingController(input: {
 		(profileId: string) => pendingAgentRecoveryProfileId === profileId,
 		[pendingAgentRecoveryProfileId]
 	);
-	const isDiagnosticReportPending = useCallback(
-		(signalId: string) => pendingDiagnosticReportSignalIds.has(signalId),
-		[pendingDiagnosticReportSignalIds]
-	);
-	const isDiagnosticReportSent = useCallback(
-		(signalId: string) => sentDiagnosticReportSignalIds.has(signalId),
-		[sentDiagnosticReportSignalIds]
-	);
-
 	const isPasswordRecovery = isProtectedSpaceFailure(currentAccessRejection);
 	const sessionExpiredError = findSessionExpiredError([
 		bootstrapError,
@@ -2800,8 +2732,6 @@ export function useSpaceLandingController(input: {
 		isCurrentAccessConfirmed: statusReady,
 		currentProfileMembershipState,
 		isSendingMessage,
-		isDiagnosticReportPending,
-		isDiagnosticReportSent,
 		leaveSpaceErrorMessage,
 		liveState,
 		onRetryLiveUpdates: retryLiveUpdates,
@@ -2889,7 +2819,6 @@ export function useSpaceLandingController(input: {
 					item.actorProfileKind === "agent" ? item.actorProfileId : null,
 			});
 		},
-		onReportMessage: handleReportMessage,
 		onRecoverExecution: handleRecoverExecution,
 		onAgentInteractionResponse: handleAgentInteractionResponse,
 		onWakeStopRequest: handleWakeStopRequest,
