@@ -22,7 +22,11 @@ first-layer entry for every human message in a Feishu group or Slack channel
 where OpenMeld is installed, not only mentions. Unaddressed messages are
 archived, batched, and labeled by one auxiliary admission call; chatter wakes
 nobody. The behavior is off until
-`OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED` is `"true"`. This
+`OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED` is `"true"` and the
+conversation is listed in
+`OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS`. On 2026-11-26
+Monica accepted that the archive has no retention limit and that an external
+participant in a listed conversation can start a turn. This
 supersedes "Ordinary traffic never starts a turn" and narrows "no pre-agent
 classifier" to turns that already exist. See
 `product/remote-agent-runtime.md` (Unaddressed group messages).

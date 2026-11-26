@@ -2427,8 +2427,12 @@ file was shared; it cannot open a historical file.
 Known limits: Lark international apps do not request the group-message
 permission and stay mention-only. Feishu and Slack history from before the app
 joined, or from a disconnected period, is not backfilled. Archived messages
-have no retention limit yet. An external participant's unaddressed message can
-start a turn exactly as that participant's mention can.
+have no retention limit and are deleted only with their Organization; Monica
+accepted this on 2026-11-26. An external participant's unaddressed message can
+start a turn exactly as that participant's mention can, with the same external
+participant limits; Monica accepted this on 2026-11-26 because whoever is in a
+listed conversation was invited there. Revisit both before another company's
+Organization lists a conversation.
 
 Channel context is not Slack-specific even though Slack is the first producer.
 Each provider adapter must translate its thread or conversation into the shared
