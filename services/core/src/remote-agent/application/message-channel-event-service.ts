@@ -642,7 +642,9 @@ export async function submitAdmittedMessageChannelEvent(input: {
   // The cursor says "history was read through this message". It may only
   // move when that read happened, or a later delta read would skip the
   // messages between the old cursor and this one.
-  let historyWasRead = false;
+  const cursor: { target: { atMs: number; messageId: string } | null } = {
+    target: null,
+  };
   const delivery = await dependencies.submitNativeDelivery({
     db: input.db,
     env: input.env,
@@ -666,7 +668,7 @@ export async function submitAdmittedMessageChannelEvent(input: {
               }),
             })
           : channelContext;
-      historyWasRead = context.sync.status !== "unavailable";
+      cursor.target = resolveContextCursorTarget(admittedEvent, context);
       const contextFinishedAt = Date.now();
       const prepared = await prepareAdmittedEventInput({
         adapter,
@@ -715,7 +717,7 @@ export async function submitAdmittedMessageChannelEvent(input: {
     },
   });
   if (delivery.status === "submitted") {
-    if (admittedEvent.kind === "message" && historyWasRead) {
+    if (cursor.target) {
       await dependencies.upsertContextCursor({
         chatId: locator.chatId,
         connectionGeneration: connection.connectionGeneration,
@@ -725,8 +727,8 @@ export async function submitAdmittedMessageChannelEvent(input: {
         organizationId: connection.organizationId,
         provider: connection.provider,
         rootMessageId: locator.rootMessageId,
-        syncedThroughAtMs: admittedEvent.sentAtMs,
-        syncedThroughMessageId: admittedEvent.messageId,
+        syncedThroughAtMs: cursor.target.atMs,
+        syncedThroughMessageId: cursor.target.messageId,
       });
     }
     return { deliveryId: delivery.deliveryId, status: "submitted" };
@@ -869,6 +871,15 @@ function resolveEventAdmission(
     reasonCode: "message_channel.event_kind_not_admitted",
     status: "ignored",
   };
+}
+/** The message history was read through, or null when it was not read. */
+function resolveContextCursorTarget(
+  event: AdmittedMessageChannelEvent,
+  context: ChannelContext
+): { atMs: number; messageId: string } | null {
+  return event.kind === "message" && context.sync.status !== "unavailable"
+    ? { atMs: event.sentAtMs, messageId: event.messageId }
+    : null;
 }
 function buildPendingChannelContext(input: {
   messageId: string;

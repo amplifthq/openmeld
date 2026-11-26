@@ -1158,6 +1158,40 @@ function resolveSlackEventProcessingFailureCode(error: unknown): string {
     ? error.reasonCode
     : REMOTE_AGENT_SLACK_EVENT_PROCESSING_FAILURE_CODE;
 }
+/**
+ * Reads the workspace binding a turn is started under. For a routed batch of
+ * archived messages it returns null unless the binding still matches the
+ * Organization and state they were archived under. The turn uses the binding
+ * returned here, so there is no gap in which the workspace could move to
+ * another Organization.
+ */
+async function readSlackWorkspaceBindingForTurn(input: {
+  archivedUnder: {
+    connectionGeneration: number;
+    organizationId: string;
+  } | null;
+  db: PostgresDatabase;
+  eventId?: string | null;
+  slackTeamId: string;
+}) {
+  const binding = await readRemoteAgentSlackWorkspaceBinding({
+    db: input.db,
+    slackTeamId: input.slackTeamId,
+  });
+  if (
+    binding &&
+    input.archivedUnder &&
+    (binding.organizationId !== input.archivedUnder.organizationId ||
+      binding.updatedAtMs > input.archivedUnder.connectionGeneration)
+  ) {
+    console.warn("[core.remote_agent.slack_event.archived_binding_changed]", {
+      eventId: input.eventId ?? null,
+      slackTeamId: input.slackTeamId,
+    });
+    return null;
+  }
+  return binding;
+}
 async function processRemoteAgentSlackAppMention(input: {
   addressed: boolean;
   archivedUnder: {
@@ -1209,8 +1243,10 @@ async function processRemoteAgentSlackAppMention(input: {
     teamId: slackTeamId,
     threadTs,
   });
-  const workspaceBinding = await readRemoteAgentSlackWorkspaceBinding({
+  const workspaceBinding = await readSlackWorkspaceBindingForTurn({
+    archivedUnder: input.archivedUnder,
     db: stateDb,
+    eventId: input.eventId,
     slackTeamId,
   });
   const replyThatRequestCannotStart = async (
@@ -1233,20 +1269,6 @@ async function processRemoteAgentSlackAppMention(input: {
     return await replyThatRequestCannotStart(
       REMOTE_AGENT_SLACK_WORKSPACE_NOT_CONNECTED_TEXT
     );
-  }
-  // This binding is the one the turn below is started under, so checking it
-  // here leaves no gap in which the workspace could move to another
-  // Organization.
-  if (
-    input.archivedUnder &&
-    (workspaceBinding.organizationId !== input.archivedUnder.organizationId ||
-      workspaceBinding.updatedAtMs > input.archivedUnder.connectionGeneration)
-  ) {
-    console.warn("[core.remote_agent.slack_event.archived_binding_changed]", {
-      eventId: input.eventId ?? null,
-      slackTeamId,
-    });
-    return { status: "ignored" };
   }
   let centerAgent: SlackCenterAgentTarget | null;
   try {
