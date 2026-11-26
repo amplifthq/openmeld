@@ -2385,10 +2385,16 @@ message subtypes are never input.
 2. **Batch.** A batch is one sender's messages: their replies in one thread,
    or their top-level messages in the conversation. A batch closes after 8
    seconds without a new message, or 30 seconds after its first message, so a
-   burst becomes one input. A mention settles the waiting messages it covers
-   (the sender's own top-level messages, or every waiting message in its
-   thread) so they never start a second turn; the mention's turn reads them as
-   Channel context. A message still waiting after 10 minutes, for example
+   burst becomes one input. A batch holds at most 20 messages; the rest wait
+   for the next batch. A batch keeps its messages and its request identity
+   across retries, so a retry repeats the same request. A mention settles the
+   waiting messages it covers (the sender's own top-level messages, or every
+   waiting message in its thread) so they do not start a second turn; the
+   mention's turn reads them as Channel context. Three cases can still start
+   a second turn: a batch already being routed when the mention arrives, a
+   mention whose settlement failed on every queue attempt (the mention still
+   gets its turn), and a covered message that is first archived after the
+   mention settled. A message still waiting after 10 minutes, for example
    because intake was turned off before its flush, expires and is never
    routed.
 3. **Route.** One metered auxiliary call labels the batch `chatter`,

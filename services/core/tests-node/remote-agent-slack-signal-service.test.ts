@@ -2308,6 +2308,38 @@ describe("Remote Agent Slack signal service", () => {
       ).resolves.toEqual({ status: "ignored" });
       expect(workerSubmit).not.toHaveBeenCalled();
       expect(readSlackPostBodies(fetchMock)).toHaveLength(1);
+
+      // A batch archived under another Organization, or before the workspace
+      // binding last changed, is refused before any Organization is read.
+      const warn = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+      const refusals = () =>
+        warn.mock.calls.filter(
+          ([event]) =>
+            event === "[core.remote_agent.slack_event.archived_binding_changed]"
+        ).length;
+      for (const [index, archivedUnder] of [
+        { connectionGeneration: 5000, organizationId: "org_other" },
+        { connectionGeneration: 999, organizationId: "org_1" },
+        { connectionGeneration: 5000, organizationId: "org_1" },
+      ].entries()) {
+        await expect(
+          processRemoteAgentSlackEvent(
+            buildEnv(harness.db, { workerSubmit }),
+            createAppMentionPayload({
+              eventId: `unaddressed-batch:171000000${index + 2}.000200`,
+              text: "the export job is failing again",
+              ts: `171000000${index + 2}.000200`,
+            }),
+            { addressed: false, archivedUnder }
+          )
+        ).resolves.toEqual({ status: "ignored" });
+      }
+      // The first two are refused; the third matches the binding.
+      expect(refusals()).toBe(2);
+      warn.mockRestore();
+      expect(workerSubmit).not.toHaveBeenCalled();
     } finally {
       await harness.close();
     }

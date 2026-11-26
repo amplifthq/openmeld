@@ -53,9 +53,6 @@ export async function handleUnaddressedChannelBatchQueueMessage(input: {
       db,
       env: input.env,
     });
-    if (!registry) {
-      throw new Error("Message Channel provider registry is unavailable");
-    }
     const result = await flushUnaddressedChannelBatch(
       {
         db,
@@ -90,6 +87,11 @@ export async function handleUnaddressedChannelBatchQueueMessage(input: {
               processSlackEvent: (payload, context) =>
                 processRemoteAgentSlackEvent(input.env, payload, context),
             });
+          }
+          // Only Lark and Feishu submit through the provider registry. A
+          // Slack-only deployment has none and still routes Slack batches.
+          if (!registry) {
+            throw new Error("Message Channel provider registry is unavailable");
           }
           return submitUnaddressedLarkPlatformRequest(request, {
             readConnection: readRemoteAgentLarkPlatformChannelConnection,

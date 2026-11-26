@@ -208,7 +208,13 @@ export async function submitUnaddressedSlackRequest(
   dependencies: {
     processSlackEvent(
       payload: RemoteAgentSlackEventCallbackPayload,
-      context: { addressed: false }
+      context: {
+        addressed: false;
+        archivedUnder?: {
+          connectionGeneration: number;
+          organizationId: string;
+        };
+      }
     ): Promise<{ status: string }>;
   }
 ): Promise<UnaddressedChannelBatchSubmission> {
@@ -230,7 +236,17 @@ export async function submitUnaddressedSlackRequest(
         ...(trigger.slackFiles.length > 0 ? { files: trigger.slackFiles } : {}),
       },
     },
-    { addressed: false }
+    {
+      addressed: false,
+      ...(trigger.connectionGeneration === null
+        ? {}
+        : {
+            archivedUnder: {
+              connectionGeneration: trigger.connectionGeneration,
+              organizationId: trigger.organizationId,
+            },
+          }),
+    }
   );
   if (outcome.status === "processed" || outcome.status === "duplicate") {
     return { deliveryId: null, status: "submitted" };

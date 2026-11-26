@@ -1,3 +1,4 @@
+import { UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES } from "@openmeld/schemas";
 import type {
   ClassifyUnaddressedChannelBatchInput,
   NormalizedMessageChannelEvent,
@@ -25,6 +26,7 @@ import {
 } from "../src/remote-agent/application/slack-unaddressed-message-service";
 import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../src/remote-agent/infrastructure/postgresql/lark-platform-channel-connection-repo";
 import {
+  archiveClaimedUnaddressedChannelMessages,
   claimDueUnaddressedChannelBatch,
   expireStaleUnaddressedChannelMessages,
   listUnaddressedChannelMessages,
@@ -422,6 +424,262 @@ describe("unaddressed Channel message intake", () => {
     }
   });
 
+  it("repeats the same request when a routed batch could not be settled, and leaves a later message for its own batch", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await fixture.observe({
+        id: "om_1",
+        sender: "ou_ari",
+        text: "Login is broken",
+        atMs: START_MS,
+      });
+      const dueAtMs = START_MS + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS;
+      const settleBatch = fixture.dependencies.settleBatch;
+      fixture.dependencies.settleBatch = () =>
+        Promise.reject(new Error("database unavailable"));
+      await expect(
+        fixture.flush({ scheduledBy: START_MS, atMs: dueAtMs })
+      ).rejects.toThrow("database unavailable");
+      fixture.dependencies.settleBatch = settleBatch;
+      // The same person writes again before the retry runs.
+      await fixture.observe({
+        id: "om_2",
+        sender: "ou_ari",
+        text: "Also the export job fails",
+        atMs: dueAtMs + 1000,
+      });
+      fixture.queue.send.mockClear();
+
+      await expect(
+        fixture.flush({ scheduledBy: START_MS, atMs: dueAtMs + 5000 })
+      ).resolves.toMatchObject({ status: "routed" });
+      expect(fixture.submitRequest).toHaveBeenCalledTimes(2);
+      const [first, retry] = fixture.submitRequest.mock.calls.map(
+        ([request]) => ({ id: request.requestEventId, text: request.text })
+      );
+      expect(retry).toEqual(first);
+      expect(first).toEqual({
+        id: "unaddressed-batch:om_1",
+        text: "Login is broken",
+      });
+      await expect(fixture.states()).resolves.toEqual([
+        { id: "om_1", route: "new_request", state: "routed" },
+        { id: "om_2", route: null, state: "pending" },
+      ]);
+      // The later message is not forgotten: it gets a flush of its own.
+      expect(fixture.queue.send).toHaveBeenCalledOnce();
+
+      await expect(
+        fixture.flush({
+          scheduledBy: dueAtMs + 5000,
+          atMs: dueAtMs + 1000 + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+        })
+      ).resolves.toMatchObject({ status: "routed" });
+      expect(fixture.submitRequest.mock.calls.at(-1)?.[0]).toMatchObject({
+        requestEventId: "unaddressed-batch:om_2",
+        text: "Also the export job fails",
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("settles only the messages the classifier read, leaving the rest of a long burst for the next batch", async () => {
+    const fixture = await createFixture({ route: "chatter" });
+    try {
+      const total = UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES + 1;
+      for (let index = 0; index < total; index += 1) {
+        await fixture.observe({
+          id: `om_${String(index).padStart(2, "0")}`,
+          sender: "ou_ari",
+          text: index === total - 1 ? "Please restart staging" : "ok",
+          atMs: START_MS + index * 10,
+        });
+      }
+      const lastAtMs = START_MS + (total - 1) * 10;
+      const dueAtMs = lastAtMs + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS;
+      fixture.queue.send.mockClear();
+
+      await expect(
+        fixture.flush({ scheduledBy: lastAtMs, atMs: dueAtMs })
+      ).resolves.toMatchObject({ route: "chatter", status: "archived" });
+      const read = fixture.classifyBatch.mock.calls[0]?.[0].messages ?? [];
+      expect(read).toHaveLength(UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES);
+      const states = await fixture.states();
+      // The request the classifier never read is still waiting.
+      expect(states.filter((state) => state.state === "pending")).toEqual([
+        { id: `om_${total - 1}`, route: null, state: "pending" },
+      ]);
+      expect(fixture.queue.send).toHaveBeenCalledOnce();
+
+      fixture.classifyBatch.mockResolvedValue("new_request");
+      await expect(
+        fixture.flush({ scheduledBy: dueAtMs, atMs: dueAtMs + 1000 })
+      ).resolves.toMatchObject({ status: "routed" });
+      expect(fixture.submitRequest.mock.calls.at(-1)?.[0].text).toBe(
+        "Please restart staging"
+      );
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("still routes a request sent after a reconnect when an older message from before it is waiting too", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await fixture.observe({
+        id: "om_1",
+        sender: "ou_ari",
+        text: "Old question",
+        atMs: START_MS,
+      });
+      const reconnected = {
+        ...fixture.connection,
+        connectionGeneration: fixture.connection.connectionGeneration + 1,
+      };
+      await recordUnaddressedChannelMessage({
+        batchKey: ARI_THREAD_BATCH,
+        connectionGeneration: reconnected.connectionGeneration,
+        connectionId: reconnected.connectionId,
+        conversationKey: CHAT_ID,
+        db: fixture.db,
+        messageId: "om_2",
+        observedAtMs: START_MS + 1000,
+        organizationId: reconnected.organizationId,
+        provider: "feishu",
+        resources: [],
+        rootMessageId: ROOT_ID,
+        senderId: "ou_ari",
+        senderTenantKey: "tenant_feishu_1",
+        sentAtMs: START_MS + 1000,
+        source: "push",
+        text: "Login is broken",
+        threadId: null,
+      });
+      fixture.readCurrentConnection.mockResolvedValue(reconnected);
+
+      await expect(
+        fixture.flush({
+          scheduledBy: START_MS + 1000,
+          atMs: START_MS + 1000 + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+        })
+      ).resolves.toMatchObject({ route: "new_request", status: "routed" });
+      // Only the message from the current connection leaves Core.
+      expect(
+        fixture.classifyBatch.mock.calls[0]?.[0].messages.map(
+          (message) => message.messageId
+        )
+      ).toEqual(["om_2"]);
+      expect(fixture.submitRequest.mock.calls[0]?.[0].text).toBe(
+        "Login is broken"
+      );
+      await expect(fixture.states()).resolves.toEqual([
+        { id: "om_1", route: "unrouted", state: "archived" },
+        { id: "om_2", route: "new_request", state: "routed" },
+      ]);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("keeps a flush at the maximum-wait deadline when a newer message supersedes this one", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      const offsets = [0, 7000, 14_000, 21_000, 27_000];
+      for (const [index, offset] of offsets.entries()) {
+        await fixture.observe({
+          id: `om_${index}`,
+          sender: "ou_ari",
+          text: `Detail ${index}`,
+          atMs: START_MS + offset,
+        });
+      }
+      fixture.queue.send.mockClear();
+
+      // One second before the 30-second maximum wait ends.
+      await expect(
+        fixture.flush({
+          scheduledBy: START_MS + 21_000,
+          atMs: START_MS + UNADDRESSED_CHANNEL_MAX_WAIT_MS - 1000,
+        })
+      ).resolves.toEqual({ status: "superseded" });
+      expect(fixture.queue.send).toHaveBeenCalledOnce();
+      expect(fixture.queue.send.mock.calls[0]?.[1]).toEqual({
+        delaySeconds: 1,
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("looks again when the claim lease ends if another flush holds the batch", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await fixture.observe({
+        id: "om_1",
+        sender: "ou_ari",
+        text: "Login is broken",
+        atMs: START_MS,
+      });
+      const dueAtMs = START_MS + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS;
+      const scope = {
+        batchKey: ARI_THREAD_BATCH,
+        connectionId: fixture.connection.connectionId,
+        conversationKey: CHAT_ID,
+        db: fixture.db,
+        maxMessages: UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES,
+        maxWaitMs: UNADDRESSED_CHANNEL_MAX_WAIT_MS,
+        provider: "feishu" as const,
+        quietWindowMs: UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+      };
+      // A worker claims the batch and then stops without settling it.
+      await expect(
+        claimDueUnaddressedChannelBatch({
+          ...scope,
+          batchId: "batch_stopped",
+          claimExpiresAtMs: dueAtMs + 120_000,
+          nowMs: dueAtMs,
+          observedAtOrAfterMs: 0,
+        })
+      ).resolves.toMatchObject({ batchId: "batch_stopped", status: "claimed" });
+      fixture.queue.send.mockClear();
+
+      await expect(
+        fixture.flush({ scheduledBy: START_MS, atMs: dueAtMs + 20_000 })
+      ).resolves.toEqual({ status: "rescheduled" });
+      expect(fixture.queue.send.mock.calls[0]?.[1]).toEqual({
+        delaySeconds: 100,
+      });
+      expect(fixture.submitRequest).not.toHaveBeenCalled();
+
+      // After the lease the batch is claimed again under its first id.
+      await expect(
+        fixture.flush({ scheduledBy: START_MS, atMs: dueAtMs + 120_000 })
+      ).resolves.toMatchObject({ batchId: "batch_stopped", status: "routed" });
+
+      // A released message that is too old is never claimed, whatever the
+      // order in which expiry and release happened.
+      await fixture.observe({
+        id: "om_9",
+        sender: "ou_bo",
+        text: "Old request",
+        atMs: START_MS,
+      });
+      await expect(
+        claimDueUnaddressedChannelBatch({
+          ...scope,
+          batchId: "batch_old",
+          batchKey: BO_THREAD_BATCH,
+          claimExpiresAtMs: dueAtMs + 120_000,
+          nowMs: dueAtMs,
+          observedAtOrAfterMs: START_MS + 1,
+        })
+      ).resolves.toEqual({ status: "empty" });
+    } finally {
+      await fixture.close();
+    }
+  });
+
   it("does not archive messages for a connection that is not connected", async () => {
     const fixture = await createFixture({
       route: "chatter",
@@ -473,7 +731,7 @@ describe("unaddressed Channel message intake", () => {
     }
   });
 
-  it("does not classify a mixed Slack batch after reinstalling the app", async () => {
+  it("routes only the messages sent after reinstalling the Slack app, never the ones from before it", async () => {
     const fixture = await createFixture({ route: "new_request" });
     try {
       await fixture.observeSlack({
@@ -499,9 +757,20 @@ describe("unaddressed Channel message intake", () => {
           provider: "slack",
           scheduledBy: START_MS,
         })
-      ).resolves.toMatchObject({ route: "unrouted", status: "archived" });
-      expect(fixture.classifyBatch).not.toHaveBeenCalled();
-      expect(fixture.submitRequest).not.toHaveBeenCalled();
+      ).resolves.toMatchObject({ route: "new_request", status: "routed" });
+      // The message from before the reinstall never leaves Core.
+      expect(
+        fixture.classifyBatch.mock.calls[0]?.[0].messages.map(
+          (message) => message.text
+        )
+      ).toEqual(["After reinstall"]);
+      expect(fixture.submitRequest.mock.calls[0]?.[0].text).toBe(
+        "After reinstall"
+      );
+      await expect(fixture.slackStates()).resolves.toEqual([
+        { id: "1710000000.000100", route: "unrouted", state: "archived" },
+        { id: "1710000000.000200", route: "new_request", state: "routed" },
+      ]);
     } finally {
       await fixture.close();
     }
@@ -560,7 +829,13 @@ describe("unaddressed Channel message intake", () => {
             files: [{ id: "F123", name: "trace.png" }],
           },
         },
-        { addressed: false }
+        {
+          addressed: false,
+          archivedUnder: {
+            connectionGeneration: SLACK_CONNECTION_GENERATION,
+            organizationId: "org_1",
+          },
+        }
       );
     } finally {
       await fixture.close();
@@ -669,6 +944,34 @@ describe("unaddressed Channel message intake", () => {
       ).resolves.toBe(1);
       await expect(fixture.slackStates()).resolves.toEqual([
         { id: "1710000000.000100", route: "addressed", state: "archived" },
+      ]);
+      // Slack orders messages finer than a millisecond. A message sent in
+      // the mention's own millisecond but after it stays waiting.
+      await fixture.observeSlack({
+        text: "before the mention",
+        ts: "1710000009.000100",
+      });
+      await fixture.observeSlack({
+        text: "after the mention",
+        ts: "1710000009.000900",
+      });
+      await expect(
+        settleUnaddressedSlackMessagesForMention(
+          {
+            getDb: () => fixture.db,
+            nowMs: START_MS + 2500,
+            payload: createSlackChannelMessagePayload({
+              type: "app_mention",
+              text: `<@${SLACK_BOT_USER_ID}> and this?`,
+              ts: "1710000009.000500",
+            }),
+          },
+          { settle: settleUnaddressedChannelMessagesAnsweredByMention }
+        )
+      ).resolves.toBe(1);
+      expect((await fixture.slackStates()).slice(1)).toEqual([
+        { id: "1710000009.000100", route: "addressed", state: "archived" },
+        { id: "1710000009.000900", route: null, state: "pending" },
       ]);
       // An ordinary channel message is not a mention and settles nothing.
       await expect(
@@ -886,6 +1189,7 @@ async function createFixture(input: {
     );
   });
   const dependencies: UnaddressedChannelIntakeDependencies = {
+    archiveClaimedMessages: archiveClaimedUnaddressedChannelMessages,
     claimBatch: claimDueUnaddressedChannelBatch,
     classifyBatch,
     expireStaleMessages: expireStaleUnaddressedChannelMessages,
@@ -914,6 +1218,8 @@ async function createFixture(input: {
   return {
     classifyBatch,
     close: () => harness.close(),
+    connection,
+    dependencies,
     flush(flushInput: {
       atMs: number;
       batchKey?: string;

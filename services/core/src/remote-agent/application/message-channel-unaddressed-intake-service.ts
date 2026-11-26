@@ -16,6 +16,7 @@ import type { CoreBindings } from "../../lib/bindings";
 import type { RemoteAgentLarkPlatformChannelConnectionRecord } from "../infrastructure/postgresql/lark-platform-channel-connection-repo";
 import { readRemoteAgentLarkPlatformContextCursor } from "../infrastructure/postgresql/lark-platform-context-cursor-repo";
 import {
+  archiveClaimedUnaddressedChannelMessages,
   claimDueUnaddressedChannelBatch,
   expireStaleUnaddressedChannelMessages,
   type recordUnaddressedChannelMessage,
@@ -85,6 +86,10 @@ export type UnaddressedChannelBatchFlushResult =
     };
 
 export type UnaddressedChannelIntakeDependencies = {
+  /** Archives some messages of a claimed batch; the rest keep the claim. */
+  archiveClaimedMessages(
+    input: Parameters<typeof archiveClaimedUnaddressedChannelMessages>[0]
+  ): Promise<number>;
   claimBatch(
     input: Parameters<typeof claimDueUnaddressedChannelBatch>[0]
   ): Promise<UnaddressedChannelBatchClaim>;
@@ -238,6 +243,11 @@ export async function settleUnaddressedChannelMessagesAnsweredByMention(input: {
       input.rootMessageId === input.messageId
         ? { batchKey: buildUnaddressedChannelBatchKey(input) }
         : { rootMessageId: input.rootMessageId },
+    // A Slack message id is its timestamp to the microsecond, so it orders
+    // messages that share the mention's millisecond.
+    ...(input.provider === "slack"
+      ? { sentThroughMessageId: input.messageId }
+      : {}),
     sentThroughMs: input.sentAtMs,
   });
 }
@@ -248,6 +258,7 @@ export function createUnaddressedChannelIntakeDependencies(input: {
   submitRequest: UnaddressedChannelIntakeDependencies["submitRequest"];
 }): UnaddressedChannelIntakeDependencies {
   return {
+    archiveClaimedMessages: archiveClaimedUnaddressedChannelMessages,
     claimBatch: claimDueUnaddressedChannelBatch,
     expireStaleMessages: expireStaleUnaddressedChannelMessages,
     async classifyBatch(request) {
@@ -452,47 +463,77 @@ export async function flushUnaddressedChannelBatch(
       provider: message.provider,
     });
   }
-  const batchId = crypto.randomUUID();
   const claim = await dependencies.claimBatch({
-    batchId,
+    batchId: crypto.randomUUID(),
     batchKey: message.batchKey,
     claimExpiresAtMs: input.nowMs + UNADDRESSED_CHANNEL_BATCH_CLAIM_LEASE_MS,
     connectionId: message.connectionId,
     conversationKey: message.conversationKey,
     db: input.db,
+    maxMessages: UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES,
     maxWaitMs: UNADDRESSED_CHANNEL_MAX_WAIT_MS,
     nowMs: input.nowMs,
+    // The expiry above skips a row still held by a live claim. If that claim
+    // is released before this one runs, the row must still not be routed.
+    observedAtOrAfterMs: input.nowMs - UNADDRESSED_CHANNEL_MAX_PENDING_AGE_MS,
     provider: message.provider,
     quietWindowMs: UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
   });
   if (claim.status === "empty") {
     return { status: "empty" };
   }
-  if (claim.status === "not_due") {
-    if (claim.newestObservedAtMs > message.scheduledByObservedAtMs) {
-      return { status: "superseded" };
-    }
+  const scheduleFlush = async (
+    flush: UnaddressedChannelBatchQueueMessage,
+    atMs: number
+  ) => {
     if (!input.queue) {
       throw new UnaddressedChannelIntakeRetryableError(
         "message_channel.unaddressed_batch_queue_unavailable"
       );
     }
-    await input.queue.send(message, {
-      delaySeconds: Math.max(
-        1,
-        Math.ceil((claim.dueAtMs - input.nowMs) / 1000)
-      ),
+    await input.queue.send(flush, {
+      delaySeconds: Math.max(1, Math.ceil((atMs - input.nowMs) / 1000)),
     });
+  };
+  if (claim.status === "leased") {
+    // Another flush holds the batch. If its worker stopped, nothing else
+    // would claim the batch again, so look once more when the lease is over.
+    await scheduleFlush(message, claim.leasedUntilMs);
     return { status: "rescheduled" };
   }
+  if (claim.status === "not_due") {
+    if (claim.newestObservedAtMs > message.scheduledByObservedAtMs) {
+      // The newer message's own flush waits a full quiet window. When the
+      // maximum wait ends sooner than that, keep a flush at that deadline.
+      if (
+        claim.dueAtMs <
+        claim.newestObservedAtMs + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS
+      ) {
+        await scheduleFlush(message, claim.dueAtMs);
+      }
+      return { status: "superseded" };
+    }
+    await scheduleFlush(message, claim.dueAtMs);
+    return { status: "rescheduled" };
+  }
+  const { batchId } = claim;
   try {
-    return await routeClaimedUnaddressedChannelBatch({
+    const result = await routeClaimedUnaddressedChannelBatch({
       batchId,
       db: input.db,
       dependencies,
       messages: claim.messages,
       provider: message.provider,
     });
+    if (claim.mayHaveMore) {
+      // A batch holds a bounded number of messages, and a retried batch keeps
+      // its original ones. Whatever else is waiting gets its own flush.
+      await scheduleFlush(
+        { ...message, scheduledByObservedAtMs: input.nowMs },
+        input.nowMs
+      );
+    }
+    return result;
   } catch (error) {
     if (input.queueAttempts >= UNADDRESSED_CHANNEL_BATCH_MAX_QUEUE_ATTEMPTS) {
       // Routing could not be decided. The messages stay archived and start
@@ -531,30 +572,28 @@ async function routeClaimedUnaddressedChannelBatch(input: {
   provider: UnaddressedChannelBatchQueueMessage["provider"];
 }): Promise<UnaddressedChannelBatchFlushResult> {
   const { batchId, db, dependencies } = input;
-  const trigger = input.messages.at(-1);
-  if (!trigger) {
+  const claimed = input.messages.at(-1);
+  if (!claimed) {
     throw new Error("A claimed unaddressed batch has no messages");
   }
-  const hasPriorAgentTurn = await dependencies.hasPriorAgentTurn({
-    db,
-    trigger,
-  });
   // Authorization may have changed while these messages waited in the queue.
   // Check every claimed row before its content can leave Core. A single claim
-  // can contain messages observed on either side of a reconnect.
+  // can contain messages observed on either side of a reconnect: the ones
+  // from before it are archived, and the ones after it are still routed.
   const current = await dependencies.readCurrentConnection({
-    connectionId: trigger.connectionId,
+    connectionId: claimed.connectionId,
     db,
     provider: input.provider,
   });
-  if (
-    !current ||
-    input.messages.some(
-      (message) =>
-        message.connectionGeneration !== current.connectionGeneration ||
-        message.organizationId !== current.organizationId
-    )
-  ) {
+  const messages = current
+    ? input.messages.filter(
+        (message) =>
+          message.connectionGeneration === current.connectionGeneration &&
+          message.organizationId === current.organizationId
+      )
+    : [];
+  const trigger = messages.at(-1);
+  if (!trigger) {
     await dependencies.settleBatch({
       batchId,
       db,
@@ -565,22 +604,38 @@ async function routeClaimedUnaddressedChannelBatch(input: {
     });
     return { batchId, route: "unrouted", status: "archived" };
   }
+  if (messages.length < input.messages.length) {
+    const currentIds = new Set(messages.map((message) => message.messageId));
+    await dependencies.archiveClaimedMessages({
+      batchId,
+      db,
+      messageIds: input.messages
+        .map((message) => message.messageId)
+        .filter((messageId) => !currentIds.has(messageId)),
+      nowMs: Date.now(),
+      route: "unrouted",
+    });
+  }
+  const hasPriorAgentTurn = await dependencies.hasPriorAgentTurn({
+    db,
+    trigger,
+  });
   const classified = await dependencies.classifyBatch({
     batchId,
-    messages: input.messages
-      .slice(-UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES)
-      .map((message) => ({
-        attachmentCount: Math.min(
-          message.resources.length + message.slackFiles.length,
-          10
-        ),
-        messageId: message.messageId,
-        senderId: message.senderId,
-        text: message.text.slice(
-          0,
-          UNADDRESSED_CHANNEL_BATCH_MESSAGE_TEXT_MAX_CHARS
-        ),
-      })),
+    // A claim never holds more messages than the classifier reads, so every
+    // message settled below was seen by it.
+    messages: messages.map((message) => ({
+      attachmentCount: Math.min(
+        message.resources.length + message.slackFiles.length,
+        10
+      ),
+      messageId: message.messageId,
+      senderId: message.senderId,
+      text: message.text.slice(
+        0,
+        UNADDRESSED_CHANNEL_BATCH_MESSAGE_TEXT_MAX_CHARS
+      ),
+    })),
     organizationId: trigger.organizationId,
     provider: input.provider,
     thread: {
@@ -608,7 +663,7 @@ async function routeClaimedUnaddressedChannelBatch(input: {
   const submission = await dependencies.submitRequest({
     db,
     requestEventId: `unaddressed-batch:${trigger.messageId}`,
-    text: buildUnaddressedChannelRequestText(input.messages),
+    text: buildUnaddressedChannelRequestText(messages),
     trigger,
   });
   if (submission.status === "not_submitted") {

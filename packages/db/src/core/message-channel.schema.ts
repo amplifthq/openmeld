@@ -630,7 +630,14 @@ export const openMeldRemoteAgentMessageChannelUnaddressedMessages =
       batchId: text("batch_id"),
       claimExpiresAtMs: bigint("claim_expires_at_ms", { mode: "number" }),
       route: text("route", {
-        enum: ["follow_up", "new_request", "chatter", "unrouted"],
+        enum: [
+          "follow_up",
+          "new_request",
+          "chatter",
+          "unrouted",
+          "addressed",
+          "expired",
+        ],
       }),
       nativeDeliveryId: text("native_delivery_id"),
       updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),

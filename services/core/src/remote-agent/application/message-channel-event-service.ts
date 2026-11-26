@@ -639,6 +639,10 @@ export async function submitAdmittedMessageChannelEvent(input: {
     providerUserId: admittedEvent.senderId,
     webAppUrl: input.env.WEB_APP_URL,
   });
+  // The cursor says "history was read through this message". It may only
+  // move when that read happened, or a later delta read would skip the
+  // messages between the old cursor and this one.
+  let historyWasRead = false;
   const delivery = await dependencies.submitNativeDelivery({
     db: input.db,
     env: input.env,
@@ -662,6 +666,7 @@ export async function submitAdmittedMessageChannelEvent(input: {
               }),
             })
           : channelContext;
+      historyWasRead = context.sync.status !== "unavailable";
       const contextFinishedAt = Date.now();
       const prepared = await prepareAdmittedEventInput({
         adapter,
@@ -710,7 +715,7 @@ export async function submitAdmittedMessageChannelEvent(input: {
     },
   });
   if (delivery.status === "submitted") {
-    if (admittedEvent.kind === "message") {
+    if (admittedEvent.kind === "message" && historyWasRead) {
       await dependencies.upsertContextCursor({
         chatId: locator.chatId,
         connectionGeneration: connection.connectionGeneration,

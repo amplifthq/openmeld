@@ -82,12 +82,21 @@ export type UnaddressedChannelBatchClaim =
       status: "empty";
     }
   | {
+      /** Another flush holds the batch until its claim lease expires. */
+      leasedUntilMs: number;
+      status: "leased";
+    }
+  | {
       dueAtMs: number;
       newestObservedAtMs: number;
       status: "not_due";
     }
   | {
+      /** The id the batch keeps across retries, not always the one offered. */
+      batchId: string;
       messages: UnaddressedChannelMessageRecord[];
+      /** True when other waiting messages of the scope may remain. */
+      mayHaveMore: boolean;
       status: "claimed";
     };
 
@@ -170,17 +179,22 @@ export async function recordUnaddressedChannelMessage(input: {
 }
 
 /**
- * Claims every waiting message of one batch once the burst has gone quiet,
- * or once the oldest waiting message has waited the maximum time. A batch
- * whose earlier claim expired without settling is claimed again.
+ * Claims the next batch of one scope. A batch that was claimed before and
+ * then released, or whose claim lease expired, is claimed again with the same
+ * id and the same messages, so a retry repeats the same request. Otherwise
+ * the oldest waiting messages, up to `maxMessages`, become a new batch once
+ * the burst has gone quiet or its oldest message has waited the maximum
+ * time. Messages observed before `observedAtOrAfterMs` are never claimed.
  */
 export async function claimDueUnaddressedChannelBatch(
   input: BatchScope & {
     batchId: string;
     claimExpiresAtMs: number;
     db: PostgresDatabase;
+    maxMessages: number;
     maxWaitMs: number;
     nowMs: number;
+    observedAtOrAfterMs: number;
     quietWindowMs: number;
   }
 ): Promise<UnaddressedChannelBatchClaim> {
@@ -190,19 +204,69 @@ export async function claimDueUnaddressedChannelBatch(
     input.conversationKey,
     input.batchKey,
   ];
+  const reclaimed = await input.db.query<UnaddressedChannelMessageRow>({
+    text: `
+      UPDATE ${TABLE} AS message
+      SET state = 'routing',
+          claim_expires_at_ms = $6,
+          updated_at_ms = greatest(message.updated_at_ms, $5)
+      WHERE message.provider = $1
+        AND message.connection_id = $2
+        AND message.conversation_key = $3
+        AND message.batch_key = $4
+        AND message.observed_at_ms >= $7
+        AND (
+          message.state = 'pending'
+          OR (message.state = 'routing' AND message.claim_expires_at_ms <= $5)
+        )
+        AND message.batch_id = (
+          SELECT prior.batch_id
+          FROM ${TABLE} AS prior
+          WHERE prior.provider = $1
+            AND prior.connection_id = $2
+            AND prior.conversation_key = $3
+            AND prior.batch_key = $4
+            AND prior.batch_id IS NOT NULL
+            AND prior.observed_at_ms >= $7
+            AND (
+              prior.state = 'pending'
+              OR (prior.state = 'routing' AND prior.claim_expires_at_ms <= $5)
+            )
+          ORDER BY prior.observed_at_ms, prior.message_id
+          LIMIT 1
+        )
+      RETURNING message.*
+    `,
+    values: [
+      ...scopeValues,
+      input.nowMs,
+      input.claimExpiresAtMs,
+      input.observedAtOrAfterMs,
+    ],
+  });
+  const reclaimedBatchId = reclaimed.rows[0]?.batch_id;
+  if (reclaimedBatchId) {
+    return {
+      batchId: reclaimedBatchId,
+      messages: reclaimed.rows
+        .map(mapUnaddressedChannelMessageRow)
+        .sort(compareBySentTime),
+      mayHaveMore: true,
+      status: "claimed",
+    };
+  }
   const claimed = await input.db.query<UnaddressedChannelMessageRow>({
     text: `
       WITH candidates AS (
-        SELECT message_id, observed_at_ms
+        SELECT message_id, observed_at_ms, sent_at_ms
         FROM ${TABLE}
         WHERE provider = $1
           AND connection_id = $2
           AND conversation_key = $3
           AND batch_key = $4
-          AND (
-            state = 'pending'
-            OR (state = 'routing' AND claim_expires_at_ms <= $5)
-          )
+          AND state = 'pending'
+          AND batch_id IS NULL
+          AND observed_at_ms >= $10
         FOR UPDATE
       ),
       burst AS (
@@ -210,6 +274,12 @@ export async function claimDueUnaddressedChannelBatch(
           max(observed_at_ms) AS newest_observed_at_ms,
           min(observed_at_ms) AS oldest_observed_at_ms
         FROM candidates
+      ),
+      chosen AS (
+        SELECT message_id
+        FROM candidates
+        ORDER BY sent_at_ms, message_id
+        LIMIT $11
       )
       UPDATE ${TABLE} AS message
       SET state = 'routing',
@@ -219,7 +289,9 @@ export async function claimDueUnaddressedChannelBatch(
       FROM burst
       WHERE message.provider = $1
         AND message.connection_id = $2
-        AND message.message_id IN (SELECT message_id FROM candidates)
+        AND message.message_id IN (SELECT message_id FROM chosen)
+        AND message.state = 'pending'
+        AND message.batch_id IS NULL
         AND (
           $5 - burst.newest_observed_at_ms >= $8
           OR $5 - burst.oldest_observed_at_ms >= $9
@@ -233,50 +305,68 @@ export async function claimDueUnaddressedChannelBatch(
       input.claimExpiresAtMs,
       input.quietWindowMs,
       input.maxWaitMs,
+      input.observedAtOrAfterMs,
+      input.maxMessages,
     ],
   });
   if (claimed.rows.length > 0) {
     return {
+      batchId: input.batchId,
       messages: claimed.rows
         .map(mapUnaddressedChannelMessageRow)
         .sort(compareBySentTime),
+      mayHaveMore: claimed.rows.length >= input.maxMessages,
       status: "claimed",
     };
   }
   const waiting = await input.db.query<{
+    leased_until_ms: number | string | null;
     newest_observed_at_ms: number | string | null;
     oldest_observed_at_ms: number | string | null;
   }>({
     text: `
       SELECT
-        max(observed_at_ms) AS newest_observed_at_ms,
-        min(observed_at_ms) AS oldest_observed_at_ms
+        max(observed_at_ms) FILTER (
+          WHERE state = 'pending' AND batch_id IS NULL
+        ) AS newest_observed_at_ms,
+        min(observed_at_ms) FILTER (
+          WHERE state = 'pending' AND batch_id IS NULL
+        ) AS oldest_observed_at_ms,
+        max(claim_expires_at_ms) FILTER (
+          WHERE state = 'routing' AND claim_expires_at_ms > $5
+        ) AS leased_until_ms
       FROM ${TABLE}
       WHERE provider = $1
         AND connection_id = $2
         AND conversation_key = $3
         AND batch_key = $4
-        AND state = 'pending'
+        AND observed_at_ms >= $6
     `,
-    values: scopeValues,
+    values: [...scopeValues, input.nowMs, input.observedAtOrAfterMs],
   });
   const window = waiting.rows[0];
   if (
-    !window ||
-    window.newest_observed_at_ms === null ||
-    window.oldest_observed_at_ms === null
+    window &&
+    window.newest_observed_at_ms !== null &&
+    window.oldest_observed_at_ms !== null
   ) {
-    return { status: "empty" };
+    const newestObservedAtMs = Number(window.newest_observed_at_ms);
+    return {
+      dueAtMs: Math.min(
+        newestObservedAtMs + input.quietWindowMs,
+        Number(window.oldest_observed_at_ms) + input.maxWaitMs
+      ),
+      newestObservedAtMs,
+      status: "not_due",
+    };
   }
-  const newestObservedAtMs = Number(window.newest_observed_at_ms);
-  return {
-    dueAtMs: Math.min(
-      newestObservedAtMs + input.quietWindowMs,
-      Number(window.oldest_observed_at_ms) + input.maxWaitMs
-    ),
-    newestObservedAtMs,
-    status: "not_due",
-  };
+  if (window && window.leased_until_ms !== null) {
+    return {
+      leasedUntilMs: Number(window.leased_until_ms),
+      status: "leased",
+    };
+  }
+  return { status: "empty" };
 }
 
 /**
@@ -331,6 +421,12 @@ export async function settleUnaddressedChannelMessagesForMention(input: {
   nowMs: number;
   provider: MessageChannelProvider;
   scope: { batchKey: string } | { rootMessageId: string };
+  /**
+   * The mention's own message id, for a provider whose ids order messages
+   * more finely than a millisecond (a Slack `ts`). It decides between
+   * messages sent in the mention's own millisecond.
+   */
+  sentThroughMessageId?: string;
   sentThroughMs: number;
 }): Promise<number> {
   const byBatch = "batchKey" in input.scope;
@@ -344,7 +440,13 @@ export async function settleUnaddressedChannelMessagesForMention(input: {
         AND connection_id = $2
         AND conversation_key = $3
         AND state = 'pending'
-        AND sent_at_ms <= $5
+        AND (
+          sent_at_ms < $5
+          OR (
+            sent_at_ms = $5
+            AND ($7::text IS NULL OR message_id COLLATE "C" <= $7::text)
+          )
+        )
         AND ${byBatch ? "batch_key" : "root_message_id"} = $4
     `,
     values: [
@@ -356,12 +458,16 @@ export async function settleUnaddressedChannelMessagesForMention(input: {
         : input.scope.rootMessageId,
       input.sentThroughMs,
       input.nowMs,
+      input.sentThroughMessageId ?? null,
     ],
   });
   return Number(result.rowCount ?? 0);
 }
 
-/** Returns a claimed batch to the waiting state so a retry can claim it. */
+/**
+ * Returns a claimed batch to the waiting state. The messages keep their
+ * batch id, so the retry claims the same batch and repeats the same request.
+ */
 export async function releaseUnaddressedChannelBatch(input: {
   batchId: string;
   db: PostgresDatabase;
@@ -371,7 +477,6 @@ export async function releaseUnaddressedChannelBatch(input: {
     text: `
       UPDATE ${TABLE}
       SET state = 'pending',
-          batch_id = NULL,
           claim_expires_at_ms = NULL,
           updated_at_ms = greatest(updated_at_ms, $2)
       WHERE batch_id = $1
@@ -408,6 +513,42 @@ export async function settleUnaddressedChannelBatch(input: {
       input.route,
       input.nativeDeliveryId,
       input.nowMs,
+    ],
+  });
+  return Number(result.rowCount ?? 0);
+}
+
+/**
+ * Archives some messages of a claimed batch without routing them, for
+ * example those observed under a connection that has since been replaced.
+ * The rest of the batch keeps its claim.
+ */
+export async function archiveClaimedUnaddressedChannelMessages(input: {
+  batchId: string;
+  db: PostgresDatabase;
+  messageIds: readonly string[];
+  nowMs: number;
+  route: "unrouted";
+}): Promise<number> {
+  if (input.messageIds.length === 0) {
+    return 0;
+  }
+  const result = await input.db.query({
+    text: `
+      UPDATE ${TABLE}
+      SET state = 'archived',
+          route = $2,
+          claim_expires_at_ms = NULL,
+          updated_at_ms = greatest(updated_at_ms, $3)
+      WHERE batch_id = $1
+        AND state = 'routing'
+        AND message_id IN (SELECT jsonb_array_elements_text($4::jsonb))
+    `,
+    values: [
+      input.batchId,
+      input.route,
+      input.nowMs,
+      JSON.stringify(input.messageIds),
     ],
   });
   return Number(result.rowCount ?? 0);

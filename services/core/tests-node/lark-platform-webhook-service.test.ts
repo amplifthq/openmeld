@@ -525,6 +525,61 @@ describe("Lark-platform Webhook verification", () => {
       await harness.close();
     }
   });
+  it("describes an unmentioned group image as shared, not as a request to review it", async () => {
+    const harness = await createPostgresHarness();
+    await applyConnectionMigration(harness);
+    await seedConnection(harness, {
+      encryptKey: null,
+      provider: "feishu",
+      verificationToken: VERIFICATION_TOKEN,
+    });
+    try {
+      const fixture = structuredClone(
+        MESSAGE_FIXTURE
+      ) as typeof MESSAGE_FIXTURE & {
+        header: Record<string, unknown>;
+        event: {
+          message: Record<string, unknown>;
+          sender: Record<string, unknown>;
+        };
+      };
+      fixture.header.app_id = "cli_feishu_test";
+      fixture.header.tenant_key = "tenant_feishu_test";
+      fixture.event.sender.sender_type = "user";
+      fixture.event.message.message_type = "image";
+      fixture.event.message.content = JSON.stringify({
+        image_key: "img_v3_group_image_key",
+      });
+      fixture.event.message.mentions = [];
+      await expect(
+        verifyLarkPlatformWebhook({
+          db: harness.db,
+          env: buildEnv({ feishuEnabled: true, larkEnabled: true }),
+          input: {
+            connectionId: "connection_feishu_test",
+            gatewayRequestId: "unmentioned_group_image",
+            headers: { nonce: null, signature: null, timestamp: null },
+            provider: "feishu",
+            rawBody: JSON.stringify(fixture),
+            receivedAtMs: 1_710_000_000_100,
+            surface: "events",
+          },
+        })
+      ).resolves.toMatchObject({
+        envelope: {
+          event: {
+            kind: "message",
+            mention: "group_message",
+            resources: [{ fileKey: "img_v3_group_image_key", type: "image" }],
+            text: "[Shared an image with no message text.]",
+          },
+        },
+        status: "enqueue",
+      });
+    } finally {
+      await harness.close();
+    }
+  });
   it("normalizes an official image message into a bounded provider resource reference", async () => {
     const harness = await createPostgresHarness();
     await applyConnectionMigration(harness);

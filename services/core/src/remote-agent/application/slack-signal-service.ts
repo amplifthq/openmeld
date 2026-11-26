@@ -231,6 +231,14 @@ export async function processRemoteAgentSlackEvent(
      * not answered in Slack.
      */
     addressed?: boolean;
+    /**
+     * Set for a routed batch of unaddressed channel messages: the
+     * Organization that archived them and the workspace state they were
+     * observed under. The turn starts only while the workspace binding it
+     * reads still matches, so archived messages never reach another
+     * Organization.
+     */
+    archivedUnder?: { connectionGeneration: number; organizationId: string };
     finalAttempt?: boolean;
     gatewayRequestId?: string;
     nowMs?: number;
@@ -296,6 +304,7 @@ export async function processRemoteAgentSlackEvent(
   try {
     const outcome = await processRemoteAgentSlackAppMention({
       addressed: context.addressed ?? true,
+      archivedUnder: context.archivedUnder ?? null,
       env,
       event,
       eventId,
@@ -1151,6 +1160,10 @@ function resolveSlackEventProcessingFailureCode(error: unknown): string {
 }
 async function processRemoteAgentSlackAppMention(input: {
   addressed: boolean;
+  archivedUnder: {
+    connectionGeneration: number;
+    organizationId: string;
+  } | null;
   env: CoreBindings;
   event: RemoteAgentSlackConversationEvent;
   eventId?: string | null;
@@ -1220,6 +1233,20 @@ async function processRemoteAgentSlackAppMention(input: {
     return await replyThatRequestCannotStart(
       REMOTE_AGENT_SLACK_WORKSPACE_NOT_CONNECTED_TEXT
     );
+  }
+  // This binding is the one the turn below is started under, so checking it
+  // here leaves no gap in which the workspace could move to another
+  // Organization.
+  if (
+    input.archivedUnder &&
+    (workspaceBinding.organizationId !== input.archivedUnder.organizationId ||
+      workspaceBinding.updatedAtMs > input.archivedUnder.connectionGeneration)
+  ) {
+    console.warn("[core.remote_agent.slack_event.archived_binding_changed]", {
+      eventId: input.eventId ?? null,
+      slackTeamId,
+    });
+    return { status: "ignored" };
   }
   let centerAgent: SlackCenterAgentTarget | null;
   try {
@@ -1353,6 +1380,9 @@ async function processRemoteAgentSlackAppMention(input: {
   const sourceText = buildSlackConversationSourceText({
     event,
     isDirectMessage,
+    // A routed batch's event text is every message of the batch. The text
+    // recovered for the trigger message alone must not replace it.
+    keepEventText: !input.addressed,
     richContext,
   });
   const searchAuthorization = await resolveSlackParticipantSearchAuthorization({
@@ -2135,9 +2165,12 @@ function buildSlackPluginSourceProof(event: RemoteAgentSlackConversationEvent) {
 function buildSlackConversationSourceText(input: {
   event: RemoteAgentSlackConversationEvent;
   isDirectMessage: boolean;
+  keepEventText?: boolean;
   richContext: ResolvedSlackMentionRichContext | null;
 }): string {
-  const recoveredText = input.richContext?.currentMessage?.text;
+  const recoveredText = input.keepEventText
+    ? undefined
+    : input.richContext?.currentMessage?.text;
   const rawText = recoveredText ?? normalizeOptionalText(input.event.text);
   const text = input.isDirectMessage
     ? rawText

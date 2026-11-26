@@ -280,6 +280,9 @@ describe("Remote Agent Message Channel event service", () => {
         }),
       })
     );
+    // History was not read, so the cursor stays where it was. Moving it to
+    // this message would hide the unread messages from every later turn.
+    expect(dependencies.upsertContextCursor).not.toHaveBeenCalled();
   });
 
   it("publishes a visible failure when the Center Agent model is unavailable", async () => {

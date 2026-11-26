@@ -83,11 +83,14 @@ export async function classifyUnaddressedChannelBatch(input: {
     `${resolveRemoteAgentAiGatewayOpenRouterBaseUrl(input.env)}/chat/completions`,
     {
       method: "POST",
-      headers: Object.fromEntries(
-        Object.entries(headers).filter(
-          (entry): entry is [string, string] => entry[1] !== null
-        )
-      ),
+      headers: {
+        ...Object.fromEntries(
+          Object.entries(headers).filter(
+            (entry): entry is [string, string] => entry[1] !== null
+          )
+        ),
+        "Content-Type": "application/json",
+      },
       signal: AbortSignal.timeout(15_000),
       body: JSON.stringify({
         model: UNADDRESSED_CHANNEL_BATCH_CLASSIFIER_MODEL,
