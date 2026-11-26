@@ -142,6 +142,49 @@ it.each([
 	);
 });
 
+it("removes with the role reviewed when the dialog opened, not a later promotion", async () => {
+	mocks.preview.mockResolvedValue({
+		memberId: member.memberId,
+		userId: member.userId,
+		spaces: [],
+	});
+	mocks.remove.mockResolvedValue(undefined);
+	const client = new QueryClient();
+	const tree = (targetRole: string) => (
+		<QueryClientProvider client={client}>
+			<DirectoryMemberRemoval
+				directoryQuery={{
+					data: { members: [{ ...member, role: targetRole }] },
+					isError: false,
+				}}
+				organization={organization}
+				profileId={`member:${member.memberId}`}
+				roleQuery={{ data: "owner", isError: false }}
+				userId="viewer"
+			/>
+		</QueryClientProvider>
+	);
+	const view = render(tree("member"));
+	fireEvent.click(screen.getByRole("button", { name: "Remove Casey Fixture" }));
+	const dialog = await screen.findByRole("alertdialog", {
+		name: "Remove Casey Fixture?",
+	});
+	const confirm = within(dialog).getByRole("button", { name: "Remove member" });
+	await waitFor(() => expect(confirm).toHaveProperty("disabled", false));
+	view.rerender(tree("admin"));
+	fireEvent.click(
+		within(
+			screen.getByRole("alertdialog", { name: "Remove Casey Fixture?" })
+		).getByRole("button", { name: "Remove member" })
+	);
+	await waitFor(() => expect(mocks.remove).toHaveBeenCalledTimes(1));
+	expect(mocks.remove).toHaveBeenCalledWith({
+		memberIdOrEmail: member.memberId,
+		organizationId: organization.id,
+		expectedMemberRole: "member",
+	});
+});
+
 it.each([
 	{ role: "member", user: "other", target: "member" },
 	{ role: null, user: "other", target: "member" },

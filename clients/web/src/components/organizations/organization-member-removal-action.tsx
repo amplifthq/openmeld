@@ -56,6 +56,11 @@ export function OrganizationMemberRemovalAction(input: {
 	const [selectedSuccessorUserId, setSelectedSuccessorUserId] = useState<
 		string | null
 	>(null);
+	// The role shown when the review opened. A directory refresh during the
+	// review must not widen what the confirmation is allowed to remove.
+	const [reviewedMemberRole, setReviewedMemberRole] = useState(
+		input.member.role
+	);
 	const memberName =
 		input.member.humanProfile?.profileName ?? input.member.user.name;
 	const removalPreview = useMutation({
@@ -82,7 +87,7 @@ export function OrganizationMemberRemovalAction(input: {
 		memberIdOrEmail: input.member.memberId,
 		organizationId: input.organizationId,
 		...(input.surface === "team"
-			? { expectedMemberRole: input.member.role }
+			? { expectedMemberRole: reviewedMemberRole }
 			: {}),
 	};
 	const removeMutation = useMutation({
@@ -164,6 +169,7 @@ export function OrganizationMemberRemovalAction(input: {
 					removeMutation.reset();
 					input.onError(null);
 					setSelectedSuccessorUserId(null);
+					setReviewedMemberRole(input.member.role);
 					removalPreview.reset();
 					removalPreview.mutate();
 					setOpen(true);
