@@ -156,6 +156,8 @@ function resolveSpaceReadFailureHints(
   switch (resolveSpaceReadCommandName(entryName)) {
     case "board":
       return ["openmeld space board <space-id-or-url>"];
+    case "tasks":
+      return ["openmeld space tasks <space-id-or-url>"];
     case "history":
       return [
         "openmeld space history <space-id-or-url> --kind text --brief --limit 20",
@@ -190,6 +192,7 @@ function resolveSpaceReadCommandName(
   entryName: ReturnType<typeof resolveCommandEntryNameFromTokens>
 ):
   | "board"
+  | "tasks"
   | "history"
   | "members"
   | "status"
@@ -199,6 +202,11 @@ function resolveSpaceReadCommandName(
   switch (entryName) {
     case "space.board":
       return "board";
+    case "space.tasks":
+    case "space.tasks.show":
+    case "space.tasks.create":
+    case "space.tasks.change":
+      return "tasks";
     case "space.history":
       return "history";
     case "space.members":
