@@ -5,6 +5,7 @@ import type { CoreBindings } from "../../../lib/bindings";
 import { emitCoreCloudflareRuntimeEvidence } from "../../../shared/observability/cloudflare-runtime-evidence";
 import {
   isUnaddressedChannelIntakeEnabled,
+  isUnaddressedChannelIntakeEnabledForConversation,
   settleUnaddressedChannelMessagesAnsweredByMention,
 } from "../../application/message-channel-unaddressed-intake-service";
 import { RemoteAgentSlackSubmissionOutcomeUnknownError } from "../../application/native-delivery-service";
@@ -202,6 +203,12 @@ async function handleUnaddressedSlackChannelMessage(
     const observation = await observeUnaddressedSlackChannelMessage(
       {
         getDb: () => getPostgresDatabase(input.env),
+        isConversationAllowed: (channel) =>
+          isUnaddressedChannelIntakeEnabledForConversation({
+            conversationKey: channel,
+            env: input.env,
+            provider: "slack",
+          }),
         nowMs: Date.now(),
         payload: queueMessage.payload,
         queue: input.env.OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE,

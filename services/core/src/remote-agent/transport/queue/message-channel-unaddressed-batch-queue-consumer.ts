@@ -7,7 +7,7 @@ import { createConfiguredMessageChannelProviderRegistry } from "../../applicatio
 import {
   createUnaddressedChannelIntakeDependencies,
   flushUnaddressedChannelBatch,
-  isUnaddressedChannelIntakeEnabled,
+  isUnaddressedChannelIntakeEnabledForConversation,
   UnaddressedChannelIntakeRetryableError,
 } from "../../application/message-channel-unaddressed-intake-service";
 import { processRemoteAgentSlackEvent } from "../../application/slack-signal-service";
@@ -33,8 +33,15 @@ export async function handleUnaddressedChannelBatchQueueMessage(input: {
   if (!parsed.success) {
     return false;
   }
-  if (!isUnaddressedChannelIntakeEnabled(input.env)) {
-    // Turning intake off stops routing. Waiting messages stay as pending rows;
+  if (
+    !isUnaddressedChannelIntakeEnabledForConversation({
+      conversationKey: parsed.data.conversationKey,
+      env: input.env,
+      provider: parsed.data.provider,
+    })
+  ) {
+    // Turning intake off, or unlisting the conversation, stops routing.
+    // Waiting messages stay as pending rows;
     // after the pending age limit a later flush expires them, so turning
     // intake back on never routes an old request.
     input.message.ack();

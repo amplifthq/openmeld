@@ -142,6 +142,7 @@ describe("Remote Agent Slack event queue consumer", () => {
     // The env has no database, so the archive write fails.
     await handleRemoteAgentSlackEventQueueMessage({
       env: {
+        OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS: "*",
         OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: "true",
       } as never,
       message: {
@@ -178,6 +179,7 @@ describe("Remote Agent Slack event queue consumer", () => {
 
     await handleRemoteAgentSlackEventQueueMessage({
       env: {
+        OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS: "*",
         OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: "true",
       } as never,
       message: message.value,
@@ -202,6 +204,7 @@ describe("Remote Agent Slack event queue consumer", () => {
       new Error("Database unavailable")
     );
     const env = {
+      OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS: "*",
       OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: "true",
     } as never;
 

@@ -9,6 +9,7 @@ import type { CoreBindings } from "../src/lib/bindings";
 import { submitUnaddressedLarkPlatformRequest } from "../src/remote-agent/application/lark-platform-unaddressed-request-service";
 import {
   flushUnaddressedChannelBatch,
+  isUnaddressedChannelIntakeEnabledForConversation,
   observeUnaddressedLarkPlatformMessage,
   settleUnaddressedChannelMessagesAnsweredByMention,
   UNADDRESSED_CHANNEL_MAX_PENDING_AGE_MS,
@@ -604,6 +605,23 @@ describe("unaddressed Channel message intake", () => {
     }
   });
 
+  it("leaves a Slack channel that is not listed on the mention-only path, archiving nothing", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      fixture.slackUnlistedChannels.add(SLACK_CHANNEL_ID);
+      await expect(
+        fixture.observeSlack({
+          text: "the export job is failing again",
+          ts: "1710000000.000100",
+        })
+      ).resolves.toBeNull();
+      expect(await fixture.slackStates()).toEqual([]);
+      expect(fixture.queue.send).not.toHaveBeenCalled();
+    } finally {
+      await fixture.close();
+    }
+  });
+
   it("leaves direct messages and app mentions to the addressed Slack path", async () => {
     const fixture = await createFixture({ route: "chatter" });
     try {
@@ -731,7 +749,66 @@ describe("routed Lark-platform unaddressed request", () => {
   });
 });
 
+describe("unaddressed Channel intake conversation list", () => {
+  const listed = (conversations: string | undefined, enabled = "true") =>
+    isUnaddressedChannelIntakeEnabledForConversation({
+      conversationKey: CHAT_ID,
+      env: {
+        OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS:
+          conversations,
+        OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: enabled,
+      },
+      provider: "feishu",
+    });
+
+  it("admits no conversation when the flag is on but the list is empty", () => {
+    expect(listed(undefined)).toBe(false);
+    expect(listed("")).toBe(false);
+    expect(listed(" , ")).toBe(false);
+  });
+
+  it("admits only a conversation listed under its own provider", () => {
+    expect(listed(`feishu:${CHAT_ID}`)).toBe(true);
+    expect(listed(`slack:C123, feishu:${CHAT_ID} `)).toBe(true);
+    expect(listed("feishu:oc_other_chat")).toBe(false);
+    // The same id under another provider is a different conversation.
+    expect(listed(`slack:${CHAT_ID}`)).toBe(false);
+    expect(listed(CHAT_ID)).toBe(false);
+  });
+
+  it("admits every conversation for the wildcard, and none while the flag is off", () => {
+    expect(listed("*")).toBe(true);
+    expect(listed("*", "false")).toBe(false);
+    expect(listed(`feishu:${CHAT_ID}`, "false")).toBe(false);
+  });
+});
+
 describe("unaddressed Channel batch queue consumer", () => {
+  it("consumes a batch flush without routing it once its conversation is no longer listed", async () => {
+    const message = createQueueMessage({
+      batchKey: `thread:${ROOT_ID}`,
+      connectionId: "connection_feishu_1",
+      conversationKey: CHAT_ID,
+      kind: "remote_agent_message_channel_unaddressed_batch",
+      provider: "feishu",
+      scheduledByObservedAtMs: START_MS,
+      v: 1,
+    });
+    // The env has no database, so reaching the flush would throw and retry.
+    await expect(
+      handleUnaddressedChannelBatchQueueMessage({
+        env: {
+          OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS:
+            "feishu:oc_other_chat",
+          OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: "true",
+        } as CoreBindings,
+        message,
+      })
+    ).resolves.toBe(true);
+    expect(message.ack).toHaveBeenCalledOnce();
+    expect(message.retry).not.toHaveBeenCalled();
+  });
+
   it("consumes a batch flush without routing it while unaddressed intake is off", async () => {
     const message = createQueueMessage({
       batchKey: `thread:${ROOT_ID}`,
@@ -759,6 +836,7 @@ describe("unaddressed Channel batch queue consumer", () => {
     await expect(
       handleUnaddressedChannelBatchQueueMessage({
         env: {
+          OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS: "*",
           OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: "true",
         } as CoreBindings,
         message,
@@ -777,6 +855,7 @@ async function createFixture(input: {
     text: "INSERT INTO \"openmeld\".\"organizations\" (id, name, slug, created_at) VALUES ('org_1', 'One', 'one', 1000)",
   });
   const connection = createConnection(input.status ?? "connected");
+  const slackUnlistedChannels = new Set<string>();
   const queue = {
     send: vi.fn<
       (
@@ -902,6 +981,8 @@ async function createFixture(input: {
       return observeUnaddressedSlackChannelMessage(
         {
           getDb: () => harness.db,
+          isConversationAllowed: (channel) =>
+            !slackUnlistedChannels.has(channel),
           nowMs: START_MS,
           payload: createSlackChannelMessagePayload(event),
           queue,
@@ -914,6 +995,7 @@ async function createFixture(input: {
     },
     queue,
     readCurrentConnection,
+    slackUnlistedChannels,
     slackStates: () =>
       listStates({
         connectionId: SLACK_TEAM_ID,

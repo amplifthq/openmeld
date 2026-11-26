@@ -52,6 +52,7 @@ import {
 } from "./message-channel-turn-resolution";
 import {
   isUnaddressedChannelIntakeEnabled,
+  isUnaddressedChannelIntakeEnabledForConversation,
   observeUnaddressedLarkPlatformMessage,
   settleUnaddressedChannelMessagesAnsweredByMention,
   type UnaddressedChannelObservationResult,
@@ -489,7 +490,16 @@ async function processClaimedMessageChannelEvent(input: {
 }): Promise<RemoteAgentMessageChannelEventProcessingResult> {
   const event = input.envelope.event;
   const admission = resolveEventAdmission(event, {
-    unaddressedIntakeEnabled: isUnaddressedChannelIntakeEnabled(input.env),
+    unaddressedIntakeEnabled:
+      event.kind === "message" &&
+      isUnaddressedChannelIntakeEnabledForConversation({
+        conversationKey:
+          event.locator.provider === "slack"
+            ? event.locator.channelId
+            : event.locator.chatId,
+        env: input.env,
+        provider: event.locator.provider,
+      }),
   });
   if (admission.status === "ignored") {
     return admission;
@@ -881,11 +891,17 @@ async function resolveChannelContextHistory(input: {
   env: CoreBindings;
   event: MessageChannelMessageEvent;
 }): Promise<MessageChannelContextHistoryOptions | undefined> {
-  if (!isUnaddressedChannelIntakeEnabled(input.env)) {
-    return;
-  }
   const locator = input.event.locator;
   if (locator.provider !== "lark" && locator.provider !== "feishu") {
+    return;
+  }
+  if (
+    !isUnaddressedChannelIntakeEnabledForConversation({
+      conversationKey: locator.chatId,
+      env: input.env,
+      provider: locator.provider,
+    })
+  ) {
     return;
   }
   const cursor = await input.dependencies.readContextCursor({

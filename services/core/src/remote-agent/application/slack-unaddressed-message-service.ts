@@ -67,6 +67,8 @@ export async function observeUnaddressedSlackChannelMessage(
   input: {
     /** Opened only for an ordinary channel message, never for other events. */
     getDb(): PostgresDatabase;
+    /** False keeps the channel on the mention-only path. */
+    isConversationAllowed(channel: string): boolean;
     nowMs: number;
     payload: unknown;
     queue: Parameters<
@@ -94,6 +96,9 @@ export async function observeUnaddressedSlackChannelMessage(
       reasonCode: "slack.unaddressed_message_not_ordinary",
       status: "ignored",
     };
+  }
+  if (!input.isConversationAllowed(event.data.channel)) {
+    return null;
   }
   const slackTeamId = payload.data.team_id;
   const db = input.getDb();

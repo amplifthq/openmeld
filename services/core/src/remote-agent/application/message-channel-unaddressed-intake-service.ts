@@ -160,6 +160,41 @@ export function isUnaddressedChannelIntakeEnabled(
   return env.OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED === "true";
 }
 
+export type UnaddressedChannelIntakePolicyEnvironment = Pick<
+  CoreBindings,
+  | "OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS"
+  | "OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED"
+>;
+
+/**
+ * Intake runs only in conversations an operator listed. Each entry of
+ * `OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS` is
+ * `<provider>:<conversation id>` (a Feishu chat id or a Slack channel id);
+ * `*` lists every conversation. An empty list admits none, so turning the
+ * flag on alone never starts listening anywhere.
+ */
+export function isUnaddressedChannelIntakeEnabledForConversation(input: {
+  conversationKey: string;
+  env: UnaddressedChannelIntakePolicyEnvironment;
+  provider: string;
+}): boolean {
+  if (!isUnaddressedChannelIntakeEnabled(input.env)) {
+    return false;
+  }
+  const conversations = new Set(
+    String(
+      input.env.OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS ?? ""
+    )
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+  );
+  return (
+    conversations.has("*") ||
+    conversations.has(`${input.provider}:${input.conversationKey.trim()}`)
+  );
+}
+
 /**
  * A batch is one person's consecutive messages: their top-level messages in
  * the conversation, or their replies in one thread. Keeping senders apart

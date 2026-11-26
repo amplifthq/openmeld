@@ -2365,6 +2365,15 @@ gated by `OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED`, which is
 `"false"` in every environment until an operator turns it on. With the flag
 off, nothing in this section applies and ordinary traffic is ignored as before.
 
+The flag alone listens nowhere. Intake runs only in the conversations listed in
+`OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS`, a comma-separated
+list of `<provider>:<conversation id>` entries such as `feishu:oc_…` (a Feishu
+chat id) or `slack:C…` (a Slack channel id); `*` lists every conversation. The
+list is empty in every environment. A conversation that is not listed keeps the
+mention-only behavior: its ordinary messages are not archived, classified, or
+routed, and its turns read the full bounded snapshot. Removing a conversation
+from the list stops routing its waiting messages, which then expire.
+
 With the flag on, an **unaddressed** message is an ordinary human message in a
 Feishu group or a Slack public or private channel that does not mention the
 Center Agent. Direct messages and mentions keep their existing addressed path.

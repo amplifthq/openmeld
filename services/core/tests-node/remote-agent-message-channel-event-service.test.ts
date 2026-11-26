@@ -371,6 +371,7 @@ describe("Remote Agent Message Channel event service", () => {
         {
           db: unusedDb,
           env: {
+            OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS: "*",
             OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: "true",
           } as CoreBindings,
           envelope,
@@ -641,6 +642,7 @@ describe("Remote Agent Message Channel event service", () => {
         {
           db: unusedDb,
           env: {
+            OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS: "*",
             OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: "true",
           } as CoreBindings,
           envelope,
@@ -674,6 +676,40 @@ describe("Remote Agent Message Channel event service", () => {
         outcomeStatus: "observed",
       })
     );
+  });
+
+  it("ignores an unmentioned group message in a chat that is not listed for unaddressed intake", async () => {
+    const envelope = createEnvelope({ mention: "group_message" });
+    const adapter = createProviderAdapter();
+    const dependencies = createDependencies();
+    const unusedDb = new PostgresDatabase({
+      connectionString:
+        "postgresql://127.0.0.1:1/unexpected_test_database_access",
+    });
+
+    await expect(
+      processRemoteAgentMessageChannelEvent(
+        {
+          db: unusedDb,
+          env: {
+            OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS:
+              "lark:oc_another_chat",
+            OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: "true",
+          } as CoreBindings,
+          envelope,
+          identityDb: unusedDb,
+          queueAttempts: 1,
+          queueMessageId: "queue_message_1",
+          registry: createMessageChannelProviderRegistry([adapter]),
+        },
+        dependencies
+      )
+    ).resolves.toEqual({
+      reasonCode: "message_channel.group_message_not_addressed",
+      status: "ignored",
+    });
+    expect(dependencies.observeUnaddressedMessage).not.toHaveBeenCalled();
+    expect(dependencies.submitNativeDelivery).not.toHaveBeenCalled();
   });
 
   it("treats an exhausted ingress as an accepted terminal duplicate", async () => {
