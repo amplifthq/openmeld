@@ -2,13 +2,24 @@ import {
   hasRequestState,
   runWithRequestState,
 } from "@better-auth/core/context";
-import { createAuthConfig } from "@openmeld/auth/server";
+import {
+  createAuthConfig,
+  withReviewedOrganizationMemberRemoval as withNativeReviewedRemoval,
+} from "@openmeld/auth/server";
 import type { createAuthDatabase } from "@openmeld/db/auth";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { betterAuth } from "better-auth";
 import type { AuthBindings } from "../bindings";
 import "./initialize-async-context";
 import { createOrganizationDeletionGuard } from "./organization-deletion-guard";
+
+// Keep the Team's request scope in the same lazy module as the native adapter.
+export function withReviewedOrganizationMemberRemoval<T>(
+  input: Parameters<typeof withNativeReviewedRemoval>[0],
+  callback: () => Promise<T>
+): Promise<T> {
+  return withNativeReviewedRemoval(input, callback);
+}
 
 type AuthInstance = ReturnType<typeof betterAuth>;
 export function createAuth(

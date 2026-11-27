@@ -176,6 +176,14 @@ export function parseLeadingCommandTokensFromArgv(
   return tokens;
 }
 
+/** MCP writes JSON-RPC to stdout, so it must bypass ordinary startup output. */
+export function isWorkspaceMcpServerArgv(argv: string[]): boolean {
+  return (
+    parseFirstCommandTokenFromArgv(argv) === "mcp" &&
+    !isCliMetadataQueryArgv(argv)
+  );
+}
+
 export function isPassiveCliQueryArgv(argv: string[]): boolean {
   if (isCliMetadataQueryArgv(argv)) {
     return true;

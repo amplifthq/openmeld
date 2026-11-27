@@ -59,8 +59,6 @@ export function PeopleAgentPickerDialog(input: {
 	onRetry?: () => void;
 	emptyMessage: string;
 	includeAgentOwners?: boolean;
-	// Set when choosing another member's Agent asks its owner.
-	agentRequestsFor?: string | null;
 	onAgentCreated?: (
 		agent: SpaceAddMembersCandidateSummary,
 		selected: boolean
@@ -214,7 +212,6 @@ export function PeopleAgentPickerDialog(input: {
 						) : (
 							<div data-tutorial-target="select">
 								<SpaceAddMembersCandidates
-									agentRequestsFor={input.agentRequestsFor}
 									candidateGroups={filterAddMemberGroups(
 										candidateGroups,
 										input.query.trim().toLocaleLowerCase(),

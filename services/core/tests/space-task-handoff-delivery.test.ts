@@ -36,6 +36,140 @@ type TaskDeliverySpace = {
   spaceTaskService: SpaceTaskService;
 };
 
+describe("Center Agent Human assignment to a different Space", () => {
+  it("uses the represented requester's active membership without joining the Center Agent", async () => {
+    const namespace = (
+      env as unknown as { OPENMELD_SPACES: DurableObjectNamespace<Space> }
+    ).OPENMELD_SPACES;
+    const stub = namespace.get(namespace.newUniqueId());
+    const spaceId = stub.id.toString();
+    await runInDurableObject(stub, async (instance, state) => {
+      const space = instance as unknown as TaskDeliverySpace;
+      space.applySpaceRef(spaceId);
+      const now = new Date().toISOString();
+      const organizationId = "org-task-handoff";
+      const centerProfileId = "agt_33333333-3333-4333-8333-333333333333";
+      const assignee: SpaceTaskActor = {
+        profileId: "22222222-2222-4222-8222-222222222222",
+        profileKind: "human",
+        profileName: "Morgan",
+        ownerUserId: "user-assignee",
+      };
+      upsertSpaceMetaRecord(state.storage.sql, {
+        v: 1,
+        spaceId,
+        organizationId,
+        visibility: "private",
+        accessMode: "members_only",
+        createdAt: now,
+        updatedAt: now,
+      });
+      for (const actor of [requester, assignee]) {
+        upsertSpaceMemberRecord(state.storage.sql, {
+          spaceId,
+          profileId: actor.profileId,
+          profileKindSnapshot: "human",
+          profileNameSnapshot: actor.profileName,
+          ownerUserIdSnapshot: actor.ownerUserId,
+          ownerNameSnapshot: null,
+          controllerRefSnapshot: null,
+          status: "active",
+          memberSource: "joined_directly",
+          addedAt: now,
+          removedAt: null,
+          addedByProfileId: null,
+          addedByOwnerUserId: null,
+          addedByDisplayNameSnapshot: null,
+          removedByProfileId: null,
+          removedByOwnerUserId: null,
+          removalReason: null,
+          firstEnteredAt: now,
+          lastEnteredAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      const bindings: CoreBindings = Reflect.get(instance, "bindings");
+      Reflect.set(instance, "bindings", {
+        ...bindings,
+        OPENMELD_POSTGRESQL: createProjectionPostgresBinding((query) =>
+          query.text.includes('FROM "openmeld"."members"')
+            ? [{ id: "requester-membership", role: "member" }]
+            : []
+        ),
+      });
+      const arm = vi
+        .spyOn(
+          instance as unknown as {
+            armSpaceTaskRecovery: () => Promise<void>;
+          },
+          "armSpaceTaskRecovery"
+        )
+        .mockResolvedValue(undefined);
+      const flush = vi
+        .spyOn(
+          instance as unknown as {
+            flushPendingSpaceTaskDeliveries: () => Promise<void>;
+          },
+          "flushPendingSpaceTaskDeliveries"
+        )
+        .mockResolvedValue(undefined);
+      const create = {
+        spaceId,
+        context: {
+          activeOrganizationId: organizationId,
+          actorContext: {
+            agentControllerRef: "hosted:center-agent",
+            callerPrincipalId: centerProfileId,
+            openMeldProfileId: centerProfileId,
+            profileKind: "agent" as const,
+            requestId: "assign-from-private-chat",
+          },
+        },
+        representedRequester: requester,
+        body: {
+          operationId: "human-assignment",
+          title: "Verify onboarding",
+          assigneeProfileId: assignee.profileId,
+        },
+      };
+      try {
+        const outsider = {
+          ...requester,
+          profileId: "44444444-4444-4444-8444-444444444444",
+          ownerUserId: "user-outsider",
+        };
+        await expect(
+          instance.rpcCreateHumanAssignment({
+            ...create,
+            representedRequester: outsider,
+          })
+        ).rejects.toThrow("403");
+        await expect(
+          instance.rpcCreateHumanAssignment({
+            ...create,
+            body: { ...create.body, assigneeProfileId: outsider.profileId },
+          })
+        ).rejects.toThrow("403");
+        const receipt = await instance.rpcCreateHumanAssignment(create);
+        expect(receipt.task.requestedBy).toEqual(requester);
+        expect(receipt.task.createdBy.profileId).toBe(centerProfileId);
+        expect(receipt.task.assignee).toEqual(assignee);
+        expect(receipt.task.sourceSignalId).toBeNull();
+        expect(
+          new SpaceTaskDeliveryRepository(state.storage.sql)
+            .status(receipt.task.taskId)
+            .map(({ kind }) => kind)
+        ).toEqual(["inbox_projection"]);
+      } finally {
+        flush.mockRestore();
+        arm.mockRestore();
+        Reflect.set(instance, "bindings", bindings);
+      }
+    });
+  });
+});
+
 describe("Space Task handoff delivery", () => {
   it.each([
     ["human", false, false],

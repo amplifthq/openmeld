@@ -12,6 +12,7 @@ const countSchema = z.number().int().nonnegative();
 
 export const inboxFeedCategorySchema = z.enum([
   "all",
+  "todo",
   "mentions",
   "needs_action",
   "needs_review",

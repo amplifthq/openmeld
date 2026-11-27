@@ -96,6 +96,12 @@ explicit retry; it must not claim rollback or automatically replay the mutation.
 Native permission checks, last-Organization-owner protection, Space ownership
 references, and post-removal private-data cleanup retain their existing owners.
 
+The Team profile uses a short review and confirmation for ordinary removals.
+The authenticated Team removal write matches the reviewed non-Owner role,
+Organization and membership together at deletion time, and cannot remove the
+current actor. A role change requires a fresh review. The pre-existing
+organization ownership controls and native removal keep their existing policy.
+
 | Operation / asset | Boundary |
 | --- | --- |
 | Leave a Space or Organization; revoke membership | Remove the access grant, not shared messages, files, revisions, or attribution. Public link access remains an independent grant; close it separately when confidentiality requires it. |

@@ -1,5 +1,6 @@
 import * as z from "zod/v4";
 import { connectorServiceSchema } from "./schemas/http/connector-connections";
+import { organizationDashboardArtifactSchema } from "./schemas/http/organization-dashboards";
 
 const nonEmptyStringSchema = z.string().trim().min(1);
 const LOCAL_WEB_URL = "http://localhost";
@@ -37,6 +38,23 @@ export const computerSetupNavigationTargetSchema = z.discriminatedUnion(
 );
 
 export const openMeldNavigationTargetSchema = z.union([
+  z
+    .strictObject({
+      kind: z.literal("dashboard_draft"),
+      draftKind: z.enum(["github_issues", "ugc", "traffic"]),
+      draftName: nonEmptyStringSchema.max(100),
+      draftArtifact: organizationDashboardArtifactSchema.optional(),
+      draftRepository: z
+        .string()
+        .max(140)
+        .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u)
+        .optional(),
+    })
+    .refine((value) =>
+      value.draftKind === "github_issues"
+        ? value.draftArtifact === undefined
+        : value.draftRepository === undefined
+    ),
   z.strictObject({
     kind: z.literal("plugin_connection"),
     service: connectorServiceSchema,
@@ -136,6 +154,29 @@ export function buildOpenMeldNavigationAction(input: {
   const organizationPath = url.pathname.replace(TRAILING_SLASH_PATTERN, "");
   let label: string;
   switch (target.kind) {
+    case "dashboard_draft":
+      label = "Review Dashboard draft";
+      url.pathname = `${organizationPath}/dashboard`;
+      url.searchParams.set("draftKind", target.draftKind);
+      url.searchParams.set("draftName", target.draftName);
+      if (target.draftArtifact) {
+        url.searchParams.set(
+          "draftArtifactSpaceId",
+          target.draftArtifact.spaceId
+        );
+        url.searchParams.set(
+          "draftArtifactFileId",
+          target.draftArtifact.fileId
+        );
+        url.searchParams.set(
+          "draftArtifactRevision",
+          String(target.draftArtifact.revision)
+        );
+      }
+      if (target.draftRepository) {
+        url.searchParams.set("draftRepository", target.draftRepository);
+      }
+      break;
     case "plugin_connection":
       label = "Open Plugin connection";
       url.pathname = `${organizationPath}/plugins/${encodePathSegment(target.service)}`;

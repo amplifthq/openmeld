@@ -50,7 +50,11 @@ export async function buildLazyRuntimeModules(
     );
   }
   const outputMetadata = Object.values(result.metafile?.outputs ?? {})[0];
-  const requiredExports = ["createAuth", "runWithAuthRequestState"];
+  const requiredExports = [
+    "createAuth",
+    "runWithAuthRequestState",
+    "withReviewedOrganizationMemberRemoval",
+  ];
   const missingExports = requiredExports.filter(
     (exportName) => !outputMetadata?.exports.includes(exportName)
   );

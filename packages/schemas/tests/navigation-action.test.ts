@@ -10,6 +10,27 @@ import {
 } from "../src/navigation-action";
 
 describe("buildOpenMeldNavigationAction", () => {
+  it("prefills only a bounded Dashboard draft on the current Organization URL", () => {
+    const action = buildOpenMeldNavigationAction({
+      organizationWebUrl: "https://app.openmeld.ai/o/acme?old=yes#old",
+      target: {
+        kind: "dashboard_draft",
+        draftKind: "github_issues",
+        draftName: "Review & verify",
+        draftRepository: "acme/app",
+      },
+    });
+    expect(action.url).toBe(
+      "https://app.openmeld.ai/o/acme/dashboard?draftKind=github_issues&draftName=Review+%26+verify&draftRepository=acme%2Fapp"
+    );
+    expect(
+      openMeldNavigationTargetSchema.safeParse({
+        ...action.target,
+        data: "secret",
+      }).success
+    ).toBe(false);
+  });
+
   it("shares the canonical Organization routes with OpenMeld Web", () => {
     expect(
       buildOpenMeldOrganizationWebUrl({
@@ -67,7 +88,7 @@ describe("buildOpenMeldNavigationAction", () => {
     );
   });
 
-  it("does not accept credentials, guessed providers, or ambiguous connection scope in a message action", () => {
+  it("rejects credentials, malformed provider slugs, and ambiguous connection scope in a message action", () => {
     const target = {
       kind: "plugin_connection",
       service: "github",
@@ -80,13 +101,22 @@ describe("buildOpenMeldNavigationAction", () => {
     expect(
       openMeldNavigationTargetSchema.safeParse({
         ...target,
-        service: "unshipped_plugin",
+        service: "invalid provider/path",
       }).success
     ).toBe(false);
     expect(
       openMeldNavigationTargetSchema.safeParse({ ...target, scope: undefined })
         .success
     ).toBe(false);
+  });
+
+  it("accepts a syntactically valid provider slug without hardcoding the live catalog", () => {
+    const target = {
+      kind: "plugin_connection",
+      scope: "member",
+      service: "dynamic_connector_provider",
+    };
+    expect(openMeldNavigationTargetSchema.parse(target)).toEqual(target);
   });
 
   it("builds an absolute link for a Space returned by an OpenMeld tool", () => {

@@ -209,6 +209,14 @@ Core rechecks the live delivery, Binding, and requester access. The requester
 must still be an active member of this Space and the Task's requester. This
 permits creation with an initial handoff, assignment, brief updates, and reviewer selection; it does not
 permit the Center Agent to start, submit, or accept another Agent's work.
+A verified human can also explicitly ask Center Agent to assign a deliverable
+to another human. In a shared Space this targets the current Space; in the
+requester's private Center Agent chat they must name an authorized shared
+Space. The requester and assignee must both be active Space members. Center
+Agent copies only the requested deliverable into the new Space Task, never the
+private source message, and does not send a separate message or Wake. The
+persisted Task is recorded for the human requester and projects into the
+assignee's Inbox To do through the ordinary Task assignment path.
 A requested reviewer must be an active Space member before delegation succeeds.
 An unavailable reviewer is a blocker, not an implicit choice of no review.
 Reviews name the exact submitted result revision the reviewer saw. A concurrent
@@ -274,15 +282,11 @@ Task, but leaves its assignee empty until an executor is explicitly selected;
 the Center Agent is not an implicit implementation owner.
 
 Project Common Agents are selection suggestions in a Task assignment flow.
-When one is outside the Space and belongs to the caller, **Add and assign**
-discloses that the Agent and its owner will join the Space, applies the
-existing atomic membership operation first, then makes the revision-checked
-Task assignment. When it belongs to another member, the add becomes the owner
-request described in Agent Owner Participation; nothing joins and the Task is
-not assigned to that Agent until the owner lets it join. A membership success
-followed by assignment failure is shown as a partial outcome; it is never
-silently rolled back or described as successful assignment. Assignment alone
-does not start an execution.
+When a Common Agent is outside the Space, **Add and assign** discloses that
+the Agent and its owner will join the Space, applies the same membership
+operation as **Add People or Agents**, then makes the revision-checked Task
+assignment. If assignment fails after membership succeeds, the UI reports both
+outcomes. Assignment alone does not start an execution.
 
 ## Editing and Recalling Messages
 
@@ -382,30 +386,27 @@ contract in `packages/schemas`; clients do not derive authorization from UI.
 
 ## Agent Owner Participation
 
-The Add People or Agents picker shows the effective membership selection:
-selecting one of the caller's own ordinary Agents also checks the caller.
-Selecting another member's Agent does not add it; it submits the access request
-described below. The count and checkmarks
-agree before submission. Deselecting the last Agent removes an implicitly
-selected owner; an explicitly selected owner remains selected. Deselecting an
-owner also clears their selected Agents. Search filtering must not erase the
-effective selection. Core still resolves the authoritative owner at mutation
-time; these checkmarks are not permission facts.
+An active Organization member can use **Add People or Agents** to add a
+teammate's Agent directly to a Space they have joined. Selecting an ordinary
+Agent also checks its owner if the owner has yet to join. The count and
+checkmarks show who will join before submission. Deselecting the last Agent
+clears an owner selected through that Agent and keeps an explicitly selected
+owner. Deselecting an owner also clears their selected Agents. Search preserves
+the selection. Core resolves the authoritative owner at mutation time.
 
 An ordinary human-owned Agent Profile participates in an ordinary Space with
-its owner. When the owner adds their own Agent, Core resolves the Agent's current
-authoritative `ownerUserId` and that Organization member's active default Human
-Profile, then submits the Agent and Human through one atomic Space membership
-mutation. A cached owner name or caller-supplied Human Profile is never enough.
+its owner when added through the membership picker. Core resolves the Agent's
+current authoritative `ownerUserId` and that Organization member's active
+default Human Profile, then submits the Agent and Human through one atomic
+Space membership mutation. A cached owner name or caller-supplied Human Profile is never enough.
 If the owner is already an active member, the Human addition is an idempotent
 no-op. If Core cannot resolve the current owner and Human Profile, the whole add
 fails instead of admitting an ownerless ordinary Agent.
 
-When anyone other than the owner mentions or adds another member's Agent in a
-Space that Agent is not in, the Agent is not added and not woken. Core instead
-creates a request bound to the exact message id (or the add operation), stored
-on the MemberAgent; editing or deleting that message voids the request and its
-author sees that it was voided. The mention chip shows "Requested <owner>". In
+When someone mentions a teammate's Agent that has yet to join the Space, Core
+creates a request bound to the exact message id and stored on the MemberAgent.
+Editing or deleting that message voids the request and its author sees that it
+was voided. The mention chip shows "Requested <owner>". In
 the @ picker these Agents are grouped under "<owner>'s Agents · not in this
 Space". A colleague's Agent is left out only when its profile id is already a
 member; a shared name or Harness never hides it. Choosing one inserts the

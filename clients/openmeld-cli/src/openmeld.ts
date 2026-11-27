@@ -322,6 +322,7 @@ import {
   isCliMetadataQueryArgv,
   isPassiveCliQueryArgv,
   isStandaloneViewQueryArgv,
+  isWorkspaceMcpServerArgv,
   parseLeadingCommandTokensFromArgv,
   parseStandaloneViewSwitchArgv,
   parseViewFromArgv,
@@ -382,6 +383,15 @@ import {
   resolveSpaceReadCommandTarget,
 } from "./space/space-target";
 import { runSpaceStatus } from "./space/status-command";
+import {
+  parseSpaceTaskPhaseOption,
+  parseSpaceTaskRevisionOption,
+  runSpaceTaskChange,
+  runSpaceTaskCreate,
+  runSpaceTaskShow,
+  runSpaceTasksList,
+  type SpaceTaskChange,
+} from "./space/tasks-command";
 import { runSpaceThread } from "./space/thread";
 import { runSpaceUpdates } from "./space/updates-command";
 import {
@@ -4381,6 +4391,276 @@ spaceBoardCmd.action(async (space, opts, command: Command) => {
   });
 });
 
+program
+  .command("mcp")
+  .description(
+    "Run an MCP server so Claude Code, Codex, Cursor, and other MCP clients can work in your Spaces."
+  )
+  .option("--read-only", "Only expose tools that read", false)
+  .option("--profile <id>", "OpenMeld profile ID the tools act as")
+  .action(async (options: { readOnly: boolean; profile?: string }) => {
+    parseViewFromArgv(process.argv);
+    const { runWorkspaceMcpServer } = await import(
+      "./mcp/workspace-mcp-server"
+    );
+    await runWorkspaceMcpServer(options);
+  });
+
+const spaceTasksCmd = withSpaceProfileOption(
+  spaceCmd
+    .command("tasks")
+    .description("List the Tasks in a Space.")
+    .argument("<space>", "Space URL or 64-character Space ID")
+    .option(
+      "--phase <phase>",
+      "Only show one phase: to_do, in_progress, in_review, done, or canceled"
+    )
+    .option("--json", "Print canonical JSON", false)
+    .option("--password <value>", "Space password for protected access")
+);
+
+type SpaceTasksCommandRun = (input: {
+  profile?: string;
+  baseUrl?: string;
+  space: string;
+  password?: string;
+  json: boolean;
+  view?: string;
+  entryChecksHandled: true;
+}) => Promise<void>;
+
+async function runSpaceTasksCliCommand(input: {
+  command: Command;
+  opts: { json?: unknown; password?: unknown; profile?: unknown };
+  routeTokens: string[];
+  space: unknown;
+  run: SpaceTasksCommandRun;
+}): Promise<void> {
+  const cliOptions = resolveSpaceCommandCliOptions(input.command, input.opts);
+  const target = resolveSpaceReadCommandTarget({
+    baseUrl: cliOptions.gatewayUrl,
+    profile: cliOptions.profile,
+    space: String(input.space).trim(),
+  });
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: input.routeTokens,
+    view,
+    profile: target.profile,
+    gatewayUrl: target.baseUrl,
+    run: async () => {
+      await input.run({
+        profile: target.profile,
+        baseUrl: target.baseUrl,
+        space: target.space,
+        password: cliOptions.password,
+        json: cliOptions.json === true,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+}
+
+spaceTasksCmd.action(async (space, opts, command: Command) => {
+  const phase = parseSpaceTaskPhaseOption(opts.phase);
+  await runSpaceTasksCliCommand({
+    command,
+    opts,
+    routeTokens: ["space", "tasks"],
+    space,
+    run: async (base) => await runSpaceTasksList({ ...base, phase }),
+  });
+});
+
+withSpaceProfileOption(
+  spaceTasksCmd
+    .command("show")
+    .description("Read one Task, its result, and the actions you can take.")
+    .argument("<space>", "Space URL or 64-character Space ID")
+    .argument("<task>", "Task ID (tsk_...)")
+    .option("--json", "Print canonical JSON", false)
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, task, opts, command: Command) => {
+  await runSpaceTasksCliCommand({
+    command,
+    opts,
+    routeTokens: ["space", "tasks", "show"],
+    space,
+    run: async (base) =>
+      await runSpaceTaskShow({ ...base, taskId: String(task).trim() }),
+  });
+});
+
+withSpaceProfileOption(
+  spaceTasksCmd
+    .command("create")
+    .description("Create a Task in a Space.")
+    .argument("<space>", "Space URL or 64-character Space ID")
+    .argument("<title...>", "Task title")
+    .option("--description <text>", "What needs to be delivered")
+    .option(
+      "--done-when <text>",
+      "A completion condition; repeat for more than one",
+      collectRepeatedOptionValue,
+      []
+    )
+    .option("--assignee <profile-id>", "Profile that owns the Task")
+    .option("--reviewer <profile-id>", "Profile that reviews the result")
+    .option("--json", "Print canonical JSON", false)
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, titleParts, opts, command: Command) => {
+  const title = Array.isArray(titleParts) ? titleParts.join(" ").trim() : "";
+  if (title.length === 0) {
+    throw new Error("Task title cannot be empty");
+  }
+  await runSpaceTasksCliCommand({
+    command,
+    opts,
+    routeTokens: ["space", "tasks", "create"],
+    space,
+    run: async (base) =>
+      await runSpaceTaskCreate({
+        ...base,
+        title,
+        description: opts.description,
+        completionConditions: opts.doneWhen,
+        assigneeProfileId: opts.assignee,
+        reviewerProfileId: opts.reviewer,
+      }),
+  });
+});
+
+const DEFAULT_REVISION_HELP =
+  "Task revision you read; defaults to the current revision";
+
+function registerSpaceTaskChangeCommand(input: {
+  name: SpaceTaskChange["action"];
+  description: string;
+  revisionHelp?: string;
+  configure?: (command: Command) => Command;
+  buildChange: (opts: Record<string, string | undefined>) => SpaceTaskChange;
+}): void {
+  const base = spaceTasksCmd
+    .command(input.name)
+    .description(input.description)
+    .argument("<space>", "Space URL or 64-character Space ID")
+    .argument("<task>", "Task ID (tsk_...)")
+    .option("--revision <number>", input.revisionHelp ?? DEFAULT_REVISION_HELP);
+  withSpaceProfileOption(
+    (input.configure?.(base) ?? base)
+      .option("--json", "Print canonical JSON", false)
+      .option("--password <value>", "Space password for protected access")
+  ).action(async (space, task, opts, command: Command) => {
+    const change = input.buildChange(opts);
+    await runSpaceTasksCliCommand({
+      command,
+      opts,
+      routeTokens: ["space", "tasks", input.name],
+      space,
+      run: async (runInput) =>
+        await runSpaceTaskChange({
+          ...runInput,
+          taskId: String(task).trim(),
+          change,
+        }),
+    });
+  });
+}
+
+registerSpaceTaskChangeCommand({
+  name: "start",
+  description: "Mark a Task in progress.",
+  buildChange: (opts) => ({
+    action: "start",
+    expectedRevision: parseSpaceTaskRevisionOption(opts.revision, "--revision"),
+  }),
+});
+
+registerSpaceTaskChangeCommand({
+  name: "submit",
+  description: "Submit the result of a Task.",
+  configure: (command) =>
+    command.requiredOption(
+      "--summary <text>",
+      "What was delivered and how it was verified"
+    ),
+  buildChange: (opts) => ({
+    action: "submit",
+    expectedRevision: parseSpaceTaskRevisionOption(opts.revision, "--revision"),
+    summary: String(opts.summary ?? ""),
+  }),
+});
+
+registerSpaceTaskChangeCommand({
+  name: "review",
+  description: "Accept a Task result or request changes.",
+  revisionHelp: "Task revision you read (required)",
+  configure: (command) =>
+    command
+      .requiredOption(
+        "--result-revision <number>",
+        "Result revision you reviewed"
+      )
+      .option("--accept", "Accept the result", false)
+      .option("--request-changes", "Send the Task back for rework", false)
+      .option("--feedback <text>", "What needs to change"),
+  buildChange: (opts) => {
+    const accept = Boolean(opts.accept);
+    const requestChanges = Boolean(opts.requestChanges);
+    if (accept === requestChanges) {
+      throw new Error("Choose exactly one of --accept or --request-changes.");
+    }
+    const expectedRevision = parseSpaceTaskRevisionOption(
+      opts.revision,
+      "--revision"
+    );
+    const expectedResultRevision = parseSpaceTaskRevisionOption(
+      opts.resultRevision,
+      "--result-revision"
+    );
+    if (
+      expectedRevision === undefined ||
+      expectedResultRevision === undefined
+    ) {
+      throw new Error(
+        "Review needs --revision and --result-revision from the Task you read."
+      );
+    }
+    return {
+      action: "review",
+      expectedRevision,
+      expectedResultRevision,
+      decision: accept ? "accepted" : "changes_requested",
+      feedback: opts.feedback,
+    };
+  },
+});
+
+registerSpaceTaskChangeCommand({
+  name: "cancel",
+  description: "Cancel a Task.",
+  configure: (command) =>
+    command.requiredOption("--reason <text>", "Why the Task is canceled"),
+  buildChange: (opts) => ({
+    action: "cancel",
+    expectedRevision: parseSpaceTaskRevisionOption(opts.revision, "--revision"),
+    reason: String(opts.reason ?? ""),
+  }),
+});
+
+registerSpaceTaskChangeCommand({
+  name: "reopen",
+  description: "Reopen a finished or canceled Task.",
+  configure: (command) =>
+    command.requiredOption("--reason <text>", "Why the Task is reopened"),
+  buildChange: (opts) => ({
+    action: "reopen",
+    expectedRevision: parseSpaceTaskRevisionOption(opts.revision, "--revision"),
+    reason: String(opts.reason ?? ""),
+  }),
+});
+
 withSpaceProfileOption(
   spaceCmd
     .command("members")
@@ -6275,6 +6555,10 @@ async function main() {
   }
   if (isDispatchSpaceActionToolServerArgv(argv)) {
     await runSpaceActionMcpServer();
+    return;
+  }
+  if (isWorkspaceMcpServerArgv(argv)) {
+    await program.parseAsync(argv);
     return;
   }
   if (isDispatchSpaceActionArgv(argv)) {

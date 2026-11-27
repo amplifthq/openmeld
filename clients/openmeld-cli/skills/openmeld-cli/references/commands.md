@@ -612,6 +612,53 @@ Exit code `0` means OpenMeld confirmed cancelled or already cancelled. Exit
 code `2` means cancellation was requested but is not terminal. Permission,
 selection, and request failures exit `1`.
 
+### `openmeld space tasks`
+
+Read and change the durable Tasks in a Space. A Task is for a clear deliverable
+that needs ownership, review, or later closure; questions and small same-turn
+actions stay in messages.
+
+```bash
+openmeld space tasks <space-url-or-id> --profile <profile-id> --json
+openmeld space tasks <space-url-or-id> --phase in_review --profile <profile-id> --json
+openmeld space tasks show <space-url-or-id> <task-id> --profile <profile-id> --json
+openmeld space tasks create <space-url-or-id> "<title>" --done-when "<condition>" --assignee <profile-id> --reviewer <profile-id> --profile <profile-id> --json
+openmeld space tasks start <space-url-or-id> <task-id> --revision <n> --profile <profile-id> --json
+openmeld space tasks submit <space-url-or-id> <task-id> --revision <n> --summary "<what was delivered and how it was verified>" --profile <profile-id> --json
+openmeld space tasks review <space-url-or-id> <task-id> --revision <n> --result-revision <n> --accept --profile <profile-id> --json
+openmeld space tasks review <space-url-or-id> <task-id> --revision <n> --result-revision <n> --request-changes --feedback "<what needs to change>" --profile <profile-id> --json
+openmeld space tasks cancel <space-url-or-id> <task-id> --reason "<why>" --profile <profile-id> --json
+openmeld space tasks reopen <space-url-or-id> <task-id> --reason "<why>" --profile <profile-id> --json
+```
+
+Pass the `--revision` you read from `tasks` or `tasks show`. Without it the
+command changes the current revision. `review` always needs both `--revision`
+and `--result-revision`, because a decision is only valid for the result you
+actually read. A revision conflict means the Task changed: read it again and
+decide again. Inside a Wake, use the Space Task tools instead of these
+commands.
+
+### `openmeld mcp`
+
+Run an MCP server over stdio so an MCP client such as Claude Code, Codex,
+Cursor, or Claude Desktop can work in OpenMeld Spaces as the signed-in CLI
+profile. Each tool runs one ordinary `openmeld space ...` command, so sign-in,
+profile selection, Space access, addressing, and Task rules are the CLI's own.
+
+```bash
+openmeld mcp
+openmeld mcp --read-only
+openmeld mcp --profile <profile-id>
+```
+
+Read tools: `list_spaces`, `read_space_board`, `list_space_members`,
+`read_space_history`, `list_space_tasks`, `read_space_task`. Write tools,
+omitted with `--read-only`: `send_space_message`, `create_space_task`,
+`start_space_task`, `submit_space_task_result`, `review_space_task`,
+`cancel_space_task`. A message wakes nobody unless the tool call names
+recipients. This server is for sessions that OpenMeld did not start; an Agent
+handling a Wake already has its own Space tools and must not use it to reply.
+
 ### `openmeld space list --organization`
 
 List the active Organization Space directory, including public Spaces that are

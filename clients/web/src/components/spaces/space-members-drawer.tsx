@@ -3,7 +3,6 @@
 import { Drawer } from "@base-ui/react/drawer";
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import { parseAgentControllerRef } from "@openmeld/agent-runtime";
-import type { CreateSpaceAgentRequestResponse } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
 	ModelCatalog,
@@ -61,14 +60,12 @@ import {
 	isActiveWalkthroughStep,
 	useWalkthrough,
 } from "#/components/onboarding/walkthrough/walkthrough-context";
-import { isMemberAgentsEnabled } from "#/lib/member-agents/member-agents-feature";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
 import {
 	buildSpaceMemberDirectoryForStatusOrder,
 	filterSpaceMemberDirectory,
 } from "#/lib/spaces/presentation";
-import { useRequestAgentForSpace } from "#/query/agent-access";
 import {
 	organizationProfileDirectoryQueryOptions,
 	organizationQueryKeys,
@@ -90,7 +87,6 @@ import {
 	buildOrganizationDirectoryAddCandidates,
 	buildPersonalAddMemberGroups,
 	buildSelectableAddMemberProfileIds,
-	isAgentRequestCandidate,
 	type OrganizationDirectoryAddCandidates,
 	resolveEffectiveAddMemberProfileIds,
 	type SpaceAddMembersCandidateGroups,
@@ -1133,26 +1129,10 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			? selectedProfileIds
 			: activeSelection;
 	}, [selectableProfileIds, selectedProfileIds]);
-	const agentRequestsEnabled = isMemberAgentsEnabled();
 	const effectiveSelectedProfileIds = resolveEffectiveAddMemberProfileIds({
 		candidateGroups,
 		selectedProfileIds: activeSelectedProfileIds,
-		...(agentRequestsEnabled
-			? { agentRequestsFor: input.currentOwnerUserId }
-			: {}),
 	});
-	const requestAgent = useRequestAgentForSpace();
-	const agentRequestsFor = agentRequestsEnabled
-		? input.currentOwnerUserId
-		: undefined;
-	const requestedCount =
-		agentRequestsFor === undefined
-			? 0
-			: allCandidates.filter(
-					(candidate) =>
-						effectiveSelectedProfileIds.has(candidate.profileId) &&
-						isAgentRequestCandidate(candidate, agentRequestsFor)
-				).length;
 	const selectedCount = effectiveSelectedProfileIds.size;
 	const addition = useSpaceMemberAddition({
 		organizationId: organization?.id ?? "",
@@ -1218,28 +1198,9 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			});
 			return Promise.resolve();
 		}
-		const selectedMembers = allCandidates.filter((candidate) =>
+		const members = allCandidates.filter((candidate) =>
 			effectiveSelectedProfileIds.has(candidate.profileId)
 		);
-		const requestedAgents = agentRequestsEnabled
-			? selectedMembers.filter((candidate) =>
-					isAgentRequestCandidate(candidate, input.currentOwnerUserId)
-				)
-			: [];
-		if (requestedAgents.length > 0 && activeSpaceId) {
-			askOwnersForAgents({
-				agents: requestedAgents,
-				request: requestAgent.mutateAsync,
-				spaceId: activeSpaceId,
-			});
-		}
-		const members = selectedMembers.filter(
-			(candidate) => !requestedAgents.includes(candidate)
-		);
-		if (members.length === 0) {
-			handleOpenChange(false);
-			return Promise.resolve();
-		}
 		const request = {
 			spaceId: activeSpaceId ?? "",
 			directoryProfileIds: members.map((member) => member.profileId),
@@ -1356,8 +1317,6 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		setSelectedProfileIds,
 		successMessage,
 		selectedCount,
-		agentRequestsFor,
-		requestedCount,
 		toggleProfile,
 		usesOrganizationDirectory,
 	};
@@ -1374,7 +1333,6 @@ function SpaceAddProfilesSectionView({
 		<>
 			<SpaceAddProfilesDialog
 				addQuery={model.addQuery}
-				agentRequestsFor={model.agentRequestsFor}
 				candidateGroups={model.candidateGroups}
 				canSubmit={model.canSubmit}
 				dialogId={input.dialogId}
@@ -1424,7 +1382,6 @@ function SpaceAddProfilesSectionView({
 				open={input.open}
 				organizationName={model.organization?.name ?? "Organization"}
 				orgSlug={input.orgSlug}
-				requestedCount={model.requestedCount}
 				selectedCount={model.selectedCount}
 				selectedProfileIds={model.effectiveSelectedProfileIds}
 				snapshot={input.snapshot}
@@ -1484,9 +1441,6 @@ async function executeSpaceAddProfilesMutation(input: {
 }
 
 type SpaceAddProfilesDialogProps = {
-	// Set when choosing another member's Agent asks its owner.
-	agentRequestsFor?: string | null;
-	requestedCount: number;
 	onCreated: (
 		agent: SpaceAddMembersCandidateSummary,
 		selected: boolean
@@ -1582,31 +1536,6 @@ function pickerTutorialCopy(
 	};
 }
 
-/** Asks each Agent's owner; the Agent joins only once they agree. */
-function askOwnersForAgents(input: {
-	agents: readonly SpaceAddMembersCandidateSummary[];
-	request: (input: {
-		spaceId: string;
-		agentProfileId: string;
-	}) => Promise<CreateSpaceAgentRequestResponse>;
-	spaceId: string;
-}) {
-	for (const agent of input.agents) {
-		input
-			.request({ agentProfileId: agent.profileId, spaceId: input.spaceId })
-			.then((response) =>
-				toast.success(`Asked ${response.request.ownerName}`, {
-					description: `${agent.profileName} joins once they agree.`,
-				})
-			)
-			.catch((error: unknown) =>
-				toast.error(`Couldn't ask for ${agent.profileName}.`, {
-					description: error instanceof Error ? error.message : undefined,
-				})
-			);
-	}
-}
-
 function isOwnLocalAgent(
 	candidate: SpaceAddMembersCandidateSummary,
 	userId: string | null | undefined
@@ -1637,7 +1566,6 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 					/>
 				) : null
 			}
-			agentRequestsFor={input.agentRequestsFor}
 			candidateGroups={input.candidateGroups}
 			canSubmit={input.canSubmit}
 			description={
@@ -1707,7 +1635,6 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 
 function resolveAddMembersSubmitLabel(input: {
 	isSubmitting: boolean;
-	requestedCount: number;
 	selectedCount: number;
 }): string {
 	if (input.isSubmitting) {
@@ -1715,11 +1642,6 @@ function resolveAddMembersSubmitLabel(input: {
 	}
 	if (input.selectedCount === 0) {
 		return "Add selected";
-	}
-	if (input.requestedCount > 0) {
-		return input.requestedCount === input.selectedCount
-			? "Send request"
-			: "Add and send request";
 	}
 	return input.selectedCount === 1
 		? "Add 1 member"

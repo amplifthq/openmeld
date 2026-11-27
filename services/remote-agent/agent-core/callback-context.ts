@@ -373,6 +373,7 @@ export type RemoteAgentCoreWorkerBinding = {
   getSpaceTask?(input: unknown): Promise<unknown>;
   listSpaceTasks?(input: unknown): Promise<unknown>;
   createSpaceTask?(input: unknown): Promise<unknown>;
+  createSpaceHumanAssignment?(input: unknown): Promise<unknown>;
   mutateSpaceTask?(input: unknown): Promise<unknown>;
   centerAgentSetReplyPlacement?(
     input: CenterAgentSetReplyPlacementInput

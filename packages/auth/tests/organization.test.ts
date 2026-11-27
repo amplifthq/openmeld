@@ -203,7 +203,16 @@ describe("organization identity foundation", () => {
       disableRedirect: true,
     });
     expect(social.status).toBe(200);
-    const state = new URL((await social.json()).url).searchParams.get("state");
+    const redirect: unknown = await social.json();
+    if (
+      !redirect ||
+      typeof redirect !== "object" ||
+      !("url" in redirect) ||
+      typeof redirect.url !== "string"
+    ) {
+      throw new Error("Expected the social sign-in redirect URL");
+    }
+    const state = new URL(redirect.url).searchParams.get("state");
     const verify = (token: string | null) => {
       if (!token) {
         throw new Error("Expected a sign-in token");

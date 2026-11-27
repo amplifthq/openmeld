@@ -1,7 +1,10 @@
-import type { InboxItem, InboxView } from "@openmeld/schemas/types";
+import type {
+	InboxFeedCategory,
+	InboxItem,
+	InboxView,
+} from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
-import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { resolveStatusToneSurfaceClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { TrayIcon, WarningCircleIcon } from "@phosphor-icons/react";
@@ -24,30 +27,8 @@ type InboxLoadMoreState = "error" | "idle" | "loading";
 export function InboxPagePending() {
 	return (
 		<div className="flex min-w-0 flex-col gap-6">
-			<AppPageHeader
-				description="Updates, actions, and reviews in one place."
-				eyebrow="Workspace"
-				id="inbox-heading"
-				title="Inbox"
-			/>
-			<div className="flex min-w-0 flex-col gap-4">
-				<TabsSubtle
-					className="w-fit max-w-full"
-					idPrefix="inbox-view-pending"
-					onSelect={() => undefined}
-					selectedIndex={0}
-				>
-					{INBOX_TABS.map((tab, index) => (
-						<TabsSubtleItem
-							disabled
-							index={index}
-							key={tab.view}
-							label={tab.label}
-						/>
-					))}
-				</TabsSubtle>
-				<InboxListSkeleton />
-			</div>
+			<AppPageHeader description={undefined} id="inbox-heading" title="TODO" />
+			<InboxListSkeleton />
 		</div>
 	);
 }
@@ -351,16 +332,15 @@ export function InboxListSkeleton() {
 }
 
 export function InboxEmptyState(input: {
-	view: InboxView;
+	view: InboxView | InboxFeedCategory;
 	unreadOnly?: boolean;
 	filtered?: boolean;
 }) {
-	const copy = input.filtered
-		? {
-				title: "No matching items",
-				description: "Try different filters to see more activity.",
-			}
-		: resolveInboxEmptyStateCopy(input.view, input.unreadOnly);
+	const copy = resolveInboxEmptyStateCopy(
+		input.view,
+		input.unreadOnly,
+		input.filtered
+	);
 	return (
 		<div className="flex min-h-60 flex-col items-center justify-center rounded-md border border-border/70 bg-card px-6 py-12 text-center">
 			<span className="grid size-10 place-items-center rounded-md border border-border/70 bg-background text-muted-foreground">
@@ -375,12 +355,25 @@ export function InboxEmptyState(input: {
 }
 
 function resolveInboxEmptyStateCopy(
-	view: InboxView,
-	unreadOnly = false
+	view: InboxView | InboxFeedCategory,
+	unreadOnly = false,
+	filtered = false
 ): {
 	description: string;
 	title: string;
 } {
+	if (filtered) {
+		return {
+			title: "No matching items",
+			description: "Try different filters to see more activity.",
+		};
+	}
+	if (view === "todo") {
+		return {
+			title: "You’re all caught up",
+			description: "Nothing needs your action right now.",
+		};
+	}
 	if (unreadOnly || view === "unread") {
 		const titles = {
 			all: "No unread items",
