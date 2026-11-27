@@ -112,6 +112,8 @@ function conversationPredicate(
 
 function categoryPredicate(category: InboxFeedCategory): string {
   switch (category) {
+    case "todo":
+      return "request_category IS NOT NULL";
     case "mentions":
       return "is_mention";
     case "needs_action":

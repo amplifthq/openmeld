@@ -9801,17 +9801,29 @@ export class Space extends DurableObject<CoreBindings> {
       }
     );
   }
-  async rpcCreateTask(
+  async rpcCreateTask(input: CreateSpaceTaskInput): Promise<SpaceTaskMutationReceipt> {
+    return await this.handleRpcCreateTask(input, false);
+  }
+  async rpcCreateHumanAssignment(
     input: CreateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return await this.handleRpcCreateTask(input, true);
+  }
+  private async handleRpcCreateTask(
+    input: CreateSpaceTaskInput,
+    humanAssignment: boolean
   ): Promise<SpaceTaskMutationReceipt> {
     return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
+        const assignment = humanAssignment
+          ? this.buildHumanAssignmentAuthority(input)
+          : null;
         const response = await this.dispatchPasswordProtectedMethod(
           this.buildDirectRpcRequest({
             path: "/tasks",
             method: "POST",
-            context: input.context,
+            context: assignment?.requestContext ?? input.context,
             spacePassword: input.password,
           }),
           {
@@ -9845,6 +9857,28 @@ export class Space extends DurableObject<CoreBindings> {
                     };
                   }
                 }
+                if (
+                  assignment &&
+                  (taskContext.actor.profileKind !== "human" ||
+                    normalizedBody.wakeAssignee ||
+                    !normalizedBody.assigneeProfileId ||
+                    createContext.resolveMember(normalizedBody.assigneeProfileId)
+                      ?.profileKind !== "human")
+                ) {
+                  throw new SpaceTaskWorkflowError({
+                    code: "space.membership_required",
+                    message: "The requester and Human assignee must both be active members of this Space.",
+                    status: 403,
+                  });
+                }
+                if (assignment) {
+                  createContext = {
+                    ...createContext,
+                    actor: assignment.centerActor,
+                    requestedBy: taskContext.actor,
+                    representedRequester: taskContext.actor,
+                  };
+                }
                 await this.armSpaceTaskRecovery();
                 const receipt = this.createSpaceTaskService(context).create(
                   normalizedBody,
@@ -9861,6 +9895,52 @@ export class Space extends DurableObject<CoreBindings> {
         return readSpaceRpcJsonOrThrow(response);
       }
     );
+  }
+  private buildHumanAssignmentAuthority(input: CreateSpaceTaskInput): {
+    requestContext: CoreRpcContextInput;
+    centerActor: SpaceTaskActor;
+  } {
+    const context = input.context;
+    const actor = context?.actorContext;
+    const requester = input.representedRequester;
+    if (
+      !context?.activeOrganizationId ||
+      context.activeOrganizationId !==
+        this.readSpaceMetaRecord()?.organizationId ||
+      !actor?.openMeldProfileId ||
+      actor.profileKind !== "agent" ||
+      actor.agentControllerRef !== HOSTED_CENTER_AGENT_CONTROLLER_REF ||
+      actor.callerPrincipalId !== actor.openMeldProfileId ||
+      requester?.profileKind !== "human" ||
+      !requester.ownerUserId
+    ) {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "space.membership_required",
+        reason: "A verified Center Agent requester is required.",
+      });
+    }
+    // Core authenticated the Center Agent's live delivery and resolved its
+    // requester. Use that person's exact current Space membership for both
+    // access admission and Task authority; never add the Center Agent.
+    return {
+      requestContext: {
+        activeOrganizationId: context.activeOrganizationId,
+        actorContext: {
+          callerPrincipalId: requester.ownerUserId,
+          ownerUserId: requester.ownerUserId,
+          openMeldProfileId: requester.profileId,
+          profileKind: "human",
+          requestId: actor.requestId,
+        },
+      },
+      centerActor: {
+        profileId: actor.openMeldProfileId,
+        profileKind: "agent",
+        profileName: actor.profileName ?? "Center Agent",
+        ownerUserId: actor.ownerUserId ?? null,
+      },
+    };
   }
   async rpcMutateTask(
     input: MutateSpaceTaskInput

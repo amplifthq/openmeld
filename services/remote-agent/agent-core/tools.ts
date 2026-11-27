@@ -1421,8 +1421,19 @@ const pluginConnectionNavigationInputSchema = strictObject({
 const navigationActionToolInputSchema = strictObject({
   connectToUserId: optional(trimmedNonEmptyStringSchema),
   connectedComputerId: optional(trimmedNonEmptyStringSchema),
+  draftArtifact: optional(
+    strictObject({
+      spaceId: pipe(trimmedNonEmptyStringSchema, maxLength(512)),
+      fileId: pipe(trimmedNonEmptyStringSchema, maxLength(128)),
+      revision: pipe(number(), integer(), minValue(1)),
+    })
+  ),
+  draftKind: optional(picklist(["github_issues", "ugc", "traffic"])),
+  draftName: optional(pipe(trimmedNonEmptyStringSchema, maxLength(100))),
+  draftRepository: optional(pipe(trimmedNonEmptyStringSchema, maxLength(140))),
   kind: picklist([
     "computer_setup",
+    "dashboard_draft",
     "organization_app",
     "plugin_connection",
     "project",
@@ -1948,6 +1959,7 @@ const manageSpaceTasksToolInputSchema = strictObject({
     "list",
     "get",
     "create",
+    "create_human_assignment",
     "create_and_delegate",
     "delegate",
     "assign",
@@ -2024,6 +2036,7 @@ const manageSpaceTasksToolInputSchema = strictObject({
       maxLength(SPACE_TASK_RESULT_SUMMARY_MAX_CHARS)
     )
   ),
+  targetSpaceId: optional(nonEmptyStringSchema),
   taskId: optional(nonEmptyStringSchema),
   title: optional(
     pipe(string(), trim(), minLength(1), maxLength(SPACE_TASK_TITLE_MAX_CHARS))
@@ -2218,6 +2231,41 @@ function withSpaceTaskGitHubClosePrompt(receipt: {
   return githubClosePrompt ? { ...receipt, githubClosePrompt } : receipt;
 }
 
+function resolveHumanTaskAssignmentSpace(
+  request: ManageSpaceTasksToolInput,
+  envelope: RemoteAgentTurnEnvelope | null | undefined,
+  currentSpaceId: string
+): string {
+  if (!(envelope && resolveVerifiedTurnEnvelopeProfileId(envelope))) {
+    throw new Error(
+      "Assigning work to a person requires a verified human request."
+    );
+  }
+  const target = request.targetSpaceId ?? currentSpaceId;
+  const privateRequest =
+    resolveCenterAgentContextScopePlan(envelope).interactionEnvironment ===
+    "requester_private";
+  if (target === currentSpaceId && privateRequest) {
+    throw new Error(
+      "Choose the shared Space where the requester and assignee belong."
+    );
+  }
+  if (
+    target !== currentSpaceId &&
+    !(privateRequest && envelope.space.isCenterAgentDm)
+  ) {
+    throw new Error(
+      "To assign work in another Space, request it in your private Center Agent chat."
+    );
+  }
+  if (!(request.assigneeProfileId && request.operationId)) {
+    throw new Error(
+      "Human assignment requires an exact assignee profile and stable operationId."
+    );
+  }
+  return target;
+}
+
 async function executeManageSpaceTasksTool(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
   payload: unknown;
@@ -2234,6 +2282,24 @@ async function executeManageSpaceTasksTool(input: {
   if (!space || (space.kind !== "space" && space.kind !== "dm")) {
     throw new Error(
       "Tasks are available only in the current OpenMeld conversation."
+    );
+  }
+  if (request.action === "create_human_assignment") {
+    const target = resolveHumanTaskAssignmentSpace(
+      request,
+      toolContext.turnEnvelope,
+      space.id
+    );
+    return await createSpaceTaskFromTool({
+      coreWorker: input.coreWorker,
+      request,
+      spaceId: target,
+      toolContext,
+    });
+  }
+  if (request.targetSpaceId) {
+    throw new Error(
+      "targetSpaceId is only supported when creating a human assignment."
     );
   }
   if (request.action === "list") {
@@ -2333,10 +2399,13 @@ async function createSpaceTaskFromTool(input: {
         }
       : {}),
   });
-  const rpc = requireCoreRpc(
-    input.coreWorker.createSpaceTask,
-    "createSpaceTask"
-  );
+  const rpc =
+    input.request.action === "create_human_assignment"
+      ? requireCoreRpc(
+          input.coreWorker.createSpaceHumanAssignment,
+          "createSpaceHumanAssignment"
+        )
+      : requireCoreRpc(input.coreWorker.createSpaceTask, "createSpaceTask");
   return withSpaceTaskGitHubClosePrompt(
     spaceTaskMutationReceiptSchema.parse(
       await rpc({
@@ -2560,7 +2629,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       name: "openmeld_get_navigation_action",
       description: input.personalAgent
         ? "Offer the existing Plugin connection form when the member requests setup or a needed connection blocks the current task. Use the exact supported service and preserve the requested member/shared identity; choose is only for setup without an identity requirement. The member authorizes through the existing Web form. This action grants no provider or Agent access, starts no authorization, and does not automatically resume work. Never provide credentials or construct an authorization URL."
-        : "Record and return one trusted OpenMeld action for the final reply. Call this only when the user explicitly asked to open the exact destination or opening it is the one concrete next step required to advance the current request. Reading, listing, or changing a routable resource is not by itself a reason to present an action. Use this for computer setup or recovery, Plugin connection, the Projects page, one Project, or one Space. For a Plugin, use kind plugin_connection, an exact supported service, and scope member, shared, or choose. Preserve an explicit personal or organization identity; choose is only for setup without an identity requirement. The member opens the existing connection form in the conversation; the current account and server decide its permitted options. This action does not authorize a provider, grant Agent access, or automatically resume work. Never put credentials or an authorization URL in the input. For a connected Slack, Lark, or Feishu member whose requested action is blocked on personal OpenMeld access, first call openmeld_require_identity_for_action, then read the Organization directory. If the current provider name and available email clearly identify exactly one member, copy that directory userId into connectToUserId; otherwise omit it. Then use kind message_channel_identity_link with purpose continue_request. Use purpose optional_setup only when the participant explicitly asks to connect this provider account, never as an unsolicited suggestion after successful work. That identity-link action connects or sets up the account and continues the same request, so never tell the member to find an admin, request an invite link, mention the Center Agent again, or repeat the request. Never invent a userId or construct an OpenMeld link.",
+        : "Record and return one trusted OpenMeld action for the final reply. Call this only when the user explicitly asked to open the exact destination or opening it is the one concrete next step required to advance the current request. Reading, listing, or changing a routable resource is not by itself a reason to present an action. Use this for computer setup or recovery, Plugin connection, the Projects page, one Project, or one Space. When a verified human explicitly asks to create a team dashboard, use kind dashboard_draft with draftKind, draftName, and optional draftRepository for a GitHub dashboard. Only include a repository explicitly supplied to this request. For a UGC or Traffic dashboard, optional draftArtifact may contain exactly the spaceId, fileId, and revision from the current user's own OpenMeld file-preview link. Never invent those fields or copy them from other sources. Never put file contents, metrics, secrets, or unrelated context in the draft link. Tell them it is a prefilled draft and only their Create action shares it with the Organization. Never claim the dashboard is already created or that a source is connected. For a Plugin, use kind plugin_connection, an exact supported service, and scope member, shared, or choose. Preserve an explicit personal or organization identity; choose is only for setup without an identity requirement. The member opens the existing connection form in the conversation; the current account and server decide its permitted options. This action does not authorize a provider, grant Agent access, or automatically resume work. Never put credentials or an authorization URL in the input. For a connected Slack, Lark, or Feishu member whose requested action is blocked on personal OpenMeld access, first call openmeld_require_identity_for_action, then read the Organization directory. If the current provider name and available email clearly identify exactly one member, copy that directory userId into connectToUserId; otherwise omit it. Then use kind message_channel_identity_link with purpose continue_request. Use purpose optional_setup only when the participant explicitly asks to connect this provider account, never as an unsolicited suggestion after successful work. That identity-link action connects or sets up the account and continues the same request, so never tell the member to find an admin, request an invite link, mention the Center Agent again, or repeat the request. Never invent a userId or construct an OpenMeld link.",
       input: navigationInput,
       execute: async (payload) => {
         const toolContext = await buildRemoteAgentToolContext({
@@ -2608,6 +2677,15 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             submissionId: input.submissionId,
             toolContext,
           });
+        }
+        if (
+          parsedTarget.kind === "dashboard_draft" &&
+          (turnEnvelope?.sender.kind !== "member" ||
+            !turnEnvelope.sender.verified)
+        ) {
+          throw new Error(
+            "Dashboard drafts require a verified OpenMeld member."
+          );
         }
         const organizationWebUrl = turnEnvelope?.organization.webUrl;
         if (!organizationWebUrl) {
@@ -4429,7 +4507,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_manage_space_tasks",
       description:
-        "Manage durable delivery commitments in the current Space or private chat. Use Tasks for discrete deliverables that need ownership, progress, review, or later closure; not questions, acknowledgements, exploratory discussion, or tiny same-turn actions. First list Tasks and reuse the one linked to the request or issue. action=get with an exact taskId reads its current revision, result, review, and pending or failed handoffs. action=create records work without starting execution and leaves assignee empty unless explicitly selected. For new work that should start now, action=create_and_delegate requires a stable operationId, title, self-contained brief and completion conditions, Agent assigneeProfileId, and explicit reviewerProfileId (null only when no review was requested). Creation and the initial Wake intent commit atomically. Reuse operationId only with the identical request. " +
+        "Manage durable delivery commitments in the current Space or private chat. Use Tasks for discrete deliverables that need ownership, progress, review, or later closure; not questions, acknowledgements, exploratory discussion, or tiny same-turn actions. When the verified human explicitly asks you to assign a deliverable to another person, use action=create_human_assignment with their exact Human Profile ID from the Organization directory, title, brief, completion conditions and stable operationId. In a shared Space, use the current Space. From your private Center Agent chat use targetSpaceId for the shared Space the requester explicitly chose, resolving its exact ID through openmeld_list_spaces. If no Space or person can be resolved, ask; never guess, add members, or publish private chat history. A successful task appears in the assignee’s Inbox To do; it does not start an Agent or send a separate message. First list Tasks when working in the current conversation and reuse the one linked to the request or issue. action=get with an exact taskId reads its current revision, result, review, and pending or failed handoffs. action=create records work without starting execution and leaves assignee empty unless explicitly selected. For new work that should start now, action=create_and_delegate requires a stable operationId, title, self-contained brief and completion conditions, Agent assigneeProfileId, and explicit reviewerProfileId (null only when no review was requested). Creation and the initial Wake intent commit atomically. Reuse operationId only with the identical request. " +
         "For an existing Task, action=delegate requires taskId, latest expectedRevision, assigneeProfileId and explicit reviewerProfileId. Add a requested reviewer to the Space first; missing membership is a blocker. Delegation assigns and queues the handoff atomically. The Task remains To do until the assignee explicitly starts it; a queued handoff is not running execution. Do not also call a generic Wake. Update the brief when the deliverable changes. Only the assignee starts and submits verified results. When the result is a GitHub pull request, submit_result also passes owner, repo, number, url and pullRequestHeadSha (the full 40-character head commit SHA); a later push returns the Task to review. Review names the exact expectedResultRevision read, and for a Task with a pullRequest also passes the full head SHA actually verified as pullRequestHeadSha. Conflicts require a fresh read and decision. Space delivers review and rework handoffs; needsHumanDecision stops automatic work after two Agent rework rounds. " +
         "Use projectIds only after an explicit Project decision; Project order does not choose external destinations. Confirm GitHub association from spaceTask.created, or attach an existing issue. Linear attachment requires its verified issue UUID, identifier, team UUID and URL; Linear links are not monitored. External issue closure updates observation only and never completes or cancels the Task. A Task result may require closing a still-open GitHub issue through github_update_issue. Task phase is independent of Agent execution truth.",
       input: manageSpaceTasksToolInputSchema,

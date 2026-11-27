@@ -27,6 +27,43 @@ async function fixture(kind: "space" | "dm") {
 }
 
 describe("conversation Task tool boundary", () => {
+  it("forwards an explicit Human assignment from private Center Agent chat without a Wake or private source message", async () => {
+    const { request: _request, ...context } = await fixture("dm");
+    const denied = new Error("stop at the Core boundary");
+    const createSpaceHumanAssignment = vi.fn(() => Promise.reject(denied));
+    const tool = getRemoteAgentOpenMeldToolDefinitions({
+      ...context,
+      coreWorker: { createSpaceHumanAssignment },
+    }).find((item) => item.name === "openmeld_manage_space_tasks");
+    if (!tool) {
+      throw new Error("Task tool missing");
+    }
+    const input = {
+      action: "create_human_assignment",
+      title: "Confirm the signup fix",
+      assigneeProfileId: "11111111-1111-4111-8111-111111111111",
+      operationId: "human-acceptance",
+      targetSpaceId: "a".repeat(64),
+    };
+    await expect(
+      tool.execute({ ...input, targetSpaceId: undefined })
+    ).rejects.toThrow("Choose the shared Space");
+    expect(createSpaceHumanAssignment).not.toHaveBeenCalled();
+    await expect(tool.execute(input)).rejects.toBe(denied);
+    expect(createSpaceHumanAssignment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spaceId: input.targetSpaceId,
+        body: {
+          title: input.title,
+          operationId: input.operationId,
+          externalWorkItems: [],
+
+          assigneeProfileId: input.assigneeProfileId,
+        },
+      })
+    );
+  });
+
   it.each([
     { kind: "space", action: "list" },
     { kind: "dm", action: "list" },
