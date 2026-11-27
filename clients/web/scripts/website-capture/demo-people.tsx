@@ -29,21 +29,12 @@ export function DemoPeople({
 				All people
 			</Button>
 			<DirectoryHumanProfileDetails
-				activityNowMs={1_791_334_800_000}
-				conversationsEnabled={false}
 				directMessageEnabled={false}
 				directMessageIsPending={false}
 				editing={false}
 				member={member}
-				modelCatalog={null}
-				onConnectAccount={() => undefined}
 				onEditingChange={() => undefined}
-				onManageAccount={() => undefined}
 				onOpenDirectMessage={() => undefined}
-				onRetryProfileReports={() => undefined}
-				profileReportsAreRetrying={false}
-				profileReportsErrorMessage={null}
-				researchAction={null}
 			/>
 		</>
 	);

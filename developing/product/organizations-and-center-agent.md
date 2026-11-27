@@ -2803,8 +2803,7 @@ signed-in member's group appears first and the signed-in member remains first
 inside it. Everyone else sorts by most recent last-seen time within their group;
 members without activity sort last, followed by name and user ID as deterministic
 tie breakers. People must not duplicate the same people in a separate Members
-card. **Learn about all
-members** belongs to the People sidebar. **Invite Members** opens one dialog
+card. **Invite Members** opens one dialog
 that contains both the email-and-role invitation form and the invite-link Copy,
 Reset, and Revoke actions; invitation controls do not occupy the main detail.
 
@@ -2815,16 +2814,9 @@ the same Organization-scoped activity projection used by accepted Human Space
 messages. CLI use does not report this Web activity. This is last-seen evidence,
 not a claim that the person is currently online.
 
-An existing Profile Report opens from a top-right document icon. Amber means
-the report has updates to review and save. **Learn about {member}** remains
-available beside it to create a fresh dated report. When the current Documents
-projection proves that no report exists, People shows only **Learn about
-{member}**; it never opens a blank document. While Documents are loading or
-unavailable, People shows neither action because it cannot prove the current
-report state. A
-single-member learning start failure stays on that member's detail with its retry
-action. **Learn about** asks the designated Center Agent to process one member
-at a time and create one new dated Profile Report. The all-members operation is
+People profiles do not expose **Learn about** or duplicate retained Profile
+Reports. The existing research workflow and Organization Documents keep their
+existing authorization and storage. The all-members operation is
 serial: one task reaches a terminal outcome before Core starts the next, and
 one failure is recorded without stopping the remaining members. Research never
 writes approved document content directly.
@@ -2839,70 +2831,30 @@ the research task reaches its terminal outcome. User-defined recurring learning
 plans and proactive opt-in prompts for organization-wide automatic learning are
 future extensions of this same workflow, not alternate document writers.
 
-The persistent Profile detail owns contextual **Profile Report**, **Learn about
-{member}**, **Direct Message** for another active Human Profile, and inline
-**Edit profile** actions. It also owns member account details, Organization
-role, join time, ordinary Agent Profile count and icons, Computers, **Connected
-Channels**, and shared Profile details. Its Agent Profile count links to Agents
-and focuses the first Agent Profile in that member's owner group. Edit remains
-available only for the signed-in member's own active default Human Profile. Self-Direct Messages
-are unavailable, and owners or admins do not receive an edit action for another
-member's Human Profile. Editing the current member's default Human Profile
-reuses the paired Account Display Name mutation rather than introducing a
-second identity writer.
+The persistent Human Profile prioritizes chatting with visible Local Agents
+and shows reported connection state and remaining usage per source. A detected
+controller is not a permission to chat; colleague Agent Profiles still use the
+existing access flow. People can show recent opt-in Agent Activity for that
+member. The profile does not expose Computer diagnostics, Channel setup, or
+generated Profile Reports. Separate human Direct Message and own-profile
+editing remain available under existing permissions.
 
 In an Organization workspace, each Human Profile sidebar item also shows one coarse
 **Computer** summary. One online Computer is **Computer connected**; two or more
 online Computers show the connected count; a mixed set summarizes only the
 online count; and an all-offline set is **Computer offline** without a count.
-Attention and unavailable states remain explicit. The sidebar colors the Computer
-icon green for connected, amber for attention, and muted otherwise, with no separate status dot. A member
-with one or more Computers sees the same coarse summary while the main detail
-renders one existing Computer card per device. Selecting a Computer card opens
-that exact Computer detail. A signed-in member with none sees **Add a Computer**
-and reaches the normal setup path, while another member sees only **No computer
-connected**. The Add card remains available alongside existing Computers only
-for the signed-in member. This answers only whether at least one current OpenMeld Service
-session for the member can carry Wake work; it does not claim that the member
-is online or that any Agent Profile is ready. Every current Organization member
-may see this coarse state. The card never exposes another member's device id,
-executable paths, credentials, private setup instructions, or management
-controls. The Profile detail reuses the existing Computer card and Computer
-detail components; People does not maintain a parallel Computer UI.
-
-Each Human Profile sidebar item shows one compact Slack, Lark, or Feishu
-identity line only for an identity that is actually mapped to that member. The
-line uses the provider icon followed by the account name or handle and exact
-provider email, separated by a middle dot, when Core provides those fields. A
-missing, unavailable, unconfigured, or unmapped account adds no sidebar icon or
-placeholder text. Missing account metadata is never inferred. The Profile
-detail keeps the same mapped identity and corresponding neutral gray status and
-the permitted **Connect**, **Set up**, **Ask an admin**, or **Manage** action.
-Those actions start the existing authorization or private provider-proof flow;
-they do not bind an account by Profile selection alone. Another member's missing
-link remains non-actionable. The linked member
-may manage and disconnect their own identity;
-owners and admins may manage another member's wrong link without gaining the
-ability to assign a replacement. Provider account and member account values in
-the details surface remain text-selectable for ordinary copy and inspection.
-
-Computers belong inside their owner's Human Profile detail rather than a
-separate first-level inventory. People groups Core's Organization-scoped,
-team-safe Computer projection by the selected owner, including a
-Service-connected Computer before its owner creates an Agent Profile. The
-signed-in member continues to use their complete account inventory.
-Other members' groups are read-only and may show the owner, computer display
-name, device category, operating-system family and version, last-seen time,
-coarse Service state, team-safe local-agent availability, and
-Organization-visible Agents using that computer. They never expose controller
+Attention and unavailable states remain explicit. The sidebar colors the
+Computer icon green for connected, amber for attention, and muted otherwise.
+People uses the team-safe projection grouped by owner, including connected
+Computers whose owners have not shared an Agent Profile. The signed-in member
+continues to use their owner-scoped inventory. They never expose controller
 accounts, executable or installation paths, launch arguments, update commands,
 private skills, local policy, raw failure evidence, credentials, or management
 controls. Team-safe local-agent details may include controller state, native
 interface, installed version and update status, launch readiness and install
 count, reported model names, native capabilities, last-check time, and
 provider-reported Usage Limits. Each visible limit names the window, shows its
-reset when reported (the used percentage and other quota numbers are shown only
-to the owner), says when it was observed, and
+reset when reported, says when it was observed, and
 explicitly distinguishes available, low, exhausted, stale, temporarily
 unavailable, and unsupported states. Historical values may remain visible while
 a Computer is offline only when clearly marked stale.

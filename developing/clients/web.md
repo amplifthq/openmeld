@@ -2219,30 +2219,19 @@ Profile directory readiness or retain a stale provider id. The Center Agent's
 system prompt receives the same friendly name so a member can also ask which
 model is active.
 
-Computers belong to their owners in **People**. The selected Human Profile's
-main detail renders that person's Computer cards from Core's team-safe
-Organization Computer projection, including a Service-connected Computer with
-no Agent Profile yet. Selecting a card opens the existing Computer detail route;
-the signed-in member also retains **Add a Computer**. The product does not keep
-an intermediate all-Computers inventory page. The signed-in member's complete
-inventory and all Computer mutations remain account-scoped. Another member's card and detail
-may show computer name, owner, device category, operating-system family/version,
-last-seen time, coarse Service state, team-safe local-agent availability, and
-visible Agents that use it. A reported local agent may also expose operational
-details that help teammates understand compatibility: controller state, native
-interface, installed version and update status, launch readiness and install
-count, reported model names, native capabilities, last-check time, and
-provider-reported Usage Limits. It does
-not expose controller accounts, executable or installation paths, launch
-arguments, update commands, private skills, local policy, credentials, raw
-errors, or mutation controls. A live Service may expose team-safe OpenMeld
-Tools component versions and update states; setup commands, hashes, and
-owner-only controls remain private.
+People profiles show local Agents directly, using the team-safe Organization
+Computer projection. An existing teammate Computer link leads to a compact
+read-only page: Computer name, current connection state, enabled local Agents,
+reported remaining quota, and chat for any exact visible Agent Profile bound
+to that Computer and controller. It does not render the Service, CLI or skill
+install status, local tool diagnostics, or the historical token chart.
+Owner Computer settings, access controls, and diagnostic actions remain in the
+canonical owner-only management path.
 
 Team Computer links include both the owner account ID and device ID. A device
 ID alone is not unique across accounts. Legacy device-only links resolve only
 when the visible inventory has exactly one matching Computer; ambiguous links
-ask the viewer to select the Computer from its owner's Profile. They must never
+show an ambiguous-link error instead of selecting a Computer. They must never
 pick the first match or borrow another account's live status. Team detail
 resolution waits for the initial Organization projection refresh before using
 cached identity evidence. Stale local-agent checks display **Status out of date**:
@@ -2259,7 +2248,7 @@ recorded tokens are unavailable. No usage records or unsupported collection
 produce no consumption copy, badge, placeholder, or reserved space. These
 statistics remain separate from provider account Usage Limits and do not
 present Local usage as free or as spending the organization allowance.
-Owner and teammate views read the same organization-scoped consumption query.
+These usage details remain available in the owner management surface; teammate Computer details omit consumption entirely.
 
 Owned Computer Connection cards keep the current status, actions, and any last
 update failure visible. Update records, software versions, connection history,
@@ -2271,23 +2260,11 @@ connection report does not erase a failed update or confirm installation.
 Sleep prevention is one setting row without a separate Power heading; its
 saved preference and default remain owned by the local Service.
 
-Owned and teammate Computer details place Local agents before the compact Local
-Agent token usage card, prioritizing agent availability and controls over usage
-statistics. The usage card combines recorded Local Agent tokens on that enrolled Computer
-in the current Organization. The default seven-day area chart uses calendar
-days in the viewer's time zone, including today so far. Details contains the
-7/30-day selector, refresh, and an accessible daily input/output/total table.
-Each controller has an unstacked series, a labelled legend, and its existing
-Local Agent icon in tooltips and table rows. Colors reuse the shared controller
-brand accents; monochrome Cursor and OpenCode logos use fixed amber and teal
-chart accents. Unknown attribution remains explicitly labelled. Daily controller
-rows and curves use the same scoped time-series query.
-Initial loading uses the shared Evil Charts skeleton; no recorded tokens hides
-the card. Explicit missing-token receipts produce gaps instead of known-zero
-points, and partial totals are disclosed in Details. No provider polling or
-inference is performed to load the chart.
+Computer detail pages do not render an aggregate token waveform. The
+organization Usage page continues to report aggregate recorded consumption
+independently of provider account quota.
 
-Each Local Agent renders its `usageLimits` list inside the existing expandable
+In owner Computer management, each Local Agent renders its `usageLimits` list inside the existing expandable
 row. Usage Limit evidence does not create a separate page or make the row expand
 automatically. In the collapsed row, a compact summary follows the existing
 version and update metadata. Single-provider controllers retain one compact
@@ -3309,48 +3286,30 @@ be undone.
 Selecting a Human Profile sidebar item replaces the main content without
 opening a right drawer. The route preserves the selected `profileId`, so reload,
 back, and forward navigation return to the same person. The persistent detail
-hero presents the member email and join time as one muted metadata line, while
-the Organization role remains in the badge beside the member name. The detail
-owns an **Agents** section whose header keeps **Manage Agents** for the signed-in
-member and **All Agents** for other people at the trailing
-edge. Every ordinary Agent appears as a compact card with its avatar, name, and
-permission-scoped Controller and model summary when known. Cards stay in one
-horizontal row and the row scrolls inline when it overflows; selecting a card
-opens that exact Agent, while the section header link opens that person's full
-Agent list. The detail also owns Computers, Connected Channels,
-shared Profile details, and the permitted Profile Report, Learn about,
-**Chat with {member}**, inline edit, connect, or manage actions. **Chat with
-{member}** is the primary action and keeps the same compact button height as
-adjacent actions. It does not repeat those account facts in a separate
-member-account section. Header metadata, Channel-account, Profile, and
-detail values are
-text-selectable. Editing remains available only
-for the signed-in member's own active default Human Profile. The sidebar and
-detail omit the internal Handle, undefined recent activity, and the ubiquitous
-**Active** state; only an exceptional disabled state is visible. Web does not
-derive an Organization online dot from last-used time, Computer state, or
-Space-scoped presence. Members without an active Human Profile do not receive
-a **Chat with** or edit action, but their detail remains available for inspecting
-account details and the explicit unavailable or disabled profile state. The
-signed-in member does not receive a **Chat with** action for themself.
-People admits only one pending Direct Message
-open intent at a time so competing responses cannot navigate to an earlier
-selection. The People sidebar includes
-**Learn about all members** and shows processed progress such as `3/8` while
-Core runs the serial batch. A member currently queued or running shows
-**Learning…**; other starts stay disabled until the batch is terminal.
-People polls the Core-owned status and document list while work is active.
-When a Profile Report exists, the document icon opens the latest report; amber
-indicates that it has updates to review and save. **Learn about {member}**
-remains available beside it so a member can create a fresh dated report. A
-successful Documents read that contains no report shows only **Learn about
-{member}**. Loading or failed evidence shows neither action because Web cannot
-yet prove whether a report exists. The selected detail follows the same
-evidence rule and keeps the learning action beside Direct Message when both are
-available.
-**Profile Report** is the user-facing document term; the persisted
-`member_profile` kind and member-research orchestration names remain
-compatibility contracts.
+hero presents the member's email and role. The detail puts **Local Agents**
+first, grouping the current authorized Computer projection by controller. Each
+detected, enabled local controller shows its connection and separate reported
+remaining limit per source; missing quota is not treated as zero and offline
+reports are labeled stale. It does not pool quota or imply that the number
+belongs to a particular configured Agent Profile. Chat buttons open the
+matching visible Agent Profile through the existing colleague access flow;
+detection by itself neither creates an Agent Profile nor grants Wake access.
+For an unshared controller, **Message owner** opens the human Direct Message
+without sending a message. Own Agent management remains available through
+**Manage**. Hide the section rather than show a zero count for a teammate with
+no visible local Agents.
+
+Show a short **Current focus** and **Recent sessions** readout from the
+authenticated, member-filtered Agent Activity Session Inventory. The People
+profile does not fetch the legacy snapshot or render a separate legacy event
+feed. Only current, online, working sessions with recent activity contribute
+to Focus. Private session contents and other members' sessions do not appear.
+The readout is scoped to the signed-in viewer, Organization, and subject; a
+failed or unavailable read does not fall back to retained events.
+Profile Report and research controls are not on the People profile; retained
+reports and research APIs keep their existing destination and permissions.
+Open a separate human Direct Message for another active member, and allow
+inline editing only for the current member's own active default Human Profile.
 
 In an Organization workspace, People reads the Organization Computer
 projection and shows a concrete summary on every Human Profile sidebar item. Exactly
@@ -3361,54 +3320,10 @@ offline** without a number. Zero registered Computers remains **Connect a
 computer** for the signed-in member and **No computer connected** for a
 teammate. Attention and unavailable states remain explicit.
 The sidebar Computer icon uses the same state without a separate dot: green
-for connected, amber for attention, and muted otherwise. One Computer opens its
-detail from its card in the selected Profile; multiple Computers remain separate
-cards in that same Profile. The signed-in member with none receives **Add a
-Computer** and the normal setup route; teammates have no setup or management
-action. A failed or incomplete response never blanks People or changes a
-member's identity; missing evidence stays unavailable rather than being
-presented as not connected. Computer state never claims that the Human Profile
-is online. The main detail uses the same summary tone and projection as the
-sidebar.
-
-The selected Human Profile detail replaces the former **Work access** row with
-the existing Computer cards, preserving Computer name, operating-system and
-device metadata, state, Local Agent summary, last-seen evidence, and direct
-navigation to the existing Computer detail. This is component reuse, not a
-second Computer card implementation. **Add a Computer** appears alongside the
-cards only for the signed-in member.
-
-People reads Message Channel connections and their Core-owned identity-link
-projection together. The sidebar shows a provider icon only when the selected
-member has a real identity mapping for that provider. Missing, unavailable,
-unconfigured, and unmapped accounts add no sidebar placeholder. **Set up**,
-**Connection unavailable**, **No account connected**, provider account text,
-and self-only actions belong in the persistent detail. **Connect Slack**,
-**Connect Lark**, or **Connect Feishu** opens the existing private
-provider-proof flow; selecting a Human Profile never assigns a Channel account.
-When the Organization has not configured that provider, the same connection
-panel gives an owner or admin **Set up Slack**, **Set up Lark**, or **Set up
-Feishu** and gives an ordinary member **Ask an admin to set up {provider}**.
-The member action creates one deduplicated Organization Inbox request for every
-current owner and admin instead of granting Organization mutation authority.
-That request links directly to **Center Agent → Channels** and resolves when the
-Organization connects the provider.
-The detail exposes the same self-only connection action and keeps a mapped
-identity visible as unavailable
-when that provider connection needs repair. All status copy remains neutral
-gray rather than amber. When available, the detail shows the provider account
-name or handle first and the exact provider email
-second, separated by a middle dot. Either field may be absent, and Web never
-infers one from the other or adds `@` to a provider display name. For Slack, Core
-resolves the display metadata for the exact linked Slack user through the
-connected Organization workspace; if neither field is available, Web says
-**Account details unavailable**. The current member can use **Reconnect Slack** to refresh a
-legacy identity proof without disconnecting first. An admin cannot perform that
-provider identity proof on another member's behalf.
-Self and Channel managers may disconnect a wrong mapping; replacement still
-requires a private provider proof and confirmation by the intended signed-in
-account. Disconnecting this relationship never disconnects the Organization
-Channel.
+for connected, amber for attention, and muted otherwise. A failed or incomplete
+response never blanks People or changes a member's identity; missing evidence
+stays unavailable. Computer and Channel settings remain in their respective
+management destinations, not on the member profile.
 
 The top of the People sidebar owns one **Invite Members** button, parallel to
 **New Space** in Spaces. It opens a single dialog containing both invitation
