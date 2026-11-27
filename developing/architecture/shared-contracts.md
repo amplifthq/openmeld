@@ -5380,6 +5380,18 @@ onboarding recovery, a confirmed
 non-publication may retry from `failed`, and stale or ambiguous claims close as
 `outcome_unknown` instead of republishing blindly.
 
+Unaddressed intake adds three contracts. `remoteAgentSlackChannelMessageEventSchema`
+is the human `message` event for `channel_type` `channel` or `group`; a
+`bot_id` or any subtype other than `file_share` fails parsing.
+`unaddressedChannelBatchQueueMessageSchema` is the delayed flush message on the
+Message Channel events queue. `classifyUnaddressedChannelBatchInputSchema` and
+its strict `{ route }` response are the Core-to-Remote-Agent RPC for the
+admission label; the model request built from it carries message text and
+numbered speakers, never provider user ids. `channelContextMessageSchema` gains optional `attachments`
+(type and file name). Core sends `attachments` only while unaddressed intake is
+on, and the schema is strict, so the Remote Agent worker must be deployed
+before the flag is turned on.
+
 Slack direct-message ingress uses the same event callback and durable queue
 contract as `app_mention`, with the strict human `message.im` subtype. Bot
 messages and messages with a Slack subtype fail parsing, preventing the Center

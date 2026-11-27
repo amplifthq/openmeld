@@ -2,6 +2,7 @@ import { handleAgentProfileCreationMessage } from "../../agent-profile-creation-
 import { handleDispatchQueueBatch } from "../../dispatch/transport/queue/dispatch-queue-consumer";
 import type { CoreBindings } from "../../lib/bindings";
 import { handleRemoteAgentMessageChannelEventQueueMessage } from "../../remote-agent/transport/queue/message-channel-event-queue-consumer";
+import { handleUnaddressedChannelBatchQueueMessage } from "../../remote-agent/transport/queue/message-channel-unaddressed-batch-queue-consumer";
 import { handleRemoteAgentSlackEventQueueMessage } from "../../remote-agent/transport/queue/slack-event-queue-consumer";
 import { handleGitHubAppWebhookQueueMessage } from "../../space/transport/queue/github-app-webhook-queue-consumer";
 
@@ -28,7 +29,13 @@ export async function handleCoreQueueBatch(input: {
       message,
       queueName: input.batch.queue,
     });
-    const messageChannelHandled = handled
+    const unaddressedBatchHandled = handled
+      ? true
+      : await handleUnaddressedChannelBatchQueueMessage({
+          env: input.env,
+          message,
+        });
+    const messageChannelHandled = unaddressedBatchHandled
       ? true
       : await handleRemoteAgentMessageChannelEventQueueMessage({
           env: input.env,

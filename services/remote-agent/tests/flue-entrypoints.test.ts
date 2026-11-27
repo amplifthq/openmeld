@@ -264,6 +264,38 @@ describe("Flue Cloudflare entrypoints", () => {
     expect(namespace.idFromName).toHaveBeenCalledWith("space-1");
     expect(generateCenterAgentSessionTitle).toHaveBeenCalledWith(request);
   });
+  it("routes unaddressed Channel batch classification through one durable carrier per Organization", async () => {
+    const classifyUnaddressedChannelBatch = vi.fn(async () => ({
+      route: "chatter",
+    }));
+    const namespace = {
+      get: vi.fn(() => ({ classifyUnaddressedChannelBatch })),
+      idFromName: vi.fn((name: string) => name),
+    } as unknown as CenterAgentNamespace;
+    const request = {
+      organizationId: "org-1",
+      provider: "feishu",
+      batchId: "batch-1",
+      thread: { isThreadReply: false, hasPriorAgentTurn: false },
+      messages: [
+        {
+          messageId: "om_1",
+          senderId: "ou_1",
+          text: "Lunch?",
+          attachmentCount: 0,
+        },
+      ],
+    };
+    await expect(
+      runDurableAuxiliaryInference({
+        namespace,
+        operation: "classifyUnaddressedChannelBatch",
+        request,
+      })
+    ).resolves.toEqual({ route: "chatter" });
+    expect(namespace.idFromName).toHaveBeenCalledWith("channel-intake:org-1");
+    expect(classifyUnaddressedChannelBatch).toHaveBeenCalledWith(request);
+  });
   it("passes the parsed submit request and idempotency key to the Center Agent Durable Object", async () => {
     const request = createSubmitTurnRequest();
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);

@@ -1542,6 +1542,10 @@ the connected provider API.
    reusable Organization invite or claim that it sent an administrator
    request. Connected-workspace participation is ordinary-member capability,
    not Better Auth membership or represented-member authority by itself.
+   With unaddressed intake on, Core also archives human `message.channels`
+   and `message.groups` events and routes them in batches; see
+   [Unaddressed group messages](#unaddressed-group-messages). A channel
+   message that mentions the app is left to its `app_mention` event.
    Accepted `app_mention` and human `message.im` events
    reuse native delivery; the ingress and delivery ledgers,
    idempotency keys, callback retry, and watchdog all apply, and the ledger
@@ -2346,11 +2350,98 @@ the environment from its frozen result destination, revalidates the requester,
 and recalls current bounded memory again. Core does not copy a parent turn's
 already-materialized memory into a child or resumed turn.
 
-Feishu history is available under the connected app's current provider permissions and bot membership, with no OpenMeld per-group, per-organization or global history switch. Ordinary traffic never starts a turn. Automatic context stays within the current root. When a requester refers to an earlier discussion, the default explicit read covers up to two hours of that requester's own earlier top-level text or rich-text messages.
+Feishu history is available under the connected app's current provider permissions and bot membership, with no OpenMeld per-group, per-organization or global history switch. While unaddressed intake is off, which is the default, ordinary traffic never starts a turn; see [Unaddressed group messages](#unaddressed-group-messages) for the opt-in behavior. Automatic context stays within the current root. When a requester refers to an earlier discussion, the default explicit read covers up to two hours of that requester's own earlier top-level text or rich-text messages.
 
 The explicit `current_thread_messages` scope also admits other authors and replies in the exact topic where the requester is currently replying. Core re-reads that human source, verifies its chat, root, author and provider thread ID, and confirms current group membership before reading the topic. A root mention alone is not thread-participation evidence, even when the bot subsequently creates a topic below it. This proof never authorizes another topic or other authors' independent group posts. Membership lookup is bounded to two pages of 100 people; a missing grant, absent member or unproven result returns no thread evidence.
 
 Both scopes exclude recalled records, revisions newer than the request, future messages and other chats, and report incomplete coverage. Source and coverage times are formatted as UTC by code before reaching the model. A provider refusal returns no history. New Feishu setup and same-app history consent request `im:message.group_msg` and `im:chat.members:read`; denied optional grants do not break ordinary messaging or an otherwise permitted requester-only read. Existing apps can update their permissions without replacing the bot.
+
+### Unaddressed group messages
+
+On 2026-11-18 Monica reversed the earlier "no silent listening" rule: the
+Center Agent is the first-layer entry for all information in a chat where
+OpenMeld is installed, not only for messages that mention it. The reversal is
+gated by `OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED`, which is
+`"false"` in every environment until an operator turns it on. With the flag
+off, nothing in this section applies and ordinary traffic is ignored as before.
+
+The flag alone listens nowhere. Intake runs only in the conversations listed in
+`OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS`, a comma-separated
+list of `<provider>:<conversation id>` entries such as `feishu:oc_…` (a Feishu
+chat id) or `slack:C…` (a Slack channel id); `*` lists every conversation. The
+list is empty in every environment. A conversation that is not listed keeps the
+mention-only behavior: its ordinary messages are not archived, classified, or
+routed, and its turns read the full bounded snapshot. Removing a conversation
+from the list stops routing its waiting messages, which then expire.
+
+With the flag on, an **unaddressed** message is an ordinary human message in a
+Feishu group or a Slack public or private channel that does not mention the
+Center Agent. Direct messages and mentions keep their existing addressed path.
+Messages from apps and bots, the app's own posts, edits, and other Slack
+message subtypes are never input.
+
+1. **Archive.** Core stores each unaddressed message from the provider's push
+   event. It does not poll. Nothing is posted to the chat.
+2. **Batch.** A batch is one sender's messages: their replies in one thread,
+   or their top-level messages in the conversation. A batch closes after 8
+   seconds without a new message, or 30 seconds after its first message, so a
+   burst becomes one input. A batch holds at most 20 messages and no more
+   text than one request carries (4,000 characters); the rest wait for the
+   next batch, so the classifier reads exactly the words that are submitted. A batch keeps its messages and its request identity
+   across retries, so a retry repeats the same request. A mention settles the
+   waiting messages it covers (the sender's own top-level messages, or every
+   waiting message in its thread) so they do not start a second turn; the
+   mention's turn reads them as Channel context. Three cases can still start
+   a second turn: a batch already claimed for routing when the mention arrives
+   (including one waiting for a retry, whose admitted request is repeated
+   unchanged), a
+   mention whose settlement failed on every queue attempt (the mention still
+   gets its turn), and a covered message that is first archived after the
+   mention settled. A message still waiting after 10 minutes, for example
+   because intake was turned off before its flush, expires and is never
+   routed.
+3. **Route.** One metered auxiliary call labels the batch `chatter`,
+   `new_request`, or `follow_up`. `chatter` stays archived and wakes nobody. A
+   batch that cannot be labeled after four queue attempts is archived as
+   `unrouted` and also wakes nobody.
+4. **Turn.** A `new_request` or `follow_up` batch starts one ordinary Center
+   Agent turn through the provider's addressed path. The requester is the
+   batch's sender, with that sender's verified identity and authority. Other
+   senders' words reach the model only as untrusted Channel context, never as
+   the request. On Feishu the request text is the requester's messages in the
+   batch; on Slack it is the last message as Slack returns it, with the
+   earlier messages supplied as thread or channel context. Only the last
+   message's files are attached.
+
+The label is an admission gate and nothing else. It decides whether a turn
+starts. It never answers, authorizes an action, selects a tool, or reduces the
+context the primary model sees, and its strict response schema carries no field
+other than the label. This is the one exception to the rule that no pre-agent
+classifier runs before the Center Agent; the reason is cost and noise, because
+running the primary model on every group message would spend credits on
+chatter. `follow_up` is treated as `new_request` until thread-to-task binding
+exists.
+
+Nobody addressed the Center Agent, so a routed batch whose turn cannot start
+because the workspace is disconnected, the Center Agent is unavailable, or its
+model is unavailable posts nothing. Once a delivery exists, the ordinary
+visible failure contract applies.
+
+With the flag on, later Feishu turns in a conversation read only the messages
+after the last admitted one (`sync.mode: delta`), the same contract Slack
+threads use, and image, file, audio, video, and sticker messages appear in
+Channel context as records that name the attachment. The model can see that a
+file was shared; it cannot open a historical file.
+
+Known limits: Lark international apps do not request the group-message
+permission and stay mention-only. Feishu and Slack history from before the app
+joined, or from a disconnected period, is not backfilled. Archived messages
+have no retention limit and are deleted only with their Organization; Monica
+accepted this on 2026-11-26. An external participant's unaddressed message can
+start a turn exactly as that participant's mention can, with the same external
+participant limits; Monica accepted this on 2026-11-26 because whoever is in a
+listed conversation was invited there. Revisit both before another company's
+Organization lists a conversation.
 
 Channel context is not Slack-specific even though Slack is the first producer.
 Each provider adapter must translate its thread or conversation into the shared
@@ -2785,7 +2876,9 @@ results together. It decides whether the user is asking for advice or
 authorizing a mutation, then calls the canonical tool only when that advances
 the actual goal. No pre-agent classifier, auxiliary completion model, binding
 marker, forced tool choice, reduced context path, or abbreviated
-acknowledgement may become a second semantic or answer owner.
+acknowledgement may become a second semantic or answer owner. The admission
+label for [unaddressed group messages](#unaddressed-group-messages) decides
+only whether a turn starts; inside that turn this rule holds unchanged.
 
 An explicit request to create a Task or Space remains binding, while a question
 about whether, what, or how to create one remains advice. The primary Agent

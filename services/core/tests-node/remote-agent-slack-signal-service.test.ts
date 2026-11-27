@@ -47,6 +47,7 @@ import { SLACK_RICH_CONTEXT_LIMITATION_NOTE } from "../src/remote-agent/applicat
 import { decryptSlackSearchAuthorization } from "../src/remote-agent/application/slack-search-authorization";
 import {
   processRemoteAgentSlackEvent,
+  readSlackWorkspaceBindingForTurn,
   runSlackChannelIntroductionTick,
   submitRemoteAgentSlackChannelIntroduction,
 } from "../src/remote-agent/application/slack-signal-service";
@@ -76,6 +77,7 @@ import {
   readSlackUserIdentityLink,
 } from "../src/remote-agent/infrastructure/postgresql/slack-user-identity-link-repo";
 import { upsertRemoteAgentSlackWorkspaceBinding } from "../src/remote-agent/infrastructure/postgresql/slack-workspace-binding-repo";
+import { upsertSlackWorkspaceToken } from "../src/remote-agent/infrastructure/postgresql/slack-workspace-token-repo";
 import {
   rpcConnectCenterAgentSlackWorkspace,
   rpcConsumeSlackIdentityLink,
@@ -2292,6 +2294,68 @@ describe("Remote Agent Slack signal service", () => {
           thread_ts: "1710000000.000100",
         },
       ]);
+
+      // Nobody addressed the Center Agent in a routed batch of ordinary
+      // channel messages, so the same failure posts nothing.
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createAppMentionPayload({
+            eventId: "unaddressed-batch:1710000001.000200",
+            text: "the export job is failing again",
+            ts: "1710000001.000200",
+          }),
+          { addressed: false }
+        )
+      ).resolves.toEqual({ status: "ignored" });
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(readSlackPostBodies(fetchMock)).toHaveLength(1);
+
+      // A routed batch starts only while the workspace is still in the state
+      // its messages were archived under: same Organization, same binding,
+      // same installed token.
+      const warn = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+      const readFor = (archivedUnder: {
+        connectionGeneration: number;
+        organizationId: string;
+      }) =>
+        readSlackWorkspaceBindingForTurn({
+          archivedUnder,
+          db: harness.db,
+          slackTeamId: "T123",
+        });
+      // No installed token: intake could not have archived anything.
+      await expect(
+        readFor({ connectionGeneration: 1000, organizationId: "org_1" })
+      ).resolves.toBeNull();
+      const token = {
+        botUserId: "U0BOT",
+        createdAtMs: 2000,
+        encryptedBotToken: "encrypted",
+        installedByUserId: "user_1",
+        organizationId: "org_1",
+        slackTeamId: "T123",
+        updatedAtMs: 2000,
+      };
+      await upsertSlackWorkspaceToken({ db: harness.db, record: token });
+      await expect(
+        readFor({ connectionGeneration: 2000, organizationId: "org_1" })
+      ).resolves.toMatchObject({ organizationId: "org_1" });
+      await expect(
+        readFor({ connectionGeneration: 2000, organizationId: "org_other" })
+      ).resolves.toBeNull();
+      // The app is reinstalled: the token is replaced, the binding is not.
+      await upsertSlackWorkspaceToken({
+        db: harness.db,
+        record: { ...token, updatedAtMs: 3000 },
+      });
+      await expect(
+        readFor({ connectionGeneration: 2000, organizationId: "org_1" })
+      ).resolves.toBeNull();
+      warn.mockRestore();
+      expect(workerSubmit).not.toHaveBeenCalled();
     } finally {
       await harness.close();
     }

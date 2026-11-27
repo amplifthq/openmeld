@@ -172,6 +172,7 @@ export const {
   openMeldRemoteAgentLarkPlatformRegistrationAttempts,
   openMeldRemoteAgentMessageChannelEventIngress,
   openMeldRemoteAgentMessageChannelIdentityLinkTokens,
+  openMeldRemoteAgentMessageChannelUnaddressedMessages,
   openMeldRemoteAgentSlackEventIngress,
   openMeldRemoteAgentOrgGuardrails,
   openMeldRemoteAgentSlackThreadContextCursors,

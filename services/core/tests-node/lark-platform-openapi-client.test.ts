@@ -1390,4 +1390,192 @@ describe("Lark-platform OpenAPI publication", () => {
     expect(contextUrl.searchParams.has("end_time")).toBe(false);
     expect(contextUrl.searchParams.get("page_size")).toBe("20");
   });
+
+  it.each([
+    { container: "thread", startTime: null, threadId: "omt_thread" },
+    { container: "chat", startTime: "1710000001", threadId: null },
+  ])("reads only $container messages after the last admitted one and keeps file messages as attachment records", async ({
+    startTime,
+    threadId,
+  }) => {
+    // Item fields follow the list-messages response used above; the image and
+    // file bodies follow Feishu's documented message content
+    // (https://open.feishu.cn/document/server-docs/im-v1/message-content-description/message_content).
+    const item = (input: {
+      content: Record<string, string>;
+      createTime: string;
+      messageId: string;
+      type: string;
+    }) => ({
+      body: { content: JSON.stringify(input.content) },
+      chat_id: "oc_chat_test",
+      create_time: input.createTime,
+      message_id: input.messageId,
+      msg_type: input.type,
+      root_id: "om_root",
+      sender: { id: "ou_member", sender_type: "user" },
+    });
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          code: 0,
+          expire: 7200,
+          tenant_access_token: "tenant-token",
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          code: 0,
+          data: {
+            // Older pages exist, but this page already reaches the cursor.
+            has_more: true,
+            items: [
+              item({
+                content: {
+                  file_key: "file_v2_report",
+                  file_name: "trace.log",
+                },
+                createTime: "1710000002500",
+                messageId: "om_file",
+                type: "file",
+              }),
+              item({
+                content: { image_key: "img_v2_screenshot" },
+                createTime: "1710000002000",
+                messageId: "om_image",
+                type: "image",
+              }),
+              item({
+                content: { text: "Already admitted" },
+                createTime: "1710000001000",
+                messageId: "om_admitted",
+                type: "text",
+              }),
+              item({
+                content: { text: "Older still" },
+                createTime: "1710000000500",
+                messageId: "om_older",
+                type: "text",
+              }),
+            ],
+          },
+          msg: "success",
+        })
+      );
+
+    const context = await readLarkPlatformChannelContext({
+      appId: "cli_test",
+      appSecret: "app-secret",
+      conversationId: "feishu:connection:oc_chat_test:om_root",
+      currentEvent: {
+        kind: "message",
+        locator: {
+          appId: "cli_test",
+          chatId: "oc_chat_test",
+          connectionId: "connection",
+          provider: "feishu",
+          rootMessageId: "om_root",
+          tenantKey: "tenant",
+          threadId,
+        },
+        mention: "group_mention",
+        messageId: "om_current",
+        resources: [],
+        senderId: "ou_current",
+        sentAtMs: 1_710_000_003_000,
+        text: "Current request",
+      },
+      fetchImpl,
+      history: {
+        includeAttachments: true,
+        syncedThrough: { atMs: 1_710_000_001_000, messageId: "om_admitted" },
+      },
+      provider: "feishu",
+    });
+
+    expect(context.sync).toEqual({ mode: "delta", status: "complete" });
+    expect(context.messages).toEqual([
+      {
+        attachments: [{ fileName: null, type: "image" }],
+        author: { id: "ou_member", kind: "human" },
+        id: "om_image",
+        sentAtMs: 1_710_000_002_000,
+        text: "[image]",
+      },
+      {
+        attachments: [{ fileName: "trace.log", type: "file" }],
+        author: { id: "ou_member", kind: "human" },
+        id: "om_file",
+        sentAtMs: 1_710_000_002_500,
+        text: "[file: trace.log]",
+      },
+    ]);
+    const contextUrl = new URL(String(fetchImpl.mock.calls[1]?.[0]));
+    expect(contextUrl.searchParams.get("start_time")).toBe(startTime);
+  });
+
+  it("drops a file message and reports truncated context when attachment records are not requested", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          code: 0,
+          expire: 7200,
+          tenant_access_token: "tenant-token",
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          code: 0,
+          data: {
+            has_more: false,
+            items: [
+              {
+                body: {
+                  content: JSON.stringify({ image_key: "img_v2_screenshot" }),
+                },
+                chat_id: "oc_chat_test",
+                create_time: "1710000002000",
+                message_id: "om_root",
+                msg_type: "image",
+                sender: { id: "ou_member", sender_type: "user" },
+              },
+            ],
+          },
+          msg: "success",
+        })
+      );
+
+    await expect(
+      readLarkPlatformChannelContext({
+        appId: "cli_test",
+        appSecret: "app-secret",
+        conversationId: "feishu:connection:oc_chat_test:om_root",
+        currentEvent: {
+          kind: "message",
+          locator: {
+            appId: "cli_test",
+            chatId: "oc_chat_test",
+            connectionId: "connection",
+            provider: "feishu",
+            rootMessageId: "om_root",
+            tenantKey: "tenant",
+            threadId: null,
+          },
+          mention: "group_mention",
+          messageId: "om_current",
+          resources: [],
+          senderId: "ou_current",
+          sentAtMs: 1_710_000_003_000,
+          text: "Current request",
+        },
+        fetchImpl,
+        provider: "feishu",
+      })
+    ).resolves.toMatchObject({
+      messages: [],
+      sync: { mode: "snapshot", status: "truncated" },
+    });
+  });
 });
