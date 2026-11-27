@@ -1535,8 +1535,7 @@ function renderThreadPanel(
 		currentOwnerUserId: null,
 		ephemeralActivityItems: [],
 		isAgentRecoveryPending: () => false,
-		isDiagnosticReportPending: () => false,
-		isDiagnosticReportSent: () => false,
+
 		isSendingMessage: false,
 		membersSnapshot: null,
 		modelCatalog: null,
@@ -1546,7 +1545,7 @@ function renderThreadPanel(
 		onAddComposerFiles: async () => undefined,
 		onRemoveComposerFile: () => undefined,
 		onMentionButtonClick: () => undefined,
-		onReportMessage: async () => undefined,
+
 		onOpenSpaceFile: () => undefined,
 		onSend: async () => undefined,
 		readOnly: false,

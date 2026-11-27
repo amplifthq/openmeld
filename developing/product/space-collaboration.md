@@ -209,6 +209,14 @@ Core rechecks the live delivery, Binding, and requester access. The requester
 must still be an active member of this Space and the Task's requester. This
 permits creation with an initial handoff, assignment, brief updates, and reviewer selection; it does not
 permit the Center Agent to start, submit, or accept another Agent's work.
+A verified human can also explicitly ask Center Agent to assign a deliverable
+to another human. In a shared Space this targets the current Space; in the
+requester's private Center Agent chat they must name an authorized shared
+Space. The requester and assignee must both be active Space members. Center
+Agent copies only the requested deliverable into the new Space Task, never the
+private source message, and does not send a separate message or Wake. The
+persisted Task is recorded for the human requester and projects into the
+assignee's Inbox To do through the ordinary Task assignment path.
 A requested reviewer must be an active Space member before delegation succeeds.
 An unavailable reviewer is a blocker, not an implicit choice of no review.
 Reviews name the exact submitted result revision the reviewer saw. A concurrent
@@ -640,7 +648,7 @@ Every Agent prompt introduces the guide with one shared heading
 to follow it for all work in the Space, with OpenMeld rules and safety
 boundaries taking precedence.
 
-In Web, an ordinary Space shows the guide in a Guide tab after Files. Every
+In Web, an ordinary Space shows the guide under **Resources → Guide**. Every
 member can read it; Space owners can edit and save it there, and Core still
 authorizes the write. When a member confirms a durable Space rule in conversation,
 the Center Agent replies with the agreed wording and explains that a human
@@ -933,14 +941,14 @@ Center Agent Computer. A later explicit **Copy to Organization Files** action
 may create a new Organization-owned file with clear provenance; it must not
 create bidirectional synchronization, shared identity, or hidden write-through.
 
-Web presents **Messages | Tasks | Files** in an ordinary shared Space. Files opens at the Space
+Web opens ordinary shared Spaces to Messages. **Resources → Files** opens at the Space
 root and supports folder navigation, picker or whole-surface drag-and-drop
 upload, download, Markdown creation and editing, source editing for other
 supported text formats, rename, move, recoverable Trash, a compact version
 history, older-version preview and restore, visible actor information, and
 explicit conflict recovery. Restoring an older revision creates a new current
 revision and never deletes later history. Leaving an unsaved file through the
-file back action, Space tabs, another file reference, an internal route, reload,
+file back action, Space view navigation, another file reference, an internal route, reload,
 or window close uses one save, discard, or cancel contract.
 Markdown files use the same WYSIWYG CommonMark + GFM editor as Organization
 Documents; this shared editing surface does not merge the two storage owners.

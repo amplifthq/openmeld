@@ -139,8 +139,10 @@ export {
 } from "./remote-agent-metering";
 export {
   remoteAgentSlackAppMentionEventSchema,
+  remoteAgentSlackChannelMessageEventSchema,
   remoteAgentSlackDirectMessageEventSchema,
   remoteAgentSlackEventCallbackPayloadSchema,
+  remoteAgentSlackEventFileSchema,
   remoteAgentSlackEventQueueMessageSchema,
   remoteAgentSlackEventsApiPayloadSchema,
   remoteAgentSlackUrlVerificationPayloadSchema,

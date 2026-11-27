@@ -60,6 +60,7 @@ import {
   buildRemoteAgentCoreContext,
   resolveOrganizationMemberTurnEnvelopeSpeaker,
 } from "../../agent-core/tool-context";
+import { classifyUnaddressedChannelBatch } from "../../agent-core/unaddressed-channel-batch-classifier";
 import {
   ACCOUNT_ERASED_KEY,
   acknowledgeAccountErasure,
@@ -607,6 +608,18 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
           storage: createRemoteAgentSqlStorage(this.ctx.storage.sql),
         });
       }
+      async classifyUnaddressedChannelBatch(request: unknown) {
+        await requireRetainedAccountStorage(this.ctx.storage);
+        return await classifyUnaddressedChannelBatch({
+          env: this.env as CloudflareBindings,
+          request,
+          usageDurability: {
+            storage: createRemoteAgentSqlStorage(this.ctx.storage.sql),
+            scheduleRetry: () => this.armRemoteAgentCallbackRetry(),
+          },
+        });
+      }
+
       async generateCenterAgentSessionTitle(request: unknown) {
         await requireRetainedAccountStorage(this.ctx.storage);
         return await generateCenterAgentSessionTitle({

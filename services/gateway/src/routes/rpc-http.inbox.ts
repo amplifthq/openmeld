@@ -14,6 +14,8 @@ import {
   getInboxItemWireResponseSchema,
   inboxFeedQuerySchema,
   inboxFeedResponseSchema,
+  inboxGitHubIssuesQuerySchema,
+  inboxGitHubIssuesResponseSchema,
   inboxItemRouteParamsSchema,
   inboxMessageNotificationPreferencesQuerySchema,
   inboxMessageNotificationPreferencesResponseSchema,
@@ -59,6 +61,7 @@ import type { RpcHttpMethod } from "./rpc-http.types";
 
 const INBOX_ROUTE = "/v1/inbox";
 const INBOX_FEED_ROUTE = `${INBOX_ROUTE}/feed`;
+const INBOX_GITHUB_ISSUES_ROUTE = `${INBOX_ROUTE}/github-issues`;
 const INBOX_FEED_STATE_ROUTE = `${INBOX_FEED_ROUTE}/state`;
 const INBOX_SUMMARY_ROUTE = `${INBOX_ROUTE}/summary`;
 const CENTER_AGENT_INBOX_SUMMARY_ROUTE = `${INBOX_ROUTE}/center-agent/summary`;
@@ -114,6 +117,30 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         };
       },
     });
+  });
+  app.get(INBOX_GITHUB_ISSUES_ROUTE, async (c) => {
+    const query = inboxGitHubIssuesQuerySchema.safeParse(c.req.query());
+    if (!query.success) {
+      return invalidPayloadResponse(
+        c,
+        INBOX_GITHUB_ISSUES_ROUTE,
+        "GET",
+        query.error.issues[0]?.message
+      );
+    }
+    const response = await executeRpcRoute({
+      c,
+      method: "GET",
+      route: INBOX_GITHUB_ISSUES_ROUTE,
+      responseSchema: inboxGitHubIssuesResponseSchema,
+      execute: () =>
+        c.var.coreRpc.listInboxGitHubIssues({
+          ...query.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+    response.headers.set("Cache-Control", "private, no-store");
+    return response;
   });
   app.get(INBOX_FEED_ROUTE, (c) => {
     const query = inboxFeedQuerySchema.safeParse(c.req.query());

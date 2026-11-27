@@ -33,7 +33,6 @@ import {
 } from "#/query/organizations/organization-directory";
 import { OrganizationComputerDetail } from "./organization-computer-card";
 import {
-	formatOrganizationComputerPlatform,
 	matchOrganizationComputerRoute,
 	type OrganizationComputer,
 	type OrganizationComputerGroup,
@@ -266,7 +265,10 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 		<>
 			<AppPageHeader
 				description={sectionDescription}
-				eyebrow="Run agents locally"
+				eyebrow={resolveComputersSectionEyebrow(
+					selectedComputer,
+					selectedOrganizationComputer
+				)}
 				id="computers-heading"
 				title={sectionTitle}
 			/>
@@ -394,7 +396,6 @@ function ComputersPageBody(input: {
 		return (
 			<OrganizationComputerDetail
 				computer={input.selectedOrganizationComputer}
-				organizationId={input.organizationId}
 			/>
 		);
 	}
@@ -544,6 +545,15 @@ function resolveComputersSectionTitle(input: {
 	);
 }
 
+function resolveComputersSectionEyebrow(
+	selectedComputer: LocalRuntimeComputer | null,
+	selectedOrganizationComputer: OrganizationComputer | null
+): string | undefined {
+	return selectedOrganizationComputer && !selectedComputer
+		? undefined
+		: "Run agents locally";
+}
+
 function resolveComputersSectionDescription(input: {
 	hasResolutionError: boolean;
 	isResolutionPending: boolean;
@@ -564,9 +574,13 @@ function resolveComputersSectionDescription(input: {
 		return formatComputerTabPlatform(input.selectedComputer);
 	}
 	if (input.selectedOrganizationComputer) {
-		return formatOrganizationComputerPlatform(
-			input.selectedOrganizationComputer
-		);
+		const { serviceState } = input.selectedOrganizationComputer;
+		if (serviceState === "connected") {
+			return "Connected";
+		}
+		return serviceState === "not_connected"
+			? "Offline"
+			: "Connection unavailable";
 	}
 	if (input.hasResolutionError) {
 		return "OpenMeld could not load this Computer. Try again to refresh its details.";

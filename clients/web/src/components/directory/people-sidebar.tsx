@@ -40,7 +40,6 @@ import {
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarDisclosure } from "../app/use-sidebar-disclosure";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
-import type { OrganizationComputerGroup } from "../computers/organization-computers";
 import type { DirectoryHumanProfileRow } from "./directory-human-profile-model";
 import { HumanProfileItem } from "./human-profile-item";
 import {
@@ -70,9 +69,7 @@ const SORTS = [
 
 export function PeopleSidebar(input: {
 	members: readonly DirectoryHumanProfileRow[];
-	computerGroups: readonly OrganizationComputerGroup[];
 	selectedProfileId: string | null;
-	activityNowMs: number;
 	loading: boolean;
 	error: string | null;
 	onSelect: (id: string) => void;
@@ -100,10 +97,6 @@ export function PeopleSidebar(input: {
 		2
 	);
 	const { presentation } = useAppNavigationPresentation();
-	const computers = useMemo(
-		() => new Map(input.computerGroups.map((g) => [g.ownerUserId, g])),
-		[input.computerGroups]
-	);
 	const save = (people: PeopleSidebarPreferences) => {
 		if (sidebar.preferences) {
 			sidebar.save({ ...sidebar.preferences, people });
@@ -241,8 +234,6 @@ export function PeopleSidebar(input: {
 							{members.map((member, index) => (
 								<SortablePerson
 									actionsDisabled={sidebar.disabled || input.chatPending}
-									activityNowMs={input.activityNowMs}
-									computerGroup={computers.get(member.userId) ?? null}
 									disabled={sidebar.disabled}
 									index={index}
 									isActive={input.selectedProfileId === member.id}

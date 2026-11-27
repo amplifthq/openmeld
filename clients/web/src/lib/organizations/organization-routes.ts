@@ -424,6 +424,10 @@ export function isOrganizationScopedPath(pathname: string): boolean {
 	return ORGANIZATION_SCOPED_PATH_PATTERN.test(pathname);
 }
 
+export function buildOrganizationDashboardPath(orgSlug: string): string {
+	return `/o/${orgSlug}/dashboard`;
+}
+
 export function resolveOrganizationSwitchPath(input: {
 	currentPathname: string;
 	nextOrgSlug: string;
@@ -521,6 +525,8 @@ function resolveProductHomeSwitchPath(input: {
 }): string | null {
 	const [section, subsection] = input.pathSegments;
 	switch (section) {
+		case "dashboard":
+			return buildOrganizationDashboardPath(input.nextOrgSlug);
 		case "skills":
 			return buildOrganizationSkillsPath(input.nextOrgSlug);
 		case "files":

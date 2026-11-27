@@ -118,11 +118,13 @@ import {
   openMeldRemoteAgentLarkPlatformRegistrationAttempts,
   openMeldRemoteAgentMessageChannelEventIngress,
   openMeldRemoteAgentMessageChannelIdentityLinkTokens,
+  openMeldRemoteAgentMessageChannelUnaddressedMessages,
   organizationMessageChannelSetupRequests,
 } from "./message-channel.schema.ts";
 import { organizationOpportunities } from "./opportunity.schema.ts";
 import { organizationBindingAuthorizations } from "./organization-binding-authorization.schema.ts";
 import { organizationBindingAuthorizationPreferences } from "./organization-binding-authorization-preference.schema.ts";
+import { organizationDashboards } from "./organization-dashboard.schema.ts";
 import { organizationDocuments } from "./organization-document.schema.ts";
 import { organizationDocumentFolders } from "./organization-document-folder.schema.ts";
 import { centerAgentOrganizationDocumentOperations } from "./organization-document-operation.schema.ts";
@@ -1848,6 +1850,7 @@ export const coreSchema = {
   agentProfileCreationRequests,
   organizationBindingAuthorizations,
   organizationBindingAuthorizationPreferences,
+  organizationDashboards,
   organizationDocuments,
   organizationDocumentFolders,
   centerAgentOrganizationDocumentOperations,
@@ -1906,6 +1909,7 @@ export const coreSchema = {
   openMeldRemoteAgentLarkPlatformRegistrationAttempts,
   openMeldRemoteAgentMessageChannelEventIngress,
   openMeldRemoteAgentMessageChannelIdentityLinkTokens,
+  openMeldRemoteAgentMessageChannelUnaddressedMessages,
   openMeldRemoteAgentSlackEventIngress,
   openMeldRemoteAgentSlackThreadContextCursors,
   openMeldRemoteAgentSlackWorkspaceBindings,

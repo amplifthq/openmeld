@@ -122,8 +122,9 @@ export function InboxItemsList(input: {
 
 type InboxItemRowProps = {
 	titleOverride?: string;
+	todo?: boolean;
 	previewOverride?: string;
-	trailingActions?: ReactNode;
+	trailingActions?: ReactNode | ((openSource: () => void) => ReactNode);
 	contextActions?: ReactNode;
 	feedRow?: InboxFeedRow;
 	children?: ReactNode;
@@ -194,6 +195,19 @@ const ROW_DENSITY_STYLES = {
 	},
 };
 
+function resolveTrailingActions(
+	input: InboxItemRowProps,
+	onOpen: () => void,
+	defaultActions: ReactNode
+) {
+	if (typeof input.trailingActions === "function") {
+		return input.trailingActions(onOpen);
+	}
+	return (
+		input.trailingActions ?? (input.showItemActions ? defaultActions : null)
+	);
+}
+
 export function InboxItemRow(input: InboxItemRowProps) {
 	const densityStyles = ROW_DENSITY_STYLES[input.density];
 	const item = presentInboxItem(input.item, useConversationNames());
@@ -236,8 +250,7 @@ export function InboxItemRow(input: InboxItemRowProps) {
 			unread={unread}
 		/>
 	);
-	const trailingActions =
-		input.trailingActions ?? (input.showItemActions ? defaultActions : null);
+	const trailingActions = resolveTrailingActions(input, onOpen, defaultActions);
 
 	return (
 		<li>
@@ -246,7 +259,7 @@ export function InboxItemRow(input: InboxItemRowProps) {
 					<SharedLayoutItem
 						className={cn(
 							"group/inbox-row relative transition-colors motion-reduce:transition-none",
-							unread && "bg-foreground/[0.025]",
+							!input.todo && unread && "bg-foreground/[0.025]",
 							input.focused && "bg-muted/50"
 						)}
 						data-inbox-focused={input.focused ? "true" : undefined}
@@ -295,7 +308,7 @@ export function InboxItemRow(input: InboxItemRowProps) {
 											{input.titleOverride ?? item.title}
 										</span>
 										{unread ? <span className="sr-only">Unread.</span> : null}
-										<InboxItemBadges item={item} />
+										{input.todo ? null : <InboxItemBadges item={item} />}
 										{inlineInvitation ? (
 											<span className="text-muted-foreground text-xs">
 												<InboxTimestamp occurredAt={item.occurredAt} />
@@ -305,7 +318,7 @@ export function InboxItemRow(input: InboxItemRowProps) {
 									<span
 										className={cn(
 											"mt-1 line-clamp-2 break-words text-muted-foreground text-sm leading-5",
-											inlineInvitation && "hidden",
+											(inlineInvitation || input.todo) && "hidden",
 											densityStyles.preview
 										)}
 									>
@@ -318,7 +331,11 @@ export function InboxItemRow(input: InboxItemRowProps) {
 											inlineInvitation && "hidden"
 										)}
 									>
-										<InboxRowMetadata feedRow={input.feedRow} item={item} />
+										<InboxRowMetadata
+											feedRow={input.feedRow}
+											item={item}
+											todo={input.todo}
+										/>
 									</span>
 								</span>
 							</InboxItemSourceLink>
@@ -605,15 +622,19 @@ function InboxKindIcon(input: { item: InboxItem }): ReactNode {
 function InboxRowMetadata({
 	item,
 	feedRow,
+	todo,
 }: {
 	item: InboxItem;
 	feedRow?: InboxFeedRow;
+	todo?: boolean;
 }) {
 	return (
 		<>
-			{item.contextLabel ? (
+			{item.contextLabel || todo ? (
 				<>
-					<span className="min-w-0 truncate">{item.contextLabel}</span>
+					<span className="min-w-0 truncate">
+						{item.contextLabel ?? "OpenMeld"}
+					</span>
 					<span aria-hidden="true">·</span>
 				</>
 			) : null}
@@ -634,18 +655,22 @@ function InboxRowMetadata({
 	);
 }
 
-export function InboxTimestamp(input: { occurredAt: string }) {
+export function InboxTimestamp(input: {
+	occurredAt: string;
+	waiting?: boolean;
+}) {
 	const date = new Date(input.occurredAt);
 	return (
 		<TooltipHint content={INBOX_TIMESTAMP_TITLE_FORMATTER.format(date)}>
 			<time dateTime={date.toISOString()}>
-				{formatInboxTimestamp(input.occurredAt)}
+				{input.waiting ? "Waiting · " : null}
+				{formatInboxTimestamp(input.occurredAt, input.waiting)}
 			</time>
 		</TooltipHint>
 	);
 }
 
-function formatInboxTimestamp(occurredAt: string): string {
+function formatInboxTimestamp(occurredAt: string, waiting = false): string {
 	const occurredAtMs = new Date(occurredAt).getTime();
 	const elapsedMs = Math.max(0, Date.now() - occurredAtMs);
 	const minutes = Math.floor(elapsedMs / 60_000);
@@ -660,7 +685,7 @@ function formatInboxTimestamp(occurredAt: string): string {
 		return `${hours}h`;
 	}
 	const days = Math.floor(hours / 24);
-	if (days < 7) {
+	if (waiting || days < 7) {
 		return `${days}d`;
 	}
 	return INBOX_SHORT_DATE_FORMATTER.format(new Date(occurredAtMs));

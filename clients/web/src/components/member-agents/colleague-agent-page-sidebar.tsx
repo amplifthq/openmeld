@@ -61,7 +61,13 @@ export function ColleagueAgentPageSidebar(input: {
 			activeProfileId={selected.openMeldProfileId}
 			defaultProfileId={siblings[0]?.openMeldProfileId ?? null}
 			displayName={displayName}
-			emptyAction={<ColleagueAgentChatButton profile={selected} />}
+			emptyAction={
+				<ColleagueAgentChatButton
+					ownerUserId={selected.ownerUserId}
+					profileId={selected.openMeldProfileId}
+					profileName={selected.profileName}
+				/>
+			}
 			harnessKind={harnessKind}
 			memberAgentId={null}
 			onSelectProfile={input.onSelectProfile}
@@ -71,19 +77,23 @@ export function ColleagueAgentPageSidebar(input: {
 }
 
 /** The Agent page header's chat action, full width in the empty sidebar. */
-function ColleagueAgentChatButton(input: { profile: AuthProfileView }) {
+export function ColleagueAgentChatButton(input: {
+	ownerUserId: string;
+	profileId: string;
+	profileName: string;
+}) {
 	const { currentOrganization } = useAppOrganization();
 	const directMessage = useOpenDirectMessage({
 		organizationId: currentOrganization.id,
 		orgSlug: currentOrganization.slug,
 	});
 	const access = useColleagueAgentAccess({
-		ownerUserId: input.profile.ownerUserId ?? null,
-		profileId: input.profile.openMeldProfileId,
+		ownerUserId: input.ownerUserId,
+		profileId: input.profileId,
 	});
 	const reason = usePublicWakeabilityReason({
 		enabled: true,
-		profileId: input.profile.openMeldProfileId,
+		profileId: input.profileId,
 	});
 	// An offline computer still takes messages; they wait for it.
 	const unavailable =
@@ -91,8 +101,8 @@ function ColleagueAgentChatButton(input: { profile: AuthProfileView }) {
 			? formatPublicWakeabilityReason(reason)
 			: null;
 	const colleagueAccess = useColleagueAccessState({
-		ownerUserId: input.profile.ownerUserId ?? null,
-		profileId: input.profile.openMeldProfileId,
+		ownerUserId: input.ownerUserId,
+		profileId: input.profileId,
 	});
 	const openRequestSpace = useOpenColleagueRequestSpace();
 	// The label depends on the request state; wait for it instead of flashing.
@@ -103,23 +113,18 @@ function ColleagueAgentChatButton(input: { profile: AuthProfileView }) {
 	const label = resolveAgentChatActionLabel({
 		access,
 		colleagueAccess,
-		profileName: input.profile.profileName,
+		profileName: input.profileName,
 	});
 	const button = (
 		<Button
 			className="w-full"
-			disabled={
-				unavailable !== null ||
-				directMessage.pendingProfileId === input.profile.openMeldProfileId
-			}
+			disabled={unavailable !== null || directMessage.pendingProfileId !== null}
 			onClick={() => {
 				if (requestSpaceId) {
 					openRequestSpace(requestSpaceId);
 					return;
 				}
-				directMessage
-					.open(input.profile.openMeldProfileId)
-					.catch(console.error);
+				directMessage.open(input.profileId).catch(console.error);
 			}}
 			size="sm"
 			type="button"

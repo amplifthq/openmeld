@@ -18,7 +18,8 @@ export async function previewOrganizationMemberRemoval(input: {
 	}).requestJson({
 		method: "POST",
 		operation: "organization.member_removal.preview",
-		url: `${route}/preview`,
+		// Older gateways ignore this query option and return the existing plan.
+		url: `${route}/preview?includeDefaultSuccessor=1`,
 		body: JSON.stringify(
 			organizationMemberRemovalPreviewBodySchema.parse({
 				memberId: input.memberId,

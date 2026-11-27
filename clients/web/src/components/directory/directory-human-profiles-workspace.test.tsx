@@ -1,9 +1,5 @@
-import type {
-	LocalRuntimeComputer,
-	ModelCatalog,
-} from "@openmeld/schemas/types";
+import type { LocalRuntimeComputer } from "@openmeld/schemas/types";
 import {
-	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -28,28 +24,9 @@ vi.mock("./team-sidebar-header", () => ({
 	TeamSidebarHeaderAction: () => null,
 }));
 
-const ENABLED_LOCAL_AGENT_SUMMARY_PATTERN =
-	/Claude Code enabled, Codex enabled, Cursor enabled/;
-const LOCAL_AGENT_LOGO_TEST_ID_PATTERN = /^local-agent-logo-/;
-const TEST_MODEL_CATALOG: ModelCatalog = {
-	agentControllers: {
-		codex: {
-			defaultModelId: "gpt-5.6-sol",
-			models: [
-				{
-					displayName: "GPT-5.6 Sol",
-					id: "gpt-5.6-sol",
-					minCliVersion: null,
-					supportedReasoningLevels: ["low", "medium", "high"],
-					unavailable: false,
-				},
-			],
-		},
-	},
-	schemaVersion: 1,
-	updatedAt: "2026-09-03T00:00:00.000Z",
-};
-
+const STALE_CODEX_QUOTA = /Codex Weekly usage, 65% left, Stale/;
+const REMOVED_PROFILE_COPY =
+	/Learn about|Profile Report|Connected Channels|No Agents yet|Joined|MacBook/;
 afterEach(() => {
 	cleanup();
 	vi.useRealTimers();
@@ -93,6 +70,13 @@ vi.mock("../app/use-sidebar-preferences", () => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
+	useNavigate: () => vi.fn(),
+	useRouter: () => ({ preloadRoute: vi.fn().mockResolvedValue(undefined) }),
+	useLocation: ({
+		select,
+	}: {
+		select: (location: { searchStr: string }) => unknown;
+	}) => select({ searchStr: "" }),
 	Link: ({
 		children,
 		search,
@@ -165,7 +149,9 @@ vi.mock("#/components/app/app-full-width-layout", () => ({
 		children,
 		showMainHeader,
 		mainSidebar,
+		mainHeader,
 	}: {
+		mainHeader?: ReactNode;
 		children: ReactNode;
 		showMainHeader?: boolean;
 		mainSidebar?: { content: ReactNode };
@@ -173,6 +159,7 @@ vi.mock("#/components/app/app-full-width-layout", () => ({
 		<div>
 			{mainSidebar?.content}
 			<main data-show-main-header={showMainHeader ? "true" : "false"}>
+				{showMainHeader ? mainHeader : null}
 				{children}
 			</main>
 		</div>
@@ -194,22 +181,19 @@ vi.mock("#/components/directory/directory-human-profile-avatar", () => ({
 	),
 }));
 
-vi.mock("#/components/computers/computers-picker", () => ({
-	ComputersPicker: (props: {
-		computerGroups: readonly OrganizationComputerGroup[];
-		profileId?: string;
+const openColleagueAgent = vi.hoisted(() => vi.fn());
+vi.mock("#/components/member-agents/colleague-agent-page-sidebar", () => ({
+	ColleagueAgentChatButton: (props: {
+		ownerUserId: string;
+		profileId: string;
+		profileName: string;
 	}) => (
-		<div
-			data-profile-id={props.profileId}
-			data-testid="profile-computers-picker"
+		<button
+			onClick={() => openColleagueAgent(props.ownerUserId, props.profileId)}
+			type="button"
 		>
-			{props.computerGroups[0]?.computers.map((computer) => (
-				<span key={computer.routeId}>{computer.deviceDisplayName}</span>
-			))}
-			{props.computerGroups[0]?.isCurrentUser ? (
-				<button type="button">Add a Computer</button>
-			) : null}
-		</div>
+			Chat with {props.profileName}
+		</button>
 	),
 }));
 
@@ -218,6 +202,16 @@ vi.mock("./center-agent-item", () => ({
 }));
 
 describe("DirectoryHumanProfilesWorkspace", () => {
+	it("links back to the current Team from selected and missing members", () => {
+		for (const selectedProfileId of ["profile-grace", "missing-member"]) {
+			const result = renderWorkspace({ selectedProfileId });
+			expect(
+				screen.getByRole("link", { name: "Back to Team" }).getAttribute("href")
+			).toBe("/o/acme/people");
+			result.unmount();
+		}
+	});
+
 	it("shows known people while personal sidebar settings are still loading", () => {
 		sidebarPending.value = true;
 		renderWorkspace({
@@ -510,111 +504,42 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		).toEqual(["Online", "Offline"]);
 	});
 
-	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", async () => {
-		vi.useFakeTimers();
-		vi.setSystemTime(new Date("2026-08-28T03:00:00.000Z"));
-		renderWorkspace();
+	it("keeps each People row focused on opening the member profile", () => {
+		const onSelectProfile = vi.fn();
+		renderWorkspace({ onSelectProfile });
 
 		const sidebar = screen.getByRole("navigation", { name: "People" });
-		expect(within(sidebar).getByText("Felix")).toBeTruthy();
-		expect(within(sidebar).queryByText("felix@example.com")).toBeNull();
-		const felixItem = screen.getByRole("button", {
+		const member = within(sidebar).getByRole("button", {
 			name: "Open Felix's profile",
 		});
-		const heading = felixItem.querySelector(
-			'[data-slot="human-profile-sidebar-heading"]'
-		);
-		expect(heading).not.toBeNull();
+		const row = member.parentElement;
+		if (!row) {
+			throw new Error("Expected a member list item.");
+		}
+		fireEvent.mouseEnter(row);
+		expect(within(row).getAllByRole("button")).toEqual([member]);
+		expect(within(row).getByText("Felix")).toBeTruthy();
+		expect(within(row).queryByText("felix@example.com")).toBeNull();
 		expect(
-			within(heading as HTMLElement).getByRole("img", {
-				name: "Computer connected",
-			})
+			within(row).getByRole("img", { name: "Computer connected" })
 		).toBeTruthy();
-		expect(felixItem.textContent).not.toContain("Computer connected");
-		expect(within(felixItem).queryByText("Owner")).toBeNull();
-		const channelAccounts = felixItem.querySelector(
-			'[data-slot="human-profile-channel-identities"]'
-		);
-		expect(channelAccounts).toBeNull();
-		const localAgents = within(sidebar).getByRole("img", {
-			name: ENABLED_LOCAL_AGENT_SUMMARY_PATTERN,
-		});
-		const activityAndAgents = felixItem.querySelector(
-			'[data-slot="human-profile-activity-and-local-agents"]'
-		);
-		expect(activityAndAgents).not.toBeNull();
-		expect(activityAndAgents?.contains(localAgents)).toBe(true);
-		expect(
-			within(activityAndAgents as HTMLElement).queryByText("yesterday")
-		).toBeNull();
-		expect(felixItem.textContent).not.toContain("Last active");
-		expect(localAgents.classList.contains("justify-start")).toBe(true);
-		const localAgentLogos = within(localAgents).getAllByTestId(
-			LOCAL_AGENT_LOGO_TEST_ID_PATTERN
-		);
-		expect(localAgentLogos).toHaveLength(4);
-		for (const logo of localAgentLogos) {
-			expect(logo.dataset.variant).toBeUndefined();
-		}
-		const localAgentTriggers = within(localAgents).getAllByTestId(
-			"human-profile-local-agent"
-		);
-		const tooltipLabels: string[] = [];
-		for (const trigger of localAgentTriggers) {
-			fireEvent.mouseEnter(trigger);
-			fireEvent.mouseMove(trigger);
-			await act(() => vi.advanceTimersByTimeAsync(500));
-			tooltipLabels.push(screen.getByRole("tooltip").textContent ?? "");
-			fireEvent.mouseLeave(trigger);
-			await act(() => vi.advanceTimersByTimeAsync(200));
-			expect(trigger.classList.contains("ring-1")).toBe(false);
-			expect(trigger.classList.contains("border")).toBe(false);
-			const logo = trigger.querySelector(
-				'[data-slot="human-profile-local-agent-logo"]'
-			);
-			expect(logo?.classList.contains("bg-sidebar")).toBe(true);
-			expect(logo?.classList.contains("before:bg-sidebar-accent")).toBe(true);
-			expect(logo?.classList.contains("overflow-hidden")).toBe(true);
-			expect(logo?.classList.contains("border")).toBe(false);
-			expect(logo?.classList.contains("ring-1")).toBe(false);
-			expect(
-				logo?.classList.contains("group-hover/local-agent:-translate-y-1")
-			).toBe(true);
-			expect(
-				logo?.classList.contains("group-hover/local-agent:scale-[1.14]")
-			).toBe(true);
-			expect(logo?.classList.contains("motion-reduce:transform-none")).toBe(
-				true
-			);
-			expect(logo?.classList.contains("motion-reduce:transition-none")).toBe(
-				true
-			);
-		}
-		expect(tooltipLabels).toEqual(
-			expect.arrayContaining(["Claude Code", "Codex", "Cursor", "Grok"])
-		);
-		const overflow = within(localAgents).getByText("+2").parentElement;
-		if (!overflow) {
-			throw new Error("Expected the Local Agent overflow indicator.");
-		}
-		expect(overflow.classList.contains("bg-sidebar")).toBe(true);
-		expect(overflow.classList.contains("before:bg-sidebar-accent")).toBe(true);
-		expect(overflow.classList.contains("overflow-hidden")).toBe(true);
-		expect(overflow.classList.contains("ring-1")).toBe(false);
-		expect(overflow.classList.contains("border")).toBe(false);
-		expect(
-			within(felixItem).getByRole("img", { name: "Computer connected" })
-		).toBeTruthy();
-		const graceItem = screen.getByRole("button", {
-			name: "Open Grace Hopper's profile",
-		});
-		expect(
-			graceItem.querySelector('[data-slot="human-profile-channel-identities"]')
-		).toBeNull();
-		expect(
-			within(screen.getByRole("main")).getAllByText("felix@example.com")
-		).toHaveLength(1);
-		expect(screen.getByRole("main").dataset.showMainHeader).toBe("false");
+		expect(within(row).queryByTestId("human-profile-local-agent")).toBeNull();
+		fireEvent.click(member);
+		expect(onSelectProfile).toHaveBeenCalledWith("profile-current");
+	});
+
+	it("makes each Team card a keyboard tab stop that opens the member profile", () => {
+		const onSelectProfile = vi.fn();
+		renderWorkspace({ onSelectProfile, selectedProfileId: null });
+
+		const cards = screen
+			.getAllByRole("button", { name: "Open Felix's profile" })
+			.filter((button) => button.closest('[role="listitem"]'));
+		expect(cards).toHaveLength(1);
+		const card = cards[0] as HTMLElement;
+		expect(card.tabIndex).toBe(0);
+		fireEvent.click(card);
+		expect(onSelectProfile).toHaveBeenCalledWith("profile-current");
 	});
 
 	it("keeps a single clipped row structure when the resizable sidebar becomes narrow", () => {
@@ -667,217 +592,118 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(screen.queryByTestId("human-profile-details-drawer")).toBeNull();
 	});
 
-	it("keeps the selected Human Profile on a zero-Computer Add flow", () => {
+	it("puts connected local agents, actual quota, and chat on a teammate's profile", () => {
+		const group = buildTeammateComputerGroup();
 		renderWorkspace({
-			computerGroups: [{ ...buildCurrentComputerGroup(), computers: [] }],
-		});
-
-		const picker = screen.getByTestId("profile-computers-picker");
-		expect(picker.getAttribute("data-profile-id")).toBe("profile-current");
-		expect(
-			within(picker).getByRole("button", { name: "Add a Computer" })
-		).toBeTruthy();
-	});
-
-	it("keeps Learn About and Profile Report actions in Profile Detail", () => {
-		const onResearch = vi.fn();
-		renderWorkspace({ onResearch });
-
-		fireEvent.click(screen.getByRole("button", { name: "Learn about Felix" }));
-		expect(onResearch).toHaveBeenCalledWith("user-current");
-		expect(screen.getByRole("link", { name: "Open report" })).toBeTruthy();
-	});
-
-	it("keeps a Documents failure visible and retryable in Profile Report", () => {
-		const onRetryProfileReports = vi.fn();
-		renderWorkspace({
-			onRetryProfileReports,
-			profileReportsErrorMessage:
-				"Report links are unavailable because Documents could not be loaded.",
-		});
-
-		expect(screen.getByRole("alert").textContent).toContain(
-			"Report links are unavailable because Documents could not be loaded."
-		);
-		expect(screen.queryByText("Profile Report status unavailable")).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-		expect(onRetryProfileReports).toHaveBeenCalledOnce();
-	});
-
-	it("groups low-emphasis profile actions at the trailing edge of the hero", () => {
-		renderWorkspace();
-
-		const hero = screen.getByTestId("human-profile-hero");
-		const actions = within(hero).getByTestId("human-profile-header-actions");
-		expect(
-			within(actions)
-				.getAllByRole("button")
-				.map((button) => button.textContent)
-		).toEqual(["Learn about Felix", "Edit profile"]);
-		for (const action of within(actions).getAllByRole("button")) {
-			expect(action.classList.contains("border-border")).toBe(true);
-			expect(action.classList.contains("bg-background")).toBe(true);
-			expect(action.classList.contains("bg-primary")).toBe(false);
-		}
-		expect(screen.queryByTestId("human-profile-primary-actions")).toBeNull();
-	});
-
-	it("keeps joined date beside email without a duplicate member account section", () => {
-		renderWorkspace();
-
-		const metadata = screen.getByTestId("human-profile-metadata");
-		expect(metadata.textContent).toBe("felix@example.comJoined Aug 1, 2026");
-		const separator = metadata.querySelector(
-			'[data-slot="human-profile-metadata-separator"]'
-		);
-		expect(separator).toBeTruthy();
-		expect(separator?.parentElement?.textContent).toBe("Joined Aug 1, 2026");
-		expect(
-			separator?.parentElement?.classList.contains("whitespace-nowrap")
-		).toBe(true);
-		expect(screen.queryByText("Member account")).toBeNull();
-		expect(screen.queryByText("Organization role")).toBeNull();
-	});
-
-	it("shows a single-row scrollable Agent picker with links to every Agent", () => {
-		renderWorkspace({
+			selectedProfileId: "profile-grace",
+			computerGroups: [group],
 			members: [
 				buildMember({
+					current: false,
 					agentProfiles: [
 						{
 							agentControllerRef: "builtin:codex",
 							avatarImageUrl: null,
-							id: "agent-sol",
-							modelSelection: { modelId: "gpt-5.6-sol" },
-							modelSelectionIsKnown: true,
-							name: "Felix Sol",
-							path: "/o/acme/agents?profileId=agent-sol",
-						},
-						{
-							agentControllerRef: "builtin:codex",
-							avatarImageUrl: null,
-							id: "agent-default",
+							id: "grace-codex",
 							modelSelection: null,
-							modelSelectionIsKnown: true,
-							name: "Felix Default",
-							path: "/o/acme/agents?profileId=agent-default",
+							modelSelectionIsKnown: false,
+							name: "Grace's Codex",
+							path: "/o/acme/agents?profileId=grace-codex",
 						},
 					],
-					current: true,
 				}),
 			],
 		});
-
-		expect(screen.getByRole("heading", { name: "Agents" })).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Manage Agents" })).toBeTruthy();
-		const agentStrip = screen.getByLabelText("Felix's Agents");
-		expect(
-			agentStrip
-				.closest('[data-slot="scroll-area-viewport"]')
-				?.getAttribute("data-orientation")
-		).toBe("horizontal");
-		expect(agentStrip.className).toContain("flex");
-		expect(
-			within(agentStrip)
-				.getByText("Felix Sol")
-				.closest("a")
-				?.getAttribute("href")
-		).toBe("/o/acme/agents?profileId=agent-sol");
-		expect(
-			within(agentStrip)
-				.getByText("Felix Default")
-				.closest("a")
-				?.getAttribute("href")
-		).toBe("/o/acme/agents?profileId=agent-default");
-		expect(
-			within(agentStrip).getByText("Codex · GPT-5.6 Sol · model default")
-		).toBeTruthy();
-		// With no saved model the harness picks one: only the controller shows.
-		expect(within(agentStrip).getByText("Codex")).toBeTruthy();
-	});
-
-	it("makes Chat with the primary action for another member", () => {
-		renderWorkspace({ selectedProfileId: "profile-grace" });
-
-		const actions = within(
-			screen.getByTestId("human-profile-hero")
-		).getByTestId("human-profile-header-actions");
-		const [chatButton, researchButton] = within(actions).getAllByRole("button");
-		expect(chatButton?.textContent).toBe("Chat with Grace Hopper");
-		expect(chatButton?.classList.contains("bg-primary")).toBe(true);
-		expect(chatButton?.classList.contains("h-7")).toBe(true);
-		expect(researchButton?.textContent).toBe("Learn about Grace Hopper");
-		expect(researchButton?.classList.contains("bg-background")).toBe(true);
-	});
-
-	it("keeps a member-scoped research failure beside its retry action", () => {
-		renderWorkspace({
-			memberResearchError: {
-				message: "Center Agent is unavailable for this member.",
-				subjectUserId: "user-current",
-			},
-		});
-
-		expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
-		expect(screen.getByRole("alert").textContent).toBe(
-			"Center Agent is unavailable for this member."
+		const detail = within(screen.getByTestId("human-profile-details"));
+		expect(detail.getByText("Connected")).toBeTruthy();
+		expect(detail.getByText("65% left")).toBeTruthy();
+		expect(detail.getByText("grace@example.com")).toBeTruthy();
+		fireEvent.click(
+			detail.getByRole("button", { name: "Chat with Grace's Codex" })
 		);
-	});
-
-	it("does not turn an unresolved Computer projection into an empty state", () => {
-		renderWorkspace({
-			directoryError: "Computer inventory could not be loaded.",
-			selectedProfileId: "profile-grace",
-		});
-
-		expect(screen.getByRole("alert").textContent).toBe(
-			"Computer inventory could not be loaded."
+		expect(openColleagueAgent).toHaveBeenCalledWith(
+			"user-grace",
+			"grace-codex"
 		);
-		expect(screen.queryByText("No computers connected.")).toBeNull();
+		expect(detail.queryByText(REMOVED_PROFILE_COPY)).toBeNull();
 	});
 
-	it("shows pending Computer projection state before confirmed emptiness", () => {
+	it("shows a detected harness with quota but does not grant chat to an unshared agent", () => {
+		const onOpenDirectMessage = vi.fn().mockResolvedValue(undefined);
 		renderWorkspace({
-			directoryIsPending: true,
 			selectedProfileId: "profile-grace",
+			computerGroups: [buildTeammateComputerGroup()],
+			onOpenDirectMessage,
 		});
-
+		const detail = within(screen.getByTestId("human-profile-details"));
+		expect(detail.getByText("65% left")).toBeTruthy();
 		expect(
-			screen.getByRole("status", { name: "Loading computers" })
-		).toBeTruthy();
-		expect(screen.queryByText("No computers connected.")).toBeNull();
-	});
-
-	it.each([
-		{ directoryIsPending: true },
-		{ directoryError: "Team inventory unavailable" },
-	])("does not block the owner's verified Computers on team inventory: %j", (query) => {
-		renderWorkspace(query);
-		expect(screen.getByTestId("profile-computers-picker")).toBeTruthy();
-		expect(screen.getByRole("button", { name: "Add a Computer" })).toBeTruthy();
-		expect(
-			screen.queryByRole("status", { name: "Loading computers" })
+			detail.queryByRole("button", { name: "Chat with Codex" })
 		).toBeNull();
-		expect(screen.queryByText("Team inventory unavailable")).toBeNull();
-	});
-
-	it("uses the current Computer projection in details while keeping the display cache", () => {
-		renderWorkspace({
-			strictComputerGroups: [{ ...buildCurrentComputerGroup(), computers: [] }],
-		});
-		expect(screen.getByTestId("profile-computers-picker")).toBeTruthy();
-		expect(screen.queryByText("Felix's MacBook Pro")).toBeNull();
-	});
-
-	it("shows an owner inventory failure with a retry instead of a false empty or Add flow", () => {
-		const onRetryComputers = vi.fn();
-		renderWorkspace({ inventoryError: true, onRetryComputers });
-		expect(screen.getByRole("alert").textContent).toBe(
-			"Your computers could not be loaded."
+		fireEvent.click(
+			detail.getByRole("button", {
+				name: "Message Grace Hopper about sharing Codex",
+			})
 		);
-		expect(screen.queryByTestId("profile-computers-picker")).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-		expect(onRetryComputers).toHaveBeenCalledOnce();
+		expect(onOpenDirectMessage).toHaveBeenCalledWith("profile-grace");
+	});
+
+	it("labels offline quota as stale rather than treating it as live capacity", () => {
+		const group = buildTeammateComputerGroup();
+		for (const computer of group.computers) {
+			computer.serviceState = "not_connected";
+		}
+		renderWorkspace({
+			selectedProfileId: "profile-grace",
+			computerGroups: [group],
+		});
+		const detail = within(screen.getByTestId("human-profile-details"));
+		expect(detail.getByText("Offline")).toBeTruthy();
+		expect(detail.getByText("65% left")).toBeTruthy();
+		expect(detail.getByRole("meter", { name: STALE_CODEX_QUOTA })).toBeTruthy();
+	});
+
+	it("does not disclose a last-known quota after the current Computer projection fails", () => {
+		renderWorkspace({
+			selectedProfileId: "profile-grace",
+			computerGroups: [buildTeammateComputerGroup()],
+			strictComputerGroups: [],
+			directoryError: "Failed",
+		});
+		const detail = within(screen.getByTestId("human-profile-details"));
+		expect(detail.getByRole("alert").textContent).toBe(
+			"Connection unavailable"
+		);
+		expect(detail.queryByText("65% left")).toBeNull();
+	});
+
+	it("does not show empty catalog, management information, or research prompts for a teammate", () => {
+		renderWorkspace({ selectedProfileId: "profile-grace" });
+		const detail = within(screen.getByTestId("human-profile-details"));
+		expect(
+			detail.getByRole("button", { name: "Chat with Grace Hopper" })
+		).toBeTruthy();
+		expect(detail.queryByRole("heading", { name: "Local Agents" })).toBeNull();
+		expect(detail.queryByText(REMOVED_PROFILE_COPY)).toBeNull();
+	});
+
+	it("keeps the owner's Agent management reachable without exposing a device settings panel", () => {
+		renderWorkspace();
+		const detail = within(screen.getByTestId("human-profile-details"));
+		expect(detail.getByRole("link", { name: "Manage" })).toBeTruthy();
+		expect(detail.getByRole("button", { name: "Edit profile" })).toBeTruthy();
+		expect(detail.queryByText("Felix's MacBook Pro")).toBeNull();
+	});
+
+	it("shows a pending connection instead of a false empty catalog", () => {
+		renderWorkspace({
+			selectedProfileId: "profile-grace",
+			directoryIsPending: true,
+		});
+		expect(
+			within(screen.getByTestId("human-profile-details")).getByRole("status")
+				.textContent
+		).toBe("Checking connection…");
 	});
 
 	it("explains a missing personal Human Profile identity in detail", () => {
@@ -899,18 +725,14 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 function renderWorkspace(
 	input: {
 		inventoryError?: boolean;
-		onRetryComputers?: () => void;
+		onOpenDirectMessage?: (id: string) => Promise<void>;
 		computerGroups?: readonly OrganizationComputerGroup[];
 		strictComputerGroups?: readonly OrganizationComputerGroup[];
 		currentNotice?: string;
 		directoryError?: string | null;
 		directoryIsPending?: boolean;
 		members?: readonly DirectoryHumanProfileRow[];
-		memberResearchError?: { message: string; subjectUserId: string } | null;
-		onResearch?: (userId: string) => void;
-		onRetryProfileReports?: () => void;
 		onSelectProfile?: (profileId: string) => void;
-		profileReportsErrorMessage?: string | null;
 		selectedProfileId?: string | null;
 	} = {}
 ) {
@@ -920,31 +742,20 @@ function renderWorkspace(
 	];
 	return render(
 		<DirectoryHumanProfilesWorkspace
-			activeBatch={null}
 			canCreateProfile={false}
 			computerGroups={input.computerGroups ?? [buildCurrentComputerGroup()]}
 			directoryError={input.directoryError ?? null}
 			directoryIsPending={input.directoryIsPending ?? false}
 			emptyMessage="No Human Profiles"
 			errorMessage={null}
-			latestBatch={null}
-			memberResearchError={input.memberResearchError ?? null}
 			members={members}
-			modelCatalog={TEST_MODEL_CATALOG}
 			onCreateProfile={vi.fn()}
-			onDisconnectConnectedAccount={vi.fn()}
-			onOpenDirectMessage={vi.fn().mockResolvedValue(undefined)}
-			onRequestChannelSetup={vi.fn().mockResolvedValue(undefined)}
-			onResearch={input.onResearch ?? vi.fn()}
-			onResearchAll={vi.fn()}
-			onRetryProfileReports={input.onRetryProfileReports ?? vi.fn()}
+			onOpenDirectMessage={
+				input.onOpenDirectMessage ?? vi.fn().mockResolvedValue(undefined)
+			}
 			onSelectProfile={input.onSelectProfile ?? vi.fn()}
 			orgSlug="acme"
-			pendingResearch={undefined}
-			profileReportsAreRetrying={false}
-			profileReportsErrorMessage={input.profileReportsErrorMessage ?? null}
 			recovery={buildRecovery(input)}
-			researchErrorMessage={null}
 			selectedProfileId={
 				input.selectedProfileId === undefined
 					? "profile-current"
@@ -954,7 +765,6 @@ function renderWorkspace(
 				context: "organization",
 				directMessage: "idle",
 				profiles: "ready",
-				research: "idle",
 			}}
 			strictComputerGroups={input.strictComputerGroups}
 		/>
@@ -1026,6 +836,64 @@ function buildMember(input: {
 		profileStatus: "active",
 		role: input.current ? "owner" : "admin",
 		userId,
+	};
+}
+
+function buildTeammateComputerGroup(): OrganizationComputerGroup {
+	const group = buildCurrentComputerGroup();
+	const computer = group.computers[0];
+	if (!computer) {
+		throw new Error("Fixture is missing a computer");
+	}
+	return {
+		...group,
+		isCurrentUser: false,
+		ownerUserId: "user-grace",
+		ownerLabel: "Grace Hopper",
+		computers: [
+			{
+				...computer,
+				isOwnedByCurrentUser: false,
+				ownerUserId: "user-grace",
+				ownerLabel: "Grace Hopper",
+				ownedComputer: null,
+				serviceState: "connected",
+				localAgents: [
+					{
+						agentControllerRef: "builtin:codex",
+						enabled: true,
+						status: "ready",
+						details: {
+							status: "ready",
+							capabilities: {
+								approvals: true,
+								cancel: true,
+								interrupt: true,
+								modelSelection: true,
+								nativeEventStream: true,
+								permissionModes: true,
+								structuredUserInput: false,
+							},
+							checkedAt: "2026-11-24T20:00:00.000Z",
+							launch: { installChoiceCount: 1, status: "ready" },
+							models: [],
+							nativeInterface: "codex-app-server",
+							version: null,
+							usageLimits: [
+								{
+									key: "codex:weekly",
+									label: "Weekly usage",
+									status: "available",
+									usedPercent: 35,
+									resetsAt: null,
+									observedAt: "2026-11-24T20:00:00.000Z",
+								},
+							],
+						},
+					},
+				],
+			},
+		],
 	};
 }
 

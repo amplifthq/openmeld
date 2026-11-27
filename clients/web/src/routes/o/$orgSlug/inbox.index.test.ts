@@ -11,7 +11,7 @@ describe("Inbox index route", () => {
 			unread: true,
 		});
 		expect(validate({ view: "unread" })).toMatchObject({
-			view: undefined,
+			view: "all",
 			unread: true,
 		});
 		expect(validate({ unread: "false" }).unread).toBeUndefined();
@@ -42,6 +42,14 @@ describe("Inbox index route", () => {
 			"agents",
 			undefined
 		);
+	});
+
+	it("uses one TODO feed even when an old URL selects Activity", () => {
+		const loaderDeps = Route.options.loaderDeps;
+		expect(loaderDeps?.({ search: {} })).toMatchObject({ category: "todo" });
+		expect(loaderDeps?.({ search: { view: "all" } })).toMatchObject({
+			category: "todo",
+		});
 	});
 
 	it("drops invalid item and view search values", () => {

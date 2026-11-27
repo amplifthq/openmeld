@@ -7,6 +7,7 @@ import type {
 } from "@openmeld/schemas/types";
 
 export type OrganizationComputerAgent = {
+	agentControllerRef?: string;
 	profileId: string;
 	profileName: string;
 };
@@ -327,6 +328,9 @@ function resolveReportedMemberComputers(input: {
 	const agentsByDeviceId = new Map<string, OrganizationComputerAgent[]>();
 	for (const profile of input.profiles) {
 		appendComputerAgent(agentsByDeviceId, profile.readiness.routeDeviceId, {
+			...(profile.readiness.agentControllerRef
+				? { agentControllerRef: profile.readiness.agentControllerRef }
+				: {}),
 			profileId: profile.profileId,
 			profileName: profile.profileName,
 		});
@@ -386,6 +390,9 @@ function resolveMemberComputers(input: {
 		const deviceId = profile.readiness.routeDeviceId;
 		const existing = computersByDeviceId.get(deviceId);
 		const agent = {
+			...(profile.readiness.agentControllerRef
+				? { agentControllerRef: profile.readiness.agentControllerRef }
+				: {}),
 			profileId: profile.profileId,
 			profileName: profile.profileName,
 		};

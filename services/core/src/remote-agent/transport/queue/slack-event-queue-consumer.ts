@@ -1,12 +1,24 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { remoteAgentSlackEventQueueMessageSchema } from "@openmeld/schemas";
 import type { RemoteAgentSlackEventQueueMessage } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../../lib/bindings";
 import { emitCoreCloudflareRuntimeEvidence } from "../../../shared/observability/cloudflare-runtime-evidence";
+import {
+  isUnaddressedChannelIntakeEnabled,
+  isUnaddressedChannelIntakeEnabledForConversation,
+  settleUnaddressedChannelMessagesAnsweredByMention,
+} from "../../application/message-channel-unaddressed-intake-service";
 import { RemoteAgentSlackSubmissionOutcomeUnknownError } from "../../application/native-delivery-service";
 import {
   processRemoteAgentSlackEvent,
   REMOTE_AGENT_SLACK_EVENT_MAX_QUEUE_ATTEMPTS,
 } from "../../application/slack-signal-service";
+import {
+  observeUnaddressedSlackChannelMessage,
+  readUnaddressedSlackWorkspace,
+  settleUnaddressedSlackMessagesForMention,
+} from "../../application/slack-unaddressed-message-service";
+import { recordUnaddressedChannelMessage } from "../../infrastructure/postgresql/message-channel-unaddressed-message-repo";
 
 const REMOTE_AGENT_SLACK_EVENT_RETRY_DELAY_SECONDS = 5;
 const REMOTE_AGENT_SLACK_EVENT_REDRIVE_DELAY_SECONDS = 60;
@@ -29,6 +41,10 @@ export async function handleRemoteAgentSlackEventQueueMessage(input: {
   );
   if (!parsed.success) {
     return false;
+  }
+
+  if (await handleUnaddressedSlackChannelMessage(input, parsed.data)) {
+    return true;
   }
 
   const startedAt = Date.now();
@@ -141,6 +157,97 @@ export async function handleRemoteAgentSlackEventQueueMessage(input: {
     });
     return true;
   }
+}
+
+/**
+ * Archives an ordinary channel message nobody addressed to the app. Returns
+ * false for every other event, which then takes the addressed Slack path.
+ */
+async function handleUnaddressedSlackChannelMessage(
+  input: { env: CoreBindings; message: Message<unknown> },
+  queueMessage: RemoteAgentSlackEventQueueMessage
+): Promise<boolean> {
+  if (!isUnaddressedChannelIntakeEnabled(input.env)) {
+    return false;
+  }
+  const eventId = queueMessage.payload.event_id ?? null;
+  // A real app mention owns the turn for what it covers. Settle the waiting
+  // messages before the turn starts; if that keeps failing, the mention still
+  // gets its turn and the waiting batch may start a second one.
+  try {
+    await settleUnaddressedSlackMessagesForMention(
+      {
+        getDb: () => getPostgresDatabase(input.env),
+        nowMs: Date.now(),
+        payload: queueMessage.payload,
+      },
+      { settle: settleUnaddressedChannelMessagesAnsweredByMention }
+    );
+  } catch (error) {
+    const finalAttempt =
+      input.message.attempts >= REMOTE_AGENT_SLACK_EVENT_MAX_QUEUE_ATTEMPTS;
+    console.warn("[core.remote_agent.slack_event.unaddressed_settle_failed]", {
+      attempts: input.message.attempts,
+      error: toErrorMessage(error),
+      eventId,
+      proceeding: finalAttempt,
+    });
+    if (!finalAttempt) {
+      input.message.retry({
+        delaySeconds: REMOTE_AGENT_SLACK_EVENT_RETRY_DELAY_SECONDS,
+      });
+      return true;
+    }
+  }
+  try {
+    const observation = await observeUnaddressedSlackChannelMessage(
+      {
+        getDb: () => getPostgresDatabase(input.env),
+        isConversationAllowed: (channel) =>
+          isUnaddressedChannelIntakeEnabledForConversation({
+            conversationKey: channel,
+            env: input.env,
+            provider: "slack",
+          }),
+        nowMs: Date.now(),
+        payload: queueMessage.payload,
+        queue: input.env.OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE,
+      },
+      {
+        readWorkspace: readUnaddressedSlackWorkspace,
+        recordMessage: recordUnaddressedChannelMessage,
+      }
+    );
+    if (!observation) {
+      return false;
+    }
+    input.message.ack();
+    console.info("[core.remote_agent.slack_event.unaddressed_message]", {
+      eventId,
+      reasonCode: "reasonCode" in observation ? observation.reasonCode : null,
+      status: observation.status,
+    });
+  } catch (error) {
+    // Archiving is best effort: nobody is waiting for a reply to this
+    // message, so a message that still cannot be archived is dropped.
+    const finalAttempt =
+      input.message.attempts >= REMOTE_AGENT_SLACK_EVENT_MAX_QUEUE_ATTEMPTS;
+    if (finalAttempt) {
+      input.message.ack();
+    } else {
+      input.message.retry({
+        delaySeconds: REMOTE_AGENT_SLACK_EVENT_RETRY_DELAY_SECONDS,
+      });
+    }
+    console.warn("[core.remote_agent.slack_event.unaddressed_message_failed]", {
+      attempts: input.message.attempts,
+      dropped: finalAttempt,
+      error: toErrorMessage(error),
+      eventId,
+      gatewayRequestId: queueMessage.gatewayRequestId,
+    });
+  }
+  return true;
 }
 
 async function enqueueRemoteAgentSlackEventRedrive(
