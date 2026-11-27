@@ -344,24 +344,125 @@ describe("unaddressed Channel message intake", () => {
     }
   });
 
-  it("routes a steady stream once its oldest message has waited the maximum time", async () => {
+  it("routes a steady stream exactly when its oldest message has waited the maximum time", async () => {
     const fixture = await createFixture({ route: "new_request" });
     try {
-      const stepMs = UNADDRESSED_CHANNEL_QUIET_WINDOW_MS - 1000;
-      const count = Math.ceil(UNADDRESSED_CHANNEL_MAX_WAIT_MS / stepMs) + 1;
-      for (let index = 0; index < count; index += 1) {
+      // Each message arrives inside the previous one's quiet window.
+      const offsets = [0, 7000, 14_000, 21_000, 27_000];
+      for (const [index, offset] of offsets.entries()) {
         await fixture.observe({
           id: `om_${index}`,
           sender: "ou_ari",
           text: `Detail ${index}`,
-          atMs: START_MS + index * stepMs,
+          atMs: START_MS + offset,
         });
       }
-      // The newest message is still inside its quiet window.
-      const nowMs = START_MS + (count - 1) * stepMs + 1000;
+      const deadlineMs = START_MS + UNADDRESSED_CHANNEL_MAX_WAIT_MS;
+      // One millisecond early the newest message is still in its quiet
+      // window and the maximum wait has not ended.
       await expect(
-        fixture.flush({ scheduledBy: START_MS, atMs: nowMs })
+        fixture.flush({ scheduledBy: START_MS + 27_000, atMs: deadlineMs - 1 })
+      ).resolves.toEqual({ status: "rescheduled" });
+      expect(fixture.submitRequest).not.toHaveBeenCalled();
+      await expect(
+        fixture.flush({ scheduledBy: START_MS + 27_000, atMs: deadlineMs })
       ).resolves.toMatchObject({ status: "routed" });
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("stops without submitting when another worker took the batch during classification", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await fixture.observe({
+        id: "om_1",
+        sender: "ou_ari",
+        text: "Login is broken",
+        atMs: START_MS,
+      });
+      const dueAtMs = START_MS + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS;
+      // The classifier stalls past the lease, and a second worker claims
+      // the batch and settles it as chatter.
+      fixture.classifyBatch.mockImplementationOnce(async () => {
+        const laterMs = dueAtMs + 120_000;
+        const second = await claimDueUnaddressedChannelBatch({
+          batchId: "batch_second",
+          batchKey: ARI_THREAD_BATCH,
+          claimExpiresAtMs: laterMs + 120_000,
+          connectionId: fixture.connection.connectionId,
+          conversationKey: CHAT_ID,
+          db: fixture.db,
+          maxMessages: UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES,
+          maxWaitMs: UNADDRESSED_CHANNEL_MAX_WAIT_MS,
+          nowMs: laterMs,
+          observedAtOrAfterMs: 0,
+          provider: "feishu",
+          quietWindowMs: UNADDRESSED_CHANNEL_QUIET_WINDOW_MS,
+        });
+        if (second.status !== "claimed") {
+          throw new Error("The second worker did not get the batch");
+        }
+        await settleUnaddressedChannelBatch({
+          batchId: second.batchId,
+          claimExpiresAtMs: second.claimExpiresAtMs,
+          db: fixture.db,
+          nativeDeliveryId: null,
+          nowMs: laterMs,
+          route: "chatter",
+          state: "archived",
+        });
+        return "new_request";
+      });
+
+      await expect(
+        fixture.flush({ scheduledBy: START_MS, atMs: dueAtMs })
+      ).resolves.toEqual({ status: "superseded" });
+      expect(fixture.submitRequest).not.toHaveBeenCalled();
+      await expect(fixture.states()).resolves.toEqual([
+        { id: "om_1", route: "chatter", state: "archived" },
+      ]);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it("keeps a started request admitted when recording it fails on the last attempt", async () => {
+    const fixture = await createFixture({ route: "new_request" });
+    try {
+      await fixture.observe({
+        id: "om_1",
+        sender: "ou_ari",
+        text: "Login is broken",
+        atMs: START_MS,
+      });
+      const dueAtMs = START_MS + UNADDRESSED_CHANNEL_QUIET_WINDOW_MS;
+      const settleBatch = fixture.dependencies.settleBatch;
+      fixture.dependencies.settleBatch = () =>
+        Promise.reject(new Error("database unavailable"));
+      await expect(
+        fixture.flush({
+          scheduledBy: START_MS,
+          atMs: dueAtMs,
+          queueAttempts: 4,
+        })
+      ).rejects.toThrow("message_channel.unaddressed_batch_settlement_failed");
+      fixture.dependencies.settleBatch = settleBatch;
+      // The turn started, so the batch is not archived as unrouted. It
+      // waits, still admitted, for a flush that can record it.
+      await expect(fixture.states()).resolves.toEqual([
+        { id: "om_1", route: "new_request", state: "pending" },
+      ]);
+
+      await expect(
+        fixture.flush({ scheduledBy: START_MS, atMs: dueAtMs + 5000 })
+      ).resolves.toMatchObject({ route: "new_request", status: "routed" });
+      expect(
+        fixture.submitRequest.mock.calls.map(
+          ([request]) => request.requestEventId
+        )
+      ).toEqual(["unaddressed-batch:om_1", "unaddressed-batch:om_1"]);
+      expect(fixture.classifyBatch).toHaveBeenCalledOnce();
     } finally {
       await fixture.close();
     }
@@ -441,7 +542,7 @@ describe("unaddressed Channel message intake", () => {
         Promise.reject(new Error("database unavailable"));
       await expect(
         fixture.flush({ scheduledBy: START_MS, atMs: dueAtMs })
-      ).rejects.toThrow("database unavailable");
+      ).rejects.toThrow("message_channel.unaddressed_batch_settlement_failed");
       fixture.dependencies.settleBatch = settleBatch;
       // The same person writes again before the retry runs.
       await fixture.observe({
@@ -793,7 +894,7 @@ describe("unaddressed Channel message intake", () => {
         Promise.reject(new Error("database unavailable"));
       await expect(
         fixture.flush({ scheduledBy: START_MS + 2000, atMs: dueAtMs })
-      ).rejects.toThrow("database unavailable");
+      ).rejects.toThrow("message_channel.unaddressed_batch_settlement_failed");
       fixture.dependencies.settleBatch = settleBatch;
 
       // A mention sent between the two messages is processed late. The
@@ -853,7 +954,7 @@ describe("unaddressed Channel message intake", () => {
         Promise.reject(new Error("database unavailable"));
       await expect(
         fixture.flush({ scheduledBy: START_MS + 20_000, atMs: dueAtMs })
-      ).rejects.toThrow("database unavailable");
+      ).rejects.toThrow("message_channel.unaddressed_batch_settlement_failed");
       fixture.dependencies.settleBatch = settleBatch;
 
       // The retry runs after om_1 passed the age limit but before om_2 did.
@@ -1409,6 +1510,36 @@ describe("unaddressed Channel message intake", () => {
     ).rejects.toThrow("slack.unaddressed_request_in_progress");
   });
 
+  it("archives messages from two Slack channels that carry the same timestamp, and one redelivery once", async () => {
+    const fixture = await createFixture({ route: "chatter" });
+    try {
+      const ts = "1710000000.000100";
+      // Slack timestamps are unique only inside one channel.
+      await fixture.observeSlack({ text: "in the first channel", ts });
+      await fixture.observeSlack({
+        channel: "C999",
+        text: "in the second channel",
+        ts,
+      });
+      // A redelivery in the first channel is still archived once.
+      await fixture.observeSlack({ text: "in the first channel", ts });
+      const read = (conversationKey: string) =>
+        listUnaddressedChannelMessages({
+          connectionId: SLACK_TEAM_ID,
+          conversationKey,
+          db: fixture.db,
+          limit: 10,
+          provider: "slack",
+        }).then((messages) => messages.map((message) => message.text));
+      await expect(read(SLACK_CHANNEL_ID)).resolves.toEqual([
+        "in the first channel",
+      ]);
+      await expect(read("C999")).resolves.toEqual(["in the second channel"]);
+    } finally {
+      await fixture.close();
+    }
+  });
+
   it("leaves a Slack channel that is not listed on the mention-only path, archiving nothing", async () => {
     const fixture = await createFixture({ route: "new_request" });
     try {
@@ -1531,10 +1662,14 @@ describe("routed Lark-platform unaddressed request", () => {
       })
     );
     await expect(
-      submitUnaddressedLarkPlatformRequest(createLarkRequest(), {
-        readConnection: () => Promise.resolve(createConnection("connected")),
-        submitAdmittedEvent,
-      })
+      submitUnaddressedLarkPlatformRequest(
+        // The request is two messages; the trigger is the second.
+        { ...createLarkRequest(), text: "Staging is down\nLogin is broken" },
+        {
+          readConnection: () => Promise.resolve(createConnection("connected")),
+          submitAdmittedEvent,
+        }
+      )
     ).resolves.toEqual({ deliveryId: "delivery_1", status: "submitted" });
     expect(submitAdmittedEvent).toHaveBeenCalledWith({
       event: {
@@ -1554,7 +1689,7 @@ describe("routed Lark-platform unaddressed request", () => {
         senderId: "ou_ari",
         senderTenantKey: "tenant_feishu_1",
         sentAtMs: START_MS,
-        text: "Login is broken",
+        text: "Staging is down\nLogin is broken",
       },
       source: {
         addressed: false,
@@ -1566,6 +1701,33 @@ describe("routed Lark-platform unaddressed request", () => {
         sourceProofText: "Login is broken",
       },
     });
+  });
+
+  it.each([
+    {
+      expected: {
+        deliveryId: "delivery_1",
+        reasonCode: "message_channel.unaddressed_request_failed",
+        status: "not_submitted",
+      },
+      status: "failed" as const,
+    },
+    {
+      // The delivery holds the uncertainty; the batch stays linked to it.
+      expected: { deliveryId: "delivery_1", status: "submitted" },
+      status: "outcome_unknown" as const,
+    },
+  ])("reports a delivery that ended as $status as $expected.status", async ({
+    expected,
+    status,
+  }) => {
+    await expect(
+      submitUnaddressedLarkPlatformRequest(createLarkRequest(), {
+        readConnection: () => Promise.resolve(createConnection("connected")),
+        submitAdmittedEvent: () =>
+          Promise.resolve({ deliveryId: "delivery_1", status }),
+      })
+    ).resolves.toEqual(expected);
   });
 
   it("does not start a turn after the connection was disconnected", async () => {
@@ -1685,9 +1847,15 @@ async function createFixture(input: {
   status?: RemoteAgentLarkPlatformChannelConnectionRecord["status"];
 }) {
   const harness: Harness = await createPostgresHarness();
-  await harness.query({
-    text: "INSERT INTO \"openmeld\".\"organizations\" (id, name, slug, created_at) VALUES ('org_1', 'One', 'one', 1000)",
-  });
+  try {
+    await harness.query({
+      text: "INSERT INTO \"openmeld\".\"organizations\" (id, name, slug, created_at) VALUES ('org_1', 'One', 'one', 1000)",
+    });
+  } catch (error) {
+    // No fixture is returned, so nothing else could close the database.
+    await harness.close();
+    throw error;
+  }
   const connection = createConnection(input.status ?? "connected");
   const slackUnlistedChannels = new Set<string>();
   const queue = {

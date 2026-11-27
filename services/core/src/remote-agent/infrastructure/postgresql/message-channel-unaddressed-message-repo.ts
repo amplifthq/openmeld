@@ -157,7 +157,8 @@ export async function recordUnaddressedChannelMessage(input: {
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
         $16, $17, $14
       )
-      ON CONFLICT (provider, connection_id, message_id) DO NOTHING
+      ON CONFLICT (provider, connection_id, conversation_key, message_id)
+      DO NOTHING
     `,
     values: [
       input.organizationId,
@@ -297,6 +298,7 @@ export async function claimDueUnaddressedChannelBatch(
       FROM burst
       WHERE message.provider = $1
         AND message.connection_id = $2
+        AND message.conversation_key = $3
         AND message.message_id IN (SELECT message_id FROM chosen)
         AND message.state = 'pending'
         AND message.batch_id IS NULL
@@ -370,6 +372,11 @@ export async function claimDueUnaddressedChannelBatch(
         AND connection_id = $2
         AND conversation_key = $3
         AND batch_key = $4
+        -- Settled rows are permanent history; only waiting ones matter here.
+        AND (
+          (state = 'pending' AND batch_id IS NULL AND observed_at_ms >= $6)
+          OR (state = 'routing' AND claim_expires_at_ms > $5)
+        )
     `,
     values: [...scopeValues, input.nowMs, input.observedAtOrAfterMs],
   });
