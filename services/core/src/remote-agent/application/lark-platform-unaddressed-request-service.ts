@@ -79,7 +79,18 @@ export async function submitUnaddressedLarkPlatformRequest(
       sourceProofText: trigger.text,
     },
   });
+  if (submission.status === "failed") {
+    // A delivery was created and no worker accepted it. The archive keeps
+    // the link to it without calling the request routed.
+    return {
+      deliveryId: submission.deliveryId,
+      reasonCode: "message_channel.unaddressed_request_failed",
+      status: "not_submitted",
+    };
+  }
   if ("deliveryId" in submission) {
+    // `outcome_unknown` stays linked to its delivery, which holds the
+    // uncertainty and is reconciled by native delivery.
     return { deliveryId: submission.deliveryId, status: "submitted" };
   }
   return {

@@ -2372,7 +2372,9 @@ chat id) or `slack:C…` (a Slack channel id); `*` lists every conversation. The
 list is empty in every environment. A conversation that is not listed keeps the
 mention-only behavior: its ordinary messages are not archived, classified, or
 routed, and its turns read the full bounded snapshot. Removing a conversation
-from the list stops routing its waiting messages, which then expire.
+from the list pauses routing: its waiting messages are not routed and expire
+after 10 minutes. If the conversation is listed again before then, a later
+flush for the same sender can still route the messages that were waiting.
 
 With the flag on, an **unaddressed** message is an ordinary human message in a
 Feishu group or a Slack public or private channel that does not mention the
@@ -2408,10 +2410,9 @@ message subtypes are never input.
    Agent turn through the provider's addressed path. The requester is the
    batch's sender, with that sender's verified identity and authority. Other
    senders' words reach the model only as untrusted Channel context, never as
-   the request. On Feishu the request text is the requester's messages in the
-   batch; on Slack it is the last message as Slack returns it, with the
-   earlier messages supplied as thread or channel context. Only the last
-   message's files are attached.
+   the request. On Feishu and on Slack the request text is the requester's
+   messages in the batch, joined in order; the request's own message id is
+   the last of them. Only the last message's files are attached.
 
 The label is an admission gate and nothing else. It decides whether a turn
 starts. It never answers, authorizes an action, selects a tool, or reduces the

@@ -67,6 +67,8 @@ export type UnaddressedChannelBatchSubmission =
       status: "submitted";
     }
   | {
+      /** Set when a delivery was created and then failed. */
+      deliveryId?: string;
       reasonCode: string;
       status: "not_submitted";
     };
@@ -156,6 +158,29 @@ export type UnaddressedChannelObservationDependencies = {
     input: Parameters<typeof recordUnaddressedChannelMessage>[0]
   ): Promise<{ inserted: boolean }>;
 };
+
+/**
+ * Another worker claimed the batch after this one's lease ran out. This
+ * worker must stop: the batch is the other worker's to route and settle.
+ */
+class UnaddressedChannelBatchClaimLostError extends Error {
+  constructor() {
+    super("message_channel.unaddressed_batch_claim_lost");
+    this.name = "UnaddressedChannelBatchClaimLostError";
+  }
+}
+
+/**
+ * The request was submitted, and recording that failed. The batch must stay
+ * admitted so a later flush repeats the same request and records it, on any
+ * queue attempt; it must never be archived as a request that did not start.
+ */
+class UnaddressedChannelBatchSettlementError extends Error {
+  constructor(cause: unknown) {
+    super("message_channel.unaddressed_batch_settlement_failed", { cause });
+    this.name = "UnaddressedChannelBatchSettlementError";
+  }
+}
 
 export class UnaddressedChannelIntakeRetryableError extends Error {
   readonly reasonCode: string;
@@ -544,7 +569,13 @@ export async function flushUnaddressedChannelBatch(
       provider: message.provider,
     });
   } catch (error) {
-    if (input.queueAttempts < UNADDRESSED_CHANNEL_BATCH_MAX_QUEUE_ATTEMPTS) {
+    if (error instanceof UnaddressedChannelBatchClaimLostError) {
+      return { status: "superseded" };
+    }
+    if (
+      error instanceof UnaddressedChannelBatchSettlementError ||
+      input.queueAttempts < UNADDRESSED_CHANNEL_BATCH_MAX_QUEUE_ATTEMPTS
+    ) {
       await dependencies.releaseBatch({ ...held, nowMs: Date.now() });
       throw error;
     }
@@ -666,7 +697,7 @@ async function routeClaimedUnaddressedChannelBatch(input: {
   if (submission.status === "not_submitted") {
     await dependencies.settleBatch({
       ...held,
-      nativeDeliveryId: null,
+      nativeDeliveryId: submission.deliveryId ?? null,
       nowMs: Date.now(),
       route,
       state: "archived",
@@ -680,13 +711,17 @@ async function routeClaimedUnaddressedChannelBatch(input: {
     });
     return { hasMore, result: { batchId, route, status: "archived" } };
   }
-  await dependencies.settleBatch({
-    ...held,
-    nativeDeliveryId: submission.deliveryId,
-    nowMs: Date.now(),
-    route,
-    state: "routed",
-  });
+  try {
+    await dependencies.settleBatch({
+      ...held,
+      nativeDeliveryId: submission.deliveryId,
+      nowMs: Date.now(),
+      route,
+      state: "routed",
+    });
+  } catch (error) {
+    throw new UnaddressedChannelBatchSettlementError(error);
+  }
   return {
     hasMore,
     result: {
@@ -825,11 +860,16 @@ async function classifyClaimedUnaddressedChannelBatch(input: {
     classified === "follow_up" && !hasPriorAgentTurn
       ? "new_request"
       : classified;
-  await dependencies.recordBatchAdmission({
+  const recorded = await dependencies.recordBatchAdmission({
     ...held,
     nowMs: Date.now(),
     route,
   });
+  if (recorded === 0) {
+    // The lease ran out while the classifier was working and another worker
+    // took the batch. Submitting now could start a second turn.
+    throw new UnaddressedChannelBatchClaimLostError();
+  }
   return route;
 }
 

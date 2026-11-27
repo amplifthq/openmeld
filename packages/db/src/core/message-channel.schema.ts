@@ -643,10 +643,21 @@ export const openMeldRemoteAgentMessageChannelUnaddressedMessages =
       updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
     },
     (table) => [
+      // A Slack message id is unique only inside its channel, and one
+      // connection covers every channel of a workspace.
       primaryKey({
-        columns: [table.provider, table.connectionId, table.messageId],
+        columns: [
+          table.provider,
+          table.connectionId,
+          table.conversationKey,
+          table.messageId,
+        ],
         name: "openMeldRemoteAgent_message_channel_unaddressed_messages_pk",
       }),
+      // Deleting an Organization cascades to its archived messages.
+      index(
+        "idx_openMeldRemoteAgent_message_channel_unaddressed_organization"
+      ).on(table.organizationId),
       index("idx_openMeldRemoteAgent_message_channel_unaddressed_batch").on(
         table.provider,
         table.connectionId,
