@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   createPostgresHarness,
   postgresTestBinding,
@@ -255,5 +263,91 @@ describe("organization member role changes", () => {
     expect(
       (await readRoles()).filter((member) => member.role === "owner")
     ).toHaveLength(1);
+  });
+  it("atomically refuses a Team removal when the target is promoted after native authorization", async () => {
+    await changeRole(first.cookie, second.memberId, "member");
+    const cleanup = vi.fn(async () => ({
+      ok: true,
+      accepted: true,
+      pending: true,
+      deleted: { candidateCount: 0, inventoryCount: 0, sourceCount: 0 },
+    }));
+    const finalizeMemory = vi.fn(async () => ({
+      ok: true,
+      status: "not_found",
+    }));
+    // This Core call is reached by Better Auth’s beforeRemoveMember hook only
+    // after it has already read and authorized the target as a non-Owner.
+    const checkDeparture = vi
+      .fn(async () => ({ spaces: [] }))
+      .mockImplementationOnce(async () => {
+        const promotion = await changeRole(
+          first.cookie,
+          second.memberId,
+          "owner"
+        );
+        expect(promotion.status, await promotion.clone().text()).toBe(200);
+        return { spaces: [] };
+      });
+    env.OPENMELD_CORE_WORKER = {
+      checkSpaceOwnerDeparture: checkDeparture,
+      requestAgentActivitySessionInventoryCleanupForOrganizationMember: cleanup,
+      deleteCenterAgentMemberMemory: finalizeMemory,
+    } as unknown as AuthBindings["OPENMELD_CORE_WORKER"];
+    const target = { organizationId, memberIdOrEmail: second.memberId };
+    const reviewed = { ...target, expectedMemberRole: "member" };
+    const stale = await post(
+      "/organization/remove-reviewed-member",
+      reviewed,
+      first.cookie
+    );
+    expect(stale.status, await stale.clone().text()).toBe(409);
+    await expect(stale.json()).resolves.toMatchObject({
+      code: "organization.member_removal_changed",
+    });
+    expect(await readRoles()).toContainEqual({
+      id: second.memberId,
+      role: "owner",
+    });
+    expect(checkDeparture).toHaveBeenCalledOnce();
+    expect(cleanup).toHaveBeenCalledOnce(); // preparation, not finalization
+    expect(finalizeMemory).not.toHaveBeenCalled();
+
+    // The pre-existing native endpoint remains available to an Owner who
+    // intentionally removes a peer Owner, as long as an Owner remains.
+    const native = await post(
+      "/organization/remove-member",
+      target,
+      first.cookie
+    );
+    expect(native.status, await native.clone().text()).toBe(200);
+    expect(await readRoles()).toEqual([{ id: first.memberId, role: "owner" }]);
+    expect(finalizeMemory).toHaveBeenCalledOnce();
+
+    await harness.query({
+      text: "INSERT INTO openmeld.members(id,organization_id,user_id,role,created_at) VALUES($1,$2,$3,'admin',$4)",
+      values: [second.memberId, organizationId, second.userId, Date.now()],
+    });
+    const adminTarget = { ...target, expectedMemberRole: "admin" };
+    const self = await post(
+      "/organization/remove-reviewed-member",
+      adminTarget,
+      second.cookie
+    );
+    expect(self.status, await self.clone().text()).toBe(409);
+    expect(await readRoles()).toContainEqual({
+      id: second.memberId,
+      role: "admin",
+    });
+    expect(finalizeMemory).toHaveBeenCalledOnce();
+
+    const matched = await post(
+      "/organization/remove-reviewed-member",
+      adminTarget,
+      first.cookie
+    );
+    expect(matched.status, await matched.clone().text()).toBe(200);
+    expect(await readRoles()).toEqual([{ id: first.memberId, role: "owner" }]);
+    expect(finalizeMemory).toHaveBeenCalledTimes(2);
   });
 });

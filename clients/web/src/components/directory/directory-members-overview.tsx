@@ -78,6 +78,7 @@ import {
 } from "#/query/profiles/profile-capabilities";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
+import { DirectoryMemberRemoval } from "./directory-member-removal";
 
 type DirectoryQueryState = {
 	data?: OrganizationProfileDirectoryResponse | OrganizationDirectoryResponse;
@@ -477,6 +478,15 @@ function useDirectoryMembersOverviewModel(
 			errorMessage: profilesError,
 			initialSidebarStates: input.initialSidebarStates,
 			latestBatch: latestResearchBatch,
+			memberActions: (
+				<DirectoryMemberRemoval
+					directoryQuery={input.directoryQuery}
+					organization={input.currentOrganization}
+					profileId={selectedProfileId}
+					roleQuery={roleQuery}
+					userId={input.currentUserId}
+				/>
+			),
 			memberResearchError: researchErrors.member,
 			members: memberRows,
 			modelCatalog: input.modelCatalog ?? null,

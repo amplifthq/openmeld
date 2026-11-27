@@ -132,6 +132,7 @@ export {
   OrganizationSlugConflictError,
 } from "./organization/organization-slug";
 export { isPersonalOrganization } from "./organization/personal-organization";
+export { withReviewedOrganizationMemberRemoval } from "./organization/reviewed-member-removal";
 export { requireSpaceOwnershipHandoff } from "./organization/space-owner-departure";
 export {
   CLI_CREDENTIAL_SESSION_FIELD,
