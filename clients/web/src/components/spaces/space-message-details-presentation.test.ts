@@ -3,23 +3,7 @@ import { createWakeProgressItem } from "@openmeld/space";
 import { describe, expect, it } from "vitest";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { resolveWakeProgressThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
-import {
-	buildSpaceMessageDetailsPresentation,
-	resolveMessageDetailsDiagnosticReportStatus,
-} from "./space-message-details-presentation";
-
-describe("resolveMessageDetailsDiagnosticReportStatus", () => {
-	it.each([
-		{ expected: "idle", isPending: false, isSent: false },
-		{ expected: "sent", isPending: false, isSent: true },
-		{ expected: "pending", isPending: true, isSent: false },
-		{ expected: "pending", isPending: true, isSent: true },
-	] as const)("resolves $expected", ({ expected, isPending, isSent }) => {
-		expect(
-			resolveMessageDetailsDiagnosticReportStatus({ isPending, isSent })
-		).toBe(expected);
-	});
-});
+import { buildSpaceMessageDetailsPresentation } from "./space-message-details-presentation";
 
 describe("buildSpaceMessageDetailsPresentation", () => {
 	it("shows conversation occupancy as waiting with the other-app explanation", () => {

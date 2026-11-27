@@ -3081,19 +3081,11 @@ family while replacing all document data with the target Organization's scope.
 
 People is a two-pane workspace. Its secondary sidebar lists one Human Profile
 per current member and the main content renders the selected person's complete
-Profile detail. A sidebar item may show only the high-frequency scan signals:
-the Human Profile avatar, name, explicit `(you)` marker, Organization role,
-Core-owned relative last-seen time, coarse Computer state, actually linked Slack,
-Lark, or Feishu identity icons, and each enabled reported Local Agent icon. It
-does not show email, provider account text, disabled Local Agents, unavailable
-identity mappings, or placeholder icons for providers the person has not linked.
-If no mapped Channel identity exists, Web renders no identity row. The relative
-time uses compact body copy such as **3 hours ago** and a tooltip such as **Last
-seen 3 hours ago**. It shares one row with Local Agent icons, with the time on
-the left and icons on the right. All logo-only signals have accessible names and
-tooltips. Local Agent identity
-uses the same catalog-owned logo and name as Computer detail; Web never creates
-a second name or logo map for People.
+Profile detail. A sidebar item shows an avatar, name, explicit `(you)` marker,
+and a compact Computer status. The whole row opens the profile without
+requiring hover. Chat, Local Agents, usage limits, and shared activity belong
+in the profile; the list does not duplicate them. The existing context menu
+retains optional shortcuts without turning them into extra row buttons.
 
 People and Human Profile popovers read the lightweight Profile Directory with
 `includeModelSelection=true` for member identity and member-visible Agent
@@ -3150,16 +3142,16 @@ unstar and custom placement persist; deleting a group returns its members to
 ordinary placement. Online requires an unexpired Core presence lease with Human
 interaction within five minutes. Any active page keeps the Human Online. Computer connections,
 Agent work, and historical activity never establish Human presence.
-Rows show the avatar, name, Computer status icon, Human last-seen
-time when known, and enabled local-agent icons. Computer explanations remain in
-the icon tooltip and accessible name; Channel identities and email are omitted.
+Rows show the avatar, name, and Computer status icon. Computer explanations
+remain in the tooltip and accessible row description; Channel identities and
+email are omitted.
 Pending Computer checks stay on their rows without delaying Human grouping. Sorting and drag placement
 remain personal preferences; dragging cannot change Human presence.
-People keeps its last successful Computer and Local Agent display in the
+People keeps its last successful Computer and Local Agent data in the
 Organization-scoped in-memory query cache for up to one day after leaving Team.
 An expired query refreshes on return or through the visible 30-second poll
 without clearing that display; a failed read shows unavailable Computer status
-while retaining the last known Agent logos as read-only context.
+while retaining the last known Agent data as read-only context.
 This Computer projection is not restored from IndexedDB.
 
 People and Space member/profile avatars show a small inset green dot only when
@@ -3176,20 +3168,10 @@ activity advances only on actual interaction, with its existing five-minute
 throttle; presence renewals do not advance it. Space-local Here … ago remains a
 separate historical fact. No system-wide activity or interaction contents are collected.
 
-Human cards combine enabled Local Agent logos and provider Usage in one compact, overlapping
-dock. Each controller appears once. A small ring overlays the logo's upper-right
-corner when the existing authorized Computer projection has quantified evidence;
-otherwise only the logo appears. The ring previews the first reported Computer/provider
-source, using the existing most-constrained-window summary. Additional sources
-appear only in the tooltip, never as an averaged or pooled quota. Hover previews every
-Computer, provider and window with remaining capacity, status, reset and observation
-times through the shared Computer Usage components. The compact sidebar logo strip
-keeps its existing sizing. This preview does not add permissions, collection or Wake policy.
-
 Agent Profile detail pages and Space profile previews read the same team-visible
 Computer Usage projection, matched to the Profile's current route Computer,
 owner, and controller. They never borrow a quota from another Computer or infer
-Wakeability from it. Human card docks align to the card's vertical center.
+Wakeability from it.
 Usage tooltips share compact remaining-capacity rings: up to three columns on
 wide screens and one column on narrow screens, with separate Computer/provider
 groups, reset times, and explicit non-available states. Stale evidence retains
@@ -3197,12 +3179,9 @@ its observation time. Local presentation fixtures enter through the shared
 Computer reader so card previews and detail routes show the same evidence.
 
 Team opens a compact member overview at `/o/:orgSlug/people`, with the same
-grouping and ordering as its sidebar. The overview and sidebar share the member
-member presentation data and personal preferences. The overview uses Fluid Card
-groups with persistent card surfaces and 56px avatars; sidebar rows keep their
-compact avatar sizes. Sidebar member rows omit activity timestamps and place
-local agents on a second row aligned with the name, with a 6px row gap, leaving the name row for hover
-actions; cards retain activity timestamps.
+grouping and ordering as its sidebar. Both use the same compact member summary
+and personal preferences. The overview uses Fluid Card groups and the sidebar
+uses compact rows; either opens the same profile.
 Sidebar groups start collapsed, using
 the same disclosure behavior as Spaces. Entering a person opens their group for
 that visit; explicit expand/collapse choices are remembered per viewer and
@@ -4814,12 +4793,11 @@ presentations.
 
 It should keep the familiar conversation model clear:
 
-The authenticated ordinary shared-Space header exposes **Messages | Tasks |
-Files** as one
-keyboard-accessible tab list. Files keeps the same Space header and membership
-context; it is not a Resources redirect or a second app shell. Opening Files
-loads the Space root, and opening folders uses breadcrumb navigation without
-changing file identity.
+The authenticated ordinary shared Space opens to Messages without a tab row.
+The header’s **Resources** menu opens **Tasks**, **Files**, and **Guide** within
+the same Space. **Back to messages** restores the conversation, and existing
+deep links use the same view state. Files keeps the same membership context;
+folders use breadcrumb navigation without changing file identity.
 
 Tasks opens one responsive board with **To do**, **In progress**, and **In
 review** as the active columns. Done and Canceled stay in collapsed history
@@ -4946,7 +4924,7 @@ drawer and previews that snapshot read-only in the main surface. A member may
 restore it as a new latest revision without erasing later revisions. The header
 uses the viewer's local date and time instead of a hard-coded timezone.
 
-Returning to the file list, changing **Messages | Tasks | Files**, opening a
+Returning to the file list, changing Space views, opening a
 different chat file, following an internal route, reloading, or closing the
 window with a local draft uses the same save, discard, or cancel contract as
 Organization Documents. A repeated click on a chat file card reopens its exact
@@ -5382,9 +5360,10 @@ admission. Queue position, input requests, blocked states, and diagnostics keep
 their concrete meaning. When
 the latest admitted semantic tool step settles, the live Work summary keeps its
 concrete completed or failed meaning instead of inventing a generic
-response-preparation phase. The message toolbar owns Message details. The Work
-summary does not repeat that action. After completion, the durable message
-toolbar still owns it.
+response-preparation phase. The message toolbar owns Message details. **Working…** opens progress in
+place: confirmed lifecycle phases, safe work steps, and published progress
+updates. An active request with no update is labeled as such. The work
+disclosure does not expose private reasoning or open Message details.
 The Space bootstrap snapshot seeds active stream projections in the same room
 entry read as recent durable signals; Web must not issue a separate
 conversation-state request. Web requests
@@ -5395,7 +5374,8 @@ arrive. A missing presence field is a mixed-version response, not proof of an
 active stream. Live frames update the seeded projection without overwriting a
 newer sequence. A bounded reasoning tail can be replayed from the live Space
 instance, subject to the existing audience and Local Agent owner preferences;
-it is absent from durable bootstrap and browser caches.
+it is absent from durable bootstrap and browser caches. Web work progress
+does not render that reasoning tail.
 Thinking and public progress keep independent bounded replay tails and client
 sequence checks, so a later progress frame cannot suppress reasoning recovery
 or a privacy-disable update. The same mounted conversation keeps received work
@@ -5753,8 +5733,9 @@ the already-visible message identity rather than private detail content. Each
 Wake target receives one Activity row. Transient work updates that
 row in place while the target is active; the recorded reply, failure, stop, or
 other terminal outcome then replaces the transient content in the same row.
-The final status, reply preview, failure explanation, recovery action, and
-diagnostic context stay together on that target row. Web must not render a
+The final status, reply preview, failure explanation, and recovery action
+stay together on that target row. The drawer does not show raw technical
+identifiers or a Report issue action. Web must not render a
 separate Replies section, a detached `Why this failed` summary, or an extra
 `replied` event for the same final reply. Transient live progress can enrich
 that presentation model but cannot become a second status source or final
@@ -5839,33 +5820,14 @@ directly to that recorded result; Graph must not preserve a redundant
 `Replied`, `Failed`, or `Completed` Wake node between them. Structured statuses
 and system notices keep their recorded event semantics.
 
-At the latest messages, the Space header presents a two-row hierarchy. The first
-row contains the Space name, access mode, and
-right-aligned actions. The second row contains the available Space views
-(Messages, Tasks, and Files) below the Space name. Those view labels align with
-the Space name and use a flat active underline that overlays the header divider.
-The Members action shows the active
-member total from the Space member projection. The header and Space sidebar do
-not repeat `Joined as` or an aggregate live-human count; speaking identity stays
-with the composer when a choice is available, and per-member presence belongs
-in the Members surface. When dismissed contextual setup remains recallable,
-**Get set up** appears in the right-aligned action group immediately before
-**Members**. On compact screens only, the same recall control may move to the
-trailing edge of the second header row so the Space name remains identifiable;
-it stays visually separate from the **Messages** and **Files** view control and
-returns to the primary action group at wider breakpoints.
-
-While reading earlier messages in a Space, scrolling at least 64 CSS pixels
-away from the latest messages switches the header directly into one compact
-row. Messages, Tasks, and Files appear between the sidebar toggle and the title,
-separated from the title by a vertical divider. There is no entrance animation,
-position transition, or scroll-progress interpolation, regardless of motion
-preferences. The header expands only when the reader returns within 16 CSS
-pixels of the latest messages. This distance hysteresis absorbs small scrolls
-and avoids toggling at the threshold without a timer-based debounce.
-The same layout applies inside Desk windows; width checks use layout coordinates,
-unaffected by canvas zoom. Long titles truncate. Insufficient width and mobile
-setup recall retain the complete two-row layout. Direct messages retain their
+The authenticated ordinary shared-Space header uses one row across viewports:
+the Space name and access indicator, Members, Resources, and the Space menu.
+Search and Share are in the Space menu. An actionable setup recall, relevant
+notification controls, and dismissed pins can still surface when applicable.
+The Members action shows the active member total. The header and Space sidebar
+do not repeat `Joined as` or an aggregate live-human count; speaking identity
+stays with the composer, and per-member presence belongs in Members.
+Long titles truncate. Direct messages and public previews retain their
 existing headers.
 All Space views share the expanded/compact preference per Organization, Profile,
 and Space. Switching views or replacing the message scroller rebinds input

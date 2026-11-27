@@ -28,18 +28,6 @@ export type MessageDetailsStatus =
 	| "stopped"
 	| null;
 
-export type MessageDetailsDiagnosticReportStatus = "idle" | "pending" | "sent";
-
-export function resolveMessageDetailsDiagnosticReportStatus(input: {
-	isPending: boolean;
-	isSent: boolean;
-}): MessageDetailsDiagnosticReportStatus {
-	if (input.isPending) {
-		return "pending";
-	}
-	return input.isSent ? "sent" : "idle";
-}
-
 export type MessageDetailsActivityActor = {
 	agentControllerRef: string | null;
 	avatarImageUrl: string | null;

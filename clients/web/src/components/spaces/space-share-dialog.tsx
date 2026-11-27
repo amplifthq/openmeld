@@ -25,29 +25,32 @@ export function SpaceShareDialog(
 		onOpenChange?: (open: boolean) => void;
 		open?: boolean;
 		spaceName: string;
+		showTrigger?: boolean;
 	}
 ) {
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
-			<Tooltip>
-				<TooltipTrigger
-					render={
-						<DialogTrigger
-							render={
-								<Button
-									aria-label="Share space"
-									size="icon-sm"
-									type="button"
-									variant="ghost"
-								>
-									<ShareNetworkIcon />
-								</Button>
-							}
-						/>
-					}
-				/>
-				<TooltipContent side="bottom">Share space</TooltipContent>
-			</Tooltip>
+			{input.showTrigger !== false && (
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<DialogTrigger
+								render={
+									<Button
+										aria-label="Share space"
+										size="icon-sm"
+										type="button"
+										variant="ghost"
+									>
+										<ShareNetworkIcon />
+									</Button>
+								}
+							/>
+						}
+					/>
+					<TooltipContent side="bottom">Share space</TooltipContent>
+				</Tooltip>
+			)}
 			<DialogContent
 				className="flex max-h-[min(42rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden sm:max-w-[620px]"
 				size="lg"

@@ -22,8 +22,7 @@ import type { ReactNode } from "react";
 export type SpaceHeaderNavigationMenuItem = {
 	icon: Icon;
 	label: string;
-	to: string;
-};
+} & ({ to: string; onSelect?: never } | { onSelect: () => void; to?: never });
 
 export function SpaceHeaderNavigationMenu(input: {
 	ariaLabel: string;
@@ -64,6 +63,10 @@ export function SpaceHeaderNavigationMenu(input: {
 							index={index}
 							key={item.label}
 							onClick={() => {
+								if (item.onSelect) {
+									item.onSelect();
+									return;
+								}
 								navigate({ to: item.to }).catch((error: unknown) => {
 									console.error(
 										`Failed to open ${item.label} from the header menu.`,

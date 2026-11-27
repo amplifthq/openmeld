@@ -416,9 +416,7 @@ function Preview() {
 			<TeamSidebarHeaderActionsProvider>
 				<TeamSidebarHeader />
 				<PeopleSidebar
-					activityNowMs={1_791_334_800_000}
 					chatPending={false}
-					computerGroups={[]}
 					error={null}
 					loading={false}
 					members={people}

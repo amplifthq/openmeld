@@ -221,15 +221,12 @@ function renderDirectMessageDrawer(input: {
 				<SpaceMessageDetailsDrawer
 					canJumpToMessage={() => false}
 					canStartNewTask={true}
-					diagnosticReportStatus="idle"
-					errorLogMessage="Failed to report a space message."
 					item={selected}
 					onJumpToMessage={vi.fn()}
 					onOpenChange={vi.fn()}
 					onRecoverExecution={
 						input.onRecoverExecution ?? unavailableExecutionRecovery
 					}
-					onReportMessage={vi.fn(async () => undefined)}
 					open={true}
 					openMeldProfileId={OWNER_HUMAN}
 					orgSlug="acme"

@@ -14,14 +14,7 @@ export function DemoPeople({
 }) {
 	const member = people.find((p) => p.id === selectedPerson);
 	if (!member) {
-		return (
-			<TeamHome
-				activityNowMs={1_791_334_800_000}
-				computerGroups={[]}
-				members={people}
-				onSelect={onSelectPerson}
-			/>
-		);
+		return <TeamHome members={people} onSelect={onSelectPerson} />;
 	}
 	return (
 		<>

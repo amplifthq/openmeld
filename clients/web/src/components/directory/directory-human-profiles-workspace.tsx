@@ -109,9 +109,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 
 	const sidebar = (
 		<PeopleSidebar
-			activityNowMs={activityNowMs}
 			chatPending={input.state.directMessage === "pending"}
-			computerGroups={preview.computerGroups}
 			error={input.errorMessage}
 			loading={input.state.profiles === "loading"}
 			members={preview.members}
@@ -181,9 +179,7 @@ export function DirectoryHumanProfilesWorkspace(input: {
 			) : null}
 			{!selectedMember && showTeamHome && (
 				<TeamHome
-					activityNowMs={activityNowMs}
 					chatPending={input.state.directMessage === "pending"}
-					computerGroups={preview.computerGroups}
 					members={preview.members}
 					onChat={input.onOpenDirectMessage}
 					onSelect={input.onSelectProfile}
