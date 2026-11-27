@@ -886,8 +886,6 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 				initialFocusSignalId={input.initialFocusSignalId}
 				initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 				isAgentRecoveryPending={() => false}
-				isDiagnosticReportPending={() => false}
-				isDiagnosticReportSent={() => false}
 				membersSnapshot={null}
 				modelCatalog={null}
 				onAddComposerFiles={noopPromise}
@@ -911,7 +909,6 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 				onOpenUnreadThread={input.onOpenUnreadThread}
 				onRemoveComposerFile={() => undefined}
 				onReplyToMessage={() => undefined}
-				onReportMessage={noopPromise}
 				onSend={noopPromise}
 				onSendStarterPrompt={noopPromise}
 				onSpaceViewChange={input.onSpaceViewChange}
@@ -970,8 +967,6 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 				initialFocusSignalId={input.initialFocusSignalId}
 				initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 				isAgentRecoveryPending={() => false}
-				isDiagnosticReportPending={() => false}
-				isDiagnosticReportSent={() => false}
 				isSendingMessage={false}
 				membersSnapshot={null}
 				modelCatalog={null}
@@ -982,7 +977,6 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 				onMentionButtonClick={() => undefined}
 				onOpenSpaceFile={input.onOpenSpaceFile}
 				onRemoveComposerFile={() => undefined}
-				onReportMessage={noopPromise}
 				onSend={noopPromise}
 				readOnly={true}
 				selfProfileId={PUBLIC_VIEWER_PROFILE_ID}

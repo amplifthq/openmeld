@@ -26,6 +26,8 @@ export function renderChannelContext(context: ChannelContext): string {
           },
           sentAt: new Date(message.sentAtMs).toISOString(),
           text: message.text,
+          // Names only: the files themselves are not part of this context.
+          ...(message.attachments ? { attachments: message.attachments } : {}),
         })
       )
     );

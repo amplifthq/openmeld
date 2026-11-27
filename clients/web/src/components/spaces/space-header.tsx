@@ -16,18 +16,30 @@ import {
 } from "@openmeld/ui/components/tooltip";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { cn } from "@openmeld/ui/lib/utils";
-import { ChatCircleTextIcon, WarningIcon } from "@phosphor-icons/react";
+import {
+	ChatCircleTextIcon,
+	MagnifyingGlassIcon,
+	ShareNetworkIcon,
+	WarningIcon,
+} from "@phosphor-icons/react";
 import { Fragment, type ReactNode, useState } from "react";
 import {
 	AppModuleSidebarToggle,
 	useHasModuleSidebar,
 } from "#/components/app/app-module-sidebar";
-import { MessageSearchButton } from "#/components/search/message-search";
+import {
+	MessageSearchButton,
+	MessageSearchDialog,
+} from "#/components/search/message-search";
+import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { ChatHeaderMenu } from "./chat-header-menu";
 import { useConversationNames } from "./conversation-names";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import { SpaceDeletedLabel } from "./space-deleted-label";
-import { SpaceHeaderNavigationMenu } from "./space-header-navigation-menu";
+import {
+	SpaceHeaderNavigationMenu,
+	type SpaceHeaderNavigationMenuItem,
+} from "./space-header-navigation-menu";
 import { SpacePinsRecallAction } from "./space-pins";
 import { useSpaceReadingHeader } from "./space-reading-header";
 import { SpaceSettingsDialog } from "./space-settings-dialog";
@@ -172,6 +184,7 @@ function ConversationHeaderMenu(input: {
 	onOpenSettings: () => void;
 	onMarkAllRead?: () => void;
 	chatSessionAgentProfileId?: string | null;
+	items?: SpaceHeaderNavigationMenuItem[];
 }) {
 	const conversationMenuLabel = input.isDirectMessage
 		? "Chat menu"
@@ -193,7 +206,7 @@ function ConversationHeaderMenu(input: {
 	return (
 		<SpaceHeaderNavigationMenu
 			ariaLabel={ariaLabel}
-			items={[]}
+			items={input.items ?? []}
 			onMarkAllRead={input.onMarkAllRead}
 			onOpenConversationInformation={input.onOpenSettings}
 			settingsLabel={
@@ -202,6 +215,46 @@ function ConversationHeaderMenu(input: {
 					: "Space settings"
 			}
 		/>
+	);
+}
+
+function quietHeaderActions(input: {
+	enabled: boolean;
+	canSearch: boolean;
+	canShare: boolean;
+	onSearch?: () => void;
+	onShare?: () => void;
+}): SpaceHeaderNavigationMenuItem[] {
+	const items: SpaceHeaderNavigationMenuItem[] = [];
+	if (input.enabled && input.canSearch && input.onSearch) {
+		items.push({
+			icon: MagnifyingGlassIcon,
+			label: "Search messages",
+			onSelect: input.onSearch,
+		});
+	}
+	if (input.enabled && input.canShare && input.onShare) {
+		items.push({
+			icon: ShareNetworkIcon,
+			label: "Share space",
+			onSelect: input.onShare,
+		});
+	}
+	return items;
+}
+
+function SpaceHeaderSearch(input: {
+	onOpenChange: (open: boolean) => void;
+	open: boolean;
+	profileId?: string;
+	quiet: boolean;
+	spaceId: string;
+}) {
+	if (input.quiet) {
+		return input.open ? <MessageSearchDialog {...input} /> : null;
+	}
+	return (
+		<MessageSearchButton profileId={input.profileId} spaceId={input.spaceId} />
 	);
 }
 
@@ -235,6 +288,7 @@ export function SpaceHeader(input: {
 	onRecallPinnedItems?: () => void;
 	onPrepareMarkAllRead?: Parameters<typeof useMarkSpaceReadDialog>[0];
 	viewControl?: ReactNode;
+	resourcesControl?: ReactNode;
 	onDeleteSpace: () => Promise<void> | void;
 	onLeaveSpace?: () => Promise<void> | void;
 	showDeleteSpaceAction: boolean;
@@ -257,6 +311,8 @@ export function SpaceHeader(input: {
 		"main"
 	);
 	const [isConfirmingDraftClose, setIsConfirmingDraftClose] = useState(false);
+	const [searchOpen, setSearchOpen] = useState(false);
+	const org = useOptionalAppOrganization();
 	const conversationNames = useConversationNames();
 	const sharingDraft = useSpaceSharingDraft({
 		accessMode: input.status.accessMode,
@@ -292,6 +348,18 @@ export function SpaceHeader(input: {
 		setActiveDialog(null);
 	};
 
+	const useQuietHeader = input.resourcesControl !== undefined;
+	const moreActions = quietHeaderActions({
+		enabled: useQuietHeader,
+		canSearch: Boolean(org),
+		canShare: !input.hideShareControl,
+		onSearch: () => setSearchOpen(true),
+		onShare: () => {
+			setShareInitialView("main");
+			handleDialogOpenChange("share", true);
+		},
+	});
+
 	return (
 		<SpaceWindowHeader
 			actions={
@@ -304,18 +372,25 @@ export function SpaceHeader(input: {
 					>
 						{input.setupRecallAction ? (
 							<div
-								className="max-lg:absolute max-lg:right-4 max-lg:bottom-0 max-lg:flex max-lg:h-[var(--space-conversation-navigation-height)] max-lg:items-center"
+								className={cn(
+									input.viewControl &&
+										"max-lg:absolute max-lg:right-4 max-lg:bottom-0 max-lg:flex max-lg:h-[var(--space-conversation-navigation-height)] max-lg:items-center"
+								)}
 								data-slot="space-header-setup-recall-action"
 							>
 								{input.setupRecallAction}
 							</div>
 						) : null}
 						<SpacePinsRecallAction onRecall={input.onRecallPinnedItems} />
-						<MessageSearchButton
+						<SpaceHeaderSearch
+							onOpenChange={setSearchOpen}
+							open={searchOpen}
 							profileId={input.currentProfileId}
+							quiet={useQuietHeader}
 							spaceId={input.status.spaceId}
 						/>
 						{input.membersControl ?? null}
+						{input.resourcesControl}
 						{input.hideShareControl === true ? null : (
 							<SpaceShareDialog
 								accessMode={input.status.accessMode}
@@ -339,6 +414,7 @@ export function SpaceHeader(input: {
 								onSetAccessMode={input.onSetAccessMode}
 								open={activeDialog === "share"}
 								openMeldProfileId={input.currentProfileId}
+								showTrigger={!useQuietHeader}
 								spaceId={input.status.spaceId}
 								spaceName={spaceName}
 								visibility={input.status.organizationVisibility}
@@ -348,6 +424,7 @@ export function SpaceHeader(input: {
 							chatSessionAgentProfileId={input.chatSessionAgentProfileId}
 							isCenterAgent={input.isCenterAgentDirectMessage}
 							isDirectMessage={isDirectMessage}
+							items={moreActions}
 							onMarkAllRead={markAllRead.open}
 							onOpenSettings={() => {
 								setSettingsInitialSection("general");

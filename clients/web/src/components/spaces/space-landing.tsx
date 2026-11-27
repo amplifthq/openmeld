@@ -196,6 +196,7 @@ import { SpacePinsProvider } from "./space-pins";
 import { SpaceProfileSwitcher } from "./space-profile-switcher";
 import { SpaceReadingHeaderProvider } from "./space-reading-header";
 import { buildSpaceReferenceMessageTexts } from "./space-reference-message-texts";
+import { SpaceResourcesMenu } from "./space-resources-menu";
 import {
 	SpaceLandingFailureSurface,
 	SpaceLandingLoadingShell,
@@ -1865,6 +1866,14 @@ function SpaceLandingConversationShell({
 		/>
 	);
 
+	const { headerClassName, ...headerNavigation } = spaceHeaderNavigation({
+		activeView: spaceView,
+		centerAgent: currentSpaceIsCenterAgentDirectMessage,
+		idPrefix: spaceViewIdPrefix,
+		isDirectMessage,
+		onViewChange: spaceFileNavigation.changeSpaceView,
+		orgSlug: input.orgSlug,
+	});
 	const content = (
 		<SpaceAgentProfileEditProvider
 			accountProfiles={accountProfiles}
@@ -1903,6 +1912,7 @@ function SpaceLandingConversationShell({
 					bodySlotName={resolveSpaceLandingBodySlotName(input.presentation)}
 					header={
 						<SpaceLandingHeader
+							{...headerNavigation}
 							accessModeErrorMessage={controller.accessModeErrorMessage}
 							canManageSpaceAccess={currentSpaceControls.canManageSpaceAccess}
 							canManageSpaceName={currentSpaceControls.canManageSpaceName}
@@ -1971,29 +1981,9 @@ function SpaceLandingConversationShell({
 							}
 							spaceNameErrorMessage={controller.spaceNameErrorMessage}
 							status={controller.status}
-							viewControl={
-								currentSpaceIsCenterAgentDirectMessage && input.orgSlug ? (
-									<CenterAgentHeaderTabs
-										activeSectionId="chat"
-										activeSpaceView={spaceView}
-										className="h-full shrink-0 gap-5"
-										idPrefix={spaceViewIdPrefix}
-										onSpaceViewChange={spaceFileNavigation.changeSpaceView}
-										organizationSlug={input.orgSlug}
-									/>
-								) : (
-									<SpaceViewTabs
-										activeView={spaceView}
-										className="shrink-0"
-										guideEnabled
-										idPrefix={spaceViewIdPrefix}
-										onViewChange={spaceFileNavigation.changeSpaceView}
-										tasksEnabled
-									/>
-								)
-							}
 						/>
 					}
+					headerClassName={headerClassName}
 					showHeader={input.presentation !== "compact"}
 				>
 					<div
@@ -2354,6 +2344,54 @@ function SpaceFileNavigationGuards(input: {
 	);
 }
 
+function spaceHeaderNavigation(input: {
+	activeView: SpaceView;
+	centerAgent: boolean;
+	idPrefix: string;
+	isDirectMessage: boolean;
+	onViewChange: (view: SpaceView) => void;
+	orgSlug?: string;
+}): Pick<
+	ComponentProps<typeof SpaceHeader>,
+	"resourcesControl" | "viewControl"
+> & { headerClassName?: string } {
+	if (input.centerAgent && input.orgSlug) {
+		return {
+			viewControl: (
+				<CenterAgentHeaderTabs
+					activeSectionId="chat"
+					activeSpaceView={input.activeView}
+					className="h-full shrink-0 gap-5"
+					idPrefix={input.idPrefix}
+					onSpaceViewChange={input.onViewChange}
+					organizationSlug={input.orgSlug}
+				/>
+			),
+		};
+	}
+	if (input.isDirectMessage) {
+		return {
+			viewControl: (
+				<SpaceViewTabs
+					{...input}
+					className="shrink-0"
+					guideEnabled
+					tasksEnabled
+				/>
+			),
+		};
+	}
+	return {
+		headerClassName: "h-[var(--space-conversation-title-height)]",
+		resourcesControl: (
+			<SpaceResourcesMenu
+				activeView={input.activeView}
+				onViewChange={input.onViewChange}
+			/>
+		),
+	};
+}
+
 function SpaceLandingHeader({
 	hasCurrentAccess,
 	readPosition,
@@ -2372,7 +2410,11 @@ function SpaceLandingHeader({
 	if (!status) {
 		return (
 			<SpaceWindowHeader
-				navigation={<span className="text-sm">Messages</span>}
+				navigation={
+					props.resourcesControl ? undefined : (
+						<span className="text-sm">Messages</span>
+					)
+				}
 				renderFrame={false}
 				title={props.conversationTitle ?? ""}
 			/>
@@ -2636,8 +2678,6 @@ function SpaceLandingConversation({
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 			isAgentRecoveryPending={controller.isAgentRecoveryPending}
-			isDiagnosticReportPending={controller.isDiagnosticReportPending}
-			isDiagnosticReportSent={controller.isDiagnosticReportSent}
 			liveNotice={
 				<SpaceLiveNotice
 					hidden={Boolean(
@@ -2675,7 +2715,6 @@ function SpaceLandingConversation({
 			onRecoverExecution={controller.onRecoverExecution}
 			onRemoveComposerFile={controller.onRemoveComposerFile}
 			onReplyToMessage={controller.onReplyToMessage}
-			onReportMessage={controller.onReportMessage}
 			onRetryComposerFile={controller.onRetryComposerFile}
 			onRetryComposerFileCleanup={controller.onRetryComposerFileCleanup}
 			onRetryComposerFileRestoration={controller.onRetryComposerFileRestoration}
@@ -2746,6 +2785,7 @@ function SpaceLandingConversation({
 					/>
 				);
 			}}
+			resourceNavigation={!isDirectMessage}
 			selfAvatarImageUrl={currentUserAvatarImageUrl}
 			selfProfileId={controller.profileId}
 			spaceId={controller.spaceId}
@@ -3353,8 +3393,6 @@ function SpaceLandingSecondaryPanels({
 					}
 					isAgentRecoveryPending={controller.isAgentRecoveryPending}
 					isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
-					isDiagnosticReportPending={controller.isDiagnosticReportPending}
-					isDiagnosticReportSent={controller.isDiagnosticReportSent}
 					isDirectMessage={state.isDirectMessage}
 					isPersonalContext={input.isPersonalContext === true}
 					isSendingMessage={controller.isSendingThreadMessage}
@@ -3381,7 +3419,6 @@ function SpaceLandingSecondaryPanels({
 					onRecoverExecution={controller.onRecoverExecution}
 					onRemoveComposerFile={controller.onRemoveThreadComposerFile}
 					onReplyToMessage={controller.onThreadReplyToMessage}
-					onReportMessage={controller.onReportMessage}
 					onRetryComposerFile={controller.onRetryThreadComposerFile}
 					onRetryComposerFileCleanup={
 						controller.onRetryThreadComposerFileCleanup

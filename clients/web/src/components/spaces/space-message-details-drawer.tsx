@@ -28,7 +28,7 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import type { CSSProperties } from "react";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { Drawer } from "vaul";
 import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
@@ -65,7 +65,6 @@ import { SpaceMessageDelegations } from "./space-message-delegations";
 import {
 	buildSpaceMessageDetailsPresentation,
 	type MessageDetailsActivityItem,
-	type MessageDetailsDiagnosticReportStatus,
 	type MessageDetailsStatus,
 	type SpaceCollaborationProfilePresentation,
 } from "./space-message-details-presentation";
@@ -110,16 +109,9 @@ const TIMING_GROUP_CLASS_NAMES: Record<MessageTimingGroupKey, string> = {
 	openmeld: "bg-muted-foreground/40",
 	not_recorded: "bg-border",
 };
-const REDACTED_FACT_PLACEHOLDER = "Hidden";
 const ACTIVITY_MESSAGE_PREVIEW_CHARACTER_LIMIT = 280;
 const ACTIVITY_REPLY_PREVIEW_CHARACTER_LIMIT = 640;
 const LINE_BREAK_PATTERN = /\r?\n/u;
-
-type TechnicalDetailField = {
-	label: string;
-	value: string;
-	dedupeByValue?: boolean;
-};
 
 type NoticeRecoveryPresentation = {
 	action: SpaceMessageWakeIssueEntry["action"];
@@ -145,8 +137,6 @@ export function SpaceMessageDetailsDrawer(input: {
 	>;
 	openMeldProfileId?: string;
 	canJumpToMessage: (signalId: string) => boolean;
-	diagnosticReportStatus: MessageDetailsDiagnosticReportStatus;
-	errorLogMessage: string;
 	isPersonalContext?: boolean;
 	item: SpaceTimelineItem;
 	isAgentRecoveryPending?: (profileId: string) => boolean;
@@ -156,7 +146,6 @@ export function SpaceMessageDetailsDrawer(input: {
 	onAgentRecoveryAction?: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
-	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	open: boolean;
@@ -240,7 +229,7 @@ export function SpaceMessageDetailsDrawer(input: {
 									Message details
 								</Drawer.Title>
 								<Drawer.Description className="sr-only">
-									Activity, outcomes, and support details for this message.
+									Activity and outcomes for this message.
 								</Drawer.Description>
 							</div>
 							<div className="flex shrink-0 items-center gap-1.5">
@@ -299,8 +288,6 @@ export function SpaceMessageDetailsDrawer(input: {
 								canJumpToMessage={input.canJumpToMessage}
 								canStartNewTask={input.canStartNewTask === true}
 								detailsState={detailsState}
-								diagnosticReportStatus={input.diagnosticReportStatus}
-								errorLogMessage={input.errorLogMessage}
 								isAgentRecoveryPending={input.isAgentRecoveryPending}
 								isPersonalContext={input.isPersonalContext}
 								item={input.item}
@@ -322,7 +309,6 @@ export function SpaceMessageDetailsDrawer(input: {
 											}
 										: undefined
 								}
-								onReportMessage={input.onReportMessage}
 								onWakeStopRequest={input.onWakeStopRequest}
 								orgSlug={input.orgSlug}
 								prepareSetupHref={input.prepareSetupHref}
@@ -364,8 +350,6 @@ function MessageDetailsBody(input: {
 	>;
 	canJumpToMessage: (signalId: string) => boolean;
 	detailsState: MessageDetailsQueryState;
-	diagnosticReportStatus: MessageDetailsDiagnosticReportStatus;
-	errorLogMessage: string;
 	isPersonalContext?: boolean;
 	item: SpaceTimelineItem;
 	messageLink: string;
@@ -374,7 +358,6 @@ function MessageDetailsBody(input: {
 	onAgentRecoveryAction?: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
-	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	orgSlug?: string;
@@ -394,8 +377,6 @@ function MessageDetailsBody(input: {
 	wakeProgressEntries: readonly SpaceMessageWakeThinkingEntry[];
 	wakeStopTarget: SpaceWakeStopTargetResolution | null;
 }) {
-	const technicalDetailsId = useId();
-
 	if (input.detailsState.status === "loading") {
 		return (
 			<div className="flex flex-col gap-5">
@@ -434,16 +415,6 @@ function MessageDetailsBody(input: {
 	];
 	const spaceReferencesById =
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
-	let primaryOutcomeNotice: SpaceTimelineItem | null = null;
-	if (isSpaceOutcomeNoticeItem(input.item)) {
-		primaryOutcomeNotice = input.item;
-	} else if (presentation.wakeFailureNoticeItems.length === 1) {
-		primaryOutcomeNotice = presentation.wakeFailureNoticeItems[0] ?? null;
-	}
-	const technicalDetailFields = buildTechnicalDetailFields({
-		data,
-		item: primaryOutcomeNotice ?? input.item,
-	});
 	return (
 		<FolderContinueProvider
 			value={{
@@ -512,17 +483,6 @@ function MessageDetailsBody(input: {
 				<SourceNotLoadedSection
 					canJumpToMessage={input.canJumpToMessage}
 					item={input.item}
-				/>
-				<TechnicalDetailsSection
-					detailsId={technicalDetailsId}
-					fields={technicalDetailFields}
-				/>
-				<DiagnosticReportSection
-					errorLogMessage={input.errorLogMessage}
-					isPending={input.diagnosticReportStatus === "pending"}
-					isSent={input.diagnosticReportStatus === "sent"}
-					item={input.item}
-					onReportMessage={input.onReportMessage}
 				/>
 			</div>
 		</FolderContinueProvider>
@@ -1371,90 +1331,6 @@ function SourceNotLoadedSection(input: {
 }
 
 // Every raw ID this panel knows about, gathered from Message/AgentContext/
-// WakeContext/Diagnostics into one list. Known trace-selector aliases can
-// dedupe by value, while role-qualified Agent identity facts remain separate.
-function buildTechnicalDetailFields(input: {
-	data: GetSpaceMessageDetailsResponse;
-	item: SpaceTimelineItem;
-}): TechnicalDetailField[] {
-	const hasWakeTargets =
-		input.data.wakeContext.state === "recorded" &&
-		input.data.wakeContext.targets.length > 0;
-	const authorLabelPrefix = hasWakeTargets ? "Message author" : "";
-	const outcomeFacts = isSpaceOutcomeNoticeItem(input.item)
-		? {
-				dispatchId: input.item.systemNoticeDispatchId ?? null,
-				failureStage: input.item.systemNoticeFailureStage ?? null,
-				reasonCode: input.item.systemNoticeReasonCode ?? null,
-				resultRef: input.item.systemNoticeResultRef ?? null,
-				stopCause: input.item.systemNoticeStopCause ?? null,
-			}
-		: null;
-
-	const candidates: (TechnicalDetailField | null)[] = [
-		{
-			dedupeByValue: true,
-			label: "Message ID",
-			value: input.data.message.signalId,
-		},
-		{
-			label: "Type",
-			value: formatMessageSignalType(input.data.message.signalType),
-		},
-		...buildAgentContextTechnicalDetailFields(
-			input.data.agentContext,
-			authorLabelPrefix
-		),
-		...buildWakeTargetTechnicalDetailFields(input.data.wakeContext),
-		toTechnicalDetailField(
-			input.data.wakeContext.sourceSignalId,
-			"Wake source message",
-			true
-		),
-		toTechnicalDetailField(
-			input.data.wakeContext.clientMessageId,
-			"Client message ID",
-			true
-		),
-		outcomeFacts?.reasonCode
-			? { label: "Reason code", value: outcomeFacts.reasonCode }
-			: null,
-		outcomeFacts?.failureStage
-			? {
-					label: "Failure stage",
-					value: formatSystemNoticeFailureStage(outcomeFacts.failureStage),
-				}
-			: null,
-		outcomeFacts?.stopCause
-			? {
-					label: "Service stop cause",
-					value: outcomeFacts.stopCause.replaceAll("_", " "),
-				}
-			: null,
-		outcomeFacts?.resultRef
-			? {
-					dedupeByValue: true,
-					label: "Retained result reference",
-					value: outcomeFacts.resultRef,
-				}
-			: null,
-		outcomeFacts?.dispatchId
-			? {
-					dedupeByValue: true,
-					label: "Dispatch ID",
-					value: outcomeFacts.dispatchId,
-				}
-			: null,
-		...input.data.diagnostics.traceSelectors.map((selector) => ({
-			dedupeByValue: true,
-			label: selector.label,
-			value: selector.value,
-		})),
-	];
-
-	return dedupeTechnicalDetailFields(candidates);
-}
-
 function OriginalErrorsSection(input: {
 	wakeContext: GetSpaceMessageDetailsResponse["wakeContext"];
 }) {
@@ -1491,254 +1367,12 @@ function OriginalErrorsSection(input: {
 	);
 }
 
-function buildWakeTargetTechnicalDetailFields(
-	wakeContext: GetSpaceMessageDetailsResponse["wakeContext"]
-): (TechnicalDetailField | null)[] {
-	if (wakeContext.state !== "recorded") {
-		return [];
-	}
-
-	return wakeContext.targets.flatMap((target) => {
-		const targetName =
-			target.agentContext?.profileName.value ??
-			target.targetLabel ??
-			target.targetProfileId;
-		const labelPrefix =
-			wakeContext.targets.length === 1
-				? "Wake target"
-				: `Wake target (${targetName})`;
-		return [
-			...(target.agentContext
-				? buildAgentContextTechnicalDetailFields(
-						target.agentContext,
-						labelPrefix
-					)
-				: []),
-			{ label: `${labelPrefix} profile ID`, value: target.targetProfileId },
-			target.taskContext?.assignment.readStatus === "found" &&
-			target.taskContext.assignment.contextId
-				? {
-						label: `${labelPrefix} Context ID`,
-						value: target.taskContext.assignment.contextId,
-					}
-				: null,
-			target.reasonCode
-				? { label: `${labelPrefix} reason code`, value: target.reasonCode }
-				: null,
-		];
-	});
-}
-
-function buildAgentContextTechnicalDetailFields(
-	agentContext: GetSpaceMessageDetailsResponse["agentContext"],
-	labelPrefix: string
-): (TechnicalDetailField | null)[] {
-	const label = (fieldLabel: string) =>
-		labelPrefix ? `${labelPrefix} ${fieldLabel}` : fieldLabel;
-	return [
-		toTechnicalDetailField(agentContext.profileName, label("Agent profile")),
-		toTechnicalDetailField(
-			agentContext.agentControllerRef,
-			label("Agent Controller")
-		),
-		toTechnicalDetailField(
-			agentContext.agentControllerConversationId,
-			label("Agent Controller Conversation ID")
-		),
-		toTechnicalDetailField(agentContext.workspacePath, label("Workspace")),
-		toTechnicalDetailField(
-			agentContext.openMeldServiceRuntimeId,
-			label("OpenMeld Service runtime ID")
-		),
-		toTechnicalDetailField(agentContext.bindingId, label("Binding ID")),
-		toTechnicalDetailField(
-			agentContext.workspaceFingerprint,
-			label("Workspace fingerprint")
-		),
-	];
-}
-
-// "redacted" still renders (as the "Hidden" placeholder below) -- it means
-// OpenMeld deliberately withheld a value that does exist, which is a
-// different fact from "not_recorded"/"not_applicable" (nothing to show).
-function toTechnicalDetailField(
-	fact: SpaceMessageDetailsStringFact,
-	label: string,
-	dedupeByValue = false
-): TechnicalDetailField | null {
-	if (fact.state === "redacted") {
-		return { dedupeByValue, label, value: REDACTED_FACT_PLACEHOLDER };
-	}
-	if (fact.state !== "recorded" || !fact.value) {
-		return null;
-	}
-	return { dedupeByValue, label, value: fact.value };
-}
-
-// Only known selector aliases dedupe by value. Agent identity facts keep their
-// role-qualified labels even when the author and Wake target use the same
-// controller, Binding, or workspace. The "Hidden" placeholder is also exempt:
-// several distinct redacted fields can legitimately render the same word.
-function dedupeTechnicalDetailFields(
-	candidates: readonly (TechnicalDetailField | null)[]
-): TechnicalDetailField[] {
-	const seenKeys = new Set<string>();
-	const deduped: TechnicalDetailField[] = [];
-	for (const candidate of candidates) {
-		if (!candidate) {
-			continue;
-		}
-		if (candidate.value === REDACTED_FACT_PLACEHOLDER) {
-			deduped.push(candidate);
-			continue;
-		}
-		const key = candidate.dedupeByValue
-			? `value:${candidate.value}`
-			: `field:${candidate.label}:${candidate.value}`;
-		if (seenKeys.has(key)) {
-			continue;
-		}
-		seenKeys.add(key);
-		deduped.push(candidate);
-	}
-	return deduped;
-}
-
-function formatSystemNoticeFailureStage(
-	stage: "execution" | "publication"
-): string {
-	return stage === "execution" ? "Execution" : "Publication";
-}
-
-// Collapsed by default: every field here is a raw ID or fingerprint useful
-// for debugging or filing a support ticket, not for reading day to day.
-function TechnicalDetailsSection(input: {
-	detailsId: string;
-	fields: readonly TechnicalDetailField[];
-}) {
-	if (input.fields.length === 0) {
-		return null;
-	}
-	const allDetails = input.fields
-		.map((field) => `${field.label}: ${field.value}`)
-		.join("\n");
-	return (
-		<section className="border-border/70 border-t pt-4">
-			<details className="group" id={input.detailsId}>
-				<summary className="cursor-pointer select-none font-medium text-base">
-					Technical details
-				</summary>
-				<div className="mt-2 flex justify-end">
-					<Button
-						onClick={() =>
-							copyDetailText(allDetails, "Technical details copied.")
-						}
-						size="sm"
-						type="button"
-						variant="ghost"
-					>
-						<CopyIcon aria-hidden="true" />
-						Copy technical details
-					</Button>
-				</div>
-				<div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-					{input.fields.map((field) => (
-						<DetailLine
-							key={`${field.label}:${field.value}`}
-							label={field.label}
-							value={field.value}
-						/>
-					))}
-				</div>
-			</details>
-		</section>
-	);
-}
-
-function DiagnosticReportSection(input: {
-	errorLogMessage: string;
-	isPending: boolean;
-	isSent: boolean;
-	item: SpaceTimelineItem;
-	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
-}) {
-	const reportMessage = () => {
-		input.onReportMessage(input.item).catch((error) => {
-			console.error(input.errorLogMessage, error);
-		});
-	};
-
-	return (
-		<DetailsSection title="Report issue">
-			<div className="flex flex-col items-start gap-3 text-sm">
-				<p className="text-muted-foreground leading-6">
-					Send a report to help investigate this problem. Message text is not
-					included.
-				</p>
-				<Button
-					disabled={input.isPending || input.isSent}
-					onClick={reportMessage}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					{resolveDiagnosticReportButtonText({
-						isPending: input.isPending,
-						isSent: input.isSent,
-					})}
-				</Button>
-			</div>
-		</DetailsSection>
-	);
-}
-
 function DetailsSection(input: { children: ReactNode; title: string }) {
 	return (
 		<section className="flex flex-col gap-3 border-border/70 border-t pt-4 first:border-t-0 first:pt-0">
 			<h3 className="font-medium text-base">{input.title}</h3>
 			{input.children}
 		</section>
-	);
-}
-
-function DetailLine(input: {
-	label: string;
-	value: string;
-	valueClassName?: string;
-}) {
-	return (
-		<div className="min-w-0">
-			<div className="flex items-center justify-between gap-2">
-				<div className="text-muted-foreground text-xs">{input.label}</div>
-				<Tooltip>
-					<TooltipTrigger
-						render={
-							<Button
-								aria-label={`Copy ${input.label}`}
-								className="size-6 shrink-0"
-								onClick={() =>
-									copyDetailText(input.value, `${input.label} copied.`)
-								}
-								size="icon-sm"
-								type="button"
-								variant="ghost"
-							>
-								<CopyIcon aria-hidden="true" />
-							</Button>
-						}
-					/>
-					<TooltipContent side="bottom">Copy {input.label}</TooltipContent>
-				</Tooltip>
-			</div>
-			<div
-				className={cn(
-					"break-words text-foreground text-sm leading-6",
-					input.valueClassName
-				)}
-			>
-				{input.value}
-			</div>
-		</div>
 	);
 }
 
@@ -1776,29 +1410,6 @@ function formatFactValue(fact: SpaceMessageDetailsStringFact): string {
 			return _exhaustive;
 		}
 	}
-}
-
-function formatMessageSignalType(signalType: string): string {
-	switch (signalType) {
-		case "signal.text":
-			return "Message";
-		case "signal.status":
-			return "Status";
-		case "signal.system_notice":
-			return "System notice";
-		default:
-			return "Message";
-	}
-}
-
-function resolveDiagnosticReportButtonText(input: {
-	isPending: boolean;
-	isSent: boolean;
-}): string {
-	if (input.isSent) {
-		return "Issue reported";
-	}
-	return input.isPending ? "Sending report..." : "Send report";
 }
 
 /** Only the requester's own sent message can be continued from here. */

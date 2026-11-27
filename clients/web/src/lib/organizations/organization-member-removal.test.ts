@@ -48,6 +48,9 @@ describe("organization member removal", () => {
 			`/v1/organizations/current/member-removal/${action}`
 		);
 		expect(
+			new URL(String(url)).searchParams.get("includeDefaultSuccessor")
+		).toBe(action === "preview" ? "1" : null);
+		expect(
 			(request?.headers as Headers).get("x-openmeld-requested-organization-id")
 		).toBe("organization-route");
 		expect(JSON.parse(String(request?.body))).toEqual(
@@ -59,6 +62,48 @@ describe("organization member removal", () => {
 						successorUserId: "user-successor",
 					}
 		);
+	});
+
+	it("accepts a named organization default and binds it to preparation", async () => {
+		const defaultSuccessor = {
+			userId: "owner-fixture",
+			profileName: "Owner Fixture",
+		};
+		const spaces = [
+			{
+				spaceId: "shared-space",
+				name: "Shared handoff",
+				action: "transfer" as const,
+			},
+		];
+		const memberId = "member-departing";
+		const fetchMock = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(
+				Response.json({
+					memberId,
+					userId: "user-departing",
+					spaces,
+					defaultSuccessor,
+				})
+			)
+			.mockResolvedValueOnce(Response.json({ prepared: true }));
+		vi.stubGlobal("fetch", fetchMock);
+		const input = { organizationId: "org-route", memberId };
+		const preview = await previewOrganizationMemberRemoval(input);
+		expect(preview.defaultSuccessor).toEqual(defaultSuccessor);
+		await prepareOrganizationMemberRemoval({
+			...input,
+			spaces,
+			successorUserId: defaultSuccessor.userId,
+			useDefaultSuccessor: true,
+		});
+		expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+			memberId,
+			spaces,
+			successorUserId: defaultSuccessor.userId,
+			useDefaultSuccessor: true,
+		});
 	});
 
 	it("rejects a review for another member", async () => {

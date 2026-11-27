@@ -13,16 +13,23 @@ export const organizationMemberRemovalPlanSchema = z.strictObject({
   memberId: id,
   userId: id,
   spaces: z.array(organizationMemberRemovalSpaceSchema),
+  defaultSuccessor: z
+    .strictObject({ userId: id, profileName: z.string() })
+    .optional(),
 });
 
-export const organizationMemberRemovalPreviewBodySchema = z.strictObject({
+const organizationMemberRemovalTargetSchema = z.strictObject({
   memberId: id,
 });
 
+export const organizationMemberRemovalPreviewBodySchema =
+  organizationMemberRemovalTargetSchema;
+
 export const organizationMemberRemovalPrepareBodySchema =
-  organizationMemberRemovalPreviewBodySchema.extend({
+  organizationMemberRemovalTargetSchema.extend({
     spaces: z.array(organizationMemberRemovalSpaceSchema),
     successorUserId: id.optional(),
+    useDefaultSuccessor: z.literal(true).optional(),
   });
 
 export const organizationMemberRemovalPrepareResponseSchema = z.strictObject({
@@ -32,6 +39,7 @@ export const organizationMemberRemovalPrepareResponseSchema = z.strictObject({
 export const organizationMemberRemovalPreviewInputSchema =
   organizationMemberRemovalPreviewBodySchema.extend({
     context: openMeldRequestContextSchema,
+    includeDefaultSuccessor: z.literal(true).optional(),
   });
 
 export const organizationMemberRemovalPrepareInputSchema =
@@ -40,12 +48,19 @@ export const organizationMemberRemovalPrepareInputSchema =
   });
 
 export const organizationMemberRemovalSpaceInputSchema =
-  organizationMemberRemovalPreviewInputSchema.extend({ spaceId: id });
+  organizationMemberRemovalTargetSchema.extend({
+    context: openMeldRequestContextSchema,
+    spaceId: id,
+    defaultSuccessorProfileId: id.optional(),
+  });
 
 export const organizationMemberRemovalSpacePrepareInputSchema =
-  organizationMemberRemovalSpaceInputSchema.extend({
+  organizationMemberRemovalTargetSchema.extend({
+    context: openMeldRequestContextSchema,
+    spaceId: id,
     expected: organizationMemberRemovalSpaceSchema,
     successorUserId: id.optional(),
+    useDefaultSuccessor: z.literal(true).optional(),
   });
 
 export type OrganizationMemberRemovalSpace = z.infer<

@@ -1,0 +1,2 @@
+ALTER TABLE "openmeld"."inbox_feed_snapshots" DROP CONSTRAINT "inbox_feed_snapshot_category_check";--> statement-breakpoint
+ALTER TABLE "openmeld"."inbox_feed_snapshots" ADD CONSTRAINT "inbox_feed_snapshot_category_check" CHECK ("category" in ('all', 'todo', 'mentions', 'needs_action', 'needs_review'));

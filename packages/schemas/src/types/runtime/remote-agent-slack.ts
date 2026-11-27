@@ -13,6 +13,14 @@ type RemoteAgentSlackUrlVerificationPayloadSchema =
 
 export type RemoteAgentSlackAppMentionEvent =
   z.infer<RemoteAgentSlackAppMentionEventSchema>;
+type RemoteAgentSlackChannelMessageEventSchema =
+  typeof import("../../schemas/runtime/remote-agent-slack")["remoteAgentSlackChannelMessageEventSchema"];
+export type RemoteAgentSlackChannelMessageEvent =
+  z.infer<RemoteAgentSlackChannelMessageEventSchema>;
+type RemoteAgentSlackEventFileSchema =
+  typeof import("../../schemas/runtime/remote-agent-slack")["remoteAgentSlackEventFileSchema"];
+export type RemoteAgentSlackEventFile =
+  z.infer<RemoteAgentSlackEventFileSchema>;
 type RemoteAgentSlackDirectMessageEventSchema =
   typeof import("../../schemas/runtime/remote-agent-slack")["remoteAgentSlackDirectMessageEventSchema"];
 export type RemoteAgentSlackDirectMessageEvent =

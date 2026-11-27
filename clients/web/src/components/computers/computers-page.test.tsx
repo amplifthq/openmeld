@@ -5,13 +5,7 @@ import type {
 	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
-import {
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-	within,
-} from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { createContext, type ReactNode, use } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ComputersPage, type ComputersRouteState } from "./computers-page";
@@ -32,6 +26,25 @@ const desktopPlatformMock = vi.hoisted(() =>
 vi.mock("#/desktop/platform", () => ({
 	getDesktopPlatform: desktopPlatformMock,
 }));
+vi.mock("#/components/member-agents/colleague-agent-page-sidebar", () => ({
+	ColleagueAgentChatButton: ({
+		ownerUserId,
+		profileId,
+		profileName,
+	}: {
+		ownerUserId: string;
+		profileId: string;
+		profileName: string;
+	}) => (
+		<button
+			data-agent-profile={profileId}
+			data-owner={ownerUserId}
+			type="button"
+		>
+			Chat with {profileName}
+		</button>
+	),
+}));
 vi.mock("#/hooks/auth.hooks", () => ({
 	useAuthSession: () => ({ data: { user: { id: "user-felix" } } }),
 }));
@@ -43,7 +56,6 @@ const DEFAULT_COMPUTERS_ROUTE_STATE: ComputersRouteState = {
 	computersSetupCompleteRefresh: false,
 };
 const COMPUTER_OPTIONS_NAME_PATTERN = /Computer options/;
-const CHECKED_AT_LABEL_PATTERN = /^Checked /;
 const CONNECTION_ACTION_LABEL_PATTERN = /^(Connect|Disconnect)$/;
 let organizationComputersQueryData: OrganizationComputersResponse;
 let organizationDirectoryQueryData: OrganizationDirectoryResponse;
@@ -352,6 +364,7 @@ function buildOrganizationDirectory(input: {
 						profileId: "agent-scout",
 						profileName: "Scout",
 						readiness: {
+							agentControllerRef: "builtin:codex",
 							routeDeviceId: "device-ashley",
 							runtimeDeviceDisplayName: "Ashley's Mac Studio",
 						},
@@ -403,6 +416,16 @@ function buildOrganizationComputers(input: {
 									nativeInterface: "claude-cli",
 									status: "ready",
 									version: "2.1.234",
+									usageLimits: [
+										{
+											key: "claude:weekly",
+											label: "Weekly",
+											observedAt: "2026-08-18T05:00:00.000Z",
+											resetsAt: null,
+											status: "available",
+											usedPercent: 40,
+										},
+									],
 									versionAdvisory: {
 										checkedAt: "2026-08-18T05:00:00.000Z",
 										currentVersion: "2.1.234",
@@ -707,65 +730,32 @@ describe("ComputersPage", () => {
 		expect(
 			screen.getByRole("heading", { level: 1, name: "Ashley's Mac Studio" })
 		).toBeTruthy();
+		expect(screen.getByText("Connection unavailable")).toBeTruthy();
+		const detail = within(screen.getByTestId("organization-computer-detail"));
+		expect(detail.getByRole("heading", { name: "Local Agents" })).toBeTruthy();
+		expect(detail.getByRole("heading", { name: "Claude Code" })).toBeTruthy();
+		expect(detail.getByRole("heading", { name: "Codex" })).toBeTruthy();
+		expect(detail.getByText("60% left")).toBeTruthy();
+		expect(detail.getByText("Quota unavailable")).toBeTruthy();
+		const chat = detail.getByRole("button", { name: "Chat with Scout" });
+		expect(chat.getAttribute("data-agent-profile")).toBe("agent-scout");
+		expect(chat.getAttribute("data-owner")).toBe("user-ashley");
 		expect(
-			screen.getByText("Desktop · macOS 25.5.0 · Owned by Ashley")
-		).toBeTruthy();
-		expect(screen.getAllByText("Ashley's Mac Studio")).toHaveLength(1);
-		expect(screen.getByText("Computer Connection")).toBeTruthy();
-		expect(screen.getByText("Update required")).toBeTruthy();
-		expect(screen.getByText("Installed v0.3.65")).toBeTruthy();
-		expect(screen.getByText("Installed v0.3.66")).toBeTruthy();
-		expect(screen.getByText("Installed")).toBeTruthy();
-		expect(screen.getByText("Local agents")).toBeTruthy();
-		const claudeCodeSwitch = screen.getByRole("switch", {
-			name: "Claude Code local agent",
-		});
-		const codexSwitch = screen.getByRole("switch", {
-			name: "Codex local agent",
-		});
-		expect(claudeCodeSwitch.getAttribute("aria-checked")).toBe("true");
-		expect(claudeCodeSwitch.hasAttribute("data-disabled")).toBe(true);
-		expect(codexSwitch.getAttribute("aria-checked")).toBe("true");
-		expect(codexSwitch.hasAttribute("data-disabled")).toBe(true);
-
-		fireEvent.click(
-			screen.getByRole("button", { name: "Claude Code details" })
-		);
-		expect(screen.getByText("Controller")).toBeTruthy();
-		expect(screen.getByText("Enabled")).toBeTruthy();
-		expect(screen.getByText("Native interface")).toBeTruthy();
-		expect(screen.getByText("Claude CLI")).toBeTruthy();
-		expect(screen.getByText("Version")).toBeTruthy();
-		expect(screen.getAllByText("v2.1.234")).toHaveLength(2);
-		expect(screen.getByText("Version status")).toBeTruthy();
-		expect(screen.getByText("Up to date · v2.1.234")).toBeTruthy();
-		expect(screen.getByText("Launch check")).toBeTruthy();
-		expect(screen.getByText("Can launch")).toBeTruthy();
-		expect(screen.getByText("Models")).toBeTruthy();
-		expect(screen.getByText("Claude Sonnet")).toBeTruthy();
-		expect(screen.getByText("Capabilities")).toBeTruthy();
-		expect(
-			screen.getByText(
-				"Approvals, Interrupt, Model selection, Native event stream, Permission modes"
-			)
-		).toBeTruthy();
-		expect(screen.queryByText("Last checked")).toBeNull();
-		expect(
-			screen.getAllByText(CHECKED_AT_LABEL_PATTERN).length
-		).toBeGreaterThan(0);
-		expect(
-			screen.getAllByText("Available on this computer").length
-		).toBeGreaterThan(0);
-		expect(screen.queryByText("Account")).toBeNull();
-		expect(screen.queryByText("Installation")).toBeNull();
-		expect(screen.queryByText("Agent Profiles")).toBeNull();
-		expect(screen.queryByText("Researcher")).toBeNull();
-		expect(screen.queryByText("Scout")).toBeNull();
-		expect(
-			screen.queryByText(
-				"Ashley owns this computer. Ask them to update its connection or settings."
-			)
+			detail.queryByRole("button", { name: "Chat with Researcher" })
 		).toBeNull();
+		expect(detail.queryByRole("switch")).toBeNull();
+		for (const label of [
+			"Computer Connection",
+			"Update required",
+			"Installed v0.3.65",
+			"Installed v0.3.66",
+			"Native interface",
+			"Token usage",
+			"v2.1.234",
+			"Desktop · macOS 25.5.0 · Owned by Ashley",
+		]) {
+			expect(screen.queryByText(label)).toBeNull();
+		}
 		expect(
 			screen.queryByRole("button", { name: COMPUTER_OPTIONS_NAME_PATTERN })
 		).toBeNull();
@@ -824,9 +814,10 @@ describe("ComputersPage", () => {
 				screen.getByRole("heading", { level: 1, name: expectedName })
 			).toBeTruthy();
 			if (expectedName === "Old computer record") {
+				expect(screen.getByText("Offline")).toBeTruthy();
 				expect(
-					screen.getAllByText("Status out of date").length
-				).toBeGreaterThan(0);
+					screen.queryByRole("button", { name: "Chat with Scout" })
+				).toBeNull();
 			}
 		} else {
 			expect(screen.getByTestId("computer-not-found-state")).toBeTruthy();
@@ -886,9 +877,12 @@ describe("ComputersPage", () => {
 		expect(
 			screen.getByRole("heading", { name: "Ashley's Mac Studio" })
 		).toBeTruthy();
-		expect(screen.getByText("Update required")).toBeTruthy();
-		expect(screen.getByText("Installed v0.3.107")).toBeTruthy();
-		expect(screen.getByText("Update to v0.3.131.")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"No local agents have been reported from this computer yet."
+			)
+		).toBeTruthy();
+		expect(screen.queryByText("Installed v0.3.107")).toBeNull();
 
 		organizationComputersQueryData = buildOrganizationComputers({});
 		rerender(

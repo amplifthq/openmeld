@@ -180,3 +180,37 @@ it.each([
 	cleanup();
 	target.remove();
 });
+
+it("keeps Team detail history available while a layout is still resolving its organization", () => {
+	const target = document.createElement("div");
+	document.body.appendChild(target);
+	const history = createMemoryHistory({ initialEntries: ["/o/team/people"] });
+	const navigation = createDesktopNavigation(history);
+	const disconnect = navigation.connect();
+	navigation.identify("account-a");
+	history.push("/o/team/people/member-fixture");
+
+	// A pending layout has no Organization context yet, but the same Desktop
+	// session still owns this route and its history.
+	render(
+		<TooltipProvider>
+			<DesktopTitlebarContext.Provider value={{ target, navigation }}>
+				<AppSurfaceLayout globalControls={null} outerRail={null}>
+					<main>Loading member</main>
+				</AppSurfaceLayout>
+			</DesktopTitlebarContext.Provider>
+		</TooltipProvider>
+	);
+	const controls = within(target);
+	fireEvent.click(controls.getByRole("button", { name: "Back" }));
+	expect(history.location.pathname).toBe("/o/team/people");
+	fireEvent.click(controls.getByRole("button", { name: "Forward" }));
+	expect(history.location.pathname).toBe("/o/team/people/member-fixture");
+	act(() => navigation.reset());
+	expect(controls.getByRole("button", { name: "Back" })).toHaveProperty(
+		"disabled",
+		true
+	);
+	disconnect();
+	target.remove();
+});

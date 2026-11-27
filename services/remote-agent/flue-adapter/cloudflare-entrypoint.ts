@@ -1,4 +1,5 @@
 import {
+  classifyUnaddressedChannelBatchInputSchema,
   generateCenterAgentSessionTitleInputSchema,
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerCancellationRequestSchema,
@@ -35,6 +36,7 @@ type CenterAgentStub = DurableObjectStub & {
   ): Promise<void>;
   readAdmission(input: unknown): Promise<unknown>;
   readAdmissionStop(input: unknown): Promise<unknown>;
+  classifyUnaddressedChannelBatch(input: unknown): Promise<unknown>;
   generateCenterAgentSessionTitle(input: unknown): Promise<unknown>;
   summarizeAgentActivityDigest(input: unknown): Promise<unknown>;
   receiveExecutionInput(input: unknown): Promise<unknown>;
@@ -61,9 +63,22 @@ export type CenterAgentNamespace = {
 // Worker restart. The DO is a delivery carrier, not another usage ledger.
 export function runDurableAuxiliaryInference(input: {
   namespace: CenterAgentNamespace;
-  operation: "generateCenterAgentSessionTitle" | "summarizeAgentActivityDigest";
+  operation:
+    | "classifyUnaddressedChannelBatch"
+    | "generateCenterAgentSessionTitle"
+    | "summarizeAgentActivityDigest";
   request: unknown;
 }) {
+  if (input.operation === "classifyUnaddressedChannelBatch") {
+    const request = classifyUnaddressedChannelBatchInputSchema.parse(
+      input.request
+    );
+    return input.namespace
+      .get(
+        input.namespace.idFromName(`channel-intake:${request.organizationId}`)
+      )
+      .classifyUnaddressedChannelBatch(request);
+  }
   if (input.operation === "generateCenterAgentSessionTitle") {
     const request = generateCenterAgentSessionTitleInputSchema.parse(
       input.request

@@ -31,20 +31,28 @@ export function useInboxItemDismissMutation(input: {
 	const mutation = useMutation<
 		DismissInboxItemResponse,
 		InboxFailure,
-		InboxItem,
+		{ item: InboxItem; completed: boolean },
 		InboxCacheSnapshots
 	>({
-		mutationFn: async (item) =>
+		mutationFn: async ({ item }) =>
 			await dismissCurrentInboxItem({
 				itemId: item.id,
 				organizationId: input.organizationId,
 			}),
-		onError: (_error, item, context) => {
+		onError: (_error, { item, completed }, context) => {
 			restoreInboxCacheSnapshots(queryClient, context);
-			input.onAnnouncement?.(`Could not remove ${item.title} from Inbox.`);
-			toast.error("Could not remove this item from Inbox.");
+			input.onAnnouncement?.(
+				completed
+					? `Could not complete ${item.title}.`
+					: `Could not remove ${item.title} from Inbox.`
+			);
+			toast.error(
+				completed
+					? "Could not complete this TODO."
+					: "Could not remove this item from Inbox."
+			);
 		},
-		onMutate: async (item) => {
+		onMutate: async ({ item }) => {
 			await queryClient.cancelQueries({
 				queryKey: inboxQueryKeys.organization(input.organizationId),
 			});
@@ -65,16 +73,24 @@ export function useInboxItemDismissMutation(input: {
 				queryClient,
 			});
 		},
-		onSuccess: (response, item) => {
-			input.onAnnouncement?.(`${item.title} removed from Inbox.`);
+		onSuccess: (response, { item, completed }) => {
+			input.onAnnouncement?.(
+				completed
+					? `${item.title} completed in TODO.`
+					: `${item.title} removed from Inbox.`
+			);
 			input.onDismissed?.(response.dismissedItemId);
 		},
 	});
 
 	const dismiss = useCallback(
-		(item: InboxItem) => mutation.mutate(item),
+		(item: InboxItem) => mutation.mutate({ item, completed: false }),
 		[mutation.mutate]
 	);
 
-	return { dismiss, isPending: mutation.isPending };
+	const complete = useCallback(
+		(item: InboxItem) => mutation.mutate({ item, completed: true }),
+		[mutation.mutate]
+	);
+	return { dismiss, complete, isPending: mutation.isPending };
 }

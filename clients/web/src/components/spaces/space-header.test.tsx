@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import { SpaceHeader, SpaceWindowHeader } from "./space-header";
 import { SetupRecallButton } from "./space-onboarding-banner";
+import { SpaceResourcesMenu } from "./space-resources-menu";
 
 vi.hoisted(() => {
 	// This existing header fixture describes the production product. Compiled
@@ -85,6 +86,22 @@ describe("SpaceHeader", () => {
 		cleanup();
 		Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
 		vi.unstubAllGlobals();
+	});
+
+	it("opens Share from the quiet Space menu rather than a primary header action", async () => {
+		render(
+			createSpaceHeader({
+				resourcesControl: (
+					<SpaceResourcesMenu activeView="messages" onViewChange={vi.fn()} />
+				),
+			})
+		);
+		expect(screen.queryByRole("button", { name: "Share space" })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Space menu" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Share space" }));
+		expect(
+			await screen.findByRole("dialog", { name: "Share or invite" })
+		).toBeTruthy();
 	});
 
 	it("requires confirmation, allows cancel, and retries the frozen selection after failure", async () => {
@@ -1174,6 +1191,7 @@ function createSpaceHeader(
 		spaceName?: string;
 		spacePurpose?: string;
 		setupRecallAction?: ReactNode;
+		resourcesControl?: ReactNode;
 		viewControl?: ReactNode;
 	} = {}
 ) {
@@ -1214,6 +1232,7 @@ function createSpaceHeader(
 						input.onUpdateSpaceName ?? vi.fn(async () => undefined)
 					}
 					renderFrame={input.renderFrame}
+					resourcesControl={input.resourcesControl}
 					setupRecallAction={input.setupRecallAction}
 					showDeleteSpaceAction={input.showDeleteSpaceAction ?? true}
 					spaceNameErrorMessage={null}

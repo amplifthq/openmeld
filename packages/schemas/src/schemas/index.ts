@@ -125,6 +125,15 @@ export {
   generateCenterAgentSessionTitleResponseSchema,
 } from "./runtime/center-agent-session-title";
 export { messageChannelCardHistorySchema } from "./runtime/message-channel-card-history";
+export {
+  classifyUnaddressedChannelBatchInputSchema,
+  classifyUnaddressedChannelBatchResponseSchema,
+  UNADDRESSED_CHANNEL_BATCH_MAX_MESSAGES,
+  UNADDRESSED_CHANNEL_BATCH_MESSAGE_TEXT_MAX_CHARS,
+  UNADDRESSED_CHANNEL_BATCH_ROUTES,
+  unaddressedChannelBatchQueueMessageSchema,
+  unaddressedChannelBatchRouteSchema,
+} from "./runtime/unaddressed-channel-batch";
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
@@ -1834,6 +1843,7 @@ export {
 export * from "./http/inbox";
 export * from "./http/inbox-desktop-updates";
 export * from "./http/inbox-feed";
+export * from "./http/inbox-github-issues";
 export {
   listSignalsQuerySchema,
   normalizeListSignalsReadQuerySemantics,
@@ -2012,6 +2022,14 @@ export {
   organizationComputersResponseSchema,
   projectOrganizationComputerLocalAgentDetails,
 } from "./http/organization-computers";
+export {
+  organizationDashboardArtifactSchema,
+  organizationDashboardKindSchema,
+  organizationDashboardMutationSchema,
+  organizationDashboardQuerySchema,
+  organizationDashboardResponseSchema,
+  organizationDashboardRpcInputSchema,
+} from "./http/organization-dashboards";
 export {
   CENTER_AGENT_ORGANIZATION_MEMBERS_LIST_DEFAULT_LIMIT,
   CENTER_AGENT_ORGANIZATION_MEMBERS_LIST_MAX_LIMIT,
@@ -3549,8 +3567,10 @@ export {
   remoteAgentRuntimeEvidenceOutcomeReasonCodeSchema,
   remoteAgentRuntimeEvidenceReasonCodeSchema,
   remoteAgentSlackAppMentionEventSchema,
+  remoteAgentSlackChannelMessageEventSchema,
   remoteAgentSlackDirectMessageEventSchema,
   remoteAgentSlackEventCallbackPayloadSchema,
+  remoteAgentSlackEventFileSchema,
   remoteAgentSlackEventQueueMessageSchema,
   remoteAgentSlackEventsApiPayloadSchema,
   remoteAgentSlackSearchAuthorizationSchema,

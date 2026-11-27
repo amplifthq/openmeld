@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RemoteAgentSlackSubmissionOutcomeUnknownError } from "../src/remote-agent/application/native-delivery-service";
 
 const processRemoteAgentSlackEvent = vi.hoisted(() => vi.fn());
+const settleUnaddressedSlackMessagesForMention = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/remote-agent/application/slack-signal-service", () => {
   return {
@@ -10,11 +11,23 @@ vi.mock("../src/remote-agent/application/slack-signal-service", () => {
   };
 });
 
+vi.mock(
+  "../src/remote-agent/application/slack-unaddressed-message-service",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../src/remote-agent/application/slack-unaddressed-message-service")
+    >()),
+    settleUnaddressedSlackMessagesForMention,
+  })
+);
+
 import { handleRemoteAgentSlackEventQueueMessage } from "../src/remote-agent/transport/queue/slack-event-queue-consumer";
 
 describe("Remote Agent Slack event queue consumer", () => {
   beforeEach(() => {
     processRemoteAgentSlackEvent.mockReset();
+    settleUnaddressedSlackMessagesForMention.mockReset();
+    settleUnaddressedSlackMessagesForMention.mockResolvedValue(1);
     vi.useFakeTimers();
     vi.setSystemTime(1_710_000_000_000);
   });
@@ -112,6 +125,121 @@ describe("Remote Agent Slack event queue consumer", () => {
     );
     expect(message.ack).toHaveBeenCalledOnce();
     expect(message.retry).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { attempts: 1, expected: "retried" },
+    { attempts: 4, expected: "dropped" },
+  ])("keeps an ordinary channel message out of the mention path when it cannot be archived on attempt $attempts ($expected)", async ({
+    attempts,
+    expected,
+  }) => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const message = createQueueMessage({ attempts });
+    const body = message.value.body as {
+      payload: { event: Record<string, unknown> };
+    };
+    // The env has no database, so the archive write fails.
+    await handleRemoteAgentSlackEventQueueMessage({
+      env: {
+        OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS: "*",
+        OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: "true",
+      } as never,
+      message: {
+        ...message.value,
+        body: {
+          ...body,
+          payload: {
+            ...body.payload,
+            event: {
+              channel: "C123",
+              channel_type: "channel",
+              event_ts: "1710000000.000100",
+              text: "the export job is failing again",
+              ts: "1710000000.000100",
+              type: "message",
+              user: "U123",
+            },
+          },
+        },
+      },
+      queueName: "openmeld-daemon-dispatch",
+    });
+
+    expect(processRemoteAgentSlackEvent).not.toHaveBeenCalled();
+    expect(message.retry.mock.calls).toEqual(
+      expected === "retried" ? [[{ delaySeconds: 5 }]] : []
+    );
+    expect(message.ack).toHaveBeenCalledTimes(expected === "dropped" ? 1 : 0);
+  });
+
+  it("still sends an app mention to the mention path when unaddressed intake is on", async () => {
+    processRemoteAgentSlackEvent.mockResolvedValue({ status: "processed" });
+    const message = createQueueMessage({ attempts: 1 });
+
+    await handleRemoteAgentSlackEventQueueMessage({
+      env: {
+        OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS: "*",
+        OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: "true",
+      } as never,
+      message: message.value,
+      queueName: "openmeld-daemon-dispatch",
+    });
+
+    expect(processRemoteAgentSlackEvent).toHaveBeenCalledOnce();
+    expect(message.ack).toHaveBeenCalledOnce();
+    // The mention settles the waiting messages it covers before its turn.
+    expect(settleUnaddressedSlackMessagesForMention).toHaveBeenCalledOnce();
+    expect(
+      settleUnaddressedSlackMessagesForMention.mock.invocationCallOrder[0]
+    ).toBeLessThan(
+      processRemoteAgentSlackEvent.mock.invocationCallOrder[0] ??
+        Number.POSITIVE_INFINITY
+    );
+  });
+
+  it("retries a mention whose waiting messages could not be settled, then lets the last attempt through", async () => {
+    processRemoteAgentSlackEvent.mockResolvedValue({ status: "processed" });
+    settleUnaddressedSlackMessagesForMention.mockRejectedValue(
+      new Error("Database unavailable")
+    );
+    const env = {
+      OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_CONVERSATIONS: "*",
+      OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED: "true",
+    } as never;
+
+    const early = createQueueMessage({ attempts: 1 });
+    await handleRemoteAgentSlackEventQueueMessage({
+      env,
+      message: early.value,
+      queueName: "openmeld-daemon-dispatch",
+    });
+    expect(early.retry).toHaveBeenCalledWith({ delaySeconds: 5 });
+    expect(early.ack).not.toHaveBeenCalled();
+    expect(processRemoteAgentSlackEvent).not.toHaveBeenCalled();
+
+    const last = createQueueMessage({ attempts: 4 });
+    await handleRemoteAgentSlackEventQueueMessage({
+      env,
+      message: last.value,
+      queueName: "openmeld-daemon-dispatch",
+    });
+    expect(processRemoteAgentSlackEvent).toHaveBeenCalledOnce();
+    expect(last.ack).toHaveBeenCalledOnce();
+  });
+
+  it("does not settle anything while unaddressed intake is off", async () => {
+    processRemoteAgentSlackEvent.mockResolvedValue({ status: "processed" });
+    const message = createQueueMessage({ attempts: 1 });
+
+    await handleRemoteAgentSlackEventQueueMessage({
+      env: {} as never,
+      message: message.value,
+      queueName: "openmeld-daemon-dispatch",
+    });
+
+    expect(settleUnaddressedSlackMessagesForMention).not.toHaveBeenCalled();
+    expect(processRemoteAgentSlackEvent).toHaveBeenCalledOnce();
   });
 
   it("retries an ambiguous worker submission without acknowledging it", async () => {

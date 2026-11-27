@@ -92,7 +92,7 @@ describe("owned Agent conversations", () => {
 		expect(rows).toHaveLength(1);
 		expect(rows[0].agents.map((item) => item.id)).toEqual([agent.id, "second"]);
 	});
-	it("reuses the represented profile for an owner observer and the Human after joining", () => {
+	it("keeps the Human identity for owner observation and after joining", () => {
 		const observer = agentConversationLink({
 			conversation: { space: space("dm"), agents: [agent] },
 			humanProfileId: "me",
@@ -100,7 +100,7 @@ describe("owned Agent conversations", () => {
 		});
 		expect(observer).toEqual({
 			to: "/o/studio/chats/dm",
-			search: { profileId: "my-agent", focusSignalId: "message" },
+			search: { profileId: "me", focusSignalId: "message" },
 		});
 		const joined = {
 			...space("converted", ["me", agent.id]),
