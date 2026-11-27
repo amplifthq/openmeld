@@ -56,6 +56,7 @@ import {
   upsertSlackUserIdentityLinkForSameUser,
 } from "../infrastructure/postgresql/slack-user-identity-link-repo";
 import { readRemoteAgentSlackWorkspaceBinding } from "../infrastructure/postgresql/slack-workspace-binding-repo";
+import { readSlackWorkspaceToken } from "../infrastructure/postgresql/slack-workspace-token-repo";
 import {
   CENTER_AGENT_CHANNEL_MODEL_UNAVAILABLE_TEXT,
   CENTER_AGENT_CHANNEL_UNAVAILABLE_TEXT,
@@ -218,6 +219,13 @@ type SlackEventFailureContext = {
   threadTs: string;
 };
 type SlackReplyPlacement = "conversation" | "thread";
+export type SlackEventOutcomeDetail = {
+  duplicateOf?: {
+    outcomeStatus: string | null;
+    state: "completed" | "failed" | "processing" | "queued";
+  };
+  nativeDelivery?: "failed" | "submitted";
+};
 type RemoteAgentSlackConversationEvent =
   | RemoteAgentSlackAppMentionEvent
   | RemoteAgentSlackDirectMessageEvent;
@@ -225,6 +233,27 @@ export async function processRemoteAgentSlackEvent(
   env: CoreBindings,
   input: unknown,
   context: {
+    /**
+     * False for a routed batch of unaddressed channel messages. Nobody
+     * addressed the Center Agent there, so a request that cannot start is
+     * not answered in Slack.
+     */
+    addressed?: boolean;
+    /**
+     * Set for a routed batch of unaddressed channel messages: the
+     * Organization that archived them and the workspace state they were
+     * observed under. The turn starts only while the workspace binding it
+     * reads still matches, so archived messages never reach another
+     * Organization.
+     */
+    archivedUnder?: { connectionGeneration: number; organizationId: string };
+    /**
+     * Receives what the returned status alone does not say. For `duplicate`:
+     * the earlier handling of the same event, which tells a finished event
+     * apart from one still running or stopped. For `processed`: whether a
+     * worker accepted the turn.
+     */
+    onDetail?: (detail: SlackEventOutcomeDetail) => void;
     finalAttempt?: boolean;
     gatewayRequestId?: string;
     nowMs?: number;
@@ -285,10 +314,13 @@ export async function processRemoteAgentSlackEvent(
     slackTeamId,
   });
   if (duplicate) {
+    context.onDetail?.({ duplicateOf: duplicate });
     return { status: "duplicate" };
   }
   try {
     const outcome = await processRemoteAgentSlackAppMention({
+      addressed: context.addressed ?? true,
+      archivedUnder: context.archivedUnder ?? null,
       env,
       event,
       eventId,
@@ -307,7 +339,8 @@ export async function processRemoteAgentSlackEvent(
         outcomeStatus: outcome.status,
       });
     }
-    return outcome;
+    context.onDetail?.({ nativeDelivery: outcome.nativeDelivery });
+    return { status: outcome.status };
   } catch (error) {
     const settlement = await settleFailedSlackEventIngress({
       claimId,
@@ -1034,9 +1067,12 @@ async function claimSlackEventIngress(input: {
   eventKey: string;
   nowMs: number;
   slackTeamId: string;
-}): Promise<boolean> {
+}): Promise<{
+  outcomeStatus: string | null;
+  state: "completed" | "failed" | "processing" | "queued";
+} | null> {
   if (!input.db) {
-    return false;
+    return null;
   }
   const claim = await claimRemoteAgentSlackEventIngress({
     claimExpiresAtMs: input.nowMs + REMOTE_AGENT_SLACK_EVENT_CLAIM_LEASE_MS,
@@ -1054,7 +1090,7 @@ async function claimSlackEventIngress(input: {
     slackTeamId: input.slackTeamId,
   });
   if (claim.status !== "duplicate") {
-    return false;
+    return null;
   }
   console.info("[core.remote_agent.slack_event.duplicate]", {
     deliveryAttemptCount: claim.record.deliveryAttemptCount,
@@ -1065,7 +1101,10 @@ async function claimSlackEventIngress(input: {
     slackRetryReason: input.context.slackRetryReason ?? null,
     slackTeamId: input.slackTeamId,
   });
-  return true;
+  return {
+    outcomeStatus: claim.record.outcomeStatus,
+    state: claim.record.state,
+  };
 }
 async function settleFailedSlackEventIngress(input: {
   claimId: string;
@@ -1142,7 +1181,55 @@ function resolveSlackEventProcessingFailureCode(error: unknown): string {
     ? error.reasonCode
     : REMOTE_AGENT_SLACK_EVENT_PROCESSING_FAILURE_CODE;
 }
+/**
+ * Reads the workspace binding a turn is started under. For a routed batch of
+ * archived messages it returns null unless the binding still matches the
+ * Organization and state they were archived under, which covers both the
+ * binding and the installed token. The turn uses the binding returned here,
+ * so there is no gap in which the workspace could move to another
+ * Organization.
+ */
+export async function readSlackWorkspaceBindingForTurn(input: {
+  archivedUnder: {
+    connectionGeneration: number;
+    organizationId: string;
+  } | null;
+  db: PostgresDatabase;
+  eventId?: string | null;
+  slackTeamId: string;
+}) {
+  const binding = await readRemoteAgentSlackWorkspaceBinding({
+    db: input.db,
+    slackTeamId: input.slackTeamId,
+  });
+  if (!(binding && input.archivedUnder)) {
+    return binding;
+  }
+  const token = await readSlackWorkspaceToken({
+    db: input.db,
+    slackTeamId: input.slackTeamId,
+  });
+  if (
+    !token ||
+    binding.organizationId !== input.archivedUnder.organizationId ||
+    token.organizationId !== binding.organizationId ||
+    Math.max(binding.updatedAtMs, token.updatedAtMs) !==
+      input.archivedUnder.connectionGeneration
+  ) {
+    console.warn("[core.remote_agent.slack_event.archived_binding_changed]", {
+      eventId: input.eventId ?? null,
+      slackTeamId: input.slackTeamId,
+    });
+    return null;
+  }
+  return binding;
+}
 async function processRemoteAgentSlackAppMention(input: {
+  addressed: boolean;
+  archivedUnder: {
+    connectionGeneration: number;
+    organizationId: string;
+  } | null;
   env: CoreBindings;
   event: RemoteAgentSlackConversationEvent;
   eventId?: string | null;
@@ -1152,7 +1239,8 @@ async function processRemoteAgentSlackAppMention(input: {
   slackTeamId: string;
   threadTs: string;
 }): Promise<{
-  status: "processed" | "replied";
+  nativeDelivery?: "failed" | "submitted";
+  status: "ignored" | "processed" | "replied";
 }> {
   const {
     env,
@@ -1188,20 +1276,32 @@ async function processRemoteAgentSlackAppMention(input: {
     teamId: slackTeamId,
     threadTs,
   });
-  const workspaceBinding = await readRemoteAgentSlackWorkspaceBinding({
+  const workspaceBinding = await readSlackWorkspaceBindingForTurn({
+    archivedUnder: input.archivedUnder,
     db: stateDb,
+    eventId: input.eventId,
     slackTeamId,
   });
-  if (!workspaceBinding) {
+  const replyThatRequestCannotStart = async (
+    text: string
+  ): Promise<{ status: "ignored" | "replied" }> => {
+    if (!input.addressed) {
+      return { status: "ignored" };
+    }
     await postSlackConversationReply({
       botToken,
       channelId: event.channel,
       replyBroadcast,
       replyPlacement,
-      text: REMOTE_AGENT_SLACK_WORKSPACE_NOT_CONNECTED_TEXT,
+      text,
       threadTs,
     });
     return { status: "replied" };
+  };
+  if (!workspaceBinding) {
+    return await replyThatRequestCannotStart(
+      REMOTE_AGENT_SLACK_WORKSPACE_NOT_CONNECTED_TEXT
+    );
   }
   let centerAgent: SlackCenterAgentTarget | null;
   try {
@@ -1220,26 +1320,14 @@ async function processRemoteAgentSlackAppMention(input: {
       organizationId: workspaceBinding.organizationId,
       slackTeamId,
     });
-    await postSlackConversationReply({
-      botToken,
-      channelId: event.channel,
-      replyBroadcast,
-      replyPlacement,
-      text: CENTER_AGENT_CHANNEL_MODEL_UNAVAILABLE_TEXT,
-      threadTs,
-    });
-    return { status: "replied" };
+    return await replyThatRequestCannotStart(
+      CENTER_AGENT_CHANNEL_MODEL_UNAVAILABLE_TEXT
+    );
   }
   if (!centerAgent) {
-    await postSlackConversationReply({
-      botToken,
-      channelId: event.channel,
-      replyBroadcast,
-      replyPlacement,
-      text: CENTER_AGENT_CHANNEL_UNAVAILABLE_TEXT,
-      threadTs,
-    });
-    return { status: "replied" };
+    return await replyThatRequestCannotStart(
+      CENTER_AGENT_CHANNEL_UNAVAILABLE_TEXT
+    );
   }
   const dispatchId = buildSlackDispatchId({
     channelId: event.channel,
@@ -1347,6 +1435,9 @@ async function processRemoteAgentSlackAppMention(input: {
   const sourceText = buildSlackConversationSourceText({
     event,
     isDirectMessage,
+    // A routed batch's event text is every message of the batch. The text
+    // recovered for the trigger message alone must not replace it.
+    keepEventText: !input.addressed,
     richContext,
   });
   const searchAuthorization = await resolveSlackParticipantSearchAuthorization({
@@ -1424,7 +1515,7 @@ async function processRemoteAgentSlackAppMention(input: {
       });
     }
   }
-  return { status: "processed" };
+  return { nativeDelivery: submission.status, status: "processed" };
 }
 function buildSlackTurnParticipant(input: {
   memberResolution: SlackMemberResolution;
@@ -2129,9 +2220,12 @@ function buildSlackPluginSourceProof(event: RemoteAgentSlackConversationEvent) {
 function buildSlackConversationSourceText(input: {
   event: RemoteAgentSlackConversationEvent;
   isDirectMessage: boolean;
+  keepEventText?: boolean;
   richContext: ResolvedSlackMentionRichContext | null;
 }): string {
-  const recoveredText = input.richContext?.currentMessage?.text;
+  const recoveredText = input.keepEventText
+    ? undefined
+    : input.richContext?.currentMessage?.text;
   const rawText = recoveredText ?? normalizeOptionalText(input.event.text);
   const text = input.isDirectMessage
     ? rawText

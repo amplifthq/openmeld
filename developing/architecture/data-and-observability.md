@@ -2568,6 +2568,46 @@ message identifiers, provider field names, counts, lengths, and lookup status.
 It never records message text, URLs, credentials, or raw event/response bodies,
 and it remains disabled outside a bounded reproduction window.
 
+## Unaddressed Channel Message Archive
+
+`openMeldRemoteAgent_message_channel_unaddressed_messages` exists only for
+unaddressed intake, which is off unless
+`OPENMELD_MESSAGE_CHANNEL_UNADDRESSED_INTAKE_ENABLED` is `"true"`. Core is its
+only writer. One row is one human group or channel message that did not
+mention the Center Agent, keyed by provider, connection, and provider message
+id, so a redelivered event is stored once.
+
+Unlike the context cursors, this table stores content: the message text, the
+sender's provider id, and the provider's own file references (Feishu resource
+descriptors or Slack file metadata). It stores no file bytes, tokens, or raw
+event bodies. There is no retention limit yet; rows are removed only when
+their Organization is deleted.
+
+A row moves `pending` -> `routing` -> `archived` or `routed`. `routing` is a
+120-second lease held by one batch flush; an expired lease returns the rows to
+the next flush. `route` records the admission label (`chatter`, `new_request`,
+`follow_up`) or `unrouted` when the batch could not be labeled or submitted
+after four queue attempts. Two outcomes bypass routing: `addressed` when a
+later mention by the same sender (top level) or in the same thread started the
+turn instead, and `expired` when a row waited more than 10 minutes and a later
+flush of its batch archived it without routing. `native_delivery_id` links a
+routed Feishu batch to its delivery. The table is a record of what was observed and how it was
+routed. It is not execution truth, and no reader derives Wakeability or task
+state from it.
+
+Flushes are delayed messages on the existing Message Channel events queue. A
+flush that finds a newer message in its batch does nothing, because that
+message scheduled its own flush. Before a flush sends text to the classifier,
+Core requires a current connection with the same Organization and connection
+generation as every claimed message. Slack uses the last local workspace
+binding or token update time as its generation. A disconnected or changed
+connection archives the batch as `unrouted` without a model call.
+
+The Lark-platform context cursor keeps its existing writer. With unaddressed
+intake on, Core also reads it before a turn so Feishu Channel context is a
+delta after the last admitted message. With intake off, the cursor is written
+and not read, as before.
+
 ## Opportunity Data Boundary
 
 `organization_opportunities` is the Core-owned product truth for one
