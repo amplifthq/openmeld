@@ -4,7 +4,7 @@ import {
 } from "@openmeld/gateway-contract";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import app from "../src/index";
-import { waitForJsonMessage } from "./test-support/ws-stream";
+import { waitForClose, waitForJsonMessage } from "./test-support/ws-stream";
 
 const TEST_EXECUTION_CONTEXT = {
   waitUntil: () => undefined,
@@ -683,6 +683,116 @@ describe("gateway websocket stream", () => {
 
     clientSocket.close(1000, "done");
     upstreamServerSocket.close(1000, "done");
+  });
+
+  it("closes on a codeless Core disconnect and relays the result after reconnecting", async () => {
+    const upstreamSockets: AcceptableWebSocket[] = [];
+    const upstreamFetch = vi.fn((_request: Request) => {
+      const [upstreamClient, upstreamServer] = createWebSocketPair();
+      upstreamServer.accept();
+      upstreamSockets.push(upstreamServer);
+      return Promise.resolve(
+        new Response(null, { status: 101, webSocket: upstreamClient })
+      );
+    });
+    const env = {
+      OPENMELD_CORE_WORKER: { fetch: upstreamFetch },
+      OPENMELD_AUTH_WORKER: createAuthWorkerMock(),
+    } as unknown as CloudflareBindings;
+
+    const response = await app.fetch(
+      new Request("http://local/v1/spaces/demo/stream", {
+        headers: { Upgrade: "websocket" },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(101);
+    const clientSocket = response.webSocket;
+    if (!clientSocket) {
+      throw new Error("Missing client websocket");
+    }
+    clientSocket.accept();
+    const clientClosed = waitForClose(clientSocket);
+
+    // A codeless close surfaces as the reserved 1005 on the Gateway's side of
+    // the Core socket; that code cannot be written back to the client as-is.
+    const firstUpstream = upstreamSockets[0];
+    if (!firstUpstream) {
+      throw new Error("Missing Core websocket");
+    }
+    firstUpstream.close();
+
+    await expect(clientClosed).resolves.toEqual({
+      code: 1011,
+      reason: "upstream_closed",
+    });
+    const reconnected = await app.fetch(
+      new Request("http://local/v1/spaces/demo/stream", {
+        headers: { Upgrade: "websocket" },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(reconnected.status).toBe(101);
+    const replacementClient = reconnected.webSocket;
+    const replacementUpstream = upstreamSockets[1];
+    if (!(replacementClient && replacementUpstream)) {
+      throw new Error("Missing reconnected websocket pair");
+    }
+    replacementClient.accept();
+    const result = { type: "signal.text", data: { text: "Task completed" } };
+    const resultSeen = waitForJsonMessage(
+      replacementClient,
+      (data) => data.type === result.type
+    );
+    replacementUpstream.send(JSON.stringify(result));
+    await expect(resultSeen).resolves.toMatchObject(result);
+    expect(upstreamFetch).toHaveBeenCalledTimes(2);
+    replacementClient.close(1000, "done");
+    replacementUpstream.close(1000, "done");
+  });
+
+  it("rejects the upgrade when Core does not answer within the connect timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const abortReasons: unknown[] = [];
+      const upstreamFetch = vi.fn((request: Request) => {
+        request.signal.addEventListener(
+          "abort",
+          () => {
+            abortReasons.push(request.signal.reason);
+          },
+          { once: true }
+        );
+        return new Promise<Response>(() => {
+          // Keep the handshake pending so the timeout owns completion.
+        });
+      });
+      const env = {
+        OPENMELD_CORE_WORKER: { fetch: upstreamFetch },
+        OPENMELD_AUTH_WORKER: createAuthWorkerMock(),
+      } as unknown as CloudflareBindings;
+
+      const responsePromise = app.fetch(
+        new Request("http://local/v1/spaces/demo/stream", {
+          headers: { Upgrade: "websocket" },
+        }),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      await vi.advanceTimersByTimeAsync(15_000);
+      const response = await responsePromise;
+
+      expect(response.status).toBe(504);
+      expect(abortReasons).toHaveLength(1);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: false,
+        error: { code: "upstream_unreachable", requestId: "req-test" },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

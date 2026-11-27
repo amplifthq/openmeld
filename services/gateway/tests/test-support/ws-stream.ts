@@ -92,3 +92,20 @@ function resolveSocketError(event: Event): Error {
   }
   return new Error("WebSocket error before receiving message");
 }
+
+export function waitForClose(
+  socket: WebSocket,
+  timeoutMs = DEFAULT_TIMEOUT_MS
+): Promise<{ code: number; reason: string }> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.removeEventListener("close", onClose);
+      reject(new Error("Timed out waiting for WebSocket close"));
+    }, timeoutMs);
+    const onClose = (event: CloseEvent) => {
+      clearTimeout(timer);
+      resolve({ code: event.code, reason: event.reason });
+    };
+    socket.addEventListener("close", onClose, { once: true });
+  });
+}

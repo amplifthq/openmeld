@@ -24,8 +24,11 @@ import type { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { logAuditEvent } from "../audit";
 import type { HonoBindings } from "../lib/bindings";
-
-const DAEMON_STREAM_UPSTREAM_CONNECT_TIMEOUT_MS = 15_000;
+import {
+  fetchUpstreamWebSocketUpgrade,
+  UPSTREAM_WEBSOCKET_UPGRADE_TIMEOUT_MS,
+  UpstreamWebSocketUpgradeTimeoutError,
+} from "../lib/websocket-upgrade-relay";
 
 // Runs before auth so a rejected handshake can be joined to a prior close.
 // Both IDs are client observations, never identity or authorization.
@@ -80,8 +83,6 @@ export function registerDaemonStreamRoute(app: Hono<HonoBindings>): void {
     const upstreamUrl = new URL(c.req.url);
     upstreamUrl.pathname = "/v1/daemon/stream";
 
-    const upstreamConnectAbortController = new AbortController();
-
     const upstreamHeaders = applyOpenMeldRequestContextHeaders(
       new Headers({ Upgrade: "websocket" }),
       {
@@ -93,30 +94,18 @@ export function registerDaemonStreamRoute(app: Hono<HonoBindings>): void {
       target: upstreamHeaders,
     });
 
-    const upstreamRequest = new Request(upstreamUrl.toString(), {
-      method: "GET",
-      headers: upstreamHeaders,
-      signal: upstreamConnectAbortController.signal,
-    });
-
     let upstreamResp: Response;
     try {
-      upstreamResp = await withTimeout(
-        () => Promise.resolve(c.var.coreRpc.fetch(upstreamRequest)),
-        {
-          timeoutMs: DAEMON_STREAM_UPSTREAM_CONNECT_TIMEOUT_MS,
-          timeoutMessage: `core daemon stream upgrade timeout after ${String(
-            DAEMON_STREAM_UPSTREAM_CONNECT_TIMEOUT_MS
-          )}ms`,
-          onTimeout: (timeoutMessage) => {
-            if (!upstreamConnectAbortController.signal.aborted) {
-              upstreamConnectAbortController.abort(new Error(timeoutMessage));
-            }
-          },
-        }
-      );
+      upstreamResp = await fetchUpstreamWebSocketUpgrade({
+        fetchUpstream: (request) => c.var.coreRpc.fetch(request),
+        headers: upstreamHeaders,
+        timeoutMessage: `core daemon stream upgrade timeout after ${String(
+          UPSTREAM_WEBSOCKET_UPGRADE_TIMEOUT_MS
+        )}ms`,
+        url: upstreamUrl.toString(),
+      });
     } catch (err) {
-      const isTimeout = isTimeoutError(err);
+      const isTimeout = err instanceof UpstreamWebSocketUpgradeTimeoutError;
       logAuditEvent({
         event: "ws.reject",
         route: "/v1/daemon/stream",
@@ -227,40 +216,6 @@ function forwardRecognizedLocalCapabilityHeaders(input: {
     );
   }
 }
-
-type TimeoutOptions = {
-  timeoutMs: number;
-  timeoutMessage: string;
-  onTimeout?: (timeoutMessage: string) => void;
-};
-
-const withTimeout = async <T>(
-  runPromise: () => Promise<T>,
-  { timeoutMs, timeoutMessage, onTimeout }: TimeoutOptions
-): Promise<T> => {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  try {
-    const promise = runPromise();
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          onTimeout?.(timeoutMessage);
-          reject(new Error(timeoutMessage));
-        }, timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutId !== null) {
-      clearTimeout(timeoutId);
-    }
-  }
-};
-
-const isTimeoutError = (error: unknown): boolean => {
-  const message = toErrorMessage(error).toLowerCase();
-  return message.includes("timeout");
-};
 
 import {
   SESSION_HISTORY_CAPABILITY_HEADER,
