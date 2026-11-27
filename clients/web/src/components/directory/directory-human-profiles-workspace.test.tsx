@@ -528,6 +528,20 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(onSelectProfile).toHaveBeenCalledWith("profile-current");
 	});
 
+	it("makes each Team card a keyboard tab stop that opens the member profile", () => {
+		const onSelectProfile = vi.fn();
+		renderWorkspace({ onSelectProfile, selectedProfileId: null });
+
+		const cards = screen
+			.getAllByRole("button", { name: "Open Felix's profile" })
+			.filter((button) => button.closest('[role="listitem"]'));
+		expect(cards).toHaveLength(1);
+		const card = cards[0] as HTMLElement;
+		expect(card.tabIndex).toBe(0);
+		fireEvent.click(card);
+		expect(onSelectProfile).toHaveBeenCalledWith("profile-current");
+	});
+
 	it("keeps a single clipped row structure when the resizable sidebar becomes narrow", () => {
 		renderWorkspace();
 

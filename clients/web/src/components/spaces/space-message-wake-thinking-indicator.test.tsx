@@ -43,6 +43,24 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		expect(screen.queryByRole("dialog")).toBeNull();
 	});
 
+	it("keeps the focused progress button mounted when the active entry text changes", () => {
+		const entry = createThinkingEntry({ elapsedStartedAtMs: STARTED_AT_MS });
+		const view = render(
+			<SpaceMessageWakeThinkingIndicator entries={[entry]} />
+		);
+		const button = screen.getByRole("button", { name: "Show work progress" });
+		button.focus();
+		view.rerender(
+			<SpaceMessageWakeThinkingIndicator
+				entries={[{ ...entry, text: "Reading the repository" }]}
+			/>
+		);
+		expect(screen.getByRole("button", { name: "Show work progress" })).toBe(
+			button
+		);
+		expect(document.activeElement).toBe(button);
+	});
+
 	it("keeps elapsed time anchored when the same running entry receives progress updates", () => {
 		const view = render(
 			<SpaceMessageWakeThinkingIndicator

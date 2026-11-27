@@ -53,6 +53,9 @@ export function HumanProfileItem(input: {
 			isActive={input.isActive}
 			onClick={openProfile}
 			type="button"
+			// A Team card is not a row of a roving-focus menu, so it must be its
+			// own tab stop; otherwise no keyboard path opens the member profile.
+			{...(card ? { tabIndex: 0 } : {})}
 		>
 			<DirectoryHumanProfileAvatar
 				context={card ? "card" : "sidebar"}

@@ -47,9 +47,6 @@ export function SpaceMessageWakeThinkingIndicator(input: {
 		<WakeThinkingIndicatorContent
 			className={input.className}
 			isEndAligned={isEndAligned}
-			key={
-				rawElapsedEntry ? resolveElapsedEntryIdentity(rawElapsedEntry) : "none"
-			}
 			latestPreviewEntry={latestPreviewEntry}
 			onToggleProgress={() => setProgressOpen((value) => !value)}
 			progressEntries={progressEntries}
@@ -105,34 +102,23 @@ function WakeThinkingIndicatorContent(input: {
 	const hasProgress = input.progressEntries.some(
 		(entry) => entry.step.kind === "working" && entry.step.status === "active"
 	);
-	const [elapsedStartedAtMs] = useState(
-		() => input.rawElapsedEntry?.elapsedStartedAtMs ?? null
+	// Only the elapsed indicator resets when the active entry changes. The
+	// disclosure button stays mounted so a focused button keeps focus.
+	const indicator = (
+		<WakeThinkingElapsedIndicator
+			className={input.className}
+			key={
+				input.rawElapsedEntry
+					? resolveElapsedEntryIdentity(input.rawElapsedEntry)
+					: "none"
+			}
+			latestPreviewEntry={input.latestPreviewEntry}
+			progressEntries={input.progressEntries}
+			rawElapsedEntry={input.rawElapsedEntry}
+			showAgentWorkingState={input.showAgentWorkingState}
+		/>
 	);
-	const elapsedEntry = resolveStableElapsedEntry({
-		elapsedStartedAtMs,
-		entry: input.rawElapsedEntry,
-	});
-	const nowMs = useNowMs(elapsedEntry ? 1000 : null);
-	const words = input.progressEntries.map((entry) =>
-		formatThinkingEntryText({
-			entry,
-			nowMs,
-			showAgentWorkingState: input.showAgentWorkingState,
-			showElapsedTime: entry === elapsedEntry,
-		})
-	);
-
-	const indicator = buildWakeThinkingIndicator({
-		className: input.className,
-		elapsedEntry,
-		latestPreviewEntry: input.latestPreviewEntry,
-		nowMs,
-		progressEntries: input.progressEntries,
-		showAgentWorkingState: input.showAgentWorkingState,
-		words,
-	});
-
-	if (!(hasProgress && indicator)) {
+	if (!hasProgress) {
 		return indicator;
 	}
 	return (
@@ -162,6 +148,41 @@ function WakeThinkingIndicatorContent(input: {
 			</div>
 		</>
 	);
+}
+
+function WakeThinkingElapsedIndicator(input: {
+	className?: string;
+	latestPreviewEntry: SpaceMessageWakeThinkingEntry | null;
+	progressEntries: readonly SpaceMessageWakeThinkingEntry[];
+	rawElapsedEntry: SpaceMessageWakeThinkingEntry | null;
+	showAgentWorkingState: boolean;
+}) {
+	const [elapsedStartedAtMs] = useState(
+		() => input.rawElapsedEntry?.elapsedStartedAtMs ?? null
+	);
+	const elapsedEntry = resolveStableElapsedEntry({
+		elapsedStartedAtMs,
+		entry: input.rawElapsedEntry,
+	});
+	const nowMs = useNowMs(elapsedEntry ? 1000 : null);
+	const words = input.progressEntries.map((entry) =>
+		formatThinkingEntryText({
+			entry,
+			nowMs,
+			showAgentWorkingState: input.showAgentWorkingState,
+			showElapsedTime: entry === elapsedEntry,
+		})
+	);
+
+	return buildWakeThinkingIndicator({
+		className: input.className,
+		elapsedEntry,
+		latestPreviewEntry: input.latestPreviewEntry,
+		nowMs,
+		progressEntries: input.progressEntries,
+		showAgentWorkingState: input.showAgentWorkingState,
+		words,
+	});
 }
 
 function formatConfirmedProgress(entry: SpaceMessageWakeThinkingEntry): string {
