@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "controller": "opencode",
-  "observedAt": "2026-11-25T00:45:15.840Z",
-  "fingerprint": "a47c6f44b3cd53ad0048b67301ca1195ac0982857059911fdbc357f03486fe9e",
+  "observedAt": "2026-11-25T12:32:53.297Z",
+  "fingerprint": "23d979bf39ea1bf577fd8f3097db525bf8792e44c720c8e50b5d979a2b4d55a3",
   "sources": [
     {
       "url": "https://github.com/anomalyco/opencode/releases/tag/v1.19.6",
@@ -5422,12 +5422,12 @@
             "open_weights": false,
             "limit": {
               "context": 1048576,
-              "output": 393216
+              "output": 943718
             },
             "cost": {
-              "input": 0.03,
-              "output": 0.2,
-              "cache_read": 0.001
+              "input": 0.036,
+              "output": 0.5,
+              "cache_read": 0.01
             }
           },
           "~deepseek/deepseek-pro-latest": {
@@ -6053,9 +6053,9 @@
               "output": 393216
             },
             "cost": {
-              "input": 0.0507,
-              "output": 0.2028,
-              "cache_read": 0.001014
+              "input": 0.14,
+              "output": 0.42,
+              "cache_read": 0.0042
             },
             "canonical_model_id": "deepseek/deepseek-v4.1-flash"
           },
@@ -6088,9 +6088,9 @@
               "output": 393216
             },
             "cost": {
-              "input": 0.03,
-              "output": 0.2,
-              "cache_read": 0.001
+              "input": 0.15,
+              "output": 0.6,
+              "cache_read": 0.003
             },
             "canonical_model_id": "deepseek/deepseek-v4.1-flash-1017"
           },
@@ -6824,12 +6824,12 @@
             "open_weights": true,
             "limit": {
               "context": 1048576,
-              "output": 512000
+              "output": 131072
             },
             "cost": {
-              "input": 0.1,
-              "output": 0.4,
-              "cache_read": 0.025
+              "input": 0.075,
+              "output": 0.3,
+              "cache_read": 0.0075
             },
             "canonical_model_id": "minimax/MiniMax-M3.1-Flash"
           },
@@ -9065,6 +9065,47 @@
               "cache_read": 0.25
             }
           },
+          "upstage/solar-mini-4-5": {
+            "id": "upstage/solar-mini-4-5",
+            "name": "Solar Mini 4.5 (Preview)",
+            "description": "Efficient model for low-latency assistance, extraction, and routine automation",
+            "family": "solar-mini",
+            "attachment": false,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "none",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "release_date": "2026-11-24",
+            "last_updated": "2026-11-24",
+            "modalities": {
+              "input": ["text"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 524288,
+              "output": 131072
+            },
+            "cost": {
+              "input": 0.01,
+              "output": 0.04,
+              "cache_read": 0.001
+            }
+          },
           "upstage/solar-mini4": {
             "id": "upstage/solar-mini4",
             "name": "Solar Mini 4",
@@ -9107,6 +9148,47 @@
               "cache_read": 0.005
             },
             "canonical_model_id": "upstage/solar-mini4"
+          },
+          "upstage/solar-pro-4-contributor": {
+            "id": "upstage/solar-pro-4-contributor",
+            "name": "Solar Pro 4 Contributor",
+            "description": "Flagship model for demanding analysis, coding, and production agent workflows",
+            "family": "solar-pro",
+            "attachment": false,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": [
+                  "none",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "release_date": "2026-11-24",
+            "last_updated": "2026-11-24",
+            "modalities": {
+              "input": ["text"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 524288,
+              "output": 131072
+            },
+            "cost": {
+              "input": 0.09,
+              "output": 0.36,
+              "cache_read": 0.018
+            }
           },
           "x-ai/grok-4.7": {
             "id": "x-ai/grok-4.7",
@@ -9191,6 +9273,38 @@
               "cache_read": 0.0028
             },
             "canonical_model_id": "xiaomi/mimo-v2.6-flash"
+          },
+          "xiaomi/mimo-v2.6-flash-mopd": {
+            "id": "xiaomi/mimo-v2.6-flash-mopd",
+            "name": "MiMo-V2.6-Flash-MOPD",
+            "description": "MiMo flash model for fast multimodal assistance and agent workflows",
+            "family": "mimo",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "toggle"
+              }
+            ],
+            "tool_call": true,
+            "structured_output": true,
+            "temperature": true,
+            "release_date": "2026-11-23",
+            "last_updated": "2026-11-23",
+            "modalities": {
+              "input": ["text", "image", "video", "audio"],
+              "output": ["text"]
+            },
+            "open_weights": true,
+            "limit": {
+              "context": 1048576,
+              "output": 32768
+            },
+            "cost": {
+              "input": 0.15,
+              "output": 0.42,
+              "cache_read": 0.02
+            }
           },
           "xiaomi/mimo-v2.6-pro": {
             "id": "xiaomi/mimo-v2.6-pro",

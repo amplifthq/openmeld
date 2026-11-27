@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-11T09:51:06Z",
+  "updatedAt": "2026-11-25T12:32:53.743Z",
   "agentControllers": {
     "antigravity": {
       "defaultModelId": "gemini-3.8-flash-high",
@@ -121,6 +121,34 @@
       },
       "models": [
         {
+          "id": "gpt-6.2-sol",
+          "displayName": "GPT-6.2-Sol",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "minCliVersion": "0.166.0"
+        },
+        {
+          "id": "gpt-6.2-astra",
+          "displayName": "GPT-6.2-Astra",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "minCliVersion": "0.166.0"
+        },
+        {
           "id": "gpt-6.1-terra",
           "displayName": "GPT-6.1 Terra",
           "unavailable": false,
@@ -223,10 +251,7 @@
           "displayName": "GPT-5.5",
           "retirement": {
             "status": "withdrawn",
-            "date": {
-              "value": "2026-10-14",
-              "kind": "on"
-            },
+            "date": { "value": "2026-10-14", "kind": "on" },
             "scope": {
               "controllerRef": "builtin:codex",
               "authType": "chatgpt"
@@ -243,10 +268,7 @@
           "displayName": "GPT-5.4",
           "retirement": {
             "status": "withdrawn",
-            "date": {
-              "value": "2026-08-31",
-              "kind": "on"
-            },
+            "date": { "value": "2026-08-31", "kind": "on" },
             "scope": {
               "controllerRef": "builtin:codex",
               "authType": "chatgpt"
@@ -263,10 +285,7 @@
           "displayName": "GPT-5.4 Mini",
           "retirement": {
             "status": "withdrawn",
-            "date": {
-              "value": "2026-08-31",
-              "kind": "on"
-            },
+            "date": { "value": "2026-08-31", "kind": "on" },
             "scope": {
               "controllerRef": "builtin:codex",
               "authType": "chatgpt"
@@ -286,10 +305,7 @@
           "minCliVersion": null,
           "retirement": {
             "status": "withdrawn",
-            "date": {
-              "value": "2026-09-14",
-              "kind": "on"
-            },
+            "date": { "value": "2026-09-14", "kind": "on" },
             "scope": {
               "controllerRef": "builtin:codex",
               "authType": "chatgpt"
@@ -455,7 +471,7 @@
         },
         {
           "id": "grok-4.7[context=256k,reasoning_effort=high,fast=true]",
-          "displayName": "Grok 4.7 \u2014 High Fast",
+          "displayName": "Grok 4.7 — High Fast",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -469,7 +485,7 @@
         },
         {
           "id": "grok-4.6[effort=high,fast=true]",
-          "displayName": "Grok 4.6 \u2014 High Fast",
+          "displayName": "Grok 4.6 — High Fast",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -497,35 +513,35 @@
         },
         {
           "id": "gemini-3.7-flash[effort=high]",
-          "displayName": "Gemini 3.7 Flash \u2014 High",
+          "displayName": "Gemini 3.7 Flash — High",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
         },
         {
           "id": "gemini-3.6-flash[effort=high]",
-          "displayName": "Gemini 3.6 Flash \u2014 High",
+          "displayName": "Gemini 3.6 Flash — High",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
         },
         {
           "id": "kimi-k3[reasoning=max]",
-          "displayName": "Kimi K3 \u2014 Max",
+          "displayName": "Kimi K3 — Max",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
         },
         {
           "id": "glm-5p3[reasoning=high]",
-          "displayName": "GLM 5.3 \u2014 High",
+          "displayName": "GLM 5.3 — High",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
         },
         {
           "id": "glm-5p3-flash[reasoning=high]",
-          "displayName": "GLM 5.3 Flash \u2014 High",
+          "displayName": "GLM 5.3 Flash — High",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
