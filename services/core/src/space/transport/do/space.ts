@@ -440,6 +440,8 @@ import {
   stopAccountConversation,
 } from "../../../organizations/account-conversation-deletion";
 import {
+  organizationMemberRemovalDefaultSuccessorChanged,
+  readOrganizationMemberRemovalDefaultSuccessor,
   requireOrganizationMemberRemovalManager,
   requireOrganizationMemberRemovalSuccessor,
 } from "../../../organizations/member-removal-authorization";
@@ -9799,17 +9801,29 @@ export class Space extends DurableObject<CoreBindings> {
       }
     );
   }
-  async rpcCreateTask(
+  async rpcCreateTask(input: CreateSpaceTaskInput): Promise<SpaceTaskMutationReceipt> {
+    return await this.handleRpcCreateTask(input, false);
+  }
+  async rpcCreateHumanAssignment(
     input: CreateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return await this.handleRpcCreateTask(input, true);
+  }
+  private async handleRpcCreateTask(
+    input: CreateSpaceTaskInput,
+    humanAssignment: boolean
   ): Promise<SpaceTaskMutationReceipt> {
     return await this.withPostgresRequest(
       async () => {
         this.applySpaceRef(input.spaceId);
+        const assignment = humanAssignment
+          ? this.buildHumanAssignmentAuthority(input)
+          : null;
         const response = await this.dispatchPasswordProtectedMethod(
           this.buildDirectRpcRequest({
             path: "/tasks",
             method: "POST",
-            context: input.context,
+            context: assignment?.requestContext ?? input.context,
             spacePassword: input.password,
           }),
           {
@@ -9843,6 +9857,28 @@ export class Space extends DurableObject<CoreBindings> {
                     };
                   }
                 }
+                if (
+                  assignment &&
+                  (taskContext.actor.profileKind !== "human" ||
+                    normalizedBody.wakeAssignee ||
+                    !normalizedBody.assigneeProfileId ||
+                    createContext.resolveMember(normalizedBody.assigneeProfileId)
+                      ?.profileKind !== "human")
+                ) {
+                  throw new SpaceTaskWorkflowError({
+                    code: "space.membership_required",
+                    message: "The requester and Human assignee must both be active members of this Space.",
+                    status: 403,
+                  });
+                }
+                if (assignment) {
+                  createContext = {
+                    ...createContext,
+                    actor: assignment.centerActor,
+                    requestedBy: taskContext.actor,
+                    representedRequester: taskContext.actor,
+                  };
+                }
                 await this.armSpaceTaskRecovery();
                 const receipt = this.createSpaceTaskService(context).create(
                   normalizedBody,
@@ -9859,6 +9895,52 @@ export class Space extends DurableObject<CoreBindings> {
         return readSpaceRpcJsonOrThrow(response);
       }
     );
+  }
+  private buildHumanAssignmentAuthority(input: CreateSpaceTaskInput): {
+    requestContext: CoreRpcContextInput;
+    centerActor: SpaceTaskActor;
+  } {
+    const context = input.context;
+    const actor = context?.actorContext;
+    const requester = input.representedRequester;
+    if (
+      !context?.activeOrganizationId ||
+      context.activeOrganizationId !==
+        this.readSpaceMetaRecord()?.organizationId ||
+      !actor?.openMeldProfileId ||
+      actor.profileKind !== "agent" ||
+      actor.agentControllerRef !== HOSTED_CENTER_AGENT_CONTROLLER_REF ||
+      actor.callerPrincipalId !== actor.openMeldProfileId ||
+      requester?.profileKind !== "human" ||
+      !requester.ownerUserId
+    ) {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "space.membership_required",
+        reason: "A verified Center Agent requester is required.",
+      });
+    }
+    // Core authenticated the Center Agent's live delivery and resolved its
+    // requester. Use that person's exact current Space membership for both
+    // access admission and Task authority; never add the Center Agent.
+    return {
+      requestContext: {
+        activeOrganizationId: context.activeOrganizationId,
+        actorContext: {
+          callerPrincipalId: requester.ownerUserId,
+          ownerUserId: requester.ownerUserId,
+          openMeldProfileId: requester.profileId,
+          profileKind: "human",
+          requestId: actor.requestId,
+        },
+      },
+      centerActor: {
+        profileId: actor.openMeldProfileId,
+        profileKind: "agent",
+        profileName: actor.profileName ?? "Center Agent",
+        ownerUserId: actor.ownerUserId ?? null,
+      },
+    };
   }
   async rpcMutateTask(
     input: MutateSpaceTaskInput
@@ -12981,7 +13063,9 @@ export class Space extends DurableObject<CoreBindings> {
   }
   async rpcPreviewOrganizationMemberRemovalSpace(
     raw: OrganizationMemberRemovalSpaceInput
-  ): Promise<OrganizationMemberRemovalSpace | null> {
+  ): Promise<
+    (OrganizationMemberRemovalSpace & { defaultSuccessorEligible?: true }) | null
+  > {
     const parsed = organizationMemberRemovalSpaceInputSchema.safeParse(raw);
     if (!parsed.success) {
       throw createCoreRpcHttpError({
@@ -12997,9 +13081,24 @@ export class Space extends DurableObject<CoreBindings> {
           this.bindings,
           input
         );
+        const space = await this.readOrganizationMemberRemovalSpace(authorized);
+        const defaultSuccessor =
+          input.defaultSuccessorProfileId && space?.action === "transfer"
+            ? await readOrganizationMemberRemovalDefaultSuccessor(
+                this.bindings,
+                authorized
+              )
+            : null;
+        const defaultSuccessorEligible =
+          defaultSuccessor &&
+          defaultSuccessor.profileId === input.defaultSuccessorProfileId &&
+          this.isActiveMemberRemovalSuccessor(defaultSuccessor);
         return {
           ok: true as const,
-          value: await this.readOrganizationMemberRemovalSpace(authorized),
+          value:
+            space && defaultSuccessorEligible
+              ? { ...space, defaultSuccessorEligible: true as const }
+              : space,
         };
       } catch (error) {
         return { ok: false as const, error };
@@ -13060,16 +13159,32 @@ export class Space extends DurableObject<CoreBindings> {
     if (!meta) {
       throw new Error("Space metadata is unavailable.");
     }
+    if (input.useDefaultSuccessor && current.action !== "transfer") {
+      throw organizationMemberRemovalDefaultSuccessorChanged();
+    }
     if (current.action === "close") {
       await this.retainDeletedSpace(meta);
     } else {
       const owners = new Set(meta.ownerUserIds);
       let successor: ResolvedSpaceMemberProfile | null = null;
       if (current.action === "transfer") {
-        const nextOwner = await requireOrganizationMemberRemovalSuccessor(
-          authorized,
-          input.successorUserId
-        );
+        const nextOwner = input.useDefaultSuccessor
+          ? await readOrganizationMemberRemovalDefaultSuccessor(
+              this.bindings,
+              authorized
+            )
+          : await requireOrganizationMemberRemovalSuccessor(
+              authorized,
+              input.successorUserId
+            );
+        if (
+          !nextOwner ||
+          nextOwner.ownerUserId !== input.successorUserId ||
+          (input.useDefaultSuccessor &&
+            !this.isActiveMemberRemovalSuccessor(nextOwner))
+        ) {
+          throw organizationMemberRemovalDefaultSuccessorChanged();
+        }
         successor = nextOwner;
         // The FK protects the successor before either membership or ownership
         // is granted. The processing administrator is never added to the Space.
@@ -13087,16 +13202,18 @@ export class Space extends DurableObject<CoreBindings> {
       let addedMemberIds: string[] = [];
       this.ctx.storage.transactionSync(() => {
         if (successor) {
-          addedMemberIds = addSpaceMembersUseCase({
-            sql: this.ctx.storage.sql,
-            env: this.bindings,
-            spaceId: this.spaceId,
-            members: [successor],
-            actorProfileId: input.context.actorContext.openMeldProfileId,
-            actorOwnerUserId: authorized.actorUserId,
-            actorDisplayName: input.context.actorContext.profileName,
-            liveSessions: this.sessions.values(),
-          }).addedMemberIds;
+          if (!input.useDefaultSuccessor) {
+            addedMemberIds = addSpaceMembersUseCase({
+              sql: this.ctx.storage.sql,
+              env: this.bindings,
+              spaceId: this.spaceId,
+              members: [successor],
+              actorProfileId: input.context.actorContext.openMeldProfileId,
+              actorOwnerUserId: authorized.actorUserId,
+              actorDisplayName: input.context.actorContext.profileName,
+              liveSessions: this.sessions.values(),
+            }).addedMemberIds;
+          }
           this.ctx.storage.sql.exec(
             "INSERT INTO space_ownership_audit (id, actor_user_id, target_user_id, role, created_at) VALUES (?, ?, ?, 'owner', ?)",
             crypto.randomUUID(),
@@ -13145,6 +13262,19 @@ export class Space extends DurableObject<CoreBindings> {
         current.action === "transfer" ? input.successorUserId : undefined,
       requestId: input.context.actorContext.requestId,
     });
+  }
+  private isActiveMemberRemovalSuccessor(
+    successor: ResolvedSpaceMemberProfile
+  ): boolean {
+    const member = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      successor.profileId
+    );
+    return (
+      member?.status === "active" &&
+      member.profileKindSnapshot === "human" &&
+      member.ownerUserIdSnapshot === successor.ownerUserId
+    );
   }
   private async readOrganizationMemberRemovalSpace(input: {
     organizationId: string;

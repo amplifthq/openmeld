@@ -712,7 +712,7 @@ export function resolvePublicRouteRequestId(c: Context<HonoBindings>): string {
   return c.var.ingressOpenMeldContext.requestId;
 }
 
-function parseRpcHttpError(
+export function parseRpcHttpError(
   err: unknown
 ): { status: number; message: string; code?: string } | null {
   // Parse RPC errors from structured fields (status/message), including

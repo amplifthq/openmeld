@@ -6302,8 +6302,7 @@ function createSpaceConversationPanelProps(
 		historyErrorMessage: null,
 		firstUnreadSignalId: null,
 		isAgentRecoveryPending: () => false,
-		isDiagnosticReportPending: () => false,
-		isDiagnosticReportSent: () => false,
+
 		membersSnapshot: null,
 		modelCatalog: null,
 		onAgentRecoveryAction: async () => undefined,
@@ -6317,7 +6316,7 @@ function createSpaceConversationPanelProps(
 		onOpenSpaceFile: () => undefined,
 		onReplyToMessage: () => undefined,
 		onRemoveComposerFile: () => undefined,
-		onReportMessage: async () => undefined,
+
 		onSend: async () => undefined,
 		onSendStarterPrompt: async () => undefined,
 		onSpaceViewChange: () => undefined,

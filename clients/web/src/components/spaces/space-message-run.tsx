@@ -366,8 +366,6 @@ export const SpaceMessageRun = memo(function SpaceMessageRun(
 					wakeOutcomeIndex: input.wakeOutcomeIndex,
 					wakeSourceItem: wakePresentationItem,
 					item,
-					messageDetailsItem,
-					onOpenMessageDetails: input.onOpenMessageDetails,
 				});
 				const answerProgressStatus = renderSpaceMessageProgressAt({
 					placement: "answer",
@@ -928,8 +926,6 @@ function renderConversationMessageProgressStatus(input: {
 	wakeOutcomeIndex: SpaceWakeOutcomeIndex;
 	wakeSourceItem: SpaceTimelineItem;
 	item: SpaceTimelineItem;
-	messageDetailsItem: SpaceTimelineItem | null;
-	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 }): ReactNode {
 	if (input.hideForActiveWakeSource) {
 		return null;
@@ -941,11 +937,6 @@ function renderConversationMessageProgressStatus(input: {
 			control={input.control}
 			entries={input.entries}
 			item={input.item}
-			onOpenMessageDetails={getOpenMessageDetailsHandler({
-				enabled: input.messageDetailsItem !== null,
-				item: input.messageDetailsItem ?? input.item,
-				onOpenMessageDetails: input.onOpenMessageDetails,
-			})}
 			wakeOutcomeIndex={input.wakeOutcomeIndex}
 			wakeSourceItem={input.wakeSourceItem}
 		/>
@@ -1012,17 +1003,6 @@ export function resolveCenterAgentComputerSetupContext(input: {
 		profileId: input.profileId,
 		spaceId: input.spaceId,
 	};
-}
-
-function getOpenMessageDetailsHandler(input: {
-	enabled: boolean;
-	item: SpaceTimelineItem;
-	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
-}) {
-	if (!input.enabled) {
-		return undefined;
-	}
-	return () => input.onOpenMessageDetails(input.item);
 }
 
 function resolveConversationMessageFooterThreadAction(input: {

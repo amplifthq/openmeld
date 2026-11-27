@@ -75,6 +75,28 @@ export const remoteAgentSlackDirectMessageEventSchema = z
   .catchall(z.unknown())
   .superRefine(requireSlackMessageContent);
 
+/**
+ * An ordinary message a person posted in a public or private channel without
+ * addressing the app. Posts by apps, edits, deletions, joins, and every other
+ * message subtype do not match, so the app never ingests its own replies.
+ */
+export const remoteAgentSlackChannelMessageEventSchema = z
+  .object({
+    type: z.literal("message"),
+    channel_type: z.enum(["channel", "group"]),
+    user: nonEmptyStringSchema,
+    files: z.array(remoteAgentSlackEventFileSchema).max(10).optional(),
+    text: z.string().optional(),
+    ts: nonEmptyStringSchema,
+    channel: nonEmptyStringSchema,
+    bot_id: z.never().optional(),
+    subtype: z.literal("file_share").optional(),
+    thread_ts: nonEmptyStringSchema.optional(),
+    event_ts: nonEmptyStringSchema.optional(),
+  })
+  .catchall(z.unknown())
+  .superRefine(requireSlackMessageContent);
+
 export const remoteAgentSlackEventsApiPayloadSchema = z.union([
   remoteAgentSlackUrlVerificationPayloadSchema,
   remoteAgentSlackEventCallbackPayloadSchema,

@@ -15,7 +15,6 @@ import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { ComputerPowerSettings } from "#/components/computers/computer-power-settings";
-import { ComputerTokenUsage } from "#/components/computers/computer-token-usage";
 import { DesktopServiceControls } from "#/desktop/desktop-service-controls";
 import { canConfigureLocalComputer } from "#/desktop/platform";
 import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
@@ -210,10 +209,6 @@ export function SelectedComputerPanel(input: {
 					input.organizationId,
 					input.computer.connectedComputerId
 				)}
-			/>
-			<ComputerTokenUsage
-				computerId={input.computer.connectedComputerId}
-				organizationId={input.organizationId}
 			/>
 			{target && canManageComputerFileAccess ? (
 				<ComputerFileAccessCard

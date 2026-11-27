@@ -285,6 +285,35 @@ describe("Inbox routes", () => {
       })
     );
   });
+  it("uses a private, request-scoped GitHub issue read and rejects search injection", async () => {
+    const { coreRpc, env } = makeEnv();
+    const success = await app.fetch(
+      new Request(
+        "http://local/v1/inbox/github-issues?repository=example%2Frepository&state=open&assignee=my-fixture"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(success.status).toBe(200);
+    expect(success.headers.get("cache-control")).toBe("private, no-store");
+    expect(coreRpc.listInboxGitHubIssues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repository: "example/repository",
+        state: "open",
+        assignee: "my-fixture",
+        context: expect.any(Object),
+      })
+    );
+    const invalid = await app.fetch(
+      new Request(
+        "http://local/v1/inbox/github-issues?repository=repo%20is%3Apublic"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(invalid.status).toBe(400);
+    expect(coreRpc.listInboxGitHubIssues).toHaveBeenCalledOnce();
+  });
   it("forwards server feed filters and frozen scopes without accepting client-selected recipients", async () => {
     const { coreRpc, env } = makeEnv();
     const response = await app.fetch(
@@ -1073,6 +1102,10 @@ function makeEnv() {
     reportDesktopUpdateObservation: vi.fn(async () => ({
       accepted: true,
       sequence: 1,
+    })),
+    listInboxGitHubIssues: vi.fn(async () => ({
+      organizationId: "org-1",
+      result: { status: "ready", issues: [], partial: false },
     })),
     listInboxFeed: vi.fn(async () => ({
       organizationId: "org-1",

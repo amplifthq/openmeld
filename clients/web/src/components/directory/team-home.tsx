@@ -29,7 +29,6 @@ import { toast } from "sonner";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
-import type { OrganizationComputerGroup } from "../computers/organization-computers";
 import type { DirectoryHumanProfileRow } from "./directory-human-profile-model";
 import { DirectorySearch } from "./directory-search";
 import { HumanProfileItem } from "./human-profile-item";
@@ -43,8 +42,6 @@ import {
 
 export function TeamHome(input: {
 	members: readonly DirectoryHumanProfileRow[];
-	computerGroups: readonly OrganizationComputerGroup[];
-	activityNowMs: number;
 	onSelect: (id: string) => void;
 	onChat?: (id: string) => Promise<void>;
 	chatPending?: boolean;
@@ -90,9 +87,6 @@ export function TeamHome(input: {
 	const visibleCount = sections.reduce(
 		(total, section) => total + section.members.length,
 		0
-	);
-	const computers = new Map(
-		input.computerGroups.map((group) => [group.ownerUserId, group])
 	);
 	return (
 		<div
@@ -267,8 +261,6 @@ export function TeamHome(input: {
 							{section.members.map((member, index) => (
 								<HumanProfileItem
 									actionsDisabled={sidebar.disabled || input.chatPending}
-									activityNowMs={input.activityNowMs}
-									computerGroup={computers.get(member.userId) ?? null}
 									index={index}
 									isActive={false}
 									key={member.id}

@@ -1,4 +1,3 @@
-import type { LocalAgentReasoningState } from "@openmeld/schemas/types";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	ThinkingStep,
@@ -109,12 +108,6 @@ export function SpaceAgentToolActivity(input: {
 	const progress = isLive
 		? input.item.agentStreamState?.progress
 		: input.item.agentPublicProgress;
-	const reasoning = input.item.agentStreamState?.thinking;
-	const reasoningNotice = reasoning
-		? null
-		: resolveReasoningNotice(
-				input.item.agentStreamState?.reasoningState?.status
-			);
 	const [open, setOpen] = useState(isLive);
 	const wasLive = useRef(isLive);
 	useEffect(() => {
@@ -123,14 +116,13 @@ export function SpaceAgentToolActivity(input: {
 		}
 		wasLive.current = isLive;
 	}, [isLive]);
-	if (!(latestStep || progress || reasoning || reasoningNotice || recovery)) {
+	if (!(latestStep || progress || recovery)) {
 		return null;
 	}
 
 	const summary = resolveAgentWorkHeading({
 		isLive,
 		progress,
-		reasoning: reasoning ?? reasoningNotice,
 		steps,
 	});
 	let accessibleSummary = `Work summary: ${summary}`;
@@ -185,12 +177,6 @@ export function SpaceAgentToolActivity(input: {
 					<AgentWorkActivityViewport
 						isLive={isLive}
 						progress={progress}
-						reasoning={reasoning}
-						reasoningActive={input.item.agentStreamState?.thinkingActive}
-						reasoningFirstOutputMs={
-							input.item.agentStreamState?.reasoningState?.firstOutputMs
-						}
-						reasoningNotice={reasoningNotice}
 						steps={steps}
 					/>
 				</ThinkingStepsContent>
@@ -217,10 +203,6 @@ export function SpaceAgentToolActivity(input: {
 function AgentWorkActivityViewport(input: {
 	isLive: boolean;
 	progress?: string;
-	reasoning?: string;
-	reasoningActive?: boolean;
-	reasoningFirstOutputMs?: number;
-	reasoningNotice?: string | null;
 	steps: readonly SpaceAgentWorkStep[];
 }) {
 	const reduceMotion = useReducedMotion();
@@ -229,12 +211,11 @@ function AgentWorkActivityViewport(input: {
 	const [lastSeenStepCount, setLastSeenStepCount] = useState(() =>
 		totalStepCount(input.steps)
 	);
-	const currentText = input.progress ?? input.reasoning;
+	const currentText = input.progress;
 	const [lastSeenText, setLastSeenText] = useState(currentText);
 	const shownSteps = input.steps;
 	const totalCount = totalStepCount(input.steps);
-	const textLength =
-		(input.progress?.length ?? 0) + (input.reasoning?.length ?? 0);
+	const textLength = input.progress?.length ?? 0;
 	const unseenStepCount =
 		input.isLive && !isFollowing
 			? Math.max(0, totalCount - lastSeenStepCount)
@@ -286,7 +267,7 @@ function AgentWorkActivityViewport(input: {
 				viewportRef={viewportRef}
 			>
 				<ul
-					aria-label={resolveAgentWorkListLabel(input)}
+					aria-label={input.progress ? "Work steps and updates" : "Work steps"}
 					className="min-w-0 pr-1"
 				>
 					{shownSteps.map((step, index) => {
@@ -314,26 +295,11 @@ function AgentWorkActivityViewport(input: {
 					{input.progress ? (
 						<AgentStreamText
 							label="Agent updates"
-							showLabel={shownSteps.length > 0 || Boolean(input.reasoning)}
+							showLabel={shownSteps.length > 0}
 							slot="agent-public-progress"
 							streaming={false}
 							text={input.progress}
 						/>
-					) : null}
-					{input.reasoning ? (
-						<AgentStreamText
-							firstOutputMs={input.reasoningFirstOutputMs}
-							label="Thinking process"
-							showLabel={shownSteps.length > 0 || Boolean(input.progress)}
-							slot="agent-reasoning"
-							streaming={input.isLive && input.reasoningActive !== false}
-							text={input.reasoning}
-						/>
-					) : null}
-					{!input.reasoning && input.reasoningNotice ? (
-						<li className="list-none py-1.5 text-muted-foreground text-xs">
-							{input.reasoningNotice}
-						</li>
 					) : null}
 				</ul>
 			</ScrollArea>
@@ -379,46 +345,15 @@ function AgentStreamText(input: {
 	);
 }
 
-function resolveReasoningNotice(
-	status: LocalAgentReasoningState["status"] | undefined
-): string | null {
-	switch (status) {
-		case "disabled":
-			return "Live reasoning is turned off by this Agent’s owner.";
-		case "unavailable":
-			return "This Agent connection doesn’t support live reasoning.";
-		default:
-			return null;
-	}
-}
-
 function resolveAgentWorkHeading(input: {
 	isLive: boolean;
 	progress?: string;
-	reasoning?: string | null;
 	steps: readonly SpaceAgentWorkStep[];
 }): string {
 	if (input.steps.length > 0) {
 		return resolveWorkSummary(input.steps, input.isLive);
 	}
-	if (input.reasoning) {
-		return "Thinking process";
-	}
 	return "Agent updates";
-}
-
-function resolveAgentWorkListLabel(input: {
-	progress?: string;
-	reasoning?: string;
-	reasoningNotice?: string | null;
-}): string {
-	if (input.reasoning) {
-		return "Work steps and reasoning";
-	}
-	if (input.progress) {
-		return "Work steps and updates";
-	}
-	return input.reasoningNotice ? "Thinking process" : "Work steps";
 }
 
 function resolveWorkSummary(

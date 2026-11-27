@@ -21,6 +21,7 @@ import type {
   LarkPlatformMessageChannelProvider,
   MessageChannelCardCreationResult,
   MessageChannelCardMutationResult,
+  MessageChannelContextHistoryOptions,
   MessageChannelPublicationResult,
   MessageChannelResourceDownloadResult,
 } from "./message-channel-adapters";
@@ -88,15 +89,18 @@ export async function readLarkPlatformChannelContext(input: {
   conversationId: string;
   currentEvent: LarkPlatformMessageEvent;
   fetchImpl?: typeof fetch;
+  history?: MessageChannelContextHistoryOptions;
   provider: LarkPlatformMessageChannelProvider;
 }): Promise<ChannelContext> {
+  const syncedThrough = input.history?.syncedThrough ?? null;
+  const mode = syncedThrough ? "delta" : "snapshot";
   const unavailableContext = (status: ChannelContext["sync"]["status"]) =>
     channelContextSchema.parse({
       conversationId: input.conversationId,
       currentMessageId: input.currentEvent.messageId,
       messages: [],
       provider: input.provider,
-      sync: { mode: "snapshot", status },
+      sync: { mode, status },
     });
   if (
     input.currentEvent.locator.provider !== input.provider ||
@@ -116,7 +120,11 @@ export async function readLarkPlatformChannelContext(input: {
   if (token.status !== "ready") {
     return unavailableContext("unavailable");
   }
-  const url = buildLarkPlatformHistoryUrl(apiHost, input.currentEvent);
+  const url = buildLarkPlatformHistoryUrl(
+    apiHost,
+    input.currentEvent,
+    syncedThrough
+  );
   let response: Response;
   try {
     response = await fetchImpl(url, {
@@ -136,33 +144,16 @@ export async function readLarkPlatformChannelContext(input: {
     return unavailableContext(failureStatus);
   }
   const data = readObject(body, "data");
-  const rawItems = readArray(data, "items");
-  const messages: ChannelContextMessage[] = [];
-  let truncated = readBoolean(data, "has_more") === true;
-  for (const rawItem of rawItems) {
-    if (!isJsonObject(rawItem)) {
-      truncated = true;
-      continue;
-    }
-    if (!belongsToCurrentConversation(rawItem, input.currentEvent)) {
-      continue;
-    }
-    if (
-      (readNonnegativeInteger(rawItem, "create_time") ?? 0) >
-      input.currentEvent.sentAtMs
-    ) {
-      continue;
-    }
-    if (readString(rawItem, "message_id") === input.currentEvent.messageId) {
-      continue;
-    }
-    const normalized = normalizeHistoricalMessage(rawItem);
-    if (!normalized) {
-      truncated = true;
-      continue;
-    }
-    messages.push(normalized);
-  }
+  const selected = selectHistoricalMessages({
+    currentEvent: input.currentEvent,
+    includeAttachments: input.history?.includeAttachments ?? false,
+    rawItems: readArray(data, "items"),
+    syncedThrough,
+  });
+  const { messages } = selected;
+  let truncated =
+    selected.unreadable ||
+    (readBoolean(data, "has_more") === true && !selected.reachedSyncedMessage);
   const bounded = boundHistoricalMessages(messages);
   truncated ||= bounded.truncated;
   return channelContextSchema.parse({
@@ -171,10 +162,65 @@ export async function readLarkPlatformChannelContext(input: {
     messages: bounded.messages,
     provider: input.provider,
     sync: {
-      mode: "snapshot",
+      mode,
       status: truncated ? "truncated" : "complete",
     },
   });
+}
+/**
+ * Picks the earlier messages of the current conversation from one provider
+ * page, which lists newest first.
+ */
+function selectHistoricalMessages(input: {
+  currentEvent: LarkPlatformMessageEvent;
+  includeAttachments: boolean;
+  rawItems: readonly unknown[];
+  syncedThrough: { atMs: number; messageId: string } | null;
+}): {
+  messages: ChannelContextMessage[];
+  /** Once a page reaches the last admitted message, older pages hold nothing new. */
+  reachedSyncedMessage: boolean;
+  unreadable: boolean;
+} {
+  const messages: ChannelContextMessage[] = [];
+  let reachedSyncedMessage = false;
+  let unreadable = false;
+  for (const rawItem of input.rawItems) {
+    if (!isJsonObject(rawItem)) {
+      unreadable = true;
+      continue;
+    }
+    if (
+      input.syncedThrough &&
+      !isAfterSyncedMessage(rawItem, input.syncedThrough)
+    ) {
+      reachedSyncedMessage = true;
+      continue;
+    }
+    if (!isEarlierMessageOfConversation(rawItem, input.currentEvent)) {
+      continue;
+    }
+    const normalized = normalizeHistoricalMessage(rawItem, {
+      includeAttachments: input.includeAttachments,
+    });
+    if (normalized) {
+      messages.push(normalized);
+    } else {
+      unreadable = true;
+    }
+  }
+  return { messages, reachedSyncedMessage, unreadable };
+}
+function isEarlierMessageOfConversation(
+  item: JsonObject,
+  currentEvent: LarkPlatformMessageEvent
+): boolean {
+  return (
+    belongsToCurrentConversation(item, currentEvent) &&
+    (readNonnegativeInteger(item, "create_time") ?? 0) <=
+      currentEvent.sentAtMs &&
+    readString(item, "message_id") !== currentEvent.messageId
+  );
 }
 type FeishuReadCredentials = {
   appId: string;
@@ -387,10 +433,9 @@ function collectFeishuHistoryMessages(
       gaps.add("revision_unavailable");
       continue;
     }
-    const message = normalizeHistoricalMessage(
-      item,
-      CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS + 1
-    );
+    const message = normalizeHistoricalMessage(item, {
+      textLimit: CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS + 1,
+    });
     if (!message) {
       gaps.add("unreadable_message");
       continue;
@@ -1902,7 +1947,8 @@ function readNestedString(
 }
 function buildLarkPlatformHistoryUrl(
   apiHost: string,
-  event: LarkPlatformMessageEvent
+  event: LarkPlatformMessageEvent,
+  syncedThrough: { atMs: number } | null
 ): URL {
   if (event.locator.provider === "slack") {
     throw new Error("Lark history requires a Feishu or Lark conversation.");
@@ -1914,6 +1960,12 @@ function buildLarkPlatformHistoryUrl(
   // The provider does not support time-range parameters on thread reads.
   if (!threadId) {
     url.searchParams.set("end_time", String(Math.ceil(event.sentAtMs / 1000)));
+    if (syncedThrough) {
+      url.searchParams.set(
+        "start_time",
+        String(Math.floor(syncedThrough.atMs / 1000))
+      );
+    }
   }
   url.searchParams.set("sort_type", "ByCreateTimeDesc");
   url.searchParams.set("page_size", String(CHANNEL_CONTEXT_MAX_MESSAGES));
@@ -1936,19 +1988,70 @@ function belongsToCurrentConversation(
     locator.rootMessageId
   );
 }
+/** Provider timestamps are milliseconds, so two messages can share one. */
+function isAfterSyncedMessage(
+  item: JsonObject,
+  syncedThrough: { atMs: number; messageId: string }
+): boolean {
+  const sentAtMs = readNonnegativeInteger(item, "create_time") ?? 0;
+  return (
+    sentAtMs > syncedThrough.atMs ||
+    (sentAtMs === syncedThrough.atMs &&
+      readString(item, "message_id") !== syncedThrough.messageId)
+  );
+}
+const HISTORICAL_ATTACHMENT_TYPES: Record<
+  string,
+  NonNullable<ChannelContextMessage["attachments"]>[number]["type"]
+> = {
+  audio: "audio",
+  file: "file",
+  image: "image",
+  media: "video",
+  sticker: "sticker",
+};
+/** A file message has no text, so its record names the file instead. */
+function readHistoricalAttachmentMessage(
+  messageType: string | null,
+  content: JsonObject | null
+): Pick<ChannelContextMessage, "attachments" | "text"> | null {
+  const type = messageType ? HISTORICAL_ATTACHMENT_TYPES[messageType] : null;
+  if (!type) {
+    return null;
+  }
+  const fileName = readString(content, "file_name");
+  return {
+    attachments: [{ fileName, type }],
+    text: fileName ? `[${type}: ${fileName}]` : `[${type}]`,
+  };
+}
 function normalizeHistoricalMessage(
   item: JsonObject,
-  textLimit = CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS
+  options: { includeAttachments?: boolean; textLimit?: number } = {}
 ): ChannelContextMessage | null {
+  const textLimit = options.textLimit ?? CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS;
   const id = readString(item, "message_id");
   const sentAtMs = readNonnegativeInteger(item, "create_time");
   const body = readObject(item, "body");
   const content = parseJsonObject(readString(body, "content"));
+  const messageType = readString(item, "msg_type");
   let rawText: string | null | undefined = null;
-  if (readString(item, "msg_type") === "text") {
+  let attachments: ChannelContextMessage["attachments"];
+  if (messageType === "text") {
     rawText = readString(content, "text");
-  } else if (readString(item, "msg_type") === "post") {
-    rawText = readLarkPlatformPostContent(content)?.text;
+  } else if (messageType === "post") {
+    const post = readLarkPlatformPostContent(content);
+    rawText = post?.text;
+    if (options.includeAttachments && post && post.resources.length > 0) {
+      attachments = post.resources.map((resource) => ({
+        fileName: resource.fileName,
+        type: resource.type,
+      }));
+    }
+  } else if (options.includeAttachments) {
+    const attachment = readHistoricalAttachmentMessage(messageType, content);
+    rawText = attachment?.text;
+    attachments = attachment?.attachments;
   }
   if (!(id && sentAtMs !== null && rawText)) {
     return null;
@@ -1975,6 +2078,7 @@ function normalizeHistoricalMessage(
     id,
     sentAtMs,
     text: text.slice(0, textLimit),
+    ...(attachments ? { attachments } : {}),
   };
 }
 function replaceMentionKeys(

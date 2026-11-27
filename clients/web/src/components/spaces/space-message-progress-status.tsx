@@ -32,7 +32,6 @@ export function SpaceMessageProgressStatus(input: {
 	item: SpaceTimelineItem;
 	wakeOutcomeIndex?: SpaceWakeOutcomeIndex;
 	wakeSourceItem?: SpaceTimelineItem;
-	onOpenMessageDetails?: () => void;
 }) {
 	const requestStartedAtMs = resolveRequestStartedAtMs(input);
 	const stopFeedback = resolveSpaceMessageStopFeedback(
@@ -129,7 +128,6 @@ export function SpaceMessageProgressStatus(input: {
 					align={input.align}
 					control={input.control}
 					entries={content.entries}
-					onOpenMessageDetails={input.onOpenMessageDetails}
 					showAgentWorkingState={content.showAgentWorkingState}
 				/>
 			) : null}
@@ -263,7 +261,7 @@ function hasLiveSpaceAgentWork(item: SpaceTimelineItem): boolean {
 	return (
 		hasLiveSpaceAgentToolActivity(item) ||
 		(item.agentStreamState?.status === "streaming" &&
-			Boolean(item.agentStreamState.progress || item.agentStreamState.thinking))
+			Boolean(item.agentStreamState.progress))
 	);
 }
 

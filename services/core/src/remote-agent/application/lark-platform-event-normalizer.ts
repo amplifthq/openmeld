@@ -232,6 +232,19 @@ function normalizeMessageEvent(input: {
   } else if (botMentionKeys.length > 0) {
     mention = "group_mention";
   } else {
+    // Only a person's ordinary group message is unaddressed input. The app's
+    // own posts and other apps' posts must never become input, or the Center
+    // Agent could end up answering itself.
+    const senderType = readString(sender, "sender_type");
+    if (
+      (senderType !== null && senderType !== "user") ||
+      senderId === input.connection.botOpenId
+    ) {
+      return {
+        reasonCode: "message_channel.webhook_message_sender_not_user",
+        status: "ignored",
+      };
+    }
     mention = "group_message";
   }
   const rootMessageId = readString(message, "root_id") ?? messageId;
@@ -252,7 +265,10 @@ function normalizeMessageEvent(input: {
     senderId,
     senderTenantKey: readString(sender, "tenant_key"),
     sentAtMs,
-    text,
+    text:
+      mention === "group_message"
+        ? (normalizedContent.unaddressedText ?? text)
+        : text,
   });
   return event.success
     ? { event: event.data, status: "normalized" }
@@ -315,6 +331,8 @@ function normalizeMessageContent(input: {
       resources: MessageChannelResourceDescriptor[];
       status: "normalized";
       text: string;
+      /** What an attachment-only message is, said without asking for anything. */
+      unaddressedText?: string;
     }
   | { reasonCode: string; status: "ignored" | "rejected" } {
   if (input.messageType === "text") {
@@ -365,6 +383,11 @@ function normalizeMessageContent(input: {
     ],
     status: "normalized",
     text: buildResourceMessageText({ fileName, resourceType }),
+    unaddressedText: buildResourceMessageText({
+      fileName,
+      resourceType,
+      unaddressed: true,
+    }),
   };
 }
 
@@ -392,12 +415,22 @@ function resolveMessageResourceType(
 function buildResourceMessageText(input: {
   fileName: string | null;
   resourceType: "audio" | "file" | "image" | "sticker" | "video";
+  unaddressed?: boolean;
 }): string {
   let label: string = input.resourceType;
   if (input.resourceType === "audio") {
     label = "audio file";
   } else if (input.resourceType === "file" && input.fileName) {
     label = `the file "${input.fileName}"`;
+  }
+  // Nobody asked the Center Agent for anything in an unaddressed message, so
+  // its text must not read as a request the sender never made.
+  if (input.unaddressed) {
+    const shared =
+      input.resourceType === "file" && input.fileName
+        ? label
+        : `${input.resourceType === "image" || input.resourceType === "audio" ? "an" : "a"} ${label}`;
+    return `[Shared ${shared} with no message text.]`;
   }
   return `Please review the attached ${label}.`;
 }

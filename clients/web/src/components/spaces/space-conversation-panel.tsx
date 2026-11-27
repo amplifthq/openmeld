@@ -158,7 +158,6 @@ import { SpaceHistoryRail } from "./space-history-rail";
 import { SpaceInputQueue } from "./space-input-queue";
 import { SPACE_MESSAGE_ROW_LAYOUT_CLASS } from "./space-message-bubble-style";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
-import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
 import {
 	SpaceMessageEditingScope,
 	useOptimisticSpaceMessages,
@@ -216,6 +215,7 @@ type SpaceConversationPanelResolvedProps = {
 	agentStreams?: readonly SpaceConversationVisibleStreamProjection[];
 	historyNavigation?: SpaceHistoryNavigationController;
 	activeSpaceView: SpaceView;
+	resourceNavigation?: boolean;
 	allowedActions: readonly string[];
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
@@ -272,8 +272,6 @@ type SpaceConversationPanelResolvedProps = {
 	isPersonalContext?: boolean;
 	isAgentRecoveryPending: (profileId: string) => boolean;
 	isLoadingEarlierHistory: boolean;
-	isDiagnosticReportPending: (signalId: string) => boolean;
-	isDiagnosticReportSent: (signalId: string) => boolean;
 	isSendingMessage: boolean;
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
@@ -304,7 +302,6 @@ type SpaceConversationPanelResolvedProps = {
 	onRetryComposerFileRestoration?: () => void;
 	composerFileCleanup?: readonly ComposerFileDraftCleanup[];
 	composerFileRestorationError?: unknown | null;
-	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onAddMessageToTasks?: (
 		item: SpaceTimelineItem,
 		threadId: string | null
@@ -562,7 +559,6 @@ function SpaceConversationPanelContent(
 		messageDetailsReplyItems,
 		messageDetailsWakeStopTarget,
 		onOpenThread,
-		onReportMessage,
 		onViewMessageInGraph,
 		profilePresentationsById,
 		setConversationTopOverlayElement,
@@ -901,6 +897,7 @@ function SpaceConversationPanelContent(
 						</MessageScroller>
 					</MessageScrollerProvider>
 				}
+				resourceNavigation={input.resourceNavigation}
 				tasks={input.tasks}
 			/>
 
@@ -930,11 +927,6 @@ function SpaceConversationPanelContent(
 						loadedMainTimelineSignalIds.has(signalId)
 					}
 					canStartNewTask={canSendMessage}
-					diagnosticReportStatus={resolveMessageDetailsDiagnosticReportStatus({
-						isPending: input.isDiagnosticReportPending(messageDetailsItem.id),
-						isSent: input.isDiagnosticReportSent(messageDetailsItem.id),
-					})}
-					errorLogMessage="Failed to report a space message."
 					isAgentRecoveryPending={input.isAgentRecoveryPending}
 					isPersonalContext={input.isPersonalContext}
 					item={messageDetailsItem}
@@ -949,7 +941,6 @@ function SpaceConversationPanelContent(
 						isReadOnly,
 						input.onRecoverExecution
 					)}
-					onReportMessage={onReportMessage}
 					onViewInGraph={onViewMessageInGraph}
 					onWakeStopRequest={input.onWakeStopRequest}
 					open={true}
@@ -1064,7 +1055,6 @@ function renderPanelConversationBody(input: {
 		onOpenSpaceFile: panel.onOpenSpaceFile,
 		onAddMessageToTasks: panel.onAddMessageToTasks,
 		onReplyToMessage: presentation.onReplyToMessage,
-		onReportMessage: presentation.onReportMessage,
 		onRecoverExecution: presentation.messageDetailsItem
 			? undefined
 			: panel.onRecoverExecution,
@@ -1306,7 +1296,6 @@ function useSpaceConversationPresentationController(
 	const onAgentRecoveryAction = useLatestCallback(input.onAgentRecoveryAction);
 	const onCreateThread = useLatestCallback(input.onCreateThread);
 	const onOpenThread = useLatestCallback(input.onOpenThread);
-	const onReportMessage = useLatestCallback(input.onReportMessage);
 	const onReplyToMessage = useLatestCallback(input.onReplyToMessage);
 	const onViewMessageInGraph = useLatestCallback((signalId: string) => {
 		graphFocusRequestIdRef.current += 1;
@@ -1460,7 +1449,6 @@ function useSpaceConversationPresentationController(
 		onAgentRecoveryAction,
 		onCreateThread,
 		onOpenThread,
-		onReportMessage,
 		onReplyToMessage,
 		onViewMessageInGraph,
 		onWakeStopRequest,
@@ -1979,8 +1967,17 @@ function resolveConversationRestorationPresentation(input: {
 	};
 }
 
+const SPACE_VIEW_LABELS = {
+	messages: "Messages",
+	tasks: "Tasks",
+	files: "Files",
+	graph: "Graph",
+	guide: "Guide",
+} satisfies Record<SpaceView, string>;
+
 function SpacePrimaryView(input: {
 	activeView: SpaceView;
+	resourceNavigation?: boolean;
 	files?: ReactNode;
 	graph: ReactNode;
 	guide?: ReactNode;
@@ -1988,7 +1985,6 @@ function SpacePrimaryView(input: {
 	messages: ReactNode;
 	tasks?: ReactNode;
 }) {
-	const selectedIndex = getSpaceViewIndex(input.activeView);
 	const [visitedMessages, setVisitedMessages] = useState(
 		input.activeView === "messages"
 	);
@@ -2009,28 +2005,58 @@ function SpacePrimaryView(input: {
 	return (
 		<>
 			{input.activeView !== "messages" && (
-				<div
-					aria-labelledby={`${input.idPrefix}-tab-${selectedIndex}`}
-					className="flex min-h-0 flex-1 flex-col"
-					id={`${input.idPrefix}-panel-${selectedIndex}`}
-					role="tabpanel"
+				<SpaceViewRegion
+					idPrefix={input.idPrefix}
+					resourceNavigation={input.resourceNavigation}
+					view={input.activeView}
 				>
 					{activeContent}
-				</div>
+				</SpaceViewRegion>
 			)}
 			{renderMessages && (
 				<Activity mode={input.activeView === "messages" ? "visible" : "hidden"}>
-					<div
-						aria-labelledby={`${input.idPrefix}-tab-${getSpaceViewIndex("messages")}`}
-						className="flex min-h-0 flex-1 flex-col"
-						id={`${input.idPrefix}-panel-${getSpaceViewIndex("messages")}`}
-						role="tabpanel"
+					<SpaceViewRegion
+						idPrefix={input.idPrefix}
+						resourceNavigation={input.resourceNavigation}
+						view="messages"
 					>
 						{input.messages}
-					</div>
+					</SpaceViewRegion>
 				</Activity>
 			)}
 		</>
+	);
+}
+
+function SpaceViewRegion(input: {
+	children: ReactNode;
+	idPrefix: string;
+	resourceNavigation?: boolean;
+	view: SpaceView;
+}) {
+	const layout = "flex min-h-0 flex-1 flex-col";
+	const index = getSpaceViewIndex(input.view);
+	const id = `${input.idPrefix}-panel-${index}`;
+	if (input.resourceNavigation) {
+		return (
+			<section
+				aria-label={SPACE_VIEW_LABELS[input.view]}
+				className={layout}
+				id={id}
+			>
+				{input.children}
+			</section>
+		);
+	}
+	return (
+		<div
+			aria-labelledby={`${input.idPrefix}-tab-${index}`}
+			className={layout}
+			id={id}
+			role="tabpanel"
+		>
+			{input.children}
+		</div>
 	);
 }
 
@@ -2448,7 +2474,6 @@ function renderConversationBody(input: {
 		threadId: string | null
 	) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
-	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onSendStarterPrompt: (prompt: string) => Promise<void>;
 	onStartComputerSetup: () => void;

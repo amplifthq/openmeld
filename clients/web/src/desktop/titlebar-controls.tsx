@@ -50,7 +50,11 @@ function Controls({
 		navigation.getSnapshot
 	);
 	useEffect(() => {
-		navigation.identify(account);
+		// A pending layout can render without Organization context. The
+		// Desktop frame owns sign-out and account-changed invalidation.
+		if (account) {
+			navigation.identify(account);
+		}
 	}, [navigation, account]);
 	const toggle = useCallback(() => {
 		if (!input.available) {

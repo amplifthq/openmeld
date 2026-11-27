@@ -59,6 +59,7 @@ export const aiUsageRecordSchema = aiUsageObservationSchema.extend({
     "image_understanding",
     "session_title",
     "activity_digest",
+    "channel_intake",
   ]),
   agentProfileId: identifier.nullable(),
   spaceId: identifier.nullable(),

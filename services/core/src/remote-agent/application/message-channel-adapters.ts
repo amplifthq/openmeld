@@ -80,6 +80,15 @@ type MessageChannelAdapterTarget = {
   providerPublicationIdempotencyKey: string;
 };
 
+export type MessageChannelContextHistoryOptions = {
+  /** Keep image and file messages as records that name their attachment. */
+  includeAttachments: boolean;
+  /**
+   * The last message of this conversation the Center Agent already admitted.
+   * When set, only messages after it are read (a delta).
+   */
+  syncedThrough: { atMs: number; messageId: string } | null;
+};
 export type MessageChannelProviderAdapter = {
   provider: LarkPlatformMessageChannelProvider;
 
@@ -156,6 +165,8 @@ export type MessageChannelProviderAdapter = {
     connection: RemoteAgentLarkPlatformChannelConnectionRecord;
     conversationId: string;
     event: NormalizedMessageChannelEvent;
+    /** Omitted for the full bounded snapshot without attachment records. */
+    history?: MessageChannelContextHistoryOptions;
   }): Promise<ChannelContext>;
   updateWorkingCard(input: {
     cardId: string;

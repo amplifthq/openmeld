@@ -1,15 +1,13 @@
 "use client";
 
 import type {
-	CenterAgentMemberResearchBatch,
-	MessageChannelProvider,
 	ModelCatalog,
 	OrganizationDirectoryResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { type ComponentProps, useEffect, useRef, useState } from "react";
+import { type ComponentProps, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import type { AppShellAccount } from "#/components/app/app-shell-account";
@@ -29,22 +27,12 @@ import {
 import {
 	type DirectoryHumanProfilesViewState,
 	DirectoryHumanProfilesWorkspace,
-	type DirectoryMemberResearchRequest,
 } from "#/components/directory/directory-human-profiles-workspace";
 import { OrganizationInviteDialog } from "#/components/organizations/organization-invite-dialog";
 import {
 	isCurrentLocalRuntimeServiceDisconnected,
 	resolveCurrentLocalRuntimeSubjectDeviceId,
 } from "#/lib/computer-summary-status";
-import {
-	disconnectCurrentMessageChannelIdentityLink,
-	requestCurrentOrganizationMessageChannelSetup,
-	resolveMessageChannelErrorMessage,
-} from "#/lib/organizations/message-channels";
-import {
-	resolveOrganizationDocumentErrorMessage,
-	startCurrentCenterAgentMemberResearch,
-} from "#/lib/organizations/organization-documents";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import {
 	buildOrganizationDirectMessagePath,
@@ -56,28 +44,19 @@ import {
 	openCurrentDirectMessageSpace,
 	resolveDirectMessageOpenErrorMessage,
 } from "#/lib/spaces/direct-message";
-import {
-	centerAgentMemberResearchQueryKeys,
-	centerAgentMemberResearchStatusQueryOptions,
-} from "#/query/organizations/center-agent-member-research";
-import {
-	messageChannelListQueryOptions,
-	messageChannelQueryKeys,
-} from "#/query/organizations/message-channels";
+import { messageChannelListQueryOptions } from "#/query/organizations/message-channels";
 import {
 	organizationComputersQueryOptions,
 	organizationMemberRoleQueryOptions,
 } from "#/query/organizations/organization-directory";
-import {
-	organizationDocumentQueryKeys,
-	organizationDocumentsQueryOptions,
-} from "#/query/organizations/organization-documents";
+import { organizationDocumentsQueryOptions } from "#/query/organizations/organization-documents";
 import {
 	isAdditionalHumanProfileCreationEnabled,
 	profileCapabilitiesQueryOptions,
 } from "#/query/profiles/profile-capabilities";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
+import { DirectoryMemberRemoval } from "./directory-member-removal";
 
 type DirectoryQueryState = {
 	data?: OrganizationProfileDirectoryResponse | OrganizationDirectoryResponse;
@@ -110,115 +89,15 @@ type DirectoryMembersOverviewProps = {
 	storageScope: string;
 };
 
-const PROFILE_REPORT_DOCUMENTS_ERROR_MESSAGE =
-	"Report links are unavailable because Documents could not be loaded.";
-
-function useDirectoryMemberResearch(organizationId: string, enabled = true) {
-	const queryClient = useQueryClient();
-	const memberResearchQuery = useQuery({
-		...centerAgentMemberResearchStatusQueryOptions({ organizationId }),
-		enabled,
-	});
-	const activeResearchBatch = resolveActiveResearchBatch(
-		memberResearchQuery.data?.latestBatch ?? null
-	);
-	const documentsQuery = useQuery({
-		...organizationDocumentsQueryOptions({
-			enabled,
-			organizationId,
-		}),
-		refetchInterval: activeResearchBatch ? 2000 : false,
-	});
-	const researchMutation = useMutation({
-		mutationFn: async (request: DirectoryMemberResearchRequest) =>
-			await startCurrentCenterAgentMemberResearch({
-				...request,
-				expectedOrganizationId: organizationId,
-			}),
-		onSuccess: (response) => {
-			queryClient.setQueryData(
-				centerAgentMemberResearchQueryKeys.status(organizationId),
-				{
-					latestBatch: response.batch,
-					organizationId,
-				}
-			);
-			queryClient
-				.invalidateQueries({
-					queryKey: organizationDocumentQueryKeys.list(organizationId),
-				})
-				.catch((error: unknown) =>
-					reportMemberResearchDocumentRefreshFailure({ error, organizationId })
-				);
-		},
-	});
-	const latestResearchBatch = memberResearchQuery.data?.latestBatch ?? null;
-	const observedResearchBatchRef = useRef<{
-		id: string;
-		status: CenterAgentMemberResearchBatch["status"];
-	} | null>(null);
-	const completedResearchBatchId =
-		latestResearchBatch?.status === "completed" ? latestResearchBatch.id : null;
-	useEffect(() => {
-		if (!completedResearchBatchId) {
-			return;
-		}
-		queryClient
-			.invalidateQueries({
-				queryKey: organizationDocumentQueryKeys.list(organizationId),
-			})
-			.catch((error: unknown) =>
-				reportMemberResearchDocumentRefreshFailure({ error, organizationId })
-			);
-	}, [completedResearchBatchId, organizationId, queryClient]);
-	useEffect(() => {
-		if (!latestResearchBatch) {
-			return;
-		}
-		const previous = observedResearchBatchRef.current;
-		observedResearchBatchRef.current = {
-			id: latestResearchBatch.id,
-			status: latestResearchBatch.status,
-		};
-		if (
-			previous?.id === latestResearchBatch.id &&
-			(previous.status === "queued" || previous.status === "running") &&
-			latestResearchBatch.status === "completed"
-		) {
-			showMemberResearchCompletionToast(latestResearchBatch);
-		}
-	}, [latestResearchBatch]);
-
-	return {
-		activeResearchBatch,
-		documentsQuery,
-		latestResearchBatch,
-		memberResearchQuery,
-		researchMutation,
-	};
-}
-
-function reportMemberResearchDocumentRefreshFailure(input: {
-	error: unknown;
-	organizationId: string;
-}): void {
-	console.warn("[web.center_agent_member_research.document_refresh_failed]", {
-		error: input.error,
-		organizationId: input.organizationId,
-	});
-}
-
 function resolveHumanProfilesViewState(input: {
 	directMessageIsPending: boolean;
 	isPersonalWorkspace: boolean;
 	profilesArePending: boolean;
-	researchIsPending: boolean;
 }): DirectoryHumanProfilesViewState {
 	return {
 		context: input.isPersonalWorkspace ? "personal" : "organization",
 		directMessage: input.directMessageIsPending ? "pending" : "idle",
 		profiles: input.profilesArePending ? "loading" : "ready",
-		research: input.researchIsPending ? "pending" : "idle",
 	};
 }
 
@@ -306,79 +185,12 @@ function useDirectoryMembersOverviewModel(
 		}),
 		enabled: !isPersonalWorkspace,
 	});
-	const disconnectConnectedAccountMutation = useMutation({
-		mutationFn: async (identityLinkId: string) =>
-			await disconnectCurrentMessageChannelIdentityLink({
-				identityLinkId,
-				organizationId: input.currentOrganization.id,
-			}),
-		onError: (error) => {
-			console.error("Failed to disconnect Message Channel account.", error);
-			toast.error(
-				resolveMessageChannelErrorMessage(
-					error,
-					"OpenMeld could not disconnect this account. Try again."
-				)
-			);
-		},
-		onSuccess: (response) => {
-			queryClient.setQueryData(
-				messageChannelQueryKeys.list(input.currentOrganization.id),
-				response
-			);
-			toast.success("Connected account disconnected.");
-		},
-	});
-	const requestMessageChannelSetupMutation = useMutation({
-		mutationFn: async (provider: MessageChannelProvider) =>
-			await requestCurrentOrganizationMessageChannelSetup({
-				organizationId: input.currentOrganization.id,
-				provider,
-			}),
-		onError: (error) => {
-			console.error("Failed to request Message Channel setup.", error);
-			toast.error(
-				resolveMessageChannelErrorMessage(
-					error,
-					"OpenMeld could not send this setup request. Try again."
-				)
-			);
-		},
-		onSuccess: (response) => {
-			queryClient
-				.invalidateQueries({
-					queryKey: messageChannelQueryKeys.list(input.currentOrganization.id),
-				})
-				.catch((error: unknown) => {
-					console.error(
-						"Failed to refresh Message Channel status after requesting setup.",
-						error
-					);
-				});
-			if (response.status === "already_requested") {
-				toast.success("An organization admin already has this setup request.");
-				return;
-			}
-			toast.success(
-				response.recipientCount === 1
-					? "Setup request sent to an organization admin."
-					: `Setup request sent to ${response.recipientCount} organization admins.`
-			);
-		},
-	});
-	const {
-		activeResearchBatch,
-		documentsQuery,
-		latestResearchBatch,
-		memberResearchQuery,
-		researchMutation,
-	} = useDirectoryMemberResearch(input.currentOrganization.id, true);
-	const researchErrors = resolveMemberResearchErrors({
-		mutationError: researchMutation.error,
-		mutationFailed: researchMutation.isError,
-		mutationRequest: researchMutation.variables,
-		queryFailed: memberResearchQuery.isError,
-	});
+	const documentsQuery = useQuery(
+		organizationDocumentsQueryOptions({
+			enabled: true,
+			organizationId: input.currentOrganization.id,
+		})
+	);
 	const personalProfilesQuery = useQuery(
 		buildStartProfilesQueryOptions({
 			enabled: isPersonalWorkspace,
@@ -461,12 +273,10 @@ function useDirectoryMembersOverviewModel(
 		directMessageIsPending: directMessageMutation.isPending,
 		isPersonalWorkspace,
 		profilesArePending,
-		researchIsPending: researchMutation.isPending,
 	});
 	const selectedProfileId = input.focusProfileId;
 	const workspaceProps: ComponentProps<typeof DirectoryHumanProfilesWorkspace> =
 		{
-			activeBatch: activeResearchBatch,
 			canCreateProfile: canCreateHumanProfile,
 			computerGroups,
 			directoryError: computersQuery.isError
@@ -476,28 +286,19 @@ function useDirectoryMembersOverviewModel(
 			emptyMessage: profilesEmptyMessage,
 			errorMessage: profilesError,
 			initialSidebarStates: input.initialSidebarStates,
-			latestBatch: latestResearchBatch,
-			memberResearchError: researchErrors.member,
+			memberActions: (
+				<DirectoryMemberRemoval
+					directoryQuery={input.directoryQuery}
+					organization={input.currentOrganization}
+					profileId={selectedProfileId}
+					roleQuery={roleQuery}
+					userId={input.currentUserId}
+				/>
+			),
 			members: memberRows,
-			modelCatalog: input.modelCatalog ?? null,
 			onCreateProfile: input.onCreateProfile,
-			onDisconnectConnectedAccount: (identityLinkId) =>
-				disconnectConnectedAccountMutation.mutate(identityLinkId),
 			onOpenDirectMessage: openHumanDirectMessage,
-			onRetryProfileReports: () => {
-				documentsQuery.refetch({ throwOnError: true }).catch((error: unknown) =>
-					reportMemberResearchDocumentRefreshFailure({
-						error,
-						organizationId: input.currentOrganization.id,
-					})
-				);
-			},
-			onRequestChannelSetup: async (provider) => {
-				await requestMessageChannelSetupMutation.mutateAsync(provider);
-			},
-			onResearch: (subjectUserId) =>
-				researchMutation.mutate({ scope: "member", subjectUserId }),
-			onResearchAll: () => researchMutation.mutate({ scope: "all" }),
+			organizationId: input.currentOrganization.id,
 			onSelectProfile: (profileId) => {
 				if (profileId === selectedProfileId) {
 					return;
@@ -512,13 +313,7 @@ function useDirectoryMembersOverviewModel(
 				});
 			},
 			orgSlug: input.currentOrganization.slug,
-			pendingResearch: researchMutation.variables,
-			profileReportsAreRetrying: documentsQuery.isFetching,
-			profileReportsErrorMessage: documentsQuery.isError
-				? PROFILE_REPORT_DOCUMENTS_ERROR_MESSAGE
-				: null,
 			recovery: input.recovery,
-			researchErrorMessage: researchErrors.section,
 			selectedProfileId,
 			state: profilesViewState,
 			strictComputerGroups,
@@ -584,15 +379,6 @@ function resolveDirectoryProjectionStatus(input: {
 	return input.isError ? "failed" : "ready";
 }
 
-function resolveActiveResearchBatch(
-	batch: CenterAgentMemberResearchBatch | null
-): CenterAgentMemberResearchBatch | null {
-	if (batch?.status === "queued" || batch?.status === "running") {
-		return batch;
-	}
-	return null;
-}
-
 function resolveDirectoryDocumentsStatus(input: {
 	isError: boolean;
 	isSuccess: boolean;
@@ -653,71 +439,6 @@ function resolveCurrentComputerServiceProjection(input: {
 				input.readinessQuery.isFetching && !serviceDisconnected,
 		}),
 	};
-}
-
-function showMemberResearchCompletionToast(
-	batch: CenterAgentMemberResearchBatch
-): void {
-	if (batch.failedCount > 0) {
-		if (batch.completedCount === 0) {
-			toast.warning("Learning finished, but no Profile Reports were created.");
-			return;
-		}
-		toast.warning(
-			`Learning finished. ${batch.completedCount} Profile Reports are ready; ${batch.failedCount} could not be completed.`
-		);
-		return;
-	}
-	if (batch.scope === "member") {
-		const subjectName = batch.tasks[0]?.subjectDisplayName;
-		toast.success(
-			subjectName
-				? `Learning complete. ${subjectName}'s Profile Report is ready.`
-				: "Learning complete. The Profile Report is ready."
-		);
-		return;
-	}
-	toast.success(
-		`Learning complete. ${batch.completedCount} Profile Reports are ready.`
-	);
-}
-
-function resolveMemberResearchErrors(input: {
-	mutationError: unknown;
-	mutationFailed: boolean;
-	mutationRequest: DirectoryMemberResearchRequest | undefined;
-	queryFailed: boolean;
-}): {
-	member: { message: string; subjectUserId: string } | null;
-	section: string | null;
-} {
-	if (input.mutationFailed) {
-		const message = resolveMemberResearchStartErrorMessage(input.mutationError);
-		if (input.mutationRequest?.scope === "member") {
-			return {
-				member: {
-					message,
-					subjectUserId: input.mutationRequest.subjectUserId,
-				},
-				section: null,
-			};
-		}
-		return { member: null, section: message };
-	}
-	if (input.queryFailed) {
-		return {
-			member: null,
-			section: "OpenMeld could not load member research status.",
-		};
-	}
-	return { member: null, section: null };
-}
-
-function resolveMemberResearchStartErrorMessage(error: unknown): string {
-	const message = resolveOrganizationDocumentErrorMessage(error);
-	return message === "OpenMeld could not save this document. Try again."
-		? "OpenMeld could not start learning about this member. Try again."
-		: message;
 }
 
 function resolveHumanProfilesError(input: {

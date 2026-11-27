@@ -20,6 +20,7 @@ import type { SidebarMode } from "@openmeld/ui/fluid/sidebar-state";
 import { resolveStatusToneCompactBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
+	ChartBarIcon,
 	ChatCircleTextIcon,
 	TimerIcon,
 	TrayIcon,
@@ -50,6 +51,7 @@ import {
 	resolveInboxIndicatorClassName,
 } from "#/lib/inbox/attention";
 import {
+	buildOrganizationDashboardPath,
 	buildOrganizationInboxPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationRoutinesPath,
@@ -101,6 +103,12 @@ export function buildAppRailGroups(input: {
 					inboxAttention: input.inboxAttention,
 					to: buildOrganizationInboxPath(input.orgSlug),
 					icon: <TrayIcon aria-hidden="true" className="size-5" />,
+				},
+				{
+					id: "dashboard",
+					label: "Dashboard",
+					to: buildOrganizationDashboardPath(input.orgSlug),
+					icon: <ChartBarIcon aria-hidden="true" className="size-5" />,
 				},
 				{
 					id: "directMessages",

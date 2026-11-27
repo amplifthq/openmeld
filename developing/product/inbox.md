@@ -256,7 +256,7 @@ runtime authority, Service/CLI payload or protocol epoch, and needs no migration
 ## Product promise
 
 **Inbox** is each member's single workspace-level place to answer one question:
-"What changed, and what needs me?"
+"What needs me now?"
 
 It brings relevant work from Spaces, Agents, the Center Agent, Documents, and
 system flows into one calm, scannable surface. It does not replace those
@@ -973,6 +973,33 @@ evidence is preserved rather than guessed. This is a bounded historical repair,
 not a second execution writer.
 
 The source inventory and extension contract are in [Inbox actions](inbox-actions.md).
+
+## TODO
+
+Inbox uses one flat list of actionable items, ordered by latest activity.
+GitHub assignments and OpenMeld requests use the same row actions: **Open**,
+**Done**, and **Ignore**. **Open** goes to the source. **Done** clears the
+recipient’s reminder in Inbox but does not approve a request, submit a Space
+Task result, or change the source. **Ignore** uses the existing Inbox removal
+confirmation. History is not migrated or deleted by the single-list design.
+
+### GitHub source
+
+TODO also reads open issues assigned to the signed-in member's **Your GitHub**
+identity. The member's current personal Plugin connection is required; neither
+GitHub sign-in nor a shared Organization installation is a substitute. Core
+checks the authenticated GitHub user ID against each issue's assignees. A
+repository-filtered Dashboard uses the same read path with each viewer's own
+GitHub access. Board configuration does not share private issue content.
+
+These rows are a live provider view, not stored Inbox items. GitHub owns
+assignment and completion. To hand off or complete an issue, open the issue
+and reassign or close it in GitHub; a subsequent refresh reflects the change
+once GitHub Search indexes it. The view shows the first 30 matching issues and
+labels partial results. It reports an unavailable read separately from an
+empty result. Done and Ignore affect only that issue revision in the current
+browser. A newer provider revision can appear again; GitHub is not written. No browser notification, attention badge increment, or urgent email
+is generated for this provider view.
 
 ## Delivery channels and preferences
 

@@ -24,8 +24,6 @@ const getActiveOrganizationMemberRoleMock = vi.hoisted(() => vi.fn());
 const listCurrentOrganizationDocumentsMock = vi.hoisted(() => vi.fn());
 const readCurrentOrganizationComputersMock = vi.hoisted(() => vi.fn());
 const listCurrentOrganizationMessageChannelsMock = vi.hoisted(() => vi.fn());
-const getCurrentCenterAgentMemberResearchStatusMock = vi.hoisted(() => vi.fn());
-const startCurrentCenterAgentMemberResearchMock = vi.hoisted(() => vi.fn());
 const openCurrentDirectMessageSpaceMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
 const workspacePropsMock = vi.hoisted(() => vi.fn());
@@ -44,10 +42,7 @@ vi.mock("#/components/directory/directory-human-profiles-workspace", () => ({
 	DirectoryHumanProfilesWorkspace: (props: {
 		members: readonly { id: string; name: string }[];
 		onOpenDirectMessage: (profileId: string) => Promise<void>;
-		onResearch: (userId: string) => void;
-		onRetryProfileReports: () => void;
 		onSelectProfile: (profileId: string) => void;
-		profileReportsErrorMessage: string | null;
 		selectedProfileId: string | null;
 	}) => {
 		workspacePropsMock(props);
@@ -63,23 +58,12 @@ vi.mock("#/components/directory/directory-human-profiles-workspace", () => ({
 						{member.name}
 					</button>
 				))}
-				<button onClick={() => props.onResearch("user-grace")} type="button">
-					Research Grace
-				</button>
 				<button
 					onClick={() => props.onOpenDirectMessage(GRACE_PROFILE_ID)}
 					type="button"
 				>
 					Message Grace
 				</button>
-				{props.profileReportsErrorMessage ? (
-					<div role="alert">
-						{props.profileReportsErrorMessage}
-						<button onClick={props.onRetryProfileReports} type="button">
-							Retry reports
-						</button>
-					</div>
-				) : null}
 			</div>
 		);
 	},
@@ -151,11 +135,7 @@ vi.mock(
 			>();
 		return {
 			...original,
-			getCurrentCenterAgentMemberResearchStatus:
-				getCurrentCenterAgentMemberResearchStatusMock,
 			listCurrentOrganizationDocuments: listCurrentOrganizationDocumentsMock,
-			startCurrentCenterAgentMemberResearch:
-				startCurrentCenterAgentMemberResearchMock,
 		};
 	}
 );
@@ -208,19 +188,6 @@ describe("DirectoryMembersOverview", () => {
 			identityLinks: [],
 			organizationId: "org-acme",
 		});
-		getCurrentCenterAgentMemberResearchStatusMock
-			.mockReset()
-			.mockResolvedValue({ latestBatch: null, organizationId: "org-acme" });
-		startCurrentCenterAgentMemberResearchMock.mockReset().mockResolvedValue({
-			batch: {
-				completedCount: 0,
-				failedCount: 0,
-				id: "batch-1",
-				status: "queued",
-				tasks: [],
-				totalCount: 1,
-			},
-		});
 		openCurrentDirectMessageSpaceMock.mockReset().mockResolvedValue({
 			memberProfileId: CURRENT_PROFILE_ID,
 			organizationId: "org-acme",
@@ -244,18 +211,9 @@ describe("DirectoryMembersOverview", () => {
 			to: `/o/acme/people/${GRACE_PROFILE_ID}`,
 		});
 	});
-	it("preserves member research and Direct Message behavior behind the new workspace", async () => {
+	it("preserves Direct Message behavior behind the new workspace", async () => {
 		renderOverview();
 		await screen.findByTestId("people-workspace");
-
-		fireEvent.click(screen.getByRole("button", { name: "Research Grace" }));
-		await waitFor(() => {
-			expect(startCurrentCenterAgentMemberResearchMock).toHaveBeenCalledWith({
-				expectedOrganizationId: "org-acme",
-				scope: "member",
-				subjectUserId: "user-grace",
-			});
-		});
 
 		fireEvent.click(screen.getByRole("button", { name: "Message Grace" }));
 		await waitFor(() => {
@@ -266,31 +224,6 @@ describe("DirectoryMembersOverview", () => {
 		});
 		expect(navigateMock).toHaveBeenCalledWith({
 			to: "/o/acme/chats/space-grace-dm?profileId=22222222-2222-4222-8222-222222222222",
-		});
-	});
-
-	it("preserves the Documents failure and retry surface inside People", async () => {
-		listCurrentOrganizationDocumentsMock.mockRejectedValue(
-			new Error("Documents are unavailable.")
-		);
-		renderOverview();
-
-		expect((await screen.findByRole("alert")).textContent).toContain(
-			"Report links are unavailable because Documents could not be loaded."
-		);
-		const failedRequestCount =
-			listCurrentOrganizationDocumentsMock.mock.calls.length;
-		listCurrentOrganizationDocumentsMock.mockResolvedValue({
-			canManage: true,
-			currentUserId: "user-current",
-			documents: [],
-			organizationId: "org-acme",
-		});
-		fireEvent.click(screen.getByRole("button", { name: "Retry reports" }));
-		await waitFor(() => {
-			expect(listCurrentOrganizationDocumentsMock).toHaveBeenCalledTimes(
-				failedRequestCount + 1
-			);
 		});
 	});
 

@@ -81,6 +81,7 @@
         "services/remote-agent/agent-core/center-agent-session-title.ts",
         "services/remote-agent/agent-core/image-understanding.ts",
         "services/remote-agent/agent-core/tools.ts",
+        "services/remote-agent/agent-core/unaddressed-channel-batch-classifier.ts",
         "services/remote-agent/flue-adapter/model.ts"
       ],
       "linter": {

@@ -67,6 +67,7 @@ import { Route as OOrgSlugAgentActivityRouteImport } from './routes/o/$orgSlug/a
 import { Route as OOrgSlugAgentsRouteImport } from './routes/o/$orgSlug/agents'
 import { Route as OOrgSlugComputersRouteImport } from './routes/o/$orgSlug/computers'
 import { Route as OOrgSlugConnectRouteImport } from './routes/o/$orgSlug/connect'
+import { Route as OOrgSlugDashboardRouteImport } from './routes/o/$orgSlug/dashboard'
 import { Route as OOrgSlugDirectoryRouteImport } from './routes/o/$orgSlug/directory'
 import { Route as OOrgSlugDocumentsRouteImport } from './routes/o/$orgSlug/documents'
 import { Route as OOrgSlugFilesRouteImport } from './routes/o/$orgSlug/files'
@@ -480,6 +481,11 @@ const OOrgSlugComputersRoute = OOrgSlugComputersRouteImport.update({
 const OOrgSlugConnectRoute = OOrgSlugConnectRouteImport.update({
   id: '/connect',
   path: '/connect',
+  getParentRoute: () => OOrgSlugRoute,
+} as any)
+const OOrgSlugDashboardRoute = OOrgSlugDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => OOrgSlugRoute,
 } as any)
 const OOrgSlugDirectoryRoute = OOrgSlugDirectoryRouteImport.update({
@@ -1208,6 +1214,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/agents': typeof OOrgSlugAgentsRoute
   '/o/$orgSlug/computers': typeof OOrgSlugComputersRouteWithChildren
   '/o/$orgSlug/connect': typeof OOrgSlugConnectRoute
+  '/o/$orgSlug/dashboard': typeof OOrgSlugDashboardRoute
   '/o/$orgSlug/directory': typeof OOrgSlugDirectoryRouteWithChildren
   '/o/$orgSlug/documents': typeof OOrgSlugDocumentsRouteWithChildren
   '/o/$orgSlug/files': typeof OOrgSlugFilesRoute
@@ -1387,6 +1394,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/agents': typeof OOrgSlugAgentsRoute
   '/o/$orgSlug/computers': typeof OOrgSlugComputersRouteWithChildren
   '/o/$orgSlug/connect': typeof OOrgSlugConnectRoute
+  '/o/$orgSlug/dashboard': typeof OOrgSlugDashboardRoute
   '/o/$orgSlug/files': typeof OOrgSlugFilesRoute
   '/o/$orgSlug/new-agent': typeof OOrgSlugNewAgentRoute
   '/o/$orgSlug/new-organization': typeof OOrgSlugNewOrganizationRoute
@@ -1559,6 +1567,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/agents': typeof OOrgSlugAgentsRoute
   '/o/$orgSlug/computers': typeof OOrgSlugComputersRouteWithChildren
   '/o/$orgSlug/connect': typeof OOrgSlugConnectRoute
+  '/o/$orgSlug/dashboard': typeof OOrgSlugDashboardRoute
   '/o/$orgSlug/directory': typeof OOrgSlugDirectoryRouteWithChildren
   '/o/$orgSlug/documents': typeof OOrgSlugDocumentsRouteWithChildren
   '/o/$orgSlug/files': typeof OOrgSlugFilesRoute
@@ -1741,6 +1750,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/agents'
     | '/o/$orgSlug/computers'
     | '/o/$orgSlug/connect'
+    | '/o/$orgSlug/dashboard'
     | '/o/$orgSlug/directory'
     | '/o/$orgSlug/documents'
     | '/o/$orgSlug/files'
@@ -1920,6 +1930,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/agents'
     | '/o/$orgSlug/computers'
     | '/o/$orgSlug/connect'
+    | '/o/$orgSlug/dashboard'
     | '/o/$orgSlug/files'
     | '/o/$orgSlug/new-agent'
     | '/o/$orgSlug/new-organization'
@@ -2091,6 +2102,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/agents'
     | '/o/$orgSlug/computers'
     | '/o/$orgSlug/connect'
+    | '/o/$orgSlug/dashboard'
     | '/o/$orgSlug/directory'
     | '/o/$orgSlug/documents'
     | '/o/$orgSlug/files'
@@ -2685,6 +2697,13 @@ declare module '@tanstack/react-router' {
       path: '/connect'
       fullPath: '/o/$orgSlug/connect'
       preLoaderRoute: typeof OOrgSlugConnectRouteImport
+      parentRoute: typeof OOrgSlugRoute
+    }
+    '/o/$orgSlug/dashboard': {
+      id: '/o/$orgSlug/dashboard'
+      path: '/dashboard'
+      fullPath: '/o/$orgSlug/dashboard'
+      preLoaderRoute: typeof OOrgSlugDashboardRouteImport
       parentRoute: typeof OOrgSlugRoute
     }
     '/o/$orgSlug/directory': {
@@ -3882,6 +3901,7 @@ interface OOrgSlugRouteChildren {
   OOrgSlugAgentsRoute: typeof OOrgSlugAgentsRoute
   OOrgSlugComputersRoute: typeof OOrgSlugComputersRouteWithChildren
   OOrgSlugConnectRoute: typeof OOrgSlugConnectRoute
+  OOrgSlugDashboardRoute: typeof OOrgSlugDashboardRoute
   OOrgSlugDirectoryRoute: typeof OOrgSlugDirectoryRouteWithChildren
   OOrgSlugDocumentsRoute: typeof OOrgSlugDocumentsRouteWithChildren
   OOrgSlugFilesRoute: typeof OOrgSlugFilesRoute
@@ -3917,6 +3937,7 @@ const OOrgSlugRouteChildren: OOrgSlugRouteChildren = {
   OOrgSlugAgentsRoute: OOrgSlugAgentsRoute,
   OOrgSlugComputersRoute: OOrgSlugComputersRouteWithChildren,
   OOrgSlugConnectRoute: OOrgSlugConnectRoute,
+  OOrgSlugDashboardRoute: OOrgSlugDashboardRoute,
   OOrgSlugDirectoryRoute: OOrgSlugDirectoryRouteWithChildren,
   OOrgSlugDocumentsRoute: OOrgSlugDocumentsRouteWithChildren,
   OOrgSlugFilesRoute: OOrgSlugFilesRoute,
