@@ -484,13 +484,13 @@ describe("Lark-platform Webhook verification", () => {
     senderType,
   }) => {
     const harness = await createPostgresHarness();
-    await applyConnectionMigration(harness);
-    await seedConnection(harness, {
-      encryptKey: null,
-      provider: "feishu",
-      verificationToken: VERIFICATION_TOKEN,
-    });
     try {
+      await applyConnectionMigration(harness);
+      await seedConnection(harness, {
+        encryptKey: null,
+        provider: "feishu",
+        verificationToken: VERIFICATION_TOKEN,
+      });
       const fixture = structuredClone(
         MESSAGE_FIXTURE
       ) as typeof MESSAGE_FIXTURE & {

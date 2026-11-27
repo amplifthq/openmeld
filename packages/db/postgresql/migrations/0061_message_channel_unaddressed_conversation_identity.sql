@@ -1,0 +1,4 @@
+CREATE INDEX "idx_openMeldRemoteAgent_message_channel_unaddressed_organization" ON "openmeld"."openMeldRemoteAgent_message_channel_unaddressed_messages" USING btree ("organization_id");--> statement-breakpoint
+ALTER TABLE "openmeld"."openMeldRemoteAgent_message_channel_unaddressed_messages" DROP CONSTRAINT "openMeldRemoteAgent_message_channel_unaddressed_messages_pk";
+--> statement-breakpoint
+ALTER TABLE "openmeld"."openMeldRemoteAgent_message_channel_unaddressed_messages" ADD CONSTRAINT "openMeldRemoteAgent_message_channel_unaddressed_messages_pk" PRIMARY KEY("provider","connection_id","conversation_key","message_id");
