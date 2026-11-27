@@ -35,6 +35,106 @@ the bot’s current work.” Actions: **Connect bot**, **Cancel**. Ordinary send
 not repeat this confirmation. Use the Bot's conversation ID from BDK; resolving
 a name through get-or-create is not a connection operation.
 
+## Work counterpart pilot (engineering preview)
+
+A work counterpart helps an existing colleague's Agent Profile answer with
+that person's verified work decisions and the team's approved methods. It is
+not a new Agent Profile, the colleague speaking, or a grant to use their
+account, credentials, desktop, or private conversation history.
+
+The first slice is an offline Core policy and synthetic OpenMeld engineering
+review acceptance, not a live chat feature. The policy defaults off and has no
+production route, dependency on a model provider, scheduled ingestion,
+persistence, or write authority. An engineering reviewer can run:
+
+```sh
+pnpm --filter @openmeld/core exec node --import tsx evals/work-counterpart/pr-review-acceptance.ts
+```
+
+The command compares the same deterministic responder on held-out fixtures
+with and without approved context. It exercises the latest-head evidence
+boundary, expected human approval, and review-only authority. It is not a
+measure of model answer quality. No real PR contents, team identity, or
+credentials are used.
+
+A proposed learning comes from a verified outcome or reviewed correction and
+may cite exact merged PR or approved document revisions. A proposal does not
+publish anything. Only exact candidate digests holding an independent
+verification and human approval from the scoped authority may contribute
+context. The policy checks the existing Organization, Project, Agent Profile,
+requester and entire reply audience, and looks at source authorization
+metadata before reading any source body. Missing or changed revisions,
+unclassified/private/mixed sources, ambiguous author attribution, and
+unavailable authority omit the whole learning. It checks sources and approval
+again after reading and builds a new projection for every request; unreadable
+sources do not survive through a context cache. It consults at most 12
+candidates, returns at most 3 entries and 1,800 bytes of notes including
+citations. These notes are evidence, not instructions or approval to act.
+
+Before any live trial, separately verify the exact OpenMeld Organization and
+one approved engineering Project, the existing counterpart Profile, provider
+identity attribution and the existing organization-owned, read-only
+repository or document grant. An existing Project or an App installation is
+not by itself a permission grant. A Core adapter must derive the real audience
+from the authoritative Space/request, bind human review to the exact scope and
+candidate, reject private/mixed/unknown sources without opening their bodies,
+and revalidate before handing the exact references to the existing Wake
+evidence path. Do not copy restricted material into generally readable Team
+Files, Skills, another member's memory, debug telemetry, or a model prompt.
+Approved Skills remain separate, versioned work methods and never grant
+source or action permissions. No personal account fallback is allowed.
+The first live entry should be a new one-to-one Direct Message from the
+owner's Human Profile to their existing local Codex Profile. The draft
+includes the policy for this boundary, with fixture validation, not a new
+production reader. It accepts only one explicitly selected learning digest
+for one existing Organization, Project, owner and Profile. It reuses the
+canonical Agent DM pair predicate and additionally requires exactly two
+active Profiles owned by that same verified account in a current
+members-only DM. The current direct Human Wake, exact source message and
+approved, active Project must match. A converted chat, colleague or observer,
+delegated or Routine Wake, changed execution or recalled message grants no
+access. No unset selection, route parameter, or model-supplied identifier can
+select a source. A changed note is not a substitute for the reviewed digest.
+
+Two existing readers cannot serve as that authority. The workstation
+`read_documents` tool authorizes the Agent in the Organization and reads the
+current approved body; it does not bind the document to the specific Project,
+Wake audience, or approved revision. The local Computer session-history
+reader has a per-connection grant and can read an exact Codex thread, but
+that grant is not a review of one work-only thread. Its current result
+carries paginated transcript text through Core and its local requester can
+include delegated Wakes. Do not use that transport or Agent Activity
+inventory to supply counterpart context.
+
+The missing adapter must bind the existing RuntimeCoordinator execution token
+and frozen request chain to the current canonical Space state and active
+Project. Then it must reopen a single approved, organization-managed work
+source with immutable revision, work author attribution, and live access for
+this exact owner. For an initial trial, prefer an independently verified
+review note tied to an exact OpenMeld repository artifact under the
+Organization's existing credential. For native evidence, require separate
+explicit approval of the exact work-only thread ID and Project connection
+generation, confirm metadata through the authenticated Codex boundary before
+loading anything, and never send provider turns through Core.
+The model should only get the short exact reviewed note and citations after
+the current checks, not a transcript, arbitrary history tool, personal
+credential fallback, or a path to discover more sources. Re-check the live
+execution, grant and source at retrieval; revoked or ambiguous sources should
+leave ordinary review available without counterpart context.
+
+To release that trial, first run synthetic negative fixtures and a second
+read-only, authorized replay of the same OpenMeld review question with context
+off and on, using separate fresh conversations at the actual entry point. The
+question must require a prior scoped work decision, not something already
+present in the current conversation or answerable from generic knowledge. Require grounded exact references,
+no approval or merge claim, zero reads of excluded content, and fallback to
+plain review if an approved source or audience grant is revoked. A reviewer
+signs off the scopes and evidence before enabling a single Project/Profile
+pilot. Turn the pilot off to stop retrieval on the next request; revoke source
+grants where appropriate. Neither operation can retract already shown replies.
+The offline slice changes no release permissions and requires no rollout to
+run locally.
+
 ## MemberAgent Layer
 
 Implementation status: shipped. The MemberAgent program (PR #236) is merged,
