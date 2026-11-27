@@ -155,6 +155,49 @@ describe("Organization member removal routes", () => {
     ).toHaveBeenCalledExactlyOnceWith(expect.objectContaining(prepared));
   });
 
+  it("falls back to the same authorized legacy preview only for an old Core schema rejection", async () => {
+    const { coreRpc, env } = makeEnv();
+    coreRpc.previewOrganizationMemberRemoval.mockRejectedValueOnce(
+      new Error("HTTP 400: Invalid member removal request.")
+    );
+    const response = await request(
+      env,
+      "preview",
+      { memberId: PLAN.memberId },
+      "?includeDefaultSuccessor=1"
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(PLAN);
+    expect(coreRpc.previewOrganizationMemberRemoval).toHaveBeenCalledTimes(2);
+    expect(coreRpc.previewOrganizationMemberRemoval).toHaveBeenNthCalledWith(
+      2,
+      {
+        memberId: PLAN.memberId,
+        context: expect.objectContaining({ activeOrganizationId: "org-1" }),
+      }
+    );
+  });
+
+  it.each([
+    [400, "Invalid organization context."],
+    [403, "Only an organization owner or admin can remove members."],
+    [409, "The removal review changed."],
+    [503, "Core is unavailable."],
+  ])("does not downgrade a preview error with status %i (%s)", async (status, message) => {
+    const { coreRpc, env } = makeEnv();
+    coreRpc.previewOrganizationMemberRemoval.mockRejectedValueOnce(
+      new Error(`HTTP ${status}: ${message}`)
+    );
+    const response = await request(
+      env,
+      "preview",
+      { memberId: PLAN.memberId },
+      "?includeDefaultSuccessor=1"
+    );
+    expect(response.status).toBe(status);
+    expect(coreRpc.previewOrganizationMemberRemoval).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects unreviewed preparation and preserves an uncertain mutation outcome without retrying", async () => {
     const { coreRpc, env } = makeEnv();
     expect(

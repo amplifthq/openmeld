@@ -296,7 +296,9 @@ const {
 	useAccountAvatarMock: vi.fn(),
 	clearSpaceConversationCacheMock: vi.fn(async () => undefined),
 	toastMock: Object.assign(vi.fn(), {
+		dismiss: vi.fn(),
 		error: vi.fn(),
+		loading: vi.fn(),
 		success: vi.fn(),
 		warning: vi.fn(),
 	}),
@@ -992,7 +994,9 @@ describe("SpaceLanding", () => {
 		threadProgrammaticSendHarness.enabled = false;
 		threadProgrammaticSendHarness.text = "Programmatic thread message";
 		toastMock.mockReset();
+		toastMock.dismiss.mockReset();
 		toastMock.error.mockReset();
+		toastMock.loading.mockReset();
 		toastMock.success.mockReset();
 		toastMock.warning.mockReset();
 		window.localStorage.clear();
@@ -1686,13 +1690,17 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 	});
 
-	it("adds selected Organization Directory profiles through one Space request", async () => {
+	it("adds a teammate's Agent and its owner through one Space request", async () => {
 		const humanProfileId = "22222222-2222-4222-8222-222222222222";
-		const centerAgentProfileId = "agt_44444444-4444-4444-8444-444444444444";
+		const agentProfileId = "agt_44444444-4444-4444-8444-444444444444";
+		const directory = createOrganizationDirectoryFixture({
+			centerAgentProfileId: agentProfileId,
+			humanProfileId,
+		});
 		const addOrganizationDirectoryProfilesToSpaceMock = vi
 			.fn()
 			.mockResolvedValue({
-				addedMemberIds: [humanProfileId, centerAgentProfileId],
+				addedMemberIds: [humanProfileId, agentProfileId],
 				alreadyMemberIds: [],
 				items: [],
 			});
@@ -1728,10 +1736,17 @@ describe("SpaceLanding", () => {
 				data: createMembersSnapshot({ defaultAgentOwnerUserId: "user-mira" }),
 				isSuccess: true,
 			}),
-			organizationDirectory: createOrganizationDirectoryFixture({
-				centerAgentProfileId,
-				humanProfileId,
-			}),
+			organizationDirectory: {
+				...directory,
+				agentProfiles: directory.agentProfiles.map((agent) => ({
+					...agent,
+					isCenterAgent: false,
+					ownerName: "Alex",
+					ownerUserId: "user-alex",
+					profileHandle: "research-agent",
+					profileName: "Research Agent",
+				})),
+			},
 			status: createQueryResult({
 				data: createSpaceStatus(),
 				isSuccess: true,
@@ -1755,8 +1770,7 @@ describe("SpaceLanding", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
-		fireEvent.click(screen.getByRole("checkbox", { name: "Alex" }));
-		fireEvent.click(screen.getByRole("checkbox", { name: "Center Agent" }));
+		fireEvent.click(screen.getByRole("checkbox", { name: "Research Agent" }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 2 members" }));
 
 		await waitFor(() => {
@@ -1764,9 +1778,10 @@ describe("SpaceLanding", () => {
 				organizationId: "org-acme",
 				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
 			});
-			expect(addOrganizationDirectoryProfilesToSpaceMock).toHaveBeenCalledWith({
-				directoryProfileIds: [humanProfileId, centerAgentProfileId],
-				expectedCenterAgentProfileId: centerAgentProfileId,
+			expect(
+				addOrganizationDirectoryProfilesToSpaceMock
+			).toHaveBeenCalledExactlyOnceWith({
+				directoryProfileIds: [humanProfileId, agentProfileId],
 				spaceId: "space-123",
 			});
 		});
@@ -19512,6 +19527,12 @@ function mockSpaceQueries(input: {
 }) {
 	const profileId = input.profileId ?? DEFAULT_SPACE_PROFILE_ID;
 	const spaceIds = new Set(input.spaceIds ?? ["space-123"]);
+	const emptyOrganizationDirectory = {
+		agentProfiles: [],
+		generatedAt: "2026-07-16T00:00:00.000Z",
+		members: [],
+		organizationId: "org-acme",
+	} satisfies OrganizationDirectoryResponse;
 	const threads =
 		input.threads ??
 		createQueryResult({
@@ -19866,22 +19887,18 @@ function mockSpaceQueries(input: {
 				(options.queryKey[2] === "directory" ||
 					options.queryKey[2] === "profile-directory")
 			) {
-				if (!options.select && input.organizationDirectoryResponse) {
+				if (!options.select) {
 					return createQueryResult({
 						isSuccess: true,
-						data: input.organizationDirectoryResponse,
+						data:
+							input.organizationDirectoryResponse ?? emptyOrganizationDirectory,
 					});
 				}
 				return (
 					input.organizationDirectoryQuery ??
 					createQueryResult({
 						isSuccess: true,
-						data: input.organizationDirectory ?? {
-							agentProfiles: [],
-							generatedAt: "2026-07-16T00:00:00.000Z",
-							members: [],
-							organizationId: "org-acme",
-						},
+						data: input.organizationDirectory ?? emptyOrganizationDirectory,
 					})
 				);
 			}

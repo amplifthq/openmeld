@@ -5,6 +5,33 @@ import { rpcCreateSpaceTask, rpcMutateSpaceTask } from "../src/rpc/methods";
 import { resolveSpaceTaskRepresentedRequester } from "../src/space/application/space-task-delegation";
 
 describe("Space Task requester representation", () => {
+  it("accepts a private Center Agent request for another Space, without trusting generic DM or shared requests cross-Space", () => {
+    const request = createSubmitTurnRequest();
+    const delivery = {
+      conversationKind: "space" as const,
+      spaceId: request.spaceId,
+      routineRunId: null,
+      workerSubmitRequest: request,
+      executionRecoverySubmitRequest: null,
+    };
+    expect(
+      resolveSpaceTaskRepresentedRequester(delivery, "target", true)
+    ).toMatchObject({ profileId: request.author.profileId });
+    expect(
+      resolveSpaceTaskRepresentedRequester(delivery, request.spaceId, true)
+    ).toBeUndefined();
+    request.turnEnvelope.space.isCenterAgentDm = false;
+    expect(
+      resolveSpaceTaskRepresentedRequester(delivery, "target", true)
+    ).toBeUndefined();
+    request.turnEnvelope.space.kind = "space";
+    expect(
+      resolveSpaceTaskRepresentedRequester(delivery, "target", true)
+    ).toBeUndefined();
+    expect(
+      resolveSpaceTaskRepresentedRequester(delivery, request.spaceId, true)
+    ).toMatchObject({ profileId: request.author.profileId });
+  });
   it.each([
     "create",
     "mutate",

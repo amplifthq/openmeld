@@ -10,6 +10,7 @@ import {
   buildCoreRpcContext,
   buildCoreRpcCredential,
   executeRpcRoute,
+  parseRpcHttpError,
   respondBadRequest,
 } from "./rpc-http.helpers";
 import { readJsonRequestBody } from "./rpc-http.parsers";
@@ -48,15 +49,29 @@ export function registerOrganizationMemberRemovalRoutes(
       route: PREVIEW_ROUTE,
       method: "POST",
       responseSchema: organizationMemberRemovalPlanSchema,
-      execute: () =>
-        c.var.coreRpc.previewOrganizationMemberRemoval({
-          ...parsed.data,
-          // Older renderers parse the original strict plan shape.
-          ...(c.req.query("includeDefaultSuccessor") === "1"
-            ? { includeDefaultSuccessor: true as const }
-            : {}),
-          context: buildCoreRpcContext(c),
-        }),
+      execute: async () => {
+        const input = { ...parsed.data, context: buildCoreRpcContext(c) };
+        if (c.req.query("includeDefaultSuccessor") === "1") {
+          try {
+            return await c.var.coreRpc.previewOrganizationMemberRemoval({
+              ...input,
+              includeDefaultSuccessor: true,
+            });
+          } catch (error) {
+            const failure = parseRpcHttpError(error);
+            // Old Core deployments reject the additional field before
+            // authorization. Retry only this read-only operation: the old
+            // request shape still goes through the same server-side checks.
+            if (
+              failure?.status !== 400 ||
+              failure.message !== "Invalid member removal request."
+            ) {
+              throw error;
+            }
+          }
+        }
+        return await c.var.coreRpc.previewOrganizationMemberRemoval(input);
+      },
     });
   });
 

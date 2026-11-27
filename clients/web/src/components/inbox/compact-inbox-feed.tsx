@@ -24,7 +24,7 @@ import { useInboxExpansion } from "./use-inbox-expansion";
 import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
 
 const FILTERS = {
-	category: "all",
+	category: "todo",
 	grouping: "space",
 	unreadOnly: false,
 	agentsOnly: false,
@@ -51,15 +51,14 @@ export function CompactInboxFeed(input: { onOpenItem: () => void }) {
 		? Date.parse(firstPage.snapshotExpiresAt) <= Date.now()
 		: false;
 	const seen = new Set<string>();
-	const rows = (feed.data?.pages.flatMap((page) => page.rows) ?? []).filter(
-		(row) => {
-			if (seen.has(row.groupKey)) {
-				return false;
-			}
-			seen.add(row.groupKey);
-			return true;
+	const allRows = feed.data?.pages.flatMap((page) => page.rows) ?? [];
+	const rows = allRows.filter((row) => {
+		if (seen.has(row.groupKey)) {
+			return false;
 		}
-	);
+		seen.add(row.groupKey);
+		return true;
+	});
 	const loadMoreState = resolveInboxFeedLoadMoreState(feed, snapshotExpired);
 	const savedViewNotice = inboxSavedViewNotice({
 		hasData: Boolean(feed.data),
@@ -122,9 +121,9 @@ export function CompactInboxFeed(input: { onOpenItem: () => void }) {
 						aria-hidden="true"
 						className="size-5 text-muted-foreground"
 					/>
-					<p className="mt-3 font-medium text-sm">No updates yet</p>
+					<p className="mt-3 font-medium text-sm">You’re all caught up</p>
 					<p className="mt-1 text-muted-foreground text-sm">
-						New updates and requests will appear here.
+						Nothing needs your action right now.
 					</p>
 				</div>
 			) : null}

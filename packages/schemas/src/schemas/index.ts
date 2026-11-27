@@ -1834,6 +1834,7 @@ export {
 export * from "./http/inbox";
 export * from "./http/inbox-desktop-updates";
 export * from "./http/inbox-feed";
+export * from "./http/inbox-github-issues";
 export {
   listSignalsQuerySchema,
   normalizeListSignalsReadQuerySemantics,
@@ -2012,6 +2013,14 @@ export {
   organizationComputersResponseSchema,
   projectOrganizationComputerLocalAgentDetails,
 } from "./http/organization-computers";
+export {
+  organizationDashboardArtifactSchema,
+  organizationDashboardKindSchema,
+  organizationDashboardMutationSchema,
+  organizationDashboardQuerySchema,
+  organizationDashboardResponseSchema,
+  organizationDashboardRpcInputSchema,
+} from "./http/organization-dashboards";
 export {
   CENTER_AGENT_ORGANIZATION_MEMBERS_LIST_DEFAULT_LIMIT,
   CENTER_AGENT_ORGANIZATION_MEMBERS_LIST_MAX_LIMIT,

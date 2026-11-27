@@ -231,7 +231,7 @@ describe("GlobalInboxLauncher", () => {
 		expect(screen.queryByText("All caught up")).toBeNull();
 		expect(mocks.feed).toHaveBeenCalledWith(
 			expect.objectContaining({
-				category: "all",
+				category: "todo",
 				grouping: "space",
 				unreadOnly: "false",
 			})
@@ -277,7 +277,7 @@ describe("GlobalInboxLauncher", () => {
 		mocks.feed.mockResolvedValue(page([]));
 		mocks.summary.mockRejectedValue(new Error("Unavailable"));
 		renderLauncher({ open: true });
-		expect(await screen.findByText("No updates yet")).toBeTruthy();
+		expect(await screen.findByText("You’re all caught up")).toBeTruthy();
 		expect(await screen.findByText("Couldn’t check for updates")).toBeTruthy();
 		expect(screen.queryByText("All caught up")).toBeNull();
 	});

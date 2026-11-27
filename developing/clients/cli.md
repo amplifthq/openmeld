@@ -2028,6 +2028,31 @@ the CLI, and it must not turn an unavailable execution projection into an empty
 or apparently current Board. Explicit `--json` preserves the shared response
 shape for agents and tools.
 
+`space tasks <space-id>` and its subcommands (`show`, `create`, `start`,
+`submit`, `review`, `cancel`, `reopen`) are the terminal surface for Space
+Tasks outside a Wake. They call the shared Space Task API through
+`@openmeld/api-client` and must not re-implement Task workflow rules: phase
+transitions, allowed actions, and conflicts are Core's decision. Mutations send
+the revision the caller read; when `--revision` is omitted the command reads the
+Task and changes exactly that revision. `review` always requires `--revision`
+and `--result-revision`, because a review is only valid for the result the
+reviewer read. Explicit `--json` preserves the shared response and receipt
+shapes. An Agent handling a Wake keeps using the dispatch Space Task tools,
+which bind the Task to the Wake's source message.
+
+`openmeld mcp` runs a stdio MCP server for MCP clients that OpenMeld did not
+start. It is a translation layer only: every tool runs one ordinary
+`openmeld space ...` command in Agent View as a child process, so sign-in,
+profile selection, Space access, addressing, and Task rules stay with the CLI
+commands that already own them. The server must not call the Gateway itself or
+keep its own copy of those rules. Tool input is untrusted model output, so
+positional values are always passed after `--` and message text goes through
+stdin. A message tool call with no recipients sends `--plain`. The server
+starts before entry checks, banners, and update notices because stdout is the
+protocol channel; the child never inherits the server's stdio. `--read-only`
+registers only the read tools. This server is separate from the per-Wake
+dispatch Space Action tool server and does not replace it.
+
 Environment mismatch must appear as `Wrong OpenMeld Environment` in Human View.
 Agent View should keep precise Gateway/Auth environment evidence.
 

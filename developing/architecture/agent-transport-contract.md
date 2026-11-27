@@ -626,10 +626,12 @@ auto-relay limits described in that policy.
 
 Sensitive operations check the root requester, not the immediate actor: the
 root requester must own the Agent Profile to change its settings, folders,
-permission mode, or concurrency limit; answer its approvals; delete it; add it
-to a Space; grant or revoke access to it; or archive it. Existing owner-of-actor
+permission mode, or concurrency limit; answer its approvals; delete it; grant
+or revoke access to it; or archive it. Existing owner-of-actor
 checks, such as Binding owner validation (`agent_profile_binding.owner_mismatch`)
 and execution-target mutation admission, become root-requester checks.
+Direct additions of a teammate's Agent use the Organization and Space
+membership checks in [Agent Owner Participation](../product/space-collaboration.md#agent-owner-participation).
 Everything else is prompt guidance: each task prompt states the chain, the root
 requester, where results go, and who can see them.
 

@@ -58,6 +58,7 @@ export function OrganizationMemberRemovalAction(input: {
 	onStarted?: () => void;
 	organizationId: string;
 	presentation?: "menu";
+	surface?: "team";
 	variant?: "outline" | "destructive";
 }) {
 	const queryClient = useQueryClient();
@@ -66,6 +67,11 @@ export function OrganizationMemberRemovalAction(input: {
 	const [selectedSuccessorUserId, setSelectedSuccessorUserId] = useState<
 		string | null
 	>(null);
+	// The role shown when the review opened. A directory refresh during the
+	// review must not widen what the confirmation is allowed to remove.
+	const [reviewedMemberRole, setReviewedMemberRole] = useState(
+		input.member.role
+	);
 	const memberName =
 		input.member.humanProfile?.profileName ?? input.member.user.name;
 	const removalPreview = useMutation({
@@ -88,13 +94,20 @@ export function OrganizationMemberRemovalAction(input: {
 	const usesDefaultSuccessor =
 		defaultSuccessor !== undefined &&
 		defaultSuccessor.userId === successorUserId;
+	const nativeRemoval = {
+		memberIdOrEmail: input.member.memberId,
+		organizationId: input.organizationId,
+		...(input.surface === "team"
+			? { expectedMemberRole: reviewedMemberRole }
+			: {}),
+	};
 	const removeMutation = useMutation({
 		mutationFn: async () => {
 			const plan = removalPreview.data;
-			if (!(removalPreview.isSuccess && plan)) {
+			if (!plan) {
 				throw new Error("Review this member's Spaces before removing them.");
 			}
-			if (plan.spaces.length > 0) {
+			if (plan.spaces.length > 0 || input.surface === "team") {
 				try {
 					await prepareOrganizationMemberRemoval({
 						memberId: plan.memberId,
@@ -110,16 +123,11 @@ export function OrganizationMemberRemovalAction(input: {
 							: {}),
 					});
 				} catch (error) {
-					throw new Error(
-						`The member was not removed. Some Space changes may have been saved. Review the updated Spaces before retrying. ${describeMemberRemovalError(error)}`
-					);
+					throw memberRemovalPreparationError(plan.spaces.length > 0, error);
 				}
 			}
 			try {
-				await removeOrganizationMember({
-					memberIdOrEmail: input.member.memberId,
-					organizationId: input.organizationId,
-				});
+				await removeOrganizationMember(nativeRemoval);
 			} catch (error) {
 				if (plan.spaces.length > 0) {
 					throw new Error(
@@ -167,6 +175,7 @@ export function OrganizationMemberRemovalAction(input: {
 		removeMutation.reset();
 		input.onError(null);
 		setSelectedSuccessorUserId(null);
+		setReviewedMemberRole(input.member.role);
 		removalPreview.reset();
 		removalPreview.mutate();
 		setOpen(true);
@@ -231,15 +240,18 @@ export function OrganizationMemberRemovalAction(input: {
 					<AlertDialogHeader>
 						<AlertDialogTitle>Remove {memberName}?</AlertDialogTitle>
 						<AlertDialogDescription>
-							{memberName} will lose access to this organization. Review any
-							Space changes before confirming removal.
+							{input.surface === "team"
+								? `${memberName} will lose access to this workspace. Shared work stays. Their Agents, computers, and personal channel connections aren’t transferred.`
+								: `${memberName} will lose access to this organization. Review any Space changes before confirming removal.`}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
-					<p className="text-muted-foreground text-sm">
-						Their Agents, computers, and connected channel accounts are not
-						deleted or transferred by removing their membership. Shared work and
-						organization channel connections stay in the workspace.
-					</p>
+					{input.surface === "team" ? null : (
+						<p className="text-muted-foreground text-sm">
+							Their Agents, computers, and connected channel accounts are not
+							deleted or transferred by removing their membership. Shared work
+							and organization channel connections stay in the workspace.
+						</p>
+					)}
 					<OrganizationMemberRemovalReview
 						disabled={removeMutation.isPending}
 						error={removalPreview.error}
@@ -271,6 +283,18 @@ export function OrganizationMemberRemovalAction(input: {
 				</AlertDialogContent>
 			</AlertDialog>
 		</>
+	);
+}
+
+function memberRemovalPreparationError(
+	hasSpaceChanges: boolean,
+	error: unknown
+) {
+	const outcome = hasSpaceChanges
+		? "Some Space changes may have been saved. Review the updated Spaces before retrying. "
+		: "";
+	return new Error(
+		`The member was not removed. ${outcome}${describeMemberRemovalError(error)}`
 	);
 }
 
@@ -370,7 +394,7 @@ function OrganizationMemberRemovalReview(input: {
 					<p className="text-muted-foreground text-xs">
 						{input.usesDefaultSuccessor && defaultSuccessor
 							? `${defaultSuccessor.profileName} is the organization’s default recipient and already has access to all Spaces listed for transfer. Confirm to give them ownership.`
-							: "The new owner will join the transferred Spaces and gain access to their history and files, including private content. You only gain access if you select yourself."}
+							: "The new owner gains access to the history and files of any transferred Spaces they do not already belong to, including private content. You only gain access if you select yourself."}
 					</p>
 					{successorOptions.length === 0 ? (
 						<p className="text-destructive text-xs" role="alert">
