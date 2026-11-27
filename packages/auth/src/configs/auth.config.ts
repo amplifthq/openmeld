@@ -11,6 +11,7 @@ import {
   ORGANIZATION_INVITATION_LIFETIME_SECONDS,
 } from "@openmeld/schemas";
 import { APIError, type BetterAuthOptions } from "better-auth";
+import type { DBAdapter } from "better-auth/adapters";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import {
   bearer,
@@ -52,6 +53,7 @@ import {
   resolvePersonalOrganizationName,
   resolveUserDisplayName,
 } from "../organization/personal-organization";
+import { deleteWithReviewedMemberRemoval } from "../organization/reviewed-member-removal";
 import { createActiveAccountPlugin } from "../plugins/active-account";
 import { createCliCredentialPlugin } from "../plugins/cli-credential";
 import { createOpenMeldEmailIdentityPlugin } from "../plugins/openmeld-email-identity";
@@ -84,6 +86,19 @@ import {
   DEFAULT_PASSWORD_RESET_EXPIRES_IN_SECONDS,
   LAST_USED_LOGIN_METHOD_COOKIE_NAME,
 } from "./constants";
+
+function reviewedMemberDelete(
+  adapter: Pick<DBAdapter, "delete" | "deleteMany">
+) {
+  return <T>(input: Parameters<DBAdapter["delete"]>[0]) =>
+    deleteWithReviewedMemberRemoval({
+      request: input,
+      deleteNative: () => adapter.delete<T>(input),
+      deleteGuarded: (where) =>
+        adapter.deleteMany({ model: input.model, where }),
+    });
+}
+
 export type AuthConfigEnv = AuthConfigInput & {
   AUTH_EMAIL?: CloudflareEmailSender;
   OPENMELD_CORE_WORKER?: AgentActivitySessionInventoryLifecycleWorker &
@@ -904,8 +919,21 @@ export function createAuthConfig(
           withOwnerRetentionError(() => adapter.update<T>(input)),
         updateMany: (input: Parameters<typeof adapter.updateMany>[0]) =>
           withOwnerRetentionError(() => adapter.updateMany(input)),
-        delete: <T>(input: Parameters<typeof adapter.delete>[0]) =>
-          withOwnerRetentionError(() => adapter.delete<T>(input)),
+        delete: <T>(input: Parameters<DBAdapter["delete"]>[0]) =>
+          withOwnerRetentionError(() =>
+            reviewedMemberDelete(adapter)<T>(input)
+          ),
+        // Better Auth's organization adapter uses its transaction callback even
+        // when the Drizzle adapter does not open a database transaction.
+        transaction: <R>(
+          callback: (transaction: Omit<DBAdapter, "transaction">) => Promise<R>
+        ) =>
+          adapter.transaction((transaction) =>
+            callback({
+              ...transaction,
+              delete: reviewedMemberDelete(transaction),
+            })
+          ),
         deleteMany: (input: Parameters<typeof adapter.deleteMany>[0]) =>
           withOwnerRetentionError(() => adapter.deleteMany(input)),
       };

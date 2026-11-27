@@ -1,8 +1,12 @@
+import { organizationReviewedMemberRemovalActionSchema } from "@openmeld/schemas";
 import type { Context, Hono } from "hono";
+import { loadBetterAuthRuntime } from "../../lazy-runtime-modules";
 import { getAccountOrganizationPreferenceRepository } from "../account/organization-preference-service";
 import type { AppContext } from "../context";
+import { authContextMiddleware } from "../middlewares/auth";
 import { requireTrustedCookieOrigin } from "../middlewares/trusted-origin";
 import { toDiagnosticError } from "../observability/diagnostic-error";
+import { requireAuthenticatedUser } from "./authenticated-user";
 
 const BETTER_AUTH_SESSION_ROUTE = "/api/auth/get-session";
 
@@ -24,6 +28,12 @@ export function registerBetterAuthRoutes(app: Hono<AppContext>) {
       (c) => c.var.betterAuth.handler(c.req.raw)
     );
   }
+  app.post(
+    "/api/auth/organization/remove-reviewed-member",
+    requireTrustedCookieOrigin,
+    authContextMiddleware,
+    removeReviewedOrganizationMember
+  );
   app.get(BETTER_AUTH_SESSION_ROUTE, async (c) => {
     const response = await c.var.betterAuth.handler(c.req.raw);
     return projectLastSelectedOrganization(c, response);
@@ -32,6 +42,48 @@ export function registerBetterAuthRoutes(app: Hono<AppContext>) {
   app.on(["GET", "POST"], "/api/auth/*", (c) => {
     return c.var.betterAuth.handler(c.req.raw);
   });
+}
+
+async function removeReviewedOrganizationMember(c: Context<AppContext>) {
+  const actor = requireAuthenticatedUser(c);
+  if (!actor.ok) {
+    return actor.response;
+  }
+  const parsed = organizationReviewedMemberRemovalActionSchema.safeParse(
+    await c.req.json().catch(() => null)
+  );
+  if (!parsed.success || parsed.data.memberIdOrEmail.includes("@")) {
+    return c.json(
+      {
+        code: "request.invalid",
+        message: "Review a current member before removing them.",
+      },
+      400
+    );
+  }
+  const { expectedMemberRole, ...nativeBody } = parsed.data;
+  const url = new URL(c.req.url);
+  url.pathname = "/api/auth/organization/remove-member";
+  const headers = new Headers(c.req.raw.headers);
+  headers.delete("content-length");
+  const { withReviewedOrganizationMemberRemoval } =
+    await loadBetterAuthRuntime();
+  return await withReviewedOrganizationMemberRemoval(
+    {
+      actorUserId: actor.user.id,
+      memberId: nativeBody.memberIdOrEmail,
+      organizationId: nativeBody.organizationId,
+      expectedMemberRole,
+    },
+    () =>
+      c.var.betterAuth.handler(
+        new Request(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(nativeBody),
+        })
+      )
+  );
 }
 
 async function projectLastSelectedOrganization(

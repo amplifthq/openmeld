@@ -93,6 +93,13 @@ vi.mock("../app/use-sidebar-preferences", () => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
+	useNavigate: () => vi.fn(),
+	useRouter: () => ({ preloadRoute: vi.fn().mockResolvedValue(undefined) }),
+	useLocation: ({
+		select,
+	}: {
+		select: (location: { searchStr: string }) => unknown;
+	}) => select({ searchStr: "" }),
 	Link: ({
 		children,
 		search,
@@ -165,7 +172,9 @@ vi.mock("#/components/app/app-full-width-layout", () => ({
 		children,
 		showMainHeader,
 		mainSidebar,
+		mainHeader,
 	}: {
+		mainHeader?: ReactNode;
 		children: ReactNode;
 		showMainHeader?: boolean;
 		mainSidebar?: { content: ReactNode };
@@ -173,6 +182,7 @@ vi.mock("#/components/app/app-full-width-layout", () => ({
 		<div>
 			{mainSidebar?.content}
 			<main data-show-main-header={showMainHeader ? "true" : "false"}>
+				{showMainHeader ? mainHeader : null}
 				{children}
 			</main>
 		</div>
@@ -218,6 +228,16 @@ vi.mock("./center-agent-item", () => ({
 }));
 
 describe("DirectoryHumanProfilesWorkspace", () => {
+	it("links back to the current Team from selected and missing members", () => {
+		for (const selectedProfileId of ["profile-grace", "missing-member"]) {
+			const result = renderWorkspace({ selectedProfileId });
+			expect(
+				screen.getByRole("link", { name: "Back to Team" }).getAttribute("href")
+			).toBe("/o/acme/people");
+			result.unmount();
+		}
+	});
+
 	it("shows known people while personal sidebar settings are still loading", () => {
 		sidebarPending.value = true;
 		renderWorkspace({
@@ -614,7 +634,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(
 			within(screen.getByRole("main")).getAllByText("felix@example.com")
 		).toHaveLength(1);
-		expect(screen.getByRole("main").dataset.showMainHeader).toBe("false");
+		expect(screen.getByRole("main").dataset.showMainHeader).toBe("true");
 	});
 
 	it("keeps a single clipped row structure when the resizable sidebar becomes narrow", () => {
