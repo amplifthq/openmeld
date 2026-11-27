@@ -49,6 +49,9 @@ export function hasWorkingFolderDialogHost(): boolean {
 }
 
 export function openWorkingFolderDialog(request: WorkingFolderDialogRequest) {
+	if (hosted?.open) {
+		return;
+	}
 	hosted = { id: nextId, open: true, request };
 	nextId += 1;
 	emit();

@@ -3219,7 +3219,7 @@ function AgentProfileOptionsMenu(input: {
 								}}
 							>
 								<FolderOpenIcon aria-hidden="true" />
-								Working folder
+								Folder
 							</FluidDropdownMenuItem>
 						)}
 					{input.capabilities.hasEnabledPrimaryBinding && (
@@ -4736,18 +4736,17 @@ function AgentProfileWorkingFolderSlot(input: {
 	summary: string;
 }) {
 	if (input.isLoading) {
-		return <AgentConfigurationSkeletonCard label="Working folder" />;
+		return <AgentConfigurationSkeletonCard label="Folder" />;
 	}
 	return (
 		<AgentConfigurationCard
-			actionLabel={input.needsAttention ? "Review working folder" : undefined}
+			actionLabel="Folder"
 			attention={input.needsAttention}
 			compact
-			description={input.needsAttention ? "Review working folder" : undefined}
 			disabled={input.disabled || !input.onOpen}
 			icon={<FolderOpenIcon aria-hidden="true" />}
 			itemId="working-folder"
-			label="Working folder"
+			label="Folder"
 			onClick={input.onOpen}
 			readOnly={!input.onOpen}
 			summary={input.summary}

@@ -3337,7 +3337,7 @@ their existing appearance. Reduced motion disables shared-layout travel.
 The footer has one primary action: it opens the next required setting, such as
 **Review permissions** or **Choose working folder**, then becomes **Create Agent**
 when ready. A short hint explains the remaining step. Folder choices stay inside
-the Working folder dialog. Folder pickers read the selected
+the Folder action. Folder pickers read the selected
 Service session's advertised controls and send its exact device and lane.
 Reconnect may follow a replacement device ID only within the same enrolled
 physical computer; it must never silently move a draft to another computer.

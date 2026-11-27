@@ -1302,9 +1302,12 @@ under the execution-target admission. Repair needs the Service's
 older Service refuses instead of reporting a folder it did not prepare. Like
 every capability, the Service advertises it only after Core that accepts it is
 deployed (Core before CLI). After a local default change Web clears Default
-Project even when it saw none, since another tab may have set one. Web's Working folder dialog is the one
-surface for these changes, including working-folder recovery from a failed
-task.
+Project even when it saw none, since another tab may have set one. Web's
+**Folder** action opens the bound computer's native picker directly, including
+from working-folder recovery. Choosing or creating a folder prepares it and
+makes it the default for new work; canceling does not write. Existing sessions
+keep their folders. Saved folders and the managed folder remain available when
+a picker or save needs attention.
 
 A Session's folder resolves in this order and is then fixed at its first
 message: explicit choice, the folder of the Session it continues or forks, the
