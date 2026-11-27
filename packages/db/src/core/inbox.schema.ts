@@ -72,7 +72,7 @@ export const inboxFeedSnapshots = applicationTable(
     ),
     check(
       "inbox_feed_snapshot_category_check",
-      sql`"category" in ('all', 'mentions', 'needs_action', 'needs_review')`
+      sql`"category" in ('all', 'todo', 'mentions', 'needs_action', 'needs_review')`
     ),
     check(
       "inbox_feed_snapshot_cutoff_check",

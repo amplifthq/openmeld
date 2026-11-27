@@ -378,6 +378,10 @@ function InboxFeedItem(input: FeedViewProps & { row: InboxFeedRow }) {
 		item: presentInboxItem(input.row.item, useConversationNames()),
 	};
 	const conversation = row.group?.kind === "conversation";
+	let trailingActions: ReactNode | ((onOpen: () => void) => ReactNode);
+	if (conversation) {
+		trailingActions = <InboxGroupActions {...input} label={row.item.title} />;
+	}
 	return (
 		<InboxItemRow
 			contextActions={
@@ -408,11 +412,7 @@ function InboxFeedItem(input: FeedViewProps & { row: InboxFeedRow }) {
 			previewOverride={conversation ? row.item.title : undefined}
 			showItemActions={!conversation}
 			titleOverride={conversation ? row.item.preview : undefined}
-			trailingActions={
-				conversation ? (
-					<InboxGroupActions {...input} label={row.item.title} />
-				) : undefined
-			}
+			trailingActions={trailingActions}
 		/>
 	);
 }

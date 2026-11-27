@@ -121,6 +121,7 @@ export const {
   agentProfileCreationApprovalPreferences,
   agentProfileCreationRequests,
   organizationBindingAuthorizationPreferences,
+  organizationDashboards,
   organizationDocuments,
   organizationDocumentFolders,
   centerAgentOrganizationDocumentOperations,

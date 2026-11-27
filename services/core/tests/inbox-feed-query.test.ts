@@ -136,5 +136,51 @@ describe("Inbox attention feed on D1", () => {
         section: "activity",
       });
     }
+    const review = await ensureInboxItem({
+      db,
+      nowMs: 2000,
+      candidate: {
+        ...base,
+        sourceKey: "todo-review",
+        attention: "action_required",
+        sourceFacts: {
+          version: 1,
+          recipientReasons: ["requester"],
+          requestCategory: "review",
+        },
+      },
+    });
+    const action = await ensureInboxItem({
+      db,
+      nowMs: 2000,
+      candidate: {
+        ...base,
+        sourceKey: "todo-action",
+        attention: "action_required",
+      },
+    });
+    const urgentUpdate = await ensureInboxItem({
+      db,
+      nowMs: 2000,
+      candidate: { ...base, sourceKey: "urgent-update", importance: "urgent" },
+    });
+    const todos = await service.list(identity, { category: "todo", grouping });
+    expect(todos.rows.map((row) => row.item.id).sort()).toEqual(
+      [review.itemId, action.itemId].sort()
+    );
+    expect(todos.rows.map((row) => row.requestCategory).sort()).toEqual([
+      "action",
+      "review",
+    ]);
+    expect(todos.rows.some((row) => row.item.id === urgentUpdate.itemId)).toBe(
+      false
+    );
+    await service.mutate(identity, {
+      snapshotId: todos.snapshotId,
+      operation: "read",
+    });
+    expect(
+      (await service.list(identity, { category: "todo" })).rows
+    ).toHaveLength(2);
   });
 });

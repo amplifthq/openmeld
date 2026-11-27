@@ -12,12 +12,14 @@ import {
   getSpaceInboxSummaryRpcInputSchema,
   getSpaceInboxUnreadTargetsRpcInputSchema,
   inboxFeedResponseSchema,
+  inboxGitHubIssuesResponseSchema,
   inboxMessageNotificationPreferencesResponseSchema,
   inboxNotificationObservationsResponseSchema,
   inboxNotificationPreferencesResponseSchema,
   inboxSourceCandidateSchema,
   inboxSummaryResponseSchema,
   listInboxFeedRpcInputSchema,
+  listInboxGitHubIssuesRpcInputSchema,
   listInboxItemsResponseSchema,
   listInboxItemsRpcInputSchema,
   markAllInboxItemsReadResponseSchema,
@@ -53,11 +55,13 @@ import type {
   GetSpaceInboxSummaryRpcInput,
   GetSpaceInboxUnreadTargetsRpcInput,
   InboxFeedResponse,
+  InboxGitHubIssuesResponse,
   InboxItem,
   InboxNotificationObservationsResponse,
   InboxNotificationPreferencesResponse,
   InboxSummaryResponse,
   ListInboxFeedRpcInput,
+  ListInboxGitHubIssuesRpcInput,
   ListInboxItemsResponse,
   ListInboxItemsRpcInput,
   MarkAllInboxItemsReadResponse,
@@ -78,6 +82,7 @@ import type {
   UpdateInboxMessageNotificationPreferencesRpcInput,
   UpdateInboxNotificationPreferencesRpcInput,
 } from "@openmeld/schemas/types";
+import { selectActiveConnectorConnection } from "../../../connectors/connector-connection-repository";
 import { reconcilePluginActionRequestInbox } from "../../../connectors/plugin-action-requests";
 import type { CoreBindings } from "../../../lib/bindings";
 import { reconcileInvitationInbox } from "../../../organizations/invitation-inbox-projection";
@@ -90,6 +95,7 @@ import {
   type InboxFeedMeasure,
   runInboxFeedStage,
 } from "../../application/inbox-feed-service";
+import { readInboxGitHubIssues } from "../../application/inbox-github-issues";
 import { createInboxMessageNotificationPreferencesService } from "../../application/inbox-message-notification-preferences";
 import { observeInboxNotifications } from "../../application/inbox-notification-observations";
 import {
@@ -180,6 +186,64 @@ export async function rpcListInboxFeed(
         }))
     )
   );
+}
+
+export async function rpcListInboxGitHubIssues(
+  env: CoreBindings,
+  input: ListInboxGitHubIssuesRpcInput
+): Promise<InboxGitHubIssuesResponse> {
+  const { context, ...query } = parseRequest(
+    listInboxGitHubIssuesRpcInputSchema,
+    input
+  );
+  const membership = await resolveActiveOrganizationMembership({
+    context,
+    env,
+  });
+  if (!membership.ok) {
+    throw createCoreRpcHttpError({
+      code: membership.code,
+      reason: membership.message,
+      status: membership.status,
+    });
+  }
+  const { organizationId, userId } = membership;
+  const db = getPostgresDatabase(env);
+  if (!db) {
+    return { organizationId, result: { status: "unavailable" } };
+  }
+  const readConnection = () =>
+    selectActiveConnectorConnection({
+      db,
+      organizationId,
+      requesterUserId: userId,
+      service: "github",
+      preference: "requester",
+    });
+  const selected = await readConnection();
+  if (!selected) {
+    return { organizationId, result: { status: "not_connected" } };
+  }
+  const worker = env.OPENMELD_REMOTE_AGENT_WORKER;
+  const result = await readInboxGitHubIssues({
+    connectionName: selected.connection.connectionName,
+    runtime: worker?.pluginRuntime?.bind(worker),
+    query,
+  });
+  // A disconnect or reauthorization during the provider read must not publish
+  // the previous identity's response.
+  const current = await readConnection();
+  if (
+    !current ||
+    current.connection.connectionName !== selected.connection.connectionName ||
+    current.connection.updatedAtMs !== selected.connection.updatedAtMs
+  ) {
+    return { organizationId, result: { status: "unavailable" } };
+  }
+  return parseResponse(inboxGitHubIssuesResponseSchema, {
+    organizationId,
+    result,
+  });
 }
 
 export async function rpcMutateInboxFeed(

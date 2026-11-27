@@ -31,12 +31,13 @@ export const spacesViewParser = parseAsStringLiteral([
 	.withDefault("conversations")
 	.withOptions(PAGE_TAB_OPTIONS);
 export const inboxViewParser = parseAsStringLiteral([
+	"todo",
 	"all",
 	"mentions",
 	"needs-action",
 	"needs-review",
 ])
-	.withDefault("all")
+	.withDefault("todo")
 	.withOptions(PAGE_TAB_OPTIONS);
 export const skillContentParser = parseAsStringLiteral([
 	"instructions",

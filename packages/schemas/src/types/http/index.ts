@@ -15,6 +15,12 @@ export type {
   CenterAgentWorkTargetSourceInput,
 } from "../../schemas/http/center-agent-work-target";
 export type {
+  OrganizationDashboard,
+  OrganizationDashboardArtifact,
+  OrganizationDashboardMutation,
+  OrganizationDashboardRpcInput,
+} from "../../schemas/http/organization-dashboards";
+export type {
   PluginActionRecoveryInput,
   ReadApprovedPluginActionInput,
   ReadApprovedPluginActionResponse,
@@ -597,6 +603,7 @@ export type { GatewayErrorCode, GatewayErrorEnvelope } from "./gateway-error";
 export type * from "./inbox";
 export type * from "./inbox-desktop-updates";
 export type * from "./inbox-feed";
+export type * from "./inbox-github-issues";
 export type { ListSignalsQuery } from "./list-signals-query";
 export type {
   GetLocalRuntimeExpectedRoutesQuery,

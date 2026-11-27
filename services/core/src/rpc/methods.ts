@@ -2187,6 +2187,9 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   rpcListTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse>;
   rpcGetTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse>;
   rpcCreateTask(input: CreateSpaceTaskInput): Promise<SpaceTaskMutationReceipt>;
+  rpcCreateHumanAssignment(
+    input: CreateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt>;
   rpcMutateTask(input: MutateSpaceTaskInput): Promise<SpaceTaskMutationReceipt>;
   rpcGetBoard(input: GetSpaceBoardInput): Promise<SpaceBoardRoomProjection>;
   rpcGetBoardResult(
@@ -28317,7 +28320,8 @@ export async function rpcGetSpaceTask(
 async function resolveCurrentSpaceTaskRequesterRepresentation(
   env: CoreBindings,
   context: CoreRpcContextInput,
-  spaceId: string
+  spaceId: string,
+  humanAssignment = false
 ): Promise<SpaceTaskRequesterRepresentation["representedRequester"]> {
   const submissionId = context.agentControllerConversationId;
   if (
@@ -28342,12 +28346,13 @@ async function resolveCurrentSpaceTaskRequesterRepresentation(
   const { resolveSpaceTaskRepresentedRequester } = await import(
     "../space/application/space-task-delegation"
   );
-  return resolveSpaceTaskRepresentedRequester(parent, spaceId);
+  return resolveSpaceTaskRepresentedRequester(parent, spaceId, humanAssignment);
 }
 
 export async function rpcCreateSpaceTask(
   env: CoreBindings,
-  input: CreateSpaceTaskInput
+  input: CreateSpaceTaskInput,
+  humanAssignment = false
 ): Promise<SpaceTaskMutationReceipt> {
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const context = await authorizeSpaceTaskRpcContext(
@@ -28396,20 +28401,31 @@ export async function rpcCreateSpaceTask(
       };
     }
   }
-  const representedRequester = parsedBody.wakeAssignee
-    ? await resolveCurrentSpaceTaskRequesterRepresentation(
-        env,
-        context,
-        spaceId
-      )
-    : undefined;
-  const receipt = await stub.rpcCreateTask({
-    ...input,
-    body,
-    spaceId,
-    context,
-    representedRequester,
-  });
+  const representedRequester =
+    parsedBody.wakeAssignee || humanAssignment
+      ? await resolveCurrentSpaceTaskRequesterRepresentation(
+          env,
+          context,
+          spaceId,
+          humanAssignment
+        )
+      : undefined;
+  if (
+    humanAssignment &&
+    (!representedRequester ||
+      parsedBody.wakeAssignee ||
+      !parsedBody.assigneeProfileId)
+  ) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      reason:
+        "A human assignment requires a verified requester and an active Human assignee.",
+    });
+  }
+  const forwarded = { ...input, body, spaceId, context, representedRequester };
+  const receipt = humanAssignment
+    ? await stub.rpcCreateHumanAssignment(forwarded)
+    : await stub.rpcCreateTask(forwarded);
   return projectSpaceTaskReceiptForClient(receipt, input.taskContractVersion);
 }
 export async function rpcMutateSpaceTask(
