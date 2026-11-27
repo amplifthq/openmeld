@@ -685,16 +685,12 @@ describe("gateway websocket stream", () => {
     upstreamServerSocket.close(1000, "done");
   });
 
-  it("closes the client when Core closes the stream without a status code", async () => {
-    let resolveUpstreamSocket: ((socket: AcceptableWebSocket) => void) | null =
-      null;
-    const upstreamSocketReady = new Promise<AcceptableWebSocket>((resolve) => {
-      resolveUpstreamSocket = resolve;
-    });
+  it("closes on a codeless Core disconnect and relays the result after reconnecting", async () => {
+    const upstreamSockets: AcceptableWebSocket[] = [];
     const upstreamFetch = vi.fn((_request: Request) => {
       const [upstreamClient, upstreamServer] = createWebSocketPair();
       upstreamServer.accept();
-      resolveUpstreamSocket?.(upstreamServer);
+      upstreamSockets.push(upstreamServer);
       return Promise.resolve(
         new Response(null, { status: 101, webSocket: upstreamClient })
       );
@@ -721,12 +717,40 @@ describe("gateway websocket stream", () => {
 
     // A codeless close surfaces as the reserved 1005 on the Gateway's side of
     // the Core socket; that code cannot be written back to the client as-is.
-    (await upstreamSocketReady).close();
+    const firstUpstream = upstreamSockets[0];
+    if (!firstUpstream) {
+      throw new Error("Missing Core websocket");
+    }
+    firstUpstream.close();
 
     await expect(clientClosed).resolves.toEqual({
       code: 1011,
       reason: "upstream_closed",
     });
+    const reconnected = await app.fetch(
+      new Request("http://local/v1/spaces/demo/stream", {
+        headers: { Upgrade: "websocket" },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(reconnected.status).toBe(101);
+    const replacementClient = reconnected.webSocket;
+    const replacementUpstream = upstreamSockets[1];
+    if (!(replacementClient && replacementUpstream)) {
+      throw new Error("Missing reconnected websocket pair");
+    }
+    replacementClient.accept();
+    const result = { type: "signal.text", data: { text: "Task completed" } };
+    const resultSeen = waitForJsonMessage(
+      replacementClient,
+      (data) => data.type === result.type
+    );
+    replacementUpstream.send(JSON.stringify(result));
+    await expect(resultSeen).resolves.toMatchObject(result);
+    expect(upstreamFetch).toHaveBeenCalledTimes(2);
+    replacementClient.close(1000, "done");
+    replacementUpstream.close(1000, "done");
   });
 
   it("rejects the upgrade when Core does not answer within the connect timeout", async () => {
