@@ -14,10 +14,6 @@ vi.mock("../src/dispatch/application/accepted-dispatch-snapshot", () => ({
 }));
 
 const roots = vi.hoisted(() => ({ ownerProfileId: "felix-human" }));
-vi.mock("@openmeld/db/postgresql", async (original) => ({
-  ...(await original<typeof import("@openmeld/db/postgresql")>()),
-  getPostgresDatabase: () => ({}),
-}));
 vi.mock("../src/remote-agent/application/turn-envelope", () => ({
   readActiveRepresentedHumanSender: async (input: { profileId: string }) =>
     input.profileId === roots.ownerProfileId
@@ -96,14 +92,39 @@ describe("Finalizing a Wake after the gate changed (§4.3)", () => {
     }) as unknown as OpenMeldDaemonDispatchQueueMessage;
   const finalize = (
     message: OpenMeldDaemonDispatchQueueMessage,
-    agentControllerRef = "builtin:opencode"
+    agentControllerRef = "builtin:opencode",
+    env = { OPENMELD_POSTGRESQL: {} } as never
   ) =>
     keepsColleagueConversationOffBinding({
       agentControllerRef,
-      env: {} as never,
+      env,
       message,
       targetOwnerUserId: "felix",
     });
+
+  it("keeps the conversation off the Binding when the database binding is absent", async () => {
+    feature.enforced = false;
+    try {
+      await expect(
+        finalize(chained("felix-human"), undefined, {} as never)
+      ).resolves.toBe(true);
+    } finally {
+      feature.enforced = true;
+    }
+  });
+
+  it("keeps the conversation off the Binding when the organization is absent", async () => {
+    feature.enforced = false;
+    try {
+      await expect(
+        finalize({
+          requestChain: [{ kind: "human", profileId: "felix-human" }],
+        } as unknown as OpenMeldDaemonDispatchQueueMessage)
+      ).resolves.toBe(true);
+    } finally {
+      feature.enforced = true;
+    }
+  });
 
   it("keeps a colleague-rooted conversation off the Binding", async () => {
     feature.enforced = false;

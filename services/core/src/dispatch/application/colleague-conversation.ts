@@ -71,10 +71,10 @@ export async function keepsColleagueConversationOffBinding(input: {
   ) {
     return false;
   }
-  const db = getPostgresDatabase(input.env);
-  if (!(db && input.message.organizationId)) {
+  if (!(input.env.OPENMELD_POSTGRESQL && input.message.organizationId)) {
     return true;
   }
+  const db = getPostgresDatabase(input.env);
   return !(await readActiveRepresentedHumanSender({
     db,
     organizationId: input.message.organizationId,
